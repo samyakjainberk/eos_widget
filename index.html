@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Progressive Sharpening &amp; Edge of Stability — interactive playground</title>
+<script src="https://cdn.plot.ly/plotly-2.30.0.min.js" charset="utf-8"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]});"></script>
+<style>
+  :root{--bg:#ffffff;--ink:#1c1e21;--muted:#6b7280;--line:#e6e8ec;--accent:#2563eb;
+        --accent-d:#1d4ed8;--panel:#f7f8fa;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+        --sans:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+        --serif:Georgia,"Times New Roman",Cambria,serif;}
+  *{box-sizing:border-box}
+  body{font-family:var(--serif);color:var(--ink);background:#fafbfc;margin:0;line-height:1.6}
+  .wrap{max-width:1620px;margin:0 auto;padding:40px 28px 80px}
+  h1{font-family:var(--sans);font-weight:700;font-size:33px;text-align:center;letter-spacing:-.7px;margin:4px 0 6px;
+     background:linear-gradient(90deg,#1e3a8a,#2563eb);-webkit-background-clip:text;background-clip:text;color:#1e3a8a;-webkit-text-fill-color:transparent}
+  .subtitle{font-family:var(--sans);text-align:center;color:var(--muted);font-size:15px;margin:0 0 26px}
+  .intro{font-size:16px;max-width:920px;margin:0 auto;color:#2b2f36}
+  .intro p{margin:11px 0}
+  .intro .eq{text-align:center;margin:18px 0}
+  .katex-display{margin:0!important;padding:6px 0;overflow-x:auto;overflow-y:hidden}
+  hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+  h2{font-family:var(--sans);font-size:18px;font-weight:650;margin:34px 0 8px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+  .cap{font-family:var(--sans);color:var(--muted);font-size:13px;margin:0 0 10px}
+  .presetbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:6px 0 16px;
+             background:#eef3ff;border:1px solid #d6e0ff;border-radius:10px;padding:12px 16px}
+  .presetbar label{font-family:var(--sans);font-weight:700;font-size:13px;color:#1e3a8a}
+  .presetbar select{font-family:var(--sans);font-size:14px;padding:6px 10px;border:1px solid #c7d2fe;
+                    border-radius:7px;background:#fff;min-width:300px}
+  .presetbar .hint{font-family:var(--sans);font-size:12.5px;color:#475569}
+  .controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+  .panel{background:#fff;border:1px solid var(--line);border-radius:12px;padding:15px 17px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .panel-title{font-family:var(--sans);text-transform:uppercase;letter-spacing:.09em;font-size:11px;
+               color:var(--muted);font-weight:700;margin-bottom:12px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:11px 16px}
+  .ctl{display:flex;flex-direction:column;font-family:var(--sans);font-size:12px}
+  .ctl label{margin-bottom:4px;color:#374151;font-weight:600}
+  .ctl input,.ctl select{padding:6px 8px;font-size:13px;border:1px solid #d1d5db;border-radius:7px;
+                          background:#fff;font-family:var(--sans);width:100%}
+  .ctl input:focus,.ctl select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px #2563eb22}
+  .runbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px}
+  button{font-family:var(--sans);font-size:14px;font-weight:600;padding:9px 20px;border-radius:8px;cursor:pointer}
+  .btn-run{background:var(--accent);color:#fff;border:1px solid var(--accent)}
+  .btn-run:hover{background:var(--accent-d)} .btn-run:disabled{opacity:.45;cursor:default}
+  .btn-reset{background:#fff;color:#374151;border:1px solid #d1d5db}
+  .btn-reset:hover{background:#f3f4f6}
+  .btn-stop{background:#fff;color:#b45309;border:1px solid #f59e0b}
+  .btn-stop:hover{background:#fffbeb} .btn-stop:disabled{opacity:.45;cursor:default}
+  .btn-resume{background:#fff;color:#15803d;border:1px solid #22c55e}
+  .btn-resume:hover{background:#f0fdf4} .btn-resume:disabled{opacity:.45;cursor:default}
+  .steps{font-family:var(--mono);font-size:12px;color:#1f2937;background:#eef1f6;padding:5px 9px;border-radius:7px}
+  #status{font-family:var(--sans);color:var(--muted);font-size:13px;margin-top:8px;min-height:18px}
+  .toggles{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-family:var(--sans);font-size:13px;
+           margin:18px 0 6px;padding:11px 15px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .toggles .tt{font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.07em;font-size:11px;margin-right:4px}
+  .toggles label{display:flex;align-items:center;gap:6px;color:#374151;cursor:pointer}
+  .toggles input{width:auto;accent-color:var(--accent)}
+  .plotrow{display:grid;gap:16px;margin-top:6px}
+  .row4{grid-template-columns:repeat(4,1fr)} .row2{grid-template-columns:repeat(2,1fr)}
+  .plot{width:100%;height:320px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 3px rgba(16,24,40,.05)}
+  @media(max-width:1320px){.row4{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:1000px){.row4,.row2{grid-template-columns:1fr}}
+  code{font-family:var(--mono);background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:.9em}
+  .footnote{font-family:var(--sans);font-size:12.5px;color:var(--muted);margin-top:8px}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Progressive Sharpening &amp; Edge of Stability</h1>
+<p class="subtitle">An in-browser experiment — full-batch gradient descent on a small network <span style="color:#16a34a;font-weight:600">· build: theory-v4 (§9 GPU fix)</span></p>
+
+<div class="intro">
+  <p>A network $f(x)\in\mathbb{R}^{d_{\text{out}}}$ is trained full-batch with gradient descent at learning rate $\eta$.
+  <b>Sharpness</b> is the top eigenvalue of the loss Hessian. In <i>progressive sharpening</i> it climbs during training;
+  at the <i>edge of stability</i> it pins at $2/\eta$ (dashed) and the loss oscillates with period&nbsp;2.</p>
+  <p>For MSE loss the loss Hessian splits into a Gauss–Newton term $G$ and a residual term $S$:</p>
+  <p class="eq">$$\nabla^2_\theta\mathcal{L}\;=\;\underbrace{\tfrac1N\textstyle\sum_i\nabla f_i\,\nabla f_i^{\top}}_{\text{Gauss–Newton }G}\;+\;\underbrace{\tfrac1N\textstyle\sum_i (f_i-y_i)\,\nabla^2 f_i}_{\text{residual term }S}.$$</p>
+  <p>We track $J=\nabla_\theta\sum_i f(x_i)$ projected onto eigenvectors of the <b>function Hessian</b>
+  $H=\nabla^2_\theta\sum_i f(x_i)$, the live eigen-spectra (via SLQ), and how the dominant eigenspaces of $H$
+  rotate step-to-step (principal angles). Hover any plot for a shared cursor.</p>
+</div>
+
+<hr>
+
+<div class="presetbar">
+  <label for="preset">Preset</label>
+  <select id="preset">
+    <option value="linear" selected>Wide deep-linear net — single sample (fixed input)</option>
+    <option value="msample">Multi-sample tanh MLP — NTK / function-Hessian analysis</option>
+    <option value="gpu_run">GPU run — large multi-sample net, 100 samples (server.py backend)</option>
+    <option value="custom">— custom (manual) —</option>
+  </select>
+  <span class="hint">picking a preset auto-runs it · edit any control and press <b>Run</b> · hover any plot for a shared cursor</span>
+</div>
+
+<div class="controls">
+  <div class="panel">
+    <div class="panel-title">Model</div>
+    <div class="grid">
+      <div class="ctl"><label>depth (hidden layers)</label><input id="depth" type="number" value="4" min="1" max="12" step="1"></div>
+      <div class="ctl"><label>width</label><input id="width" type="number" value="100" min="1" max="256" step="1"></div>
+      <div class="ctl"><label>activation</label><select id="act"><option value="linear" selected>linear</option><option value="tanh">tanh</option><option value="elu">elu</option></select></div>
+      <div class="ctl"><label>bias</label><select id="bias"><option value="1">on</option><option value="0" selected>off</option></select></div>
+      <div class="ctl"><label>data sampling</label><select id="fixedx"><option value="1" selected>fixed sample (x=1)</option><option value="0">iid Gaussian</option></select></div>
+      <div class="ctl"><label>input std (iid)</label><input id="inputstd" type="number" value="1.0" min="0" step="0.1"></div>
+      <div class="ctl"><label>init residual sign</label><select id="ssign"><option value="off" selected>off</option><option value="pos">all positive</option><option value="neg">all negative</option></select></div>
+      <div class="ctl"><label>in_dim</label><input id="indim" type="number" value="10" min="1" max="40" step="1"></div>
+      <div class="ctl"><label>out_dim</label><input id="outdim" type="number" value="1" min="1" max="10" step="1"></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">Data &amp; training</div>
+    <div class="grid">
+      <div class="ctl"><label>number_of_samples</label><input id="nsamp" type="number" value="1" min="1" max="120" step="1"></div>
+      <div class="ctl"><label>target_scale</label><input id="tgt" type="number" value="1.0" step="0.5"></div>
+      <div class="ctl"><label>learning rate</label><input id="lr" type="number" value="0.3" step="0.001"></div>
+      <div class="ctl"><label>init_scale</label><input id="init" type="number" value="0.1" step="0.05"></div>
+      <div class="ctl"><label>steps</label><input id="steps" type="number" value="400" min="20" max="3000" step="20"></div>
+      <div class="ctl"><label>seed</label><input id="seed" type="number" value="0" step="1"></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">Analysis &amp; simulation</div>
+    <div class="grid">
+      <div class="ctl"><label>n (top/bottom eigs)</label><input id="neig" type="number" value="3" min="1" max="8" step="1"></div>
+      <div class="ctl"><label>k (which single eigvec)</label><input id="kth" type="number" value="1" min="1" max="8" step="1"></div>
+      <div class="ctl"><label>eig every (steps)</label><input id="eigevery" type="number" value="1" min="1" max="20" step="1"></div>
+      <div class="ctl"><label>SLQ probes</label><input id="slqprobes" type="number" value="4" min="1" max="12" step="1"></div>
+      <div class="ctl"><label>subspace energy %</label><input id="energyp" type="number" value="99" min="50" max="100" step="1"></div>
+      <div class="ctl"><label>G &amp; S spectra</label><select id="gson"><option value="1" selected>on</option><option value="0">off</option></select></div>
+      <div class="ctl"><label>every_iter_quadric_approx</label><input id="qapprox" type="number" value="25" min="10" max="2000" step="10"></div>
+      <div class="ctl"><label>Eq-27 residual mode i</label><input id="qmode" type="number" value="1" min="1" max="8" step="1"></div>
+      <div class="ctl"><label>Eq-29 set-T size |T|</label><input id="tset" type="number" value="3" min="1" max="8" step="1"></div>
+    </div>
+    <div class="runbar">
+      <label style="font-size:13px;color:#374151;margin-right:6px">compute
+        <select id="compute" title="Browser = compute in this tab (CPU, JS). GPU backend = compute on the machine's GPU via server.py.">
+          <option value="browser" selected>browser (this tab)</option>
+          <option value="gpu">GPU backend (server.py)</option>
+        </select>
+      </label>
+      <button id="run" class="btn-run">Run</button>
+      <button id="stop" class="btn-stop" disabled>Stop</button>
+      <button id="resume" class="btn-resume" disabled>Resume</button>
+      <button id="reset" class="btn-reset">Reset</button>
+      <button id="dlzip" class="btn-reset" title="Download every visible plot as a PNG (plus the run config) in one zip">⬇ plots (zip)</button>
+      <span class="steps" id="sps">steps/sec: —</span>
+    </div>
+    <div id="status"></div>
+  </div>
+</div>
+
+<div class="toggles">
+  <span class="tt">Panels</span>
+  <label><input type="checkbox" id="en1" checked> 1 · loss / sharpness / residual</label>
+  <label><input type="checkbox" id="en2" checked> 2 · eig top-n</label>
+  <label><input type="checkbox" id="en3" checked> 3 · eig bottom-n</label>
+  <label><input type="checkbox" id="en4" checked> 4 · J projections</label>
+  <label><input type="checkbox" id="en5"> 5 · SLQ spectra</label>
+  <label><input type="checkbox" id="en6" checked> 6 · eigenspace rotation</label>
+  <label><input type="checkbox" id="en7" checked> 7 · multi-sample NTK/FH</label>
+  <label><input type="checkbox" id="en8"> 8 · J · (p×p·dₙ FH) right-sing</label>
+  <label><input type="checkbox" id="en9" checked> 4b · J·r onto Q[u₁]</label>
+  <label><input type="checkbox" id="en10" checked> 4c · Q[u₁]·(J·r) onto GN</label>
+  <label><input type="checkbox" id="en11" checked> 4d · group J / J·r (±residual)</label>
+  <label><input type="checkbox" id="en12"> 9 · theory vs empirical (Δσ₁)</label>
+  <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
+</div>
+
+<hr>
+
+<div id="sec_1">
+<h2>1 · Loss, sharpness, residual, and the spectral edges of $H$</h2>
+<p class="cap">Sharpness vs the EoS threshold $2/\eta$ (dashed). Residual is the signed $y-f(x)$ per output component. Last panel: the largest and smallest eigenvalue of the function Hessian $H$.</p>
+<div class="plotrow row4"><div id="p_loss" class="plot"></div><div id="p_sharp" class="plot"></div><div id="p_resid" class="plot"></div><div id="p_eHfX" class="plot"></div></div>
+</div>
+
+<div id="sec_2">
+<h2>2 · Eigenvalue evolution — top-$n$</h2>
+<p class="cap">The $n$ largest eigenvalues over training of the function Hessian $H$, the loss Hessian ($=G+S$; its top eigenvalue is the sharpness), Gauss–Newton $G$, and the residual term $S$.</p>
+<div class="plotrow row4"><div id="p_eHfT" class="plot"></div><div id="p_eHLT" class="plot"></div><div id="p_eGNT" class="plot"></div><div id="p_eSRT" class="plot"></div></div>
+</div>
+
+<div id="sec_3">
+<h2>3 · Eigenvalue evolution — bottom-$n$</h2>
+<p class="cap">The $n$ smallest (most negative) eigenvalues of the same four matrices. ($G$ is PSD, so its bottom eigenvalues sit near 0.)</p>
+<div class="plotrow row4"><div id="p_eHfB" class="plot"></div><div id="p_eHLB" class="plot"></div><div id="p_eGNB" class="plot"></div><div id="p_eSRB" class="plot"></div></div>
+</div>
+
+<div id="sec_4">
+<h2>4 · $J$ projected onto eigenvectors of $H$</h2>
+<p class="cap">$\langle J, w\rangle$ onto the top-$n$ (1st) and bottom-$n$ (2nd) eigenvectors of $H$; then the same with $J$ normalized by its Frobenius norm, $\langle J/\lVert J\rVert, w\rangle$, onto the top-$n$ (3rd) and bottom-$n$ (4th) — the cosine alignment.</p>
+<div class="plotrow row4"><div id="p_Jtop" class="plot"></div><div id="p_Jbot" class="plot"></div><div id="p_Jtopn" class="plot"></div><div id="p_Jbotn" class="plot"></div></div>
+</div>
+
+<div id="sec_9">
+<h2>4b · $J\!\cdot\!r$ projected onto eigenvectors of $Q[u_1]$ (NTK-weighted function Hessian)</h2>
+<p class="cap">Multi-sample only. $Q[u_1]=\sum_a (u_1)_a\,\nabla^2 f_a$ — the function Hessian weighted by the <b>top NTK eigenvector</b> $u_1$; $J\!\cdot\!r=\sum_a r_a\nabla f_a$ — the Jacobian contracted with the residual. We eigendecompose $Q[u_1]$ and project $J\!\cdot\!r$ onto its top-$n$ (1st) / bottom-$n$ (2nd) eigenvectors; panels 3–4 normalize by $\lVert J\!\cdot\!r\rVert$.</p>
+<div class="plotrow row4"><div id="p_q9t" class="plot"></div><div id="p_q9b" class="plot"></div><div id="p_q9tN" class="plot"></div><div id="p_q9bN" class="plot"></div></div>
+<p class="cap">Bottom row: first two — the top-$n$ / bottom-$n$ projections of $J\!\cdot\!r$ divided by $\lVert r\rVert$ (norm of the $d_n$-dim residual). Last two — alignment $\langle g_1, w_k\rangle$ between the top Gauss–Newton eigenvector $g_1=J u_1/\lVert J u_1\rVert$ (SVD-paired with $u_1$) and the top-$n$ / bottom-$n$ eigenvectors $w_k$ of $Q[u_1]$.</p>
+<div class="plotrow row4"><div id="p_q9tR" class="plot"></div><div id="p_q9bR" class="plot"></div><div id="p_q9gt" class="plot"></div><div id="p_q9gb" class="plot"></div></div>
+</div>
+
+<div id="sec_10">
+<h2>4c · $Q[u_1]\,(J\!\cdot\!r)$ projected onto Gauss–Newton singular vectors</h2>
+<p class="cap">Multi-sample only. No eigendecomposition of $Q[u_1]$ — instead apply it to $J\!\cdot\!r$ and project the resulting vector onto the top-$n$ singular vectors of the Gauss–Newton matrix $G$ (a scalar per direction; the 1st line is the largest GN singular vector). Left: raw; right: normalized by $\lVert Q[u_1](J\!\cdot\!r)\rVert$.</p>
+<div class="plotrow row4"><div id="p_q10" class="plot"></div><div id="p_q10N" class="plot"></div></div>
+</div>
+
+<div id="sec_11">
+<h2>4d · Per-group $J$ and $J\!\cdot\!r$ — samples split by initial residual sign</h2>
+<p class="cap">Multi-sample only. At the start of training the samples are split into two <b>fixed</b> groups by the sign of their summed initial residual $\sum_c (y_{i,c}-f_{i,c})$ (sum over outputs when $d_{\text{out}}>1$). $H$ and $Q[u_1]$ — and hence their eigenvectors — are computed over <b>all</b> samples and are shared between the groups; only $J=\sum_{a\in\text{grp}}\nabla f_a$ and $J\!\cdot\!r=\sum_{a\in\text{grp}}r_a\nabla f_a$ change per group. <b>Solid = positive</b>-residual group, <b>dotted = negative</b>. First two: group $J$ onto the top-$n$ / bottom-$n$ eigvecs of $H$ (cf. §4). Last two: group $J\!\cdot\!r$ onto the top-$n$ / bottom-$n$ eigvecs of $Q[u_1]$ (cf. §4b).</p>
+<div class="plotrow row4"><div id="p_d4Ht" class="plot"></div><div id="p_d4Hb" class="plot"></div><div id="p_d4Qt" class="plot"></div><div id="p_d4Qb" class="plot"></div></div>
+</div>
+
+<div id="sec_12">
+<h2>9 · Theoretical prediction vs empirical — sharpness $\sigma_1$ (quadratic approximation)</h2>
+<p class="cap">Every <b>every_iter_quadric_approx</b> steps the function Hessian $Q$ is <b>frozen</b> (quadratic approximation) and used to <b>predict</b> the top NTK eigenvalue $\sigma_1$ over that window; at each window start the prediction is reset to the measured $\sigma_1$. Each panel: <b>predicted</b> $\sigma_1$ (blue) vs <b>actual</b> $\sigma_1$ (red). Curvature terms use the frozen $Q$; $u_1,v_1$, residual and projections are re-measured each step. Col 1 — <b>single-sample</b> (Eq. 13: propagate $J_{t+1}=(I+\eta r_t Q)J_t$, $\sigma_1=\lVert J\rVert^2$). Cols 2–4 — <b>multi-sample</b>, all genuine forward predictions: only $Q$ and $J$ at θ₀ plus the <b>actual residuals</b> are used. <b>Eq. 21</b> iterates Eq. 15 $J_{t+1}=J_t+\tfrac{\eta}{N}Q[J^\top r]$ and reads $\sigma_1=\lambda_{\max}(JJ^\top)$ (and $u_1,v_1$) from the propagated $J$. <b>Eq. 27</b> is the analytic recursion for the residual aligned to a single NTK mode $i$ (control <i>Eq-27 residual mode i</i>); <b>Eq. 29</b> sums over the top-$|T|$ modes (control <i>set-T size</i>) — both evaluated on the propagated geometry.</p>
+<div class="plotrow row4"><div id="p_pred1" class="plot"></div><div id="p_pred2" class="plot"></div><div id="p_pred3" class="plot"></div><div id="p_pred4" class="plot"></div></div>
+</div>
+
+<div id="sec_5">
+<h2>5 · Eigen-spectrum (Stochastic Lanczos Quadrature)</h2>
+<p class="cap">Estimated spectral density at the current step (refreshed live) for the function Hessian $H$, Gauss–Newton $G$, residual term $S$, and the full loss Hessian. (x-axis is eigenvalue — not on the shared step-cursor.)</p>
+<div class="plotrow row4"><div id="p_sH" class="plot"></div><div id="p_sG" class="plot"></div><div id="p_sS" class="plot"></div><div id="p_sHL" class="plot"></div></div>
+</div>
+
+<div id="sec_6">
+<h2>6 · Eigenspace rotation of $H$ (principal angles &amp; subspace size)</h2>
+<p class="cap">Principal angles (deg) between the dominant eigenspace of $H$ at consecutive steps — for the subspaces capturing <b>energy %</b> of the positive / negative eigenvalue energy. Larger angle = faster rotation.</p>
+<div class="plotrow row4"><div id="p_paPos" class="plot"></div><div id="p_paNeg" class="plot"></div></div>
+</div>
+
+<div id="sec_7">
+<h2>7 · Multi-sample NTK &amp; function-Hessian SVD</h2>
+<p class="cap">Shown only for multiple samples ($d_n=N\cdot d_{\text{out}}>1$). NTK $K=J^{\top}J$; the function-Hessian tensor reshaped to $\mathbb{R}^{p^2\times d_n}$ and SVD'd (matrix-free). $M_1,M_2$ = reshape of the topmost / 2nd-topmost left singular vectors into $p\times p$. Row 1: residual onto top-$n$ NTK eigenvectors; top NTK eigenvector onto top-$n$ right singular vectors of the FH tensor; top-2 eigenvalues of $M_1,M_2$; bottom-2 eigenvalues of $M_1,M_2$. (Uses <b>SLQ probes</b> for the Hessian Frobenius products.)</p>
+<div class="plotrow row4"><div id="p_ntkR" class="plot"></div><div id="p_ntkH" class="plot"></div><div id="p_fhEvT" class="plot"></div><div id="p_fhEvB" class="plot"></div></div>
+<p class="cap">Top-$n$ left singular vectors of $J$ projected onto the eigenvectors of $M_1$ (reshape of the <b>topmost</b> left singular vector): top-1, top-2, bottom-1, bottom-2.</p>
+<div class="plotrow row4"><div id="p_jhe1" class="plot"></div><div id="p_jhe2" class="plot"></div><div id="p_jhe1b" class="plot"></div><div id="p_jhe2b" class="plot"></div></div>
+<p class="cap">Same projections onto the eigenvectors of $M_2$ (reshape of the <b>2nd-topmost</b> left singular vector): top-1, top-2, bottom-1, bottom-2.</p>
+<div class="plotrow row4"><div id="p_jh2e1" class="plot"></div><div id="p_jh2e2" class="plot"></div><div id="p_jh2e1b" class="plot"></div><div id="p_jh2e2b" class="plot"></div></div>
+</div>
+
+<div id="sec_8">
+<h2>8 · Jacobian onto right singular vectors of the $p\times(p\,d_n)$ function-Hessian reshape</h2>
+<p class="cap">Multi-sample only. The function-Hessian tensor reshaped as $\mathbb{R}^{p\times(p\,d_n)}$, $\;[\nabla^2 f_1\,|\,\cdots\,|\,\nabla^2 f_{d_n}]$; its right singular vectors ($p\,d_n$-dim) inner-producted with the flattened Jacobian $\mathrm{vec}(J)$. Left: true $J$. Right: $J$ normalized by its Frobenius norm $\lVert J\rVert_F$. (Heaviest panel — toggle off / raise <code>eig every</code> for large $d_n$.)</p>
+<div class="plotrow row4"><div id="p_g2J" class="plot"></div><div id="p_g2Jn" class="plot"></div></div>
+</div>
+
+<p class="footnote">All eigenvalues/eigenvectors/densities are matrix-free via <b>Lanczos</b> (Hessian–vector products only) — no $p\times p$ matrix is formed (cap $p\le 100{,}000$).
+Use the <b>Panels</b> toggles (and <b>G &amp; S spectra</b>) to switch off the costly analyses, and raise <code>eig every</code>, for large nets.
+SLQ refreshes at most ~50× per run. The 99%-energy subspaces use the top/bottom Ritz pairs (energy normalized by the captured part); $n$, $k$ clamped to $\lfloor p/2\rfloor$.</p>
+
+<script>
+// ================= numeric core (validated against a PyTorch port) =================
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function gauss(rng){let u=0,v=0;while(u===0)u=rng();while(v===0)v=rng();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
+function dot(a,b){let s=0;for(let i=0;i<a.length;i++)s+=a[i]*b[i];return s;}
+function norm(a){return Math.sqrt(dot(a,a));}
+function actf(name,z){if(name==='tanh')return Math.tanh(z);if(name==='elu')return z>0?z:Math.expm1(z);return z;}
+function actd(name,z){if(name==='tanh'){const t=Math.tanh(z);return 1-t*t;}if(name==='elu')return z>0?1:Math.exp(z);return 1;}
+
+function buildSpec(inDim,width,depth,act,useBias,outDim){
+  const spec=[]; let off=0; let din=inDim;
+  for(let l=0;l<depth;l++){const dout=width;const wOff=off;off+=din*dout;const bOff=useBias?off:-1;if(useBias)off+=dout;spec.push({din,dout,act,wOff,bOff});din=dout;}
+  const wOff=off;off+=din*outDim;const bOff=useBias?off:-1;if(useBias)off+=outDim;spec.push({din,dout:outDim,act:'linear',wOff,bOff});
+  return {spec,p:off};
+}
+function initTheta(spec,p,initScale,seed){
+  const rng=mulberry32(seed>>>0);const th=new Float64Array(p);
+  for(const L of spec){const sc=initScale/Math.sqrt(L.din);
+    for(let i=0;i<L.din*L.dout;i++)th[L.wOff+i]=gauss(rng)*sc;
+    if(L.bOff>=0)for(let o=0;o<L.dout;o++)th[L.bOff+o]=0;}
+  return th;
+}
+function forward(th,spec,X,N,inDim){
+  let a=X;const caches=[];
+  for(const L of spec){
+    const z=new Float64Array(N*L.dout), aout=new Float64Array(N*L.dout);
+    for(let n=0;n<N;n++)for(let o=0;o<L.dout;o++){
+      let s=L.bOff>=0?th[L.bOff+o]:0;
+      for(let i=0;i<L.din;i++)s+=a[n*L.din+i]*th[L.wOff+i*L.dout+o];
+      z[n*L.dout+o]=s; aout[n*L.dout+o]=actf(L.act,s);
+    }
+    caches.push({ain:a,adin:L.din,z}); a=aout;
+  }
+  return {out:a, caches};
+}
+function backward(th,spec,caches,dOutArr,N,p){
+  const grad=new Float64Array(p);
+  let dA=Float64Array.from(dOutArr);
+  for(let l=spec.length-1;l>=0;l--){
+    const L=spec[l],c=caches[l];const dZ=new Float64Array(N*L.dout);
+    for(let n=0;n<N;n++)for(let o=0;o<L.dout;o++)dZ[n*L.dout+o]=dA[n*L.dout+o]*actd(L.act,c.z[n*L.dout+o]);
+    for(let i=0;i<L.din;i++)for(let o=0;o<L.dout;o++){let s=0;for(let n=0;n<N;n++)s+=c.ain[n*L.din+i]*dZ[n*L.dout+o];grad[L.wOff+i*L.dout+o]=s;}
+    if(L.bOff>=0)for(let o=0;o<L.dout;o++){let s=0;for(let n=0;n<N;n++)s+=dZ[n*L.dout+o];grad[L.bOff+o]=s;}
+    const dAin=new Float64Array(N*L.din);
+    for(let n=0;n<N;n++)for(let i=0;i<L.din;i++){let s=0;for(let o=0;o<L.dout;o++)s+=dZ[n*L.dout+o]*th[L.wOff+i*L.dout+o];dAin[n*L.din+i]=s;}
+    dA=dAin;
+  }
+  return grad;
+}
+function gradF(th,spec,X,N,inDim,p){const f=forward(th,spec,X,N,inDim);const M=f.out.length;const dO=new Float64Array(M).fill(1);return {grad:backward(th,spec,f.caches,dO,N,p),out:f.out};}
+function gradL(th,spec,X,Y,N,inDim,p){const f=forward(th,spec,X,N,inDim);const M=f.out.length;const dO=new Float64Array(M);for(let i=0;i<M;i++)dO[i]=(f.out[i]-Y[i])/N;return {grad:backward(th,spec,f.caches,dO,N,p),out:f.out};}
+function gradWeighted(th,spec,X,N,inDim,p,c){const f=forward(th,spec,X,N,inDim);return {grad:backward(th,spec,f.caches,c,N,p),out:f.out};}
+function lossOf(out,Y,N){let s=0;for(let i=0;i<out.length;i++)s+=(out[i]-Y[i])**2;return 0.5*s/N;}
+
+// θ ± εv for HVPs. Reuses one scratch buffer (the result is consumed by a full grad pass before the
+// next thAdd overwrites it), avoiding a fresh p-vector allocation per HVP — big GC reduction.
+let _thScratch=null;
+function thAdd(th,v,eps){const n=th.length;if(!_thScratch||_thScratch.length!==n)_thScratch=new Float64Array(n);const o=_thScratch;for(let i=0;i<n;i++)o[i]=th[i]+eps*v[i];return o;}
+function hvpF(th,spec,X,N,inDim,p,v,eps){const gp=gradF(thAdd(th,v,eps),spec,X,N,inDim,p).grad;const gm=gradF(thAdd(th,v,-eps),spec,X,N,inDim,p).grad;const o=new Float64Array(p);for(let i=0;i<p;i++)o[i]=(gp[i]-gm[i])/(2*eps);return o;}
+function hvpL(th,spec,X,Y,N,inDim,p,v,eps){const gp=gradL(thAdd(th,v,eps),spec,X,Y,N,inDim,p).grad;const gm=gradL(thAdd(th,v,-eps),spec,X,Y,N,inDim,p).grad;const o=new Float64Array(p);for(let i=0;i<p;i++)o[i]=(gp[i]-gm[i])/(2*eps);return o;}
+function hvpS(th,spec,X,N,inDim,p,v,eps,c){const gp=gradWeighted(thAdd(th,v,eps),spec,X,N,inDim,p,c).grad;const gm=gradWeighted(thAdd(th,v,-eps),spec,X,N,inDim,p,c).grad;const o=new Float64Array(p);for(let i=0;i<p;i++)o[i]=(gp[i]-gm[i])/(2*eps);return o;}
+function hvpG(th,spec,X,N,inDim,p,v,eps){
+  const fp=forward(thAdd(th,v,eps),spec,X,N,inDim).out;
+  const fm=forward(thAdd(th,v,-eps),spec,X,N,inDim).out;
+  const f0=forward(th,spec,X,N,inDim);const M=f0.out.length;
+  const dO=new Float64Array(M);for(let i=0;i<M;i++)dO[i]=(fp[i]-fm[i])/(2*eps)/N;
+  return backward(th,spec,f0.caches,dO,N,p);
+}
+
+function jacobiEig(Ain,n){
+  const A=Float64Array.from(Ain);const V=new Float64Array(n*n);for(let i=0;i<n;i++)V[i*n+i]=1;
+  for(let sweep=0;sweep<60;sweep++){
+    let off=0;for(let p=0;p<n;p++)for(let q=p+1;q<n;q++)off+=A[p*n+q]*A[p*n+q];
+    if(off<1e-22)break;
+    for(let p=0;p<n;p++)for(let q=p+1;q<n;q++){
+      const apq=A[p*n+q];if(Math.abs(apq)<1e-18)continue;
+      const app=A[p*n+p],aqq=A[q*n+q];const phi=0.5*Math.atan2(2*apq,aqq-app);
+      const c=Math.cos(phi),s=Math.sin(phi);
+      for(let k=0;k<n;k++){const akp=A[k*n+p],akq=A[k*n+q];A[k*n+p]=c*akp-s*akq;A[k*n+q]=s*akp+c*akq;}
+      for(let k=0;k<n;k++){const apk=A[p*n+k],aqk=A[q*n+k];A[p*n+k]=c*apk-s*aqk;A[q*n+k]=s*apk+c*aqk;}
+      for(let k=0;k<n;k++){const vkp=V[k*n+p],vkq=V[k*n+q];V[k*n+p]=c*vkp-s*vkq;V[k*n+q]=s*vkp+c*vkq;}
+    }
+  }
+  const vals=new Float64Array(n);for(let i=0;i<n;i++)vals[i]=A[i*n+i];
+  return {vals,V};
+}
+function lanczosCore(hvpFn,p,m,q0){
+  let q=Float64Array.from(q0);let nq=norm(q);for(let i=0;i<p;i++)q[i]/=nq;
+  const Q=[]; const al=[], be=[]; let qprev=new Float64Array(p); let beta=0;
+  for(let j=0;j<m;j++){
+    Q.push(q);
+    const w=hvpFn(q);
+    const a=dot(w,q); al.push(a);
+    for(let i=0;i<p;i++)w[i]-=a*q[i]+beta*qprev[i];
+    for(let pass=0;pass<2;pass++)for(const qk of Q){const c=dot(w,qk);for(let i=0;i<p;i++)w[i]-=c*qk[i];}
+    beta=norm(w); be.push(beta);
+    if(beta<1e-10)break;
+    qprev=q; const qn=new Float64Array(p);for(let i=0;i<p;i++)qn[i]=w[i]/beta; q=qn;
+  }
+  const k=Q.length;const T=new Float64Array(k*k);
+  for(let i=0;i<k;i++)T[i*k+i]=al[i];
+  for(let i=0;i<k-1;i++){T[i*k+(i+1)]=be[i];T[(i+1)*k+i]=be[i];}
+  return {Q,k,T};
+}
+function randVec(p,seed){const rng=mulberry32(seed>>>0);const v=new Float64Array(p);for(let i=0;i<p;i++)v[i]=gauss(rng);return v;}
+function lanczosT(hvpFn,p,m,seed){
+  const {Q,k,T}=lanczosCore(hvpFn,p,m,randVec(p,seed));
+  const {vals,V}=jacobiEig(T,k);
+  const idx=Array.from({length:k},(_,i)=>i).sort((a,b)=>vals[b]-vals[a]);
+  return {Q,k,vals,V,idx};
+}
+function lanczosExtreme(hvpFn,p,n,m,seed){
+  const {Q,k,vals,V,idx}=lanczosT(hvpFn,p,m,seed);
+  const ritz=ti=>{const out=new Float64Array(p);for(let j=0;j<k;j++){const c=V[j*k+ti],qj=Q[j];for(let i=0;i<p;i++)out[i]+=c*qj[i];}return out;};
+  const topVecs=[],botVecs=[],topVals=[],botVals=[];
+  for(let i=0;i<n;i++){const ti=idx[Math.min(i,k-1)];topVecs.push(ritz(ti));topVals.push(vals[ti]);}
+  for(let i=0;i<n;i++){const bi=idx[Math.max(0,k-1-i)];botVecs.push(ritz(bi));botVals.push(vals[bi]);}
+  return {topVecs,botVecs,topVals,botVals};
+}
+function lanczosExtremeVals(hvpFn,p,n,m,seed){
+  const {vals,idx,k}=lanczosT(hvpFn,p,m,seed);
+  const top=[],bot=[];
+  for(let i=0;i<n;i++){top.push(vals[idx[Math.min(i,k-1)]]);bot.push(vals[idx[Math.max(0,k-1-i)]]);}
+  return {top,bot};
+}
+function signTo(cur,prev){if(!prev)return cur;return dot(cur,prev)<0?cur.map(x=>-x):cur;}
+// deterministic absolute sign for an eigenvector: make its largest-magnitude component positive (reproducible)
+function pinSign(v){let mi=0;for(let i=1;i<v.length;i++)if(Math.abs(v[i])>Math.abs(v[mi]))mi=i;if(v[mi]<0)for(let i=0;i<v.length;i++)v[i]=-v[i];return v;}
+// ---- §7 helpers: NTK / function-Hessian-tensor SVD (multi-sample) ----
+function colOf(V,n,j){const c=new Float64Array(n);for(let i=0;i<n;i++)c[i]=V[i*n+j];return c;}
+function symEigDesc(A,n){const {vals,V}=jacobiEig(A,n);const idx=Array.from({length:n},(_,i)=>i).sort((a,b)=>vals[b]-vals[a]);return {vals:idx.map(i=>vals[i]),vecs:idx.map(i=>colOf(V,n,i))};}
+// per-output gradients = columns of the Jacobian (p-vec each); 1 forward + dn backward passes
+function jacCols(th,spec,X,N,inDim,p){const f=forward(th,spec,X,N,inDim);const M=f.out.length;const cols=[];for(let a=0;a<M;a++){const dO=new Float64Array(M);dO[a]=1;cols.push(backward(th,spec,f.caches,dO,N,p));}return {cols,out:f.out};}
+// per-output Hessian–vector products {∇²f_a·z}_a via central difference of jacCols
+function jacHVP(th,spec,X,N,inDim,p,z,eps){const cp=jacCols(thAdd(th,z,eps),spec,X,N,inDim,p).cols,cm=jacCols(thAdd(th,z,-eps),spec,X,N,inDim,p).cols;const M=cp.length,out=[];for(let a=0;a<M;a++){const o=new Float64Array(p);for(let i=0;i<p;i++)o[i]=(cp[a][i]-cm[a][i])/(2*eps);out.push(o);}return out;}
+// single-output gradient ∇f_a (one forward + one one-hot backward)
+function gradOut(th,spec,X,N,inDim,p,a){const f=forward(th,spec,X,N,inDim);const M=f.out.length;const dO=new Float64Array(M);dO[a]=1;return backward(th,spec,f.caches,dO,N,p);}
+// G2 = Σ_a (∇²f_a)²  HVP  (= Hwide Hwideᵀ·v for the p×(p·dn) reshape Hwide=[∇²f_1|…|∇²f_dn])
+function hvpG2(th,spec,X,N,inDim,p,v,eps){const u=jacHVP(th,spec,X,N,inDim,p,v,eps);const dn=u.length,out=new Float64Array(p);for(let a=0;a<dn;a++){const ua=u[a],gp=gradOut(thAdd(th,ua,eps),spec,X,N,inDim,p,a),gm=gradOut(thAdd(th,ua,-eps),spec,X,N,inDim,p,a);for(let i=0;i<p;i++)out[i]+=(gp[i]-gm[i])/(2*eps);}return out;}
+// §9 frozen function-Hessian-tensor SVD at θ (for the Eq-27/29 predictions): right singular vecs y_i (R^M),
+// singular values γ_i, and per-i eigvecs/eigvals z_ij/τ_ij of the reshaped left singular vec M_i=Σ_a (y_i)_a∇²f_a.
+function computeFHfrozen(th,spec,X,N,inDim,p,eps,nProbe,n7,nM,mV,M){
+  const dn=M, jc=jacCols(th,spec,X,N,inDim,p).cols;
+  const GH=new Float64Array(dn*dn);
+  for(let pr=0;pr<nProbe;pr++){const z=randVec(p,(0xC0FFEE+pr*2654435761)>>>0);const Hz=jacHVP(th,spec,X,N,inDim,p,z,eps);
+    for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(Hz[a],Hz[b]);GH[a*dn+b]+=v;GH[b*dn+a]+=v;}}
+  for(let i=0;i<dn*dn;i++)GH[i]/=nProbe;
+  const eh=symEigDesc(GH,dn), nn=Math.min(n7,dn), gamma=[],yv=[],zz=[],tt=[];
+  for(let i=0;i<nn;i++){gamma.push(Math.sqrt(Math.max(eh.vals[i],1e-30)));yv.push(eh.vecs[i]);
+    const fe=lanczosExtreme(v=>hvpS(th,spec,X,N,inDim,p,v,eps,eh.vecs[i]),p,nM,mV,(0x9E37+i*0x1000)>>>0);
+    const zs=[],ts=[];for(let j=0;j<nM;j++){zs.push(fe.topVecs[j]);ts.push(fe.topVals[j]);}for(let j=0;j<nM;j++){zs.push(fe.botVecs[j]);ts.push(fe.botVals[j]);}
+    zz.push(zs);tt.push(ts);}
+  return {gamma,yv,zz,tt};
+}
+
+function slqDensity(hvpFn,p,nProbe,m,nGrid,seed){
+  const TH=[],W=[];
+  for(let pr=0;pr<nProbe;pr++){
+    const {Q,k,T}=lanczosCore(hvpFn,p,Math.min(p,m),randVec(p,(seed+pr*1315423)>>>0));
+    const {vals,V}=jacobiEig(T,k);
+    for(let i=0;i<k;i++){TH.push(vals[i]);const w0=V[0*k+i];W.push(w0*w0/nProbe);}
+  }
+  let lo=Math.min(...TH),hi=Math.max(...TH);if(!(hi>lo)){hi=lo+1;lo-=1;}
+  const pad=0.05*(hi-lo)+1e-9;lo-=pad;hi+=pad;
+  const sigma=Math.max((hi-lo)/60,1e-9),inv=1/(sigma*Math.sqrt(2*Math.PI));
+  const x=new Array(nGrid),y=new Array(nGrid);
+  for(let g=0;g<nGrid;g++){const lam=lo+(hi-lo)*g/(nGrid-1);let s=0;
+    for(let i=0;i<TH.length;i++){const d=(lam-TH[i])/sigma;s+=W[i]*Math.exp(-0.5*d*d)*inv;}
+    x[g]=lam;y[g]=s;}
+  return {x,y};
+}
+function posSubspace(vals,vecs,frac){
+  const idx=[];for(let i=0;i<vals.length;i++)if(vals[i]>0)idx.push(i);
+  let E=0;for(const i of idx)E+=vals[i];if(E<=0)return [];
+  let c=0;const sub=[];for(const i of idx){c+=vals[i];sub.push(vecs[i]);if(c>=frac*E)break;}return sub;
+}
+function negSubspace(vals,vecs,frac){
+  const idx=[];for(let i=0;i<vals.length;i++)if(vals[i]<0)idx.push(i);
+  let E=0;for(const i of idx)E+=Math.abs(vals[i]);if(E<=0)return [];
+  let c=0;const sub=[];for(const i of idx){c+=Math.abs(vals[i]);sub.push(vecs[i]);if(c>=frac*E)break;}return sub;
+}
+function principalAngles(A,B){
+  const d1=A.length,d2=B.length;if(d1===0||d2===0)return null;
+  const M=[];for(let i=0;i<d1;i++){const row=new Float64Array(d2);for(let j=0;j<d2;j++)row[j]=dot(A[i],B[j]);M.push(row);}
+  let dG,G;
+  if(d1<=d2){dG=d1;G=new Float64Array(d1*d1);for(let i=0;i<d1;i++)for(let l=0;l<d1;l++){let s=0;for(let j=0;j<d2;j++)s+=M[i][j]*M[l][j];G[i*d1+l]=s;}}
+  else{dG=d2;G=new Float64Array(d2*d2);for(let i=0;i<d2;i++)for(let l=0;l<d2;l++){let s=0;for(let j=0;j<d1;j++)s+=M[j][i]*M[j][l];G[i*d2+l]=s;}}
+  const {vals}=jacobiEig(G,dG);
+  const ang=[];for(let i=0;i<dG;i++){const s=Math.sqrt(Math.max(0,Math.min(1,vals[i])));ang.push(Math.acos(Math.max(-1,Math.min(1,s)))*180/Math.PI);}
+  ang.sort((a,b)=>a-b);
+  let mean=0;for(const a of ang)mean+=a;mean/=ang.length;
+  return {mx:ang[ang.length-1],mn:mean};
+}
+
+// ================= live plotting =================
+const PALETTE=['#2563eb','#d35400','#16a34a','#9333ea','#dc2626','#0891b2','#ea580c','#475569'];
+// modebar (on hover) gives each figure Autoscale / Reset-axes / zoom / pan; double-click also resets
+const CFG={responsive:true,displaylogo:false,doubleClick:'reset+autosize',modeBarButtonsToRemove:['lasso2d','select2d','toggleSpikelines']};
+function baseLayout(title,ytitle,logY){
+  return {title:{text:title,font:{size:12,family:'system-ui',color:'#1c1e21'},x:0.015,xanchor:'left',y:0.97,yanchor:'top'},
+    margin:{l:54,r:14,t:40,b:38},
+    xaxis:{title:{text:'GD step',font:{size:10}},gridcolor:'#eef0f3',zeroline:false},
+    yaxis:{title:{text:ytitle,font:{size:10}},gridcolor:'#eef0f3',zeroline:false,type:logY?'log':'linear'},
+    paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{family:'system-ui',size:10,color:'#374151'},
+    legend:{orientation:'v',x:0.99,xanchor:'right',y:0.98,yanchor:'top',bgcolor:'rgba(255,255,255,0.72)',bordercolor:'#e6e8ec',borderwidth:1,font:{size:8.5}},showlegend:true};
+}
+function withZero(L){(L.shapes=L.shapes||[]).push({type:'line',xref:'paper',x0:0,x1:1,yref:'y',y0:0,y1:0,line:{color:'#d1d5db',width:1}});return L;}
+function withThr(L,thr){
+  (L.shapes=L.shapes||[]).push({type:'line',xref:'paper',x0:0,x1:1,yref:'y',y0:thr,y1:thr,line:{dash:'dash',color:'#9ca3af',width:1.4}});
+  (L.annotations=L.annotations||[]).push({xref:'paper',x:0.015,yref:'y',y:thr,text:'2/lr',showarrow:false,font:{size:9,color:'#6b7280'},xanchor:'left',yanchor:'bottom'});
+  return L;
+}
+const emptyN=(cnt,namer,dash)=>Array.from({length:cnt},(_,i)=>({x:[],y:[],mode:'lines',name:namer(i),line:{width:1.6,color:PALETTE[i%PALETTE.length],dash:dash||'solid'}}));
+const SLQ_PLOTS=['p_sH','p_sG','p_sS','p_sHL'];
+const TIME_PLOTS=['p_loss','p_sharp','p_resid','p_eHfX','p_eHfT','p_eHLT','p_eGNT','p_eSRT','p_eHfB','p_eHLB','p_eGNB','p_eSRB','p_Jtop','p_Jbot','p_Jtopn','p_Jbotn','p_paPos','p_paNeg','p_ntkR','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb','p_pred1','p_pred2','p_pred3','p_pred4'];
+const PLOT_IDS=TIME_PLOTS.concat(SLQ_PLOTS);
+function newP(id,traces,layout){Plotly.newPlot(id,traces,layout,CFG);const gd=document.getElementById(id);gd._baseShapes=layout.shapes?JSON.parse(JSON.stringify(layout.shapes)):[];}
+function slqLayout(title){const L=baseLayout(title,'density',false);L.xaxis.title.text='eigenvalue';L.showlegend=false;return L;}
+function oneTrace(name,color){return [{x:[],y:[],mode:'lines',name,line:{color,width:1.9}}];}
+function refreshSLQ(id,d){Plotly.restyle(id,{x:[d.x],y:[d.y]},[0]);Plotly.relayout(id,{'xaxis.autorange':true,'yaxis.autorange':true});}  // re-fit axes to the current spectrum each refresh
+let OPT={s1:true,s2:true,s3:true,s4:true,s5:true,s6:true,gs:true};
+
+function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
+  for(let i=1;i<=12;i++){const el=document.getElementById('sec_'+i);if(el)el.style.display=(OPT['s'+i]&&(i<7||multi||i===12))?'':'none';}  // sec_12 (theory) relevant for single & multi
+  const dis=s=>OPT.gs?s:s+'  (off)';
+  // §1
+  newP('p_loss',oneTrace('loss','#2563eb'),baseLayout('loss (log scale)','loss',true));
+  newP('p_sharp',oneTrace('sharpness','#dc2626'),withThr(baseLayout('sharpness  λmax(∇²loss)','sharpness',false),thr));
+  const residNames=nResid===1?['y − f']:Array.from({length:nResid},(_,i)=>`r${i}`);
+  const residTraces=residNames.map((nm,i)=>({x:[],y:[],mode:'lines',name:nm,line:{width:1.5,color:PALETTE[i%PALETTE.length]}}));
+  const residL=withZero(baseLayout('residual  y − f(x)','y − f',false));residL.showlegend=nResid<=6;
+  newP('p_resid',residTraces,residL);
+  newP('p_eHfX',[{x:[],y:[],mode:'lines',name:'λmax',line:{color:'#2563eb',width:1.9}},{x:[],y:[],mode:'lines',name:'λmin',line:{color:'#dc2626',width:1.9}}],withZero(baseLayout('function Hessian H — largest & smallest eigenvalue','eigenvalue',false)));
+  // §2 top-n
+  newP('p_eHfT',emptyN(n,i=>`λ${i+1}`),baseLayout('function Hessian H — top-n eigenvalues','eigenvalue',false));
+  newP('p_eHLT',emptyN(n,i=>`λ${i+1}`),withThr(baseLayout('loss Hessian — top-n eigenvalues','eigenvalue',false),thr));
+  newP('p_eGNT',emptyN(n,i=>`λ${i+1}`),baseLayout(dis('Gauss–Newton G — top-n eigenvalues'),'eigenvalue',false));
+  newP('p_eSRT',emptyN(n,i=>`λ${i+1}`),withZero(baseLayout(dis('residual term S — top-n eigenvalues'),'eigenvalue',false)));
+  // §3 bottom-n
+  newP('p_eHfB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout('function Hessian H — bottom-n eigenvalues','eigenvalue',false)));
+  newP('p_eHLB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout('loss Hessian — bottom-n eigenvalues','eigenvalue',false)));
+  newP('p_eGNB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout(dis('Gauss–Newton G — bottom-n eigenvalues'),'eigenvalue',false)));
+  newP('p_eSRB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout(dis('residual term S — bottom-n eigenvalues'),'eigenvalue',false)));
+  // §4 projections
+  newP('p_Jtop',emptyN(n,i=>`top-${i+1}`),baseLayout(`J onto top-${n} eigvecs of H`,'⟨J, w⟩',false));
+  newP('p_Jbot',emptyN(n,i=>`bot-${i+1}`),baseLayout(`J onto bottom-${n} eigvecs of H`,'⟨J, w⟩',false));
+  newP('p_Jtopn',emptyN(n,i=>`top-${i+1}`),baseLayout(`J/‖J‖ onto top-${n} eigvecs of H`,'⟨J/‖J‖, w⟩',false));
+  newP('p_Jbotn',emptyN(n,i=>`bot-${i+1}`),baseLayout(`J/‖J‖ onto bottom-${n} eigvecs of H`,'⟨J/‖J‖, w⟩',false));
+  // §5 SLQ
+  const slqT=c=>[{x:[],y:[],mode:'lines',fill:'tozeroy',line:{color:c,width:1.6},fillcolor:c+'22',name:'density'}];
+  newP('p_sH',slqT('#2563eb'),slqLayout('SLQ density — function Hessian H'));
+  newP('p_sG',slqT('#16a34a'),slqLayout('SLQ density — Gauss–Newton G'));
+  newP('p_sS',slqT('#d35400'),slqLayout('SLQ density — residual term S'));
+  newP('p_sHL',slqT('#dc2626'),slqLayout('SLQ density — full loss Hessian'));
+  // §6 eigenspace rotation
+  const paT=()=>[{x:[],y:[],mode:'lines',name:'max angle',line:{color:'#2563eb',width:1.9}},{x:[],y:[],mode:'lines',name:'mean angle',line:{color:'#94a3b8',width:1.5,dash:'dot'}}];
+  newP('p_paPos',paT(),baseLayout('positive eigenspace — principal angle vs prev','angle (deg)',false));
+  newP('p_paNeg',paT(),baseLayout('negative eigenspace — principal angle vs prev','angle (deg)',false));
+  if(multi){   // §7/§8/§4b/§4c/§4d exist only for multi-sample — skip creating these plots otherwise (much lighter)
+  // §7 multi-sample NTK / function-Hessian SVD (3 rows)
+  const m7=Math.max(1,n7||1);
+  newP('p_ntkR',emptyN(m7,i=>`k=${i+1}`),baseLayout('residual onto top-n NTK eigvecs','⟨r, vₖ⟩',false));
+  newP('p_ntkH',emptyN(m7,i=>`k=${i+1}`),baseLayout('top NTK eigvec onto right-singular vecs of FH','⟨u₁, Vₖ⟩',false));
+  const evTr=names=>names.map((nm,i)=>({x:[],y:[],mode:'lines',name:nm,line:{width:1.6,color:PALETTE[i%PALETTE.length]}}));
+  newP('p_fhEvT',evTr(['M₁ λ1','M₁ λ2','M₂ λ1','M₂ λ2']),withZero(baseLayout('reshaped FH M₁,M₂ — top-2 eigenvalues','eigenvalue',false)));
+  newP('p_fhEvB',evTr(['M₁ λ₋1','M₁ λ₋2','M₂ λ₋1','M₂ λ₋2']),withZero(baseLayout('reshaped FH M₁,M₂ — bottom-2 eigenvalues','eigenvalue',false)));
+  newP('p_jhe1',emptyN(m7,i=>`k=${i+1}`),baseLayout('J left-sing onto M₁ top eigvec e₁','⟨Uⱼₖ, e₁⟩',false));
+  newP('p_jhe2',emptyN(m7,i=>`k=${i+1}`),baseLayout('J left-sing onto M₁ 2nd eigvec e₂','⟨Uⱼₖ, e₂⟩',false));
+  newP('p_jhe1b',emptyN(m7,i=>`k=${i+1}`),baseLayout('J left-sing onto M₁ bottom eigvec e₋₁','⟨Uⱼₖ, e₋₁⟩',false));
+  newP('p_jhe2b',emptyN(m7,i=>`k=${i+1}`),baseLayout('J left-sing onto M₁ 2nd-bottom eigvec e₋₂','⟨Uⱼₖ, e₋₂⟩',false));
+  newP('p_jh2e1',emptyN(m7,i=>`k=${i+1}`),baseLayout('J left-sing onto M₂ top eigvec e₁','⟨Uⱼₖ, e₁⟩',false));
+  newP('p_jh2e2',emptyN(m7,i=>`k=${i+1}`),baseLayout('J left-sing onto M₂ 2nd eigvec e₂','⟨Uⱼₖ, e₂⟩',false));
+  newP('p_jh2e1b',emptyN(m7,i=>`k=${i+1}`),baseLayout('J left-sing onto M₂ bottom eigvec e₋₁','⟨Uⱼₖ, e₋₁⟩',false));
+  newP('p_jh2e2b',emptyN(m7,i=>`k=${i+1}`),baseLayout('J left-sing onto M₂ 2nd-bottom eigvec e₋₂','⟨Uⱼₖ, e₋₂⟩',false));
+  // §8 J onto right singular vectors of the p×(p·dn) FH reshape
+  const m8=Math.max(1,n8||1);
+  newP('p_g2J',emptyN(m8,i=>`k=${i+1}`),baseLayout('vec(J) onto right-singular vecs of p×(p·dₙ) FH','⟨vec J, Vₖ⟩',false));
+  newP('p_g2Jn',emptyN(m8,i=>`k=${i+1}`),baseLayout('vec(J)/‖J‖_F onto right-singular vecs of p×(p·dₙ) FH','⟨vec J/‖J‖, Vₖ⟩',false));
+  // §4b/§4c (Q[u₁] = NTK-weighted function Hessian; J·r = Jacobian·residual)
+  newP('p_q9t',emptyN(n,i=>`top-${i+1}`),baseLayout('J·r onto top-n eigvecs of Q[u₁]','⟨J·r, w⟩',false));
+  newP('p_q9b',emptyN(n,i=>`bot-${i+1}`),baseLayout('J·r onto bottom-n eigvecs of Q[u₁]','⟨J·r, w⟩',false));
+  newP('p_q9tN',emptyN(n,i=>`top-${i+1}`),baseLayout('J·r/‖J·r‖ onto top-n eigvecs of Q[u₁]','⟨J·r/‖J·r‖, w⟩',false));
+  newP('p_q9bN',emptyN(n,i=>`bot-${i+1}`),baseLayout('J·r/‖J·r‖ onto bottom-n eigvecs of Q[u₁]','⟨J·r/‖J·r‖, w⟩',false));
+  newP('p_q9tR',emptyN(n,i=>`top-${i+1}`),baseLayout('J·r/‖r‖ onto top-n eigvecs of Q[u₁]','⟨J·r, w⟩/‖r‖',false));
+  newP('p_q9bR',emptyN(n,i=>`bot-${i+1}`),baseLayout('J·r/‖r‖ onto bottom-n eigvecs of Q[u₁]','⟨J·r, w⟩/‖r‖',false));
+  newP('p_q9gt',emptyN(n,i=>`top-${i+1}`),baseLayout('GN top eigvec g₁ onto top-n eigvecs of Q[u₁]','⟨g₁, w⟩',false));
+  newP('p_q9gb',emptyN(n,i=>`bot-${i+1}`),baseLayout('GN top eigvec g₁ onto bottom-n eigvecs of Q[u₁]','⟨g₁, w⟩',false));
+  newP('p_q10',emptyN(n,i=>`GN-${i+1}`),baseLayout('Q[u₁]·(J·r) onto top-n Gauss–Newton eigvecs','⟨Q[u₁]J·r, gₖ⟩',false));
+  newP('p_q10N',emptyN(n,i=>`GN-${i+1}`),baseLayout('Q[u₁]·(J·r)/‖·‖ onto top-n Gauss–Newton eigvecs','⟨·/‖·‖, gₖ⟩',false));
+  // §4d per-group projections: 2n traces — first n = positive-residual group (solid), next n = negative (dotted)
+  const d4Tr=()=>[...Array.from({length:n},(_,i)=>({x:[],y:[],mode:'lines',name:`+ k${i+1}`,line:{width:1.8,color:PALETTE[i%PALETTE.length]}})),
+                  ...Array.from({length:n},(_,i)=>({x:[],y:[],mode:'lines',name:`− k${i+1}`,line:{width:1.4,color:PALETTE[i%PALETTE.length],dash:'dot'}}))];
+  newP('p_d4Ht',d4Tr(),baseLayout('group J onto top-n eigvecs of H  (+ solid / − dotted)','⟨J, w⟩',false));
+  newP('p_d4Hb',d4Tr(),baseLayout('group J onto bottom-n eigvecs of H  (+ solid / − dotted)','⟨J, w⟩',false));
+  newP('p_d4Qt',d4Tr(),baseLayout('group J·r onto top-n eigvecs of Q[u₁]  (+ solid / − dotted)','⟨J·r, w⟩',false));
+  newP('p_d4Qb',d4Tr(),baseLayout('group J·r onto bottom-n eigvecs of Q[u₁]  (+ solid / − dotted)','⟨J·r, w⟩',false));
+  }   // end if(multi)
+  // §9 theory vs empirical — each panel: predicted σ₁ (blue) vs actual σ₁ (red)
+  const tvT=lab=>[{x:[],y:[],mode:'lines',name:'predicted',line:{color:'#2563eb',width:1.9}},{x:[],y:[],mode:'lines',name:'actual',line:{color:'#dc2626',width:1.6}}];
+  newP('p_pred1',tvT(),baseLayout('single-sample: predicted vs actual σ₁ (Eq.13)','σ₁',false));
+  newP('p_pred2',tvT(),baseLayout('multi: Eq.21 — σ₁ from Eq-15-propagated J (residuals only)','σ₁',false));
+  newP('p_pred3',tvT(),baseLayout('multi: Eq.27 (residual ∝ NTK mode i)','σ₁',false));
+  newP('p_pred4',tvT(),baseLayout('multi: Eq.29 (sum over top-|T| NTK modes)','σ₁',false));
+  attachHover();
+  resizeAllPlots();
+}
+// plots created inside a hidden (display:none) section get Plotly's fallback size; once the
+// section is visible, force each to re-measure its 320px container so every row stays aligned.
+function resizeAllPlots(){
+  const go=()=>PLOT_IDS.forEach(id=>{const gd=document.getElementById(id);
+    if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}});
+  requestAnimationFrame(go); setTimeout(go,60);
+}
+window.addEventListener('resize',()=>{if(typeof PLOT_IDS!=='undefined')resizeAllPlots();});
+const reps=(cnt,t)=>Array.from({length:cnt},()=>[t]);
+const colsOf=(cnt,arr)=>Array.from({length:cnt},(_,i)=>[arr[i]]);
+const ids=(cnt)=>Array.from({length:cnt},(_,i)=>i);
+function pushPoint(t,D,n,kth,nResid){
+  if(OPT.s1){
+    Plotly.extendTraces('p_loss',{x:[[t]],y:[[D.loss]]},[0]);
+    Plotly.extendTraces('p_sharp',{x:[[t]],y:[[D.sharp]]},[0]);
+    Plotly.extendTraces('p_resid',{x:reps(nResid,t),y:colsOf(nResid,D.r)},ids(nResid));
+    Plotly.extendTraces('p_eHfX',{x:[[t],[t]],y:[[D.hfMax],[D.hfMin]]},[0,1]);
+  }
+  if(OPT.s2){
+    Plotly.extendTraces('p_eHfT',{x:reps(n,t),y:colsOf(n,D.hfTop)},ids(n));
+    Plotly.extendTraces('p_eHLT',{x:reps(n,t),y:colsOf(n,D.hlTop)},ids(n));
+    if(OPT.gs){Plotly.extendTraces('p_eGNT',{x:reps(n,t),y:colsOf(n,D.gnTop)},ids(n));Plotly.extendTraces('p_eSRT',{x:reps(n,t),y:colsOf(n,D.srTop)},ids(n));}
+  }
+  if(OPT.s3){
+    Plotly.extendTraces('p_eHfB',{x:reps(n,t),y:colsOf(n,D.hfBot)},ids(n));
+    Plotly.extendTraces('p_eHLB',{x:reps(n,t),y:colsOf(n,D.hlBot)},ids(n));
+    if(OPT.gs){Plotly.extendTraces('p_eGNB',{x:reps(n,t),y:colsOf(n,D.gnBot)},ids(n));Plotly.extendTraces('p_eSRB',{x:reps(n,t),y:colsOf(n,D.srBot)},ids(n));}
+  }
+  if(OPT.s4){
+    Plotly.extendTraces('p_Jtop',{x:reps(n,t),y:colsOf(n,D.jt)},ids(n));
+    Plotly.extendTraces('p_Jbot',{x:reps(n,t),y:colsOf(n,D.jb)},ids(n));
+    Plotly.extendTraces('p_Jtopn',{x:reps(n,t),y:colsOf(n,D.jtN)},ids(n));
+    Plotly.extendTraces('p_Jbotn',{x:reps(n,t),y:colsOf(n,D.jbN)},ids(n));
+  }
+  if(OPT.s6){
+    Plotly.extendTraces('p_paPos',{x:[[t],[t]],y:[[D.paPos?D.paPos.mx:null],[D.paPos?D.paPos.mn:null]]},[0,1]);
+    Plotly.extendTraces('p_paNeg',{x:[[t],[t]],y:[[D.paNeg?D.paNeg.mx:null],[D.paNeg?D.paNeg.mn:null]]},[0,1]);
+  }
+  if(OPT.s7&&D.ntkR){
+    const m7=D.ntkR.length;
+    Plotly.extendTraces('p_ntkR',{x:reps(m7,t),y:colsOf(m7,D.ntkR)},ids(m7));
+    Plotly.extendTraces('p_ntkH',{x:reps(m7,t),y:colsOf(m7,D.ntkH)},ids(m7));
+    Plotly.extendTraces('p_fhEvT',{x:reps(4,t),y:colsOf(4,D.fhEvT)},ids(4));
+    Plotly.extendTraces('p_fhEvB',{x:reps(4,t),y:colsOf(4,D.fhEvB)},ids(4));
+    Plotly.extendTraces('p_jhe1',{x:reps(m7,t),y:colsOf(m7,D.jhe1)},ids(m7));
+    Plotly.extendTraces('p_jhe2',{x:reps(m7,t),y:colsOf(m7,D.jhe2)},ids(m7));
+    Plotly.extendTraces('p_jhe1b',{x:reps(m7,t),y:colsOf(m7,D.jhe1b)},ids(m7));
+    Plotly.extendTraces('p_jhe2b',{x:reps(m7,t),y:colsOf(m7,D.jhe2b)},ids(m7));
+    Plotly.extendTraces('p_jh2e1',{x:reps(m7,t),y:colsOf(m7,D.jh2e1)},ids(m7));
+    Plotly.extendTraces('p_jh2e2',{x:reps(m7,t),y:colsOf(m7,D.jh2e2)},ids(m7));
+    Plotly.extendTraces('p_jh2e1b',{x:reps(m7,t),y:colsOf(m7,D.jh2e1b)},ids(m7));
+    Plotly.extendTraces('p_jh2e2b',{x:reps(m7,t),y:colsOf(m7,D.jh2e2b)},ids(m7));
+  }
+  if(OPT.s8&&D.g2J){
+    const m8=D.g2J.length;
+    Plotly.extendTraces('p_g2J',{x:reps(m8,t),y:colsOf(m8,D.g2J)},ids(m8));
+    Plotly.extendTraces('p_g2Jn',{x:reps(m8,t),y:colsOf(m8,D.g2Jn)},ids(m8));
+  }
+  if(OPT.s9&&D.q9t){
+    Plotly.extendTraces('p_q9t',{x:reps(n,t),y:colsOf(n,D.q9t)},ids(n));
+    Plotly.extendTraces('p_q9b',{x:reps(n,t),y:colsOf(n,D.q9b)},ids(n));
+    Plotly.extendTraces('p_q9tN',{x:reps(n,t),y:colsOf(n,D.q9tN)},ids(n));
+    Plotly.extendTraces('p_q9bN',{x:reps(n,t),y:colsOf(n,D.q9bN)},ids(n));
+    Plotly.extendTraces('p_q9tR',{x:reps(n,t),y:colsOf(n,D.q9tR)},ids(n));
+    Plotly.extendTraces('p_q9bR',{x:reps(n,t),y:colsOf(n,D.q9bR)},ids(n));
+    Plotly.extendTraces('p_q9gt',{x:reps(n,t),y:colsOf(n,D.q9gt)},ids(n));
+    Plotly.extendTraces('p_q9gb',{x:reps(n,t),y:colsOf(n,D.q9gb)},ids(n));
+  }
+  if(OPT.s10&&D.q10){
+    Plotly.extendTraces('p_q10',{x:reps(n,t),y:colsOf(n,D.q10)},ids(n));
+    Plotly.extendTraces('p_q10N',{x:reps(n,t),y:colsOf(n,D.q10N)},ids(n));
+  }
+  if(OPT.s11&&D.d4Ht){const m=2*n;
+    Plotly.extendTraces('p_d4Ht',{x:reps(m,t),y:colsOf(m,D.d4Ht)},ids(m));
+    Plotly.extendTraces('p_d4Hb',{x:reps(m,t),y:colsOf(m,D.d4Hb)},ids(m));
+    Plotly.extendTraces('p_d4Qt',{x:reps(m,t),y:colsOf(m,D.d4Qt)},ids(m));
+    Plotly.extendTraces('p_d4Qb',{x:reps(m,t),y:colsOf(m,D.d4Qb)},ids(m));
+  }
+  if(OPT.s12&&D.thP){   // theory vs empirical — 4 panels, each [predicted, actual]
+    for(let c=0;c<4;c++){const pv=D.thP[c],av=D.thA[c];if(pv==null&&av==null)continue;
+      Plotly.extendTraces('p_pred'+(c+1),{x:[[t],[t]],y:[[pv],[av]]},[0,1]);}
+  }
+}
+
+// ---- synchronized dotted cursor across visible step-axis plots ----
+let cursorRAF=null,cursorX=null;
+function applyCursor(){
+  cursorRAF=null;
+  TIME_PLOTS.forEach(id=>{const gd=document.getElementById(id);if(!gd||!gd._fullLayout||gd.offsetParent===null)return;
+    const base=gd._baseShapes||[];
+    const shapes=cursorX==null?base.slice():base.concat([{type:'line',xref:'x',x0:cursorX,x1:cursorX,yref:'paper',y0:0,y1:1,line:{color:'#64748b',width:1,dash:'dot'}}]);
+    Plotly.relayout(gd,{shapes});});
+}
+function setCursor(x){cursorX=x;if(!cursorRAF)cursorRAF=requestAnimationFrame(applyCursor);}
+function attachHover(){
+  TIME_PLOTS.forEach(id=>{const gd=document.getElementById(id);if(!gd||!gd.on)return;   // skip divs Plotly hasn't initialized (multi-only plots in single-sample mode)
+    if(gd.removeAllListeners){gd.removeAllListeners('plotly_hover');gd.removeAllListeners('plotly_unhover');}
+    gd.on('plotly_hover',ev=>{if(ev.points&&ev.points.length)setCursor(ev.points[0].x);});
+    gd.on('plotly_unhover',()=>setCursor(null));});
+}
+
+// ================= run / stop / resume / reset =================
+// Two compute backends, chosen by #compute: BROWSER (local JS, ST/loop) or GPU (server.py over SSE).
+// ABORT = hard cancel (Reset). PAUSED = soft pause (Stop). Browser keeps ST so loop() resumes;
+// GPU reconnects with ?start=lastT+1 so the server fast-forwards GD then continues streaming.
+let ABORT=false, RUNNING=false, PAUSED=false, ST=null, RUNGEN=0;   // browser-mode state (RUNGEN: only the latest loop runs)
+let ES=null, lastT=-1, META=null;                            // gpu-mode state
+function val(id){return document.getElementById(id).value;}
+function chk(id){return document.getElementById(id).checked;}
+function curMode(){return val('compute');}
+function updateButtons(){
+  document.getElementById('run').disabled=RUNNING;
+  document.getElementById('stop').disabled=!RUNNING;
+  const canResume=(curMode()==='gpu')?(META&&!RUNNING&&lastT>=0&&lastT<(+val('steps')))
+                                     :(ST&&!RUNNING&&ST.t<=ST.steps);
+  document.getElementById('resume').disabled=!canResume;
+}
+async function runLocal(){                              // BROWSER mode: fresh start (reads controls, rebuilds state)
+  if(RUNNING){ABORT=true;await new Promise(r=>setTimeout(r,40));}
+  ABORT=false;PAUSED=false;
+  const st=document.getElementById('status');
+  const depth=+val('depth'),width=+val('width'),act=val('act'),useBias=val('bias')==='1';
+  const lr=+val('lr'),initScale=+val('init'),N=+val('nsamp'),inDim=+val('indim'),outDim=+val('outdim'),tgt=+val('tgt');
+  const fixedX=val('fixedx')==='1', inputStd=+val('inputstd');
+  let n=+val('neig'),kth=+val('kth'),steps=+val('steps'),eigEvery=+val('eigevery'),seed=+val('seed');
+  const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
+  const qmode=Math.max(1,+val('qmode')||1), tset=Math.max(1,+val('tset')||1);   // Eq-27 residual mode i; Eq-29 set-T size
+  const nProbe=Math.max(1,+val('slqprobes')), efrac=Math.min(1,Math.max(0.5,(+val('energyp'))/100));
+  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),gs:val('gson')==='1'};
+  OPT=opt;
+  const {spec,p}=buildSpec(inDim,width,depth,act,useBias,outDim);
+  if(p>100000){st.textContent=`p=${p} parameters exceeds the cap (100000). Reduce width/depth.`;ST=null;updateButtons();return;}
+  const half=Math.max(1,Math.floor(p/2));
+  n=Math.max(1,Math.min(n,half));kth=Math.max(1,Math.min(kth,half));
+  const nSub=Math.min(Math.max(n,kth,(opt.s6?10:1)),half);
+  const eps=1e-3, thr=2.0/lr, M=N*outDim, nResid=Math.min(M,12);
+  const drng=mulberry32((seed*7919+1)>>>0);
+  const th=initTheta(spec,p,initScale,seed+1);                 // θ first (needed to evaluate residual signs)
+  const ssign=val('ssign');                                    // 'off' | 'pos' | 'neg'
+  const X=new Float64Array(N*inDim), Y=new Float64Array(M);
+  if(fixedX){X.fill(1.0);
+    if(ssign==='off'){Y.fill(tgt);}
+    else{const s=ssign==='pos'?1:-1,floor=0.25*Math.max(Math.abs(tgt),1e-6),F=forward(th,spec,X,N,inDim).out;for(let i=0;i<M;i++)Y[i]=F[i]+s*Math.max(Math.abs(tgt),floor);} // r=y−f(x=1)=s·|tgt|, sign s
+  }
+  else if(ssign!=='off'){
+    // sample a pool of candidate (x,y) and keep the N whose initial residual r=y-f(x,θ₀) is sign-definite
+    // (every output component the chosen sign) with the largest magnitude; sign/floor are then enforced so |r| isn't tiny.
+    const s=ssign==='pos'?1:-1, floor=0.25*Math.max(Math.abs(tgt),1e-6), K=Math.max(64*N,3000);
+    const Xc=new Float64Array(K*inDim);for(let i=0;i<K*inDim;i++)Xc[i]=inputStd*gauss(drng);
+    const Yc=new Float64Array(K*outDim);for(let i=0;i<K*outDim;i++)Yc[i]=tgt*gauss(drng);
+    const Fc=forward(th,spec,Xc,K,inDim).out;
+    const cand=[];
+    for(let k=0;k<K;k++){let okSign=true,mn=Infinity;for(let c=0;c<outDim;c++){const rr=Yc[k*outDim+c]-Fc[k*outDim+c];if(rr*s<=0)okSign=false;mn=Math.min(mn,Math.abs(rr));}cand.push({k,okSign,mn});}
+    cand.sort((a,b)=>b.mn-a.mn);                                // largest residual magnitude first
+    const chosen=cand.filter(e=>e.okSign).map(e=>e.k);          // genuine same-sign samples first
+    for(const e of cand){if(chosen.length>=N)break;if(!e.okSign)chosen.push(e.k);}   // top-up (sign forced below)
+    for(let i=0;i<N;i++){const k=chosen[i];
+      for(let c=0;c<inDim;c++)X[i*inDim+c]=Xc[k*inDim+c];
+      for(let c=0;c<outDim;c++){const f=Fc[k*outDim+c];Y[i*outDim+c]=f+s*Math.max(Math.abs(Yc[k*outDim+c]-f),floor);}}  // r=y−f has sign s, |r|≥floor
+  }
+  else { for(let i=0;i<N*inDim;i++)X[i]=inputStd*gauss(drng); for(let i=0;i<M;i++)Y[i]=tgt*gauss(drng); }
+  const multi=M>1, n7=Math.min(n,Math.max(M,1)), n8=Math.min(n,Math.max(1,Math.floor(p/2)));
+  initLivePlots(n,kth,nResid,thr,n7,n8,multi);
+  // §4d: fix the two sample groups by the sign of the summed initial residual r=y−f(x,θ₀) (sum over outputs if d_out>1)
+  const posIdx=[],negIdx=[];{const f0=forward(th,spec,X,N,inDim).out;for(let i=0;i<N;i++){let s=0;for(let c=0;c<outDim;c++)s+=Y[i*outDim+c]-f0[i*outDim+c];(s>=0?posIdx:negIdx).push(i);}}
+  const needVecs=opt.s4||opt.s6||opt.s11, needVals=opt.s1||opt.s2||opt.s3||needVecs;
+  const mF=Math.min(p,Math.max(2*nSub+24,44)), mV=Math.min(p,Math.max(2*n+16,28)), mSLQ=Math.min(p,40);
+  const slqStride=Math.max(1,Math.ceil((Math.floor(steps/eigEvery)+1)/50));
+  ST={opt,spec,p,X,Y,N,inDim,outDim,M,nResid,th,lr,eps,thr,n,kth,nSub,mF,mV,mSLQ,nProbe,efrac,eigEvery,slqStride,steps,posIdx,negIdx,
+      needVecs,needVals,prevTop:Array(nSub).fill(null),prevBot:Array(nSub).fill(null),prevPos:null,prevNeg:null,
+      pNtk:Array(n).fill(null),pVH:Array(n).fill(null),pUJ:Array(n).fill(null),pM1:[null,null,null,null],pM2:[null,null,null,null],pG2:Array(n).fill(null),
+      pU1k:Array(n).fill(null),pQ9t:Array(n).fill(null),pQ9b:Array(n).fill(null),
+      qapprox,qmode,tset,thT0:-1,thTh0:null,thBase:0,thJp:null,thJ:null,thFroz:null,thAcc1:0,thAcc2:0,thProd3:1,thProd4:1,
+      t:0,eigTick:0,done:0};
+  loop();
+}
+function stopLocal(){ if(RUNNING)PAUSED=true; }          // pause, keep state + plots
+function resumeLocal(){ if(ST&&!RUNNING&&ST.t<=ST.steps){PAUSED=false;ABORT=false;loop();} }
+async function loop(){                                   // drives ST forward; re-entrant for resume
+  if(!ST)return;
+  const myGen=++RUNGEN;                                  // claim ownership; any older loop will see a newer RUNGEN and exit
+  RUNNING=true;updateButtons();
+  const S=ST, O=S.opt, p=S.p, spec=S.spec, X=S.X, Y=S.Y, N=S.N, inDim=S.inDim, eps=S.eps, M=S.M;
+  const st=document.getElementById('status'),sp=document.getElementById('sps');
+  const segStart=S.done, t0=performance.now();
+  try{
+    for(; S.t<=S.steps; S.t++){
+      if(myGen!==RUNGEN)return;                          // a newer run/resume started → this stale loop stops immediately
+      if(ABORT){ST=null;break;}
+      if(PAUSED){st.textContent=`stopped at step ${S.t} / ${S.steps} — press Resume to continue.`;break;}
+      const t=S.t;
+      if(t%S.eigEvery===0){
+        const fr=gradF(S.th,spec,X,N,inDim,p);
+        const r=new Float64Array(M);for(let i=0;i<M;i++)r[i]=Y[i]-fr.out[i];
+        const loss=lossOf(fr.out,Y,N);
+        if(!isFinite(loss)||loss>1e10){st.textContent=`diverged at step ${t} (loss=${loss.toExponential(2)}). Lower lr or init_scale.`;ST=null;break;}
+        const cS=new Float64Array(M);for(let i=0;i<M;i++)cS[i]=(fr.out[i]-Y[i])/N;
+        let feTop=[],feBot=[],feTV=null,feBV=null;
+        if(S.needVecs){const fe=lanczosExtreme(v=>hvpF(S.th,spec,X,N,inDim,p,v,eps),p,S.nSub,S.mF,0xA53F9);feTop=fe.topVals;feBot=fe.botVals;feTV=fe.topVecs;feBV=fe.botVecs;}
+        else if(S.needVals){const fv=lanczosExtremeVals(v=>hvpF(S.th,spec,X,N,inDim,p,v,eps),p,S.n,S.mV,0xA53F9);feTop=fv.top;feBot=fv.bot;}
+        let hl=null; if(O.s1||O.s2||O.s3) hl=lanczosExtremeVals(v=>hvpL(S.th,spec,X,Y,N,inDim,p,v,eps),p,S.n,S.mV,0x5EED1);
+        const sharp=hl?hl.top[0]:NaN;
+        let gn=null,sr=null;
+        if((O.s2||O.s3)&&O.gs){gn=lanczosExtremeVals(v=>hvpG(S.th,spec,X,N,inDim,p,v,eps),p,S.n,S.mV,0x6A17C);sr=lanczosExtremeVals(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,cS),p,S.n,S.mV,0x7B23D);}
+        if(S.needVecs&&feTV){for(let i=0;i<S.nSub;i++){feTV[i]=signTo(feTV[i],S.prevTop[i]);S.prevTop[i]=feTV[i];feBV[i]=signTo(feBV[i],S.prevBot[i]);S.prevBot[i]=feBV[i];}} // sign-track H eigvecs once (shared by §4 and §4d)
+        const J=fr.grad;const jt=[],jb=[],jtN=[],jbN=[];
+        if(O.s4){const jn=Math.max(norm(J),1e-30);for(let i=0;i<S.nSub;i++){const pt=dot(J,feTV[i]);jt.push(pt);jtN.push(pt/jn);const pb=dot(J,feBV[i]);jb.push(pb);jbN.push(pb/jn);}}
+        let paPos=null,paNeg=null;
+        if(O.s6){
+          const posS=posSubspace(feTop,feTV,S.efrac), negS=negSubspace(feBot,feBV,S.efrac);
+          paPos=S.prevPos?principalAngles(S.prevPos,posS):null; paNeg=S.prevNeg?principalAngles(S.prevNeg,negS):null;
+          S.prevPos=posS;S.prevNeg=negS;
+        }
+        // §7 multi-sample NTK & function-Hessian-tensor SVD diagnostics
+        let ntkR=null,ntkH=null,fhEvT=null,fhEvB=null,jhe1=null,jhe2=null,jhe1b=null,jhe2b=null,jh2e1=null,jh2e2=null,jh2e1b=null,jh2e2b=null;
+        if(O.s7&&M>1){
+          const dn=M, n7=Math.min(S.n,dn);
+          const jc=jacCols(S.th,spec,X,N,inDim,p), Jc=jc.cols;       // Jacobian columns ∇f_a
+          const Km=new Float64Array(dn*dn);
+          for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(Jc[a],Jc[b]);Km[a*dn+b]=v;Km[b*dn+a]=v;}
+          const ek=symEigDesc(Km,dn);                                // NTK eigen
+          for(let k=0;k<n7;k++){ek.vecs[k]=signTo(ek.vecs[k],S.pNtk[k]);S.pNtk[k]=ek.vecs[k];}
+          const rr=new Float64Array(dn);for(let i=0;i<dn;i++)rr[i]=Y[i]-jc.out[i];
+          const UJ=[];                                               // left singular vecs of J (param space)
+          for(let k=0;k<n7;k++){const u=new Float64Array(p),vk=ek.vecs[k];
+            for(let a=0;a<dn;a++){const c=vk[a],ja=Jc[a];for(let i=0;i<p;i++)u[i]+=c*ja[i];}
+            const s=Math.sqrt(Math.max(ek.vals[k],1e-30));for(let i=0;i<p;i++)u[i]/=s;
+            UJ.push(signTo(u,S.pUJ[k]));S.pUJ[k]=UJ[k];}
+          const GH=new Float64Array(dn*dn);                          // Hessian Frobenius Gram via Hutchinson
+          for(let pr=0;pr<S.nProbe;pr++){const z=randVec(p,(0xC0FFEE+pr*2654435761)>>>0);const Hz=jacHVP(S.th,spec,X,N,inDim,p,z,eps);
+            for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(Hz[a],Hz[b]);GH[a*dn+b]+=v;GH[b*dn+a]+=v;}}
+          for(let i=0;i<dn*dn;i++)GH[i]/=S.nProbe;
+          const eh=symEigDesc(GH,dn);                                // right singular vecs of FH tensor
+          for(let k=0;k<n7;k++){eh.vecs[k]=signTo(eh.vecs[k],S.pVH[k]);S.pVH[k]=eh.vecs[k];}
+          // M_j = reshape(j-th left singular vec) = Hessian of Σ_a eh.vecs[j][a] f_a ; top-2 & bottom-2 eigvecs
+          const nM=Math.min(2,Math.max(1,Math.floor(p/2))), gv=i=>(i<eh.vecs.length?eh.vecs[i]:eh.vecs[0]);
+          const fe1=lanczosExtreme(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,gv(0)),p,nM,S.mV,0x9E37);
+          const fe2=lanczosExtreme(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,gv(1)),p,nM,S.mV,0x7C19);
+          const last=(a,i)=>a[i]!==undefined?a[i]:a[0];
+          const m1=[fe1.topVecs[0],last(fe1.topVecs,1),fe1.botVecs[0],last(fe1.botVecs,1)];
+          const m2=[fe2.topVecs[0],last(fe2.topVecs,1),fe2.botVecs[0],last(fe2.botVecs,1)];
+          for(let j=0;j<4;j++){m1[j]=signTo(m1[j],S.pM1[j]);S.pM1[j]=m1[j];m2[j]=signTo(m2[j],S.pM2[j]);S.pM2[j]=m2[j];}
+          fhEvT=[fe1.topVals[0],last(fe1.topVals,1),fe2.topVals[0],last(fe2.topVals,1)];
+          fhEvB=[fe1.botVals[0],last(fe1.botVals,1),fe2.botVals[0],last(fe2.botVals,1)];
+          ntkR=[];ntkH=[];jhe1=[];jhe2=[];jhe1b=[];jhe2b=[];jh2e1=[];jh2e2=[];jh2e1b=[];jh2e2b=[];
+          for(let k=0;k<n7;k++){
+            ntkR.push(dot(rr,ek.vecs[k]));ntkH.push(dot(ek.vecs[0],eh.vecs[k]));
+            jhe1.push(dot(UJ[k],m1[0]));jhe2.push(dot(UJ[k],m1[1]));jhe1b.push(dot(UJ[k],m1[2]));jhe2b.push(dot(UJ[k],m1[3]));
+            jh2e1.push(dot(UJ[k],m2[0]));jh2e2.push(dot(UJ[k],m2[1]));jh2e1b.push(dot(UJ[k],m2[2]));jh2e2b.push(dot(UJ[k],m2[3]));
+          }
+        }
+        // §8 J onto the right singular vectors of the p×(p·dn) function-Hessian reshape
+        let g2J=null,g2Jn=null;
+        if(O.s8&&M>1){
+          const dn=M, n8=Math.min(S.n,Math.max(1,Math.floor(p/2)));
+          const jc8=jacCols(S.th,spec,X,N,inDim,p).cols;
+          let jfn=0;for(let a=0;a<dn;a++)jfn+=dot(jc8[a],jc8[a]);jfn=Math.sqrt(Math.max(jfn,1e-30)); // ‖J‖_F
+          const wv=new Float64Array(p);                          // w = Σ_a ∇²f_a·∇f_a = Hwide·vec(J)
+          for(let a=0;a<dn;a++){const ua=jc8[a],gp=gradOut(thAdd(S.th,ua,eps),spec,X,N,inDim,p,a),gm=gradOut(thAdd(S.th,ua,-eps),spec,X,N,inDim,p,a);for(let i=0;i<p;i++)wv[i]+=(gp[i]-gm[i])/(2*eps);}
+          const ge=lanczosExtreme(v=>hvpG2(S.th,spec,X,N,inDim,p,v,eps),p,n8,S.mV,0xB2D4); // U_k = left singular vecs
+          g2J=[];g2Jn=[];
+          for(let k=0;k<n8;k++){let uk=signTo(ge.topVecs[k],S.pG2[k]);S.pG2[k]=uk;const sig=Math.sqrt(Math.max(ge.topVals[k],1e-30));const ip=dot(wv,uk)/sig;g2J.push(ip);g2Jn.push(ip/jfn);}
+        }
+        // §4b/§4c shared base: top-n NTK eigenvectors v_k (sign-tracked) and J·r = Σ_a r_a ∇f_a, r=y−f
+        let u1s=null,Jrs=null,Jrns=0,Rn=0,bJc=null,bEk=null;
+        if((O.s9||O.s10||O.s11||O.s12)&&M>1){
+          const dn=M;const jc=jacCols(S.th,spec,X,N,inDim,p);bJc=jc.cols;
+          const Km=new Float64Array(dn*dn);for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(bJc[a],bJc[b]);Km[a*dn+b]=v;Km[b*dn+a]=v;}
+          bEk=symEigDesc(Km,dn);
+          for(let k=0;k<S.n;k++)pinSign(bEk.vecs[k]);   // deterministic NTK eigvec sign (largest |component| +) ⇒ reproducible u₁
+          u1s=bEk.vecs[0];                              // g₁=J·u₁/‖J·u₁‖ then gives J u₁=σ₁ g₁ with σ₁=‖J u₁‖>0, ‖u₁‖=‖g₁‖=1
+          const rr=new Float64Array(dn);for(let i=0;i<dn;i++)rr[i]=Y[i]-jc.out[i];   // r = y − f(x)
+          Rn=Math.max(norm(rr),1e-30);                       // ‖r‖, residual is dn-dimensional
+          Jrs=new Float64Array(p);for(let a=0;a<dn;a++){const c=rr[a],ja=bJc[a];for(let i=0;i<p;i++)Jrs[i]+=c*ja[i];}
+          Jrns=Math.max(norm(Jrs),1e-30);
+        }
+        // Q[u₁] = Σ_a (u₁)_a ∇²f_a — extreme eigvecs (shared by §4b and §4d), sign-tracked once
+        let qe=null;
+        if((O.s9||O.s11)&&M>1){
+          qe=lanczosExtreme(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,u1s),p,S.n,S.mV,0xC0DE1);
+          for(let k=0;k<S.n;k++){qe.topVecs[k]=signTo(qe.topVecs[k],S.pQ9t[k]);S.pQ9t[k]=qe.topVecs[k];qe.botVecs[k]=signTo(qe.botVecs[k],S.pQ9b[k]);S.pQ9b[k]=qe.botVecs[k];}
+        }
+        // §4b (sec_9): J·r onto top-n/bottom-n eigvecs of Q[u₁]
+        let q9t=null,q9b=null,q9tN=null,q9bN=null,q9tR=null,q9bR=null,q9gt=null,q9gb=null;
+        if(O.s9&&M>1){
+          const dn=M;
+          // top GN eigenvector g₁ = J·u₁/‖J·u₁‖ (SVD-paired with NTK top eigvec u₁: J u₁ = σ₁ g₁, σ₁>0, unit norms)
+          const g1=new Float64Array(p);for(let a=0;a<dn;a++){const c=u1s[a],ja=bJc[a];for(let i=0;i<p;i++)g1[i]+=c*ja[i];}
+          {const gnrm=Math.max(norm(g1),1e-30);for(let i=0;i<p;i++)g1[i]/=gnrm;}
+          q9t=[];q9b=[];q9tN=[];q9bN=[];q9tR=[];q9bR=[];q9gt=[];q9gb=[];
+          for(let k=0;k<S.n;k++){
+            const tv=qe.topVecs[k],pt=dot(Jrs,tv);q9t.push(pt);q9tN.push(pt/Jrns);q9tR.push(pt/Rn);q9gt.push(dot(g1,tv));
+            const bv=qe.botVecs[k],pb=dot(Jrs,bv);q9b.push(pb);q9bN.push(pb/Jrns);q9bR.push(pb/Rn);q9gb.push(dot(g1,bv));
+          }
+        }
+        // §4c (sec_10): Q[u₁]·(J·r) onto top-n Gauss–Newton eigvectors.
+        // GN eigvec g_k = J·v_k/‖J·v_k‖ (left singular vec paired with NTK eigvec v_k ⇒ J v_k = σ_k g_k, σ_k>0),
+        // so the sign of g_k is tied to v_k — for k=1 (v₁=u₁) the projection is invariant to the arbitrary sign of u₁.
+        let q10=null,q10N=null;
+        if(O.s10&&M>1){
+          const dn=M;
+          const QJr=hvpS(S.th,spec,X,N,inDim,p,Jrs,eps,u1s);const qn=Math.max(norm(QJr),1e-30);
+          q10=[];q10N=[];
+          for(let k=0;k<S.n;k++){
+            const vk=bEk.vecs[k],g=new Float64Array(p);
+            for(let a=0;a<dn;a++){const c=vk[a],ja=bJc[a];for(let i=0;i<p;i++)g[i]+=c*ja[i];}
+            const gnrm=Math.max(norm(g),1e-30);for(let i=0;i<p;i++)g[i]/=gnrm;     // g_k = J v_k / σ_k (σ_k>0)
+            const pr=dot(QJr,g);q10.push(pr);q10N.push(pr/qn);
+          }
+        }
+        // §4d (sec_11): split samples by initial-residual sign; shared H & Q[u₁] eigvecs, per-group J and J·r.
+        // groupJ(idx,false)=Σ_{a∈grp}∇f_a ;  groupJ(idx,true)=Σ_{a∈grp}r_a∇f_a  (a runs over the group's outputs)
+        let d4Ht=null,d4Hb=null,d4Qt=null,d4Qb=null;
+        if(O.s11&&M>1&&feTV&&qe){
+          const groupJ=(idx,wr)=>{const g=new Float64Array(p);for(let gi=0;gi<idx.length;gi++){const i=idx[gi];for(let c=0;c<S.outDim;c++){const a=i*S.outDim+c,ja=bJc[a],w=wr?r[a]:1;for(let q=0;q<p;q++)g[q]+=w*ja[q];}}return g;};
+          const Jp=groupJ(S.posIdx,false),Jn=groupJ(S.negIdx,false),Jrp=groupJ(S.posIdx,true),Jrn=groupJ(S.negIdx,true);
+          d4Ht=[];d4Hb=[];d4Qt=[];d4Qb=[];   // layout: first n = positive group, next n = negative group
+          for(let k=0;k<S.n;k++)d4Ht.push(dot(Jp,feTV[k]));   for(let k=0;k<S.n;k++)d4Ht.push(dot(Jn,feTV[k]));
+          for(let k=0;k<S.n;k++)d4Hb.push(dot(Jp,feBV[k]));   for(let k=0;k<S.n;k++)d4Hb.push(dot(Jn,feBV[k]));
+          for(let k=0;k<S.n;k++)d4Qt.push(dot(Jrp,qe.topVecs[k])); for(let k=0;k<S.n;k++)d4Qt.push(dot(Jrn,qe.topVecs[k]));
+          for(let k=0;k<S.n;k++)d4Qb.push(dot(Jrp,qe.botVecs[k])); for(let k=0;k<S.n;k++)d4Qb.push(dot(Jrn,qe.botVecs[k]));
+        }
+        // §9 (sec_12): theory vs empirical σ₁. At each window start freeze θ₀, the function Hessian Q, and the
+        // Jacobian J₀; then iterate Eq-15  J_{t+1}=J_t+(η/N)Q[Jᵀr]  using ONLY the actual residuals r_t, and read
+        // σ₁,u₁,v₁ from the propagated J. col-2 = σ₁=λmax(JJᵀ); col-3/4 = Eq-27/29 analytic forms on that geometry.
+        let thP=null,thA=null;
+        if(O.s12){
+          const W=Math.max(1,S.qapprox), etaN=S.lr/Math.max(N,1), reps_=Math.max(1,S.eigEvery);
+          if(S.thT0<0||(t-S.thT0)>=W){            // window start: freeze θ₀, J₀, FH-SVD; reset col-3/4 products
+            S.thT0=t;S.thTh0=S.th.slice();S.thAcc1=0;S.thAcc2=0;S.thProd3=1;S.thProd4=1;
+            if(M>1){S.thJ=jacCols(S.th,spec,X,N,inDim,p).cols;S.thFroz=computeFHfrozen(S.th,spec,X,N,inDim,p,eps,S.nProbe,Math.min(S.n,M),2,S.mV,M);
+              const K0=new Float64Array(M*M);for(let a=0;a<M;a++)for(let b=a;b<M;b++){const v=dot(S.thJ[a],S.thJ[b]);K0[a*M+b]=v;K0[b*M+a]=v;}S.thBase=symEigDesc(K0,M).vals[0];}
+            else{S.thJp=fr.grad.slice();S.thBase=dot(fr.grad,fr.grad);}
+          }
+          thP=[null,null,null,null];thA=[null,null,null,null];
+          if(M>1&&S.thJ&&S.thFroz&&bEk){
+            const Jt=S.thJ,F=S.thFroz;
+            const Km=new Float64Array(M*M);for(let a=0;a<M;a++)for(let b=a;b<M;b++){const v=dot(Jt[a],Jt[b]);Km[a*M+b]=v;Km[b*M+a]=v;}
+            const ek=symEigDesc(Km,M),NV0=Math.min(S.n,M);for(let k=0;k<NV0;k++)pinSign(ek.vecs[k]);   // propagated NTK eigen
+            const sig1=Math.max(ek.vals[0],1e-30),sgT=Math.sqrt(sig1),u1=ek.vecs[0];
+            const v1=new Float64Array(p);for(let a=0;a<M;a++){const c=u1[a],ja=Jt[a];for(let q=0;q<p;q++)v1[q]+=c*ja[q];}{const nn=Math.max(norm(v1),1e-30);for(let q=0;q<p;q++)v1[q]/=nn;}
+            const sigAct=bEk.vals[0];thA[1]=sigAct;thA[2]=sigAct;thA[3]=sigAct;
+            const CAP=10*Math.max(sigAct,1e-30),clmp=x=>Math.min(Math.max(x,0),CAP);
+            const gnv=k=>{const uk=ek.vecs[k],g=new Float64Array(p);for(let a=0;a<M;a++){const c=uk[a],ja=Jt[a];for(let q=0;q<p;q++)g[q]+=c*ja[q];}const nn=Math.max(norm(g),1e-30);for(let q=0;q<p;q++)g[q]/=nn;return g;};
+            const fhBil=vk=>{let s=0;for(let i=0;i<F.gamma.length;i++){const yu=dot(F.yv[i],u1),zs=F.zz[i],ts=F.tt[i];let sj=0;for(let j=0;j<zs.length;j++)sj+=ts[j]*dot(v1,zs[j])*dot(vk,zs[j]);s+=F.gamma[i]*sj*yu;}return s;};
+            // col-2 (Eq-21): additive first-order Δσ on the propagated geometry — flips growth↔decay with residual sign
+            thP[1]=clmp(S.thBase+S.thAcc2);
+            // col-3 (Eq-27): single NTK mode i with the propagated geometry + actual residual projection
+            thP[2]=clmp(S.thBase*S.thProd3);
+            const mi=Math.min(Math.max(S.qmode,1),NV0)-1,sgi=Math.sqrt(Math.max(ek.vals[mi],1e-30)),phi=dot(r,ek.vecs[mi]);
+            S.thProd3*=Math.pow(1+2*etaN*(sgi/sgT)*phi*fhBil(gnv(mi)),reps_);
+            // col-4 (Eq-29): sum over the top-|T| NTK modes
+            thP[3]=clmp(S.thBase*S.thProd4);
+            let S4=0;const NV=Math.min(Math.max(S.tset,1),NV0);
+            for(let vk=0;vk<NV;vk++){const sgv=Math.sqrt(Math.max(ek.vals[vk],1e-30)),rho=dot(r,ek.vecs[vk]);S4+=(sgv/sgT)*fhBil(gnv(vk))*rho;}
+            S.thProd4*=Math.pow(1+2*etaN*S4,reps_);
+            // advance the predicted Jacobian by Eq-15: J += (η/N) Q[Jᵀr], Q frozen at θ₀, r = ACTUAL residual.
+            // Reuse QW={∇²f_a·(Jᵀr)} for col-2's first-order Δσ = 2(η/N)√σ₁ v₁ᵀQ[u₁](Jᵀr) = 2(η/N)√σ₁ v₁ᵀΣ_a u₁_a QW[a].
+            for(let s=0;s<reps_;s++){
+              const w=new Float64Array(p);for(let a=0;a<M;a++){const c=r[a],ja=S.thJ[a];for(let q=0;q<p;q++)w[q]+=c*ja[q];}
+              const QW=jacHVP(S.thTh0,spec,X,N,inDim,p,w,eps);
+              const qu=new Float64Array(p);for(let a=0;a<M;a++){const c=u1[a],qa=QW[a];for(let q=0;q<p;q++)qu[q]+=c*qa[q];}
+              S.thAcc2+=2*etaN*sgT*dot(v1,qu);                 // col-2 Δσ (flips with residual sign — no PSD term)
+              for(let a=0;a<M;a++){const ja=S.thJ[a],qa=QW[a];for(let q=0;q<p;q++)ja[q]+=etaN*qa[q];}
+            }
+          } else if(M===1&&S.thJp){
+            // col-1 (Eq-13): additive first-order Δσ = 2η r (JᵀQ J) on the propagated J — flips with residual sign (no PSD term)
+            const sigAct=dot(fr.grad,fr.grad);thA[0]=sigAct;thP[0]=Math.min(Math.max(S.thBase+S.thAcc1,0),10*Math.max(sigAct,1e-30));
+            const rsc=r[0];for(let s=0;s<reps_;s++){const QJ=hvpF(S.thTh0,spec,X,N,inDim,p,S.thJp,eps);S.thAcc1+=2*S.lr*rsc*dot(S.thJp,QJ);for(let q=0;q<p;q++)S.thJp[q]+=S.lr*rsc*QJ[q];}
+          }
+        }
+        pushPoint(t,{loss,sharp,r,jt,jb,jtN,jbN,hfMax:feTop[0],hfMin:feBot[0],hfTop:feTop,hfBot:feBot,d4Ht,d4Hb,d4Qt,d4Qb,thP,thA,
+          hlTop:hl?hl.top:null,hlBot:hl?hl.bot:null,gnTop:gn?gn.top:null,gnBot:gn?gn.bot:null,srTop:sr?sr.top:null,srBot:sr?sr.bot:null,
+          paPos,paNeg,ntkR,ntkH,fhEvT,fhEvB,jhe1,jhe2,jhe1b,jhe2b,jh2e1,jh2e2,jh2e1b,jh2e2b,g2J,g2Jn,
+          q9t,q9b,q9tN,q9bN,q9tR,q9bR,q9gt,q9gb,q10,q10N},S.n,S.kth,S.nResid);
+        if(O.s5&&S.eigTick%S.slqStride===0){
+          refreshSLQ('p_sH',slqDensity(v=>hvpF(S.th,spec,X,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x11));
+          refreshSLQ('p_sG',slqDensity(v=>hvpG(S.th,spec,X,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x22));
+          refreshSLQ('p_sS',slqDensity(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,cS),p,S.nProbe,S.mSLQ,80,0x33));
+          refreshSLQ('p_sHL',slqDensity(v=>hvpL(S.th,spec,X,Y,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x44));
+        }
+        S.eigTick++;S.done++;
+        const sps=(S.done-segStart)/((performance.now()-t0)/1000);
+        sp.textContent=`steps/sec: ${sps.toFixed(0)}`;
+        st.textContent=`running… step ${t}/${S.steps}  ·  p=${p}, 2/lr=${S.thr.toFixed(2)}`;
+        {const gl=gradL(S.th,spec,X,Y,N,inDim,p).grad;for(let i=0;i<p;i++)S.th[i]-=S.lr*gl[i];}
+        await new Promise(r=>setTimeout(r,0));   // yield to the event loop so the UI repaints between ticks
+      } else {
+        const gl=gradL(S.th,spec,X,Y,N,inDim,p).grad;for(let i=0;i<p;i++)S.th[i]-=S.lr*gl[i];
+      }
+    }
+    if(ST&&!PAUSED&&!ABORT&&S.t>S.steps)st.textContent=`done — ${S.done} evals · p=${p} params · 2/lr=${S.thr.toFixed(3)}.`;
+  }catch(err){st.textContent='error: '+err.message;console.error(err);}
+  RUNNING=false;updateButtons();
+}
+function resetSim(){
+  ABORT=true;PAUSED=false;ST=null;cursorX=null;
+  if(ES){ES.close();ES=null;} lastT=-1;META=null;            // also drop any GPU stream
+  document.getElementById('sps').textContent='steps/sec: —';
+  document.getElementById('status').textContent='reset.';
+  PLOT_IDS.forEach(id=>{try{Plotly.purge(id);}catch(e){}});
+  updateButtons();
+}
+
+// ---- download every visible plot as a zip of PNGs (+ config.txt); tiny self-contained store-zip ----
+const _crcT=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0;}return t;})();
+function _crc32(b){let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)c=_crcT[(c^b[i])&0xFF]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
+function _zip(files){const enc=new TextEncoder(),parts=[],cd=[];let off=0;
+  const u16=v=>[v&255,(v>>>8)&255],u32=v=>[v&255,(v>>>8)&255,(v>>>16)&255,(v>>>24)&255];
+  for(const f of files){const nm=enc.encode(f.name),d=f.data,crc=_crc32(d);
+    const lh=new Uint8Array([].concat(u32(0x04034b50),u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),u32(d.length),u32(d.length),u16(nm.length),u16(0)));
+    parts.push(lh,nm,d);
+    cd.push({h:new Uint8Array([].concat(u32(0x02014b50),u16(20),u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),u32(d.length),u32(d.length),u16(nm.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(off))),nm});
+    off+=lh.length+nm.length+d.length;}
+  let cs=0;const cp=[];for(const c of cd){cp.push(c.h,c.nm);cs+=c.h.length+c.nm.length;}
+  const eo=new Uint8Array([].concat(u32(0x06054b50),u16(0),u16(0),u16(cd.length),u16(cd.length),u32(cs),u32(off),u16(0)));
+  return new Blob([...parts,...cp,eo],{type:'application/zip'});}
+function _b64bytes(durl){const s=atob(durl.split(',')[1]),a=new Uint8Array(s.length);for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return a;}
+function _cfgText(){const ids=['preset','compute','depth','width','act','bias','fixedx','inputstd','ssign','indim','outdim','nsamp','tgt','lr','init','steps','seed','neig','kth','eigevery','slqprobes','energyp','gson'];
+  const L=ids.map(id=>{const e=document.getElementById(id);return e?(id+' = '+e.value):null;}).filter(Boolean);
+  L.push('panels: '+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11'].map(id=>id+'='+(chk(id)?1:0)).join(' '));
+  const stt=document.getElementById('status');if(stt&&stt.textContent)L.push('status: '+stt.textContent);
+  return 'EoS / Progressive-Sharpening — run configuration\n\n'+L.join('\n')+'\n';}
+async function downloadPlots(){
+  const st=document.getElementById('status'),prev=st?st.textContent:'';
+  const files=[];let i=1;
+  for(const id of PLOT_IDS){const gd=document.getElementById(id);
+    if(!gd||!gd._fullLayout||gd.offsetParent===null)continue;             // visible + initialized plots only
+    let t=(gd.layout&&gd.layout.title&&gd.layout.title.text)||id;
+    t=String(t).replace(/<[^>]*>/g,'').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,56)||id;
+    if(st)st.textContent='exporting plots… '+i;
+    try{const durl=await Plotly.toImage(gd,{format:'png',scale:2,width:gd._fullLayout.width||640,height:gd._fullLayout.height||320});
+      files.push({name:String(i).padStart(2,'0')+'_'+t+'.png',data:_b64bytes(durl)});i++;}catch(e){}
+  }
+  if(!files.length){if(st)st.textContent='no visible plots to export — run something first.';return;}
+  files.push({name:'config.txt',data:new TextEncoder().encode(_cfgText())});
+  const a=document.createElement('a');a.href=URL.createObjectURL(_zip(files));
+  a.download='eos_plots_'+((document.getElementById('preset')||{}).value||'run')+'.zip';
+  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  if(st)st.textContent=prev;
+}
+
+// ---- GPU backend (server.py) over SSE — compute on the machine's GPU; browser only draws ----
+function backendURL(start){
+  const ps=new URLSearchParams();
+  ['depth','width','act','bias','fixedx','inputstd','ssign','lr','init','nsamp','indim','outdim','tgt',
+   'neig','kth','steps','eigevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset'].forEach(id=>ps.set(id,val(id)));
+  [['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
+   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
+  ps.set('start',String(start||0));
+  return 'run?'+ps.toString();
+}
+function openStream(start,resuming){
+  if(ES){ES.close();ES=null;}
+  RUNNING=true;PAUSED=false;updateButtons();
+  const st=document.getElementById('status'),sp=document.getElementById('sps');
+  st.textContent=resuming?`resuming from step ${start}…`:'connecting to GPU backend…';
+  if(!resuming)sp.textContent='steps/sec: —';
+  const finish=()=>{if(ES){ES.close();ES=null;}RUNNING=false;updateButtons();};
+  let es;try{es=new EventSource(backendURL(start));}catch(e){st.textContent='cannot reach backend: '+e.message;RUNNING=false;updateButtons();return;}
+  ES=es;
+  es.onmessage=ev=>{let m;try{m=JSON.parse(ev.data);}catch(e){return;}
+    if(m.type==='meta'){if(m.error){st.textContent=m.error;finish();return;}META=m;
+      if(!resuming)initLivePlots(m.n,m.kth,m.nResid,m.thr,m.n7,m.n8,m.multi);
+      st.textContent=`running on ${m.device} … p=${m.p}, 2/lr=${m.thr.toFixed(2)}`;
+    }else if(m.type==='step'){if(!META)return;pushPoint(m.t,m,META.n,META.kth,META.nResid);lastT=m.t;
+      if(m.sps!=null)sp.textContent=`steps/sec: ${m.sps.toFixed(1)}`;
+      st.textContent=`running on ${META.device} … step ${m.t}/${m.steps}  ·  p=${m.p}, 2/lr=${META.thr.toFixed(2)}`;
+    }else if(m.type==='slq'){if(m.sH)refreshSLQ('p_sH',m.sH);if(m.sG)refreshSLQ('p_sG',m.sG);if(m.sS)refreshSLQ('p_sS',m.sS);if(m.sHL)refreshSLQ('p_sHL',m.sHL);
+    }else if(m.type==='done'){st.textContent=`done — through step ${lastT} · p=${m.p} · 2/lr=${(META?META.thr:0).toFixed(3)}.`;finish();
+    }else if(m.type==='error'){st.textContent='backend: '+m.error;finish();}
+  };
+  es.onerror=()=>{if(RUNNING&&!PAUSED)st.textContent='backend connection lost — start it with “python server.py”, then press Run (or switch compute to browser).';finish();};
+}
+function runGPU(){
+  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),gs:val('gson')==='1'};
+  lastT=-1;META=null;cursorX=null;openStream(0,false);
+}
+function stopGPU(){ if(RUNNING){PAUSED=true;if(ES){ES.close();ES=null;}RUNNING=false;document.getElementById('status').textContent=`stopped at step ${lastT} — press Resume to continue.`;updateButtons();} }
+function resumeGPU(){ if(META&&!RUNNING&&lastT>=0&&lastT<(+val('steps')))openStream(lastT+1,true); }
+
+// ---- dispatchers: pick the backend by #compute ----
+async function run(){
+  if(curMode()==='gpu'){ if(RUNNING&&ST){ABORT=true;await new Promise(r=>setTimeout(r,40));} ST=null; runGPU(); }
+  else { if(ES){ES.close();ES=null;} META=null;lastT=-1; await runLocal(); }
+}
+function stopRun(){ curMode()==='gpu'?stopGPU():stopLocal(); }
+function resumeRun(){ curMode()==='gpu'?resumeGPU():resumeLocal(); }
+
+// ================= presets =================
+const PRESETS={
+  // default: wide deep-linear net, single sample, fixed input x=1 (p≈31k); multi-only panels auto-hidden
+  linear:{depth:4,width:100,act:'linear',bias:'0',fixedx:'1',inputstd:1.0,ssign:'off',lr:0.3,init:0.1,nsamp:1,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:400,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:1,en7:1,en8:0,en9:1,en10:1,en11:1,en12:0,qapprox:25,qmode:1,tset:3,compute:'browser'},
+  // multi-sample tanh MLP (wide, iid Gaussian); NTK / function-Hessian panels (1,4,7,4b,4c) on
+  msample:{depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.3,init:0.1,nsamp:10,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:800,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:0,en3:0,en4:1,en5:0,en6:0,en7:1,en8:0,en9:1,en10:1,en11:1,en12:0,qapprox:25,qmode:1,tset:3,compute:'browser'},
+  // large multi-sample run intended for the GPU backend: 100 samples, 4000 steps, panels 1/4/7/4b/4c/4d on
+  gpu_run:{depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.5,init:0.1,nsamp:25,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:0,en3:0,en4:1,en5:0,en6:0,en7:1,en8:0,en9:1,en10:1,en11:1,en12:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
+};
+function setVal(id,v){document.getElementById(id).value=String(v);}
+function applyPreset(name){const P=PRESETS[name];if(!P)return;for(const k in P){const el=document.getElementById(k);if(!el)continue;if(el.type==='checkbox')el.checked=!!P[k];else el.value=String(P[k]);}}
+['depth','width','act','bias','fixedx','inputstd','ssign','lr','init','nsamp','indim','outdim','tgt','neig','kth','steps','eigevery','slqprobes','energyp','gson','seed','qapprox','qmode','tset']
+  .forEach(id=>document.getElementById(id).addEventListener('input',()=>{document.getElementById('preset').value='custom';}));
+document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);run();}});
+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','gson'].forEach(id=>document.getElementById(id).addEventListener('change',run));
+document.getElementById('run').addEventListener('click',run);
+document.getElementById('stop').addEventListener('click',stopRun);
+document.getElementById('resume').addEventListener('click',resumeRun);
+document.getElementById('reset').addEventListener('click',resetSim);
+document.getElementById('dlzip').addEventListener('click',downloadPlots);
+document.getElementById('compute').addEventListener('change',run);   // switch backend → restart in that mode
+window.addEventListener('load',()=>{applyPreset('linear');run();});   // browser compute by default
+</script>
+</div>
+</body>
+</html>
