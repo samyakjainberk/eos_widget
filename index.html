@@ -254,6 +254,8 @@
 <h2>9 · Predicted vs actual sharpness $\sigma_1$</h2>
 <p class="cap">Each window freezes $Q$ at $\theta_0$ and forward-predicts the top NTK eigenvalue $\sigma_1$ (reset to the measured value at every window start). <b>Predicted</b> (blue) vs <b>actual</b> (red). <b>Col 1</b> — single sample, Eq.&nbsp;13: $J_{t+1}=(I+\eta r_tQ)J_t,\ \sigma_1=\lVert J\rVert^2$. <b>Col 2</b> — multi-sample, Eq.&nbsp;21: iterate $J_{t+1}=J_t+\tfrac{\eta}{N}Q[J^\top r]$, read $\sigma_1=\lambda_{\max}(JJ^\top)$. <b>Cols 3–4</b> — recursion $\sigma_{1,t+1}=\sigma_{1,t}\big[1+2\eta\sum_{ij}\gamma_i\tau_{ij}(v_1^\top z_{ij})^2(y_i^\top u_1)\,p_t\big]$ over one NTK mode (Eq.&nbsp;27) or the top-$|T|$ modes (Eq.&nbsp;29); $v_1^\top z_{ij}$, $y_i^\top u_1$ are GN/NTK alignments with the function-Hessian tensor (§7a/§7). Sharpening when this sum $>0$; sign-flipping residuals turn growth to decay — <i>self-stabilization</i>.</p>
 <div class="plotrow row4"><div id="p_pred1" class="plot"></div><div id="p_pred2" class="plot"></div><div id="p_pred3" class="plot"></div><div id="p_pred4" class="plot"></div></div>
+<p class="cap"><b>With the second-order PSD term.</b> The recursions above keep only the first-order $\Delta\sigma_1$, which flips sign with the residual. Expanding $\sigma_1=u_1^\top(J+\Delta J)(J+\Delta J)^\top u_1$ leaves a dropped second-order term $\lVert\Delta J^\top u_1\rVert^2=(\eta/N)^2\lVert q_u\rVert^2\ge 0$ (single-sample: $\lVert\Delta J\rVert^2=(\eta r)^2\lVert QJ\rVert^2$) — always non-negative, a sharpening floor independent of residual sign. These panels add its running sum to each prediction: <b>predicted + PSD</b> (blue) vs <b>actual</b> (red).</p>
+<div class="plotrow row4"><div id="p_predp1" class="plot"></div><div id="p_predp2" class="plot"></div><div id="p_predp3" class="plot"></div><div id="p_predp4" class="plot"></div></div>
 </div>
 
 <div id="sec_5">
@@ -523,7 +525,7 @@ function withThr(L,thr){
 }
 const emptyN=(cnt,namer,dash)=>Array.from({length:cnt},(_,i)=>({x:[],y:[],mode:'lines',name:namer(i),line:{width:1.6,color:PALETTE[i%PALETTE.length],dash:dash||'solid'}}));
 const SLQ_PLOTS=['p_sH','p_sG','p_sS','p_sHL'];
-const TIME_PLOTS=['p_loss','p_sharp','p_resid','p_eHfX','p_eHfT','p_eHLT','p_eGNT','p_eSRT','p_eHfB','p_eHLB','p_eGNB','p_eSRB','p_Jtop','p_Jbot','p_Jtopn','p_Jbotn','p_paPos','p_paNeg','p_ntkR','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb','p_pred1','p_pred2','p_pred3','p_pred4'];
+const TIME_PLOTS=['p_loss','p_sharp','p_resid','p_eHfX','p_eHfT','p_eHLT','p_eGNT','p_eSRT','p_eHfB','p_eHLB','p_eGNB','p_eSRB','p_Jtop','p_Jbot','p_Jtopn','p_Jbotn','p_paPos','p_paNeg','p_ntkR','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb','p_pred1','p_pred2','p_pred3','p_pred4','p_predp1','p_predp2','p_predp3','p_predp4'];
 const PLOT_IDS=TIME_PLOTS.concat(SLQ_PLOTS);
 function newP(id,traces,layout){Plotly.newPlot(id,traces,layout,CFG);const gd=document.getElementById(id);gd._baseShapes=layout.shapes?JSON.parse(JSON.stringify(layout.shapes)):[];}
 function slqLayout(title){const L=baseLayout(title,'density (log)',false);L.xaxis.title.text='eigenvalue';L.yaxis.type='log';L.showlegend=false;return L;}
@@ -617,6 +619,12 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_pred2',tvT(),baseLayout('multi: Eq.21 — σ₁ from Eq-15-propagated J (residuals only)','σ₁',false));
   newP('p_pred3',tvT(),baseLayout('multi: Eq.27 (residual ∝ NTK mode i)','σ₁',false));
   newP('p_pred4',tvT(),baseLayout('multi: Eq.29 (sum over top-|T| NTK modes)','σ₁',false));
+  // §9b — same four predictions with the 2nd-order PSD term ‖ΔJᵀu₁‖² added: predicted+PSD (blue) vs actual (red)
+  const tvP=lab=>[{x:[],y:[],mode:'lines',name:'predicted + PSD',line:{color:'#2563eb',width:1.9}},{x:[],y:[],mode:'lines',name:'actual',line:{color:'#dc2626',width:1.6}}];
+  newP('p_predp1',tvP(),baseLayout('single-sample Eq.13 + PSD term ‖ΔJ‖²','σ₁',false));
+  newP('p_predp2',tvP(),baseLayout('multi Eq.21 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
+  newP('p_predp3',tvP(),baseLayout('multi Eq.27 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
+  newP('p_predp4',tvP(),baseLayout('multi Eq.29 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
   attachHover();
   resizeAllPlots();
 }
@@ -638,8 +646,8 @@ const ids=(cnt)=>Array.from({length:cnt},(_,i)=>i);
 // CE. §1–§4/§6 always compute.
 const NA_NTK=['p_ntkR','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N'];
 const NA_4D=['p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb'];
-const NA_THEORY1=['p_pred1'];                          // §9 col 1 — single-sample (Eq 13)
-const NA_THEORY_M=['p_pred2','p_pred3','p_pred4'];      // §9 cols 2-4 — multi-sample (Eq 21/27/29)
+const NA_THEORY1=['p_pred1','p_predp1'];                          // §9/§9b col 1 — single-sample (Eq 13)
+const NA_THEORY_M=['p_pred2','p_pred3','p_pred4','p_predp2','p_predp3','p_predp4'];  // §9/§9b cols 2-4 — multi (Eq 21/27/29)
 function _na(ids,msg){ids.forEach(id=>{const gd=document.getElementById(id);if(gd&&gd.offsetParent!==null)try{Plotly.relayout(id,{annotations:[{text:msg,xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:11,color:'#94a3b8'},align:'center'}]});}catch(e){}});}
 function markUnavailable(multi,multiOk,ce){
   if(!multiOk) _na(NA_NTK, multi?'n/a — too large for this run<br>(NTK Jacobian M×p)':'n/a for a single sample<br>(needs ≥2 samples)');
@@ -661,6 +669,7 @@ function clearNAonData(D){
   const C=(cond,...ids)=>{if(!cond)return;ids.forEach(id=>{const gd=document.getElementById(id);
     if(gd&&gd.layout&&gd.layout.annotations&&gd.layout.annotations.length)try{Plotly.relayout(id,{annotations:[]});}catch(e){}});};
   if(D.thP)for(let c=0;c<4;c++)C(D.thP[c]!=null||D.thA&&D.thA[c]!=null,'p_pred'+(c+1));   // §9 per column
+  if(D.thPpsd)for(let c=0;c<4;c++)C(D.thPpsd[c]!=null||D.thA&&D.thA[c]!=null,'p_predp'+(c+1));   // §9b per column
   C(D.ntkR,'p_ntkR'); C(D.ntkH,'p_ntkH');                                                  // §7a
   C(D.fhEvT,'p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b'); // §7
   C(D.g2J,'p_g2J','p_g2Jn');                                                               // §8
@@ -742,6 +751,10 @@ function pushPoint(t,D,n,kth,nResid){
   if(OPT.s12&&D.thP){   // theory vs empirical — 4 panels, each [predicted, actual]
     for(let c=0;c<4;c++){const pv=D.thP[c],av=D.thA[c];if(pv==null&&av==null)continue;
       Plotly.extendTraces('p_pred'+(c+1),{x:[[t],[t]],y:[[pv],[av]]},[0,1]);}
+  }
+  if(OPT.s12&&D.thPpsd){   // §9b — predicted + PSD term vs actual
+    for(let c=0;c<4;c++){const pv=D.thPpsd[c],av=D.thA&&D.thA[c];if(pv==null&&av==null)continue;
+      Plotly.extendTraces('p_predp'+(c+1),{x:[[t],[t]],y:[[pv],[av]]},[0,1]);}
   }
 }
 
@@ -860,7 +873,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
       needVecs,needVals,prevTop:Array(nSub).fill(null),prevBot:Array(nSub).fill(null),prevPos:null,prevNeg:null,
       pNtk:Array(n).fill(null),pVH:Array(n).fill(null),pUJ:Array(n).fill(null),pM1:[null,null,null,null],pM2:[null,null,null,null],pG2:Array(n).fill(null),
       pU1k:Array(n).fill(null),pQ9t:Array(n).fill(null),pQ9b:Array(n).fill(null),
-      qapprox,qmode,tset,thT0:-1,thTh0:null,thBase:0,thJp:null,thJ:null,thFroz:null,thAcc1:0,thAcc2:0,thProd3:1,thProd4:1,
+      qapprox,qmode,tset,thT0:-1,thTh0:null,thBase:0,thJp:null,thJ:null,thFroz:null,thAcc1:0,thAcc2:0,thProd3:1,thProd4:1,thAccPSD:0,thAccPSD1:0,
       t:0,eigTick:0,done:0};
   loop();
 }
@@ -1013,16 +1026,16 @@ async function loop(){                                   // drives ST forward; r
         // §9 (sec_12): theory vs empirical σ₁. At each window start freeze θ₀, the function Hessian Q, and the
         // Jacobian J₀; then iterate Eq-15  J_{t+1}=J_t+(η/N)Q[Jᵀr]  using ONLY the actual residuals r_t, and read
         // σ₁,u₁,v₁ from the propagated J. col-2 = σ₁=λmax(JJᵀ); col-3/4 = Eq-27/29 analytic forms on that geometry.
-        let thP=null,thA=null;
+        let thP=null,thA=null,thPpsd=null;
         if(O.s12){
           const W=Math.max(1,S.qapprox), etaN=S.lr/Math.max(N,1), reps_=Math.max(1,S.eigEvery);
           if(S.thT0<0||(t-S.thT0)>=W){            // window start: freeze θ₀, J₀, FH-SVD; reset col-3/4 products
-            S.thT0=t;S.thTh0=S.th.slice();S.thAcc1=0;S.thAcc2=0;S.thProd3=1;S.thProd4=1;
+            S.thT0=t;S.thTh0=S.th.slice();S.thAcc1=0;S.thAcc2=0;S.thProd3=1;S.thProd4=1;S.thAccPSD=0;S.thAccPSD1=0;
             if(M>1){S.thJ=jacCols(S.th,spec,X,N,inDim,p).cols;S.thFroz=computeFHfrozen(S.th,spec,X,N,inDim,p,eps,S.nProbe,Math.min(S.n,M),2,S.mV,M);
               const K0=new Float64Array(M*M);for(let a=0;a<M;a++)for(let b=a;b<M;b++){const v=dot(S.thJ[a],S.thJ[b]);K0[a*M+b]=v;K0[b*M+a]=v;}S.thBase=symEigDesc(K0,M).vals[0];}
             else{S.thJp=fr.grad.slice();S.thBase=dot(fr.grad,fr.grad);}
           }
-          thP=[null,null,null,null];thA=[null,null,null,null];
+          thP=[null,null,null,null];thA=[null,null,null,null];thPpsd=[null,null,null,null];
           if(M>1&&S.thJ&&S.thFroz&&bEk){
             const Jt=S.thJ,F=S.thFroz;
             const Km=new Float64Array(M*M);for(let a=0;a<M;a++)for(let b=a;b<M;b++){const v=dot(Jt[a],Jt[b]);Km[a*M+b]=v;Km[b*M+a]=v;}
@@ -1035,6 +1048,9 @@ async function loop(){                                   // drives ST forward; r
             const fhBil=vk=>{let s=0;for(let i=0;i<F.gamma.length;i++){const yu=dot(F.yv[i],u1),zs=F.zz[i],ts=F.tt[i];let sj=0;for(let j=0;j<zs.length;j++)sj+=ts[j]*dot(v1,zs[j])*dot(vk,zs[j]);s+=F.gamma[i]*sj*yu;}return s;};
             // col-2 (Eq-21): additive first-order Δσ on the propagated geometry — flips growth↔decay with residual sign
             thP[1]=clmp(S.thBase+S.thAcc2);
+            // §9b: same predictions + the dropped 2nd-order PSD term Σ‖ΔJᵀu₁‖² (always ≥0 — a sharpening floor)
+            thPpsd[1]=clmp(S.thBase+S.thAcc2+S.thAccPSD);
+            thPpsd[2]=clmp(S.thBase*S.thProd3+S.thAccPSD);thPpsd[3]=clmp(S.thBase*S.thProd4+S.thAccPSD);
             // col-3 (Eq-27): single NTK mode i with the propagated geometry + actual residual projection
             thP[2]=clmp(S.thBase*S.thProd3);
             const mi=Math.min(Math.max(S.qmode,1),NV0)-1,sgi=Math.sqrt(Math.max(ek.vals[mi],1e-30)),phi=dot(r,ek.vecs[mi]);
@@ -1050,16 +1066,19 @@ async function loop(){                                   // drives ST forward; r
               const w=new Float64Array(p);for(let a=0;a<M;a++){const c=r[a],ja=S.thJ[a];for(let q=0;q<p;q++)w[q]+=c*ja[q];}
               const QW=jacHVP(S.thTh0,spec,X,N,inDim,p,w,eps);
               const qu=new Float64Array(p);for(let a=0;a<M;a++){const c=u1[a],qa=QW[a];for(let q=0;q<p;q++)qu[q]+=c*qa[q];}
-              S.thAcc2+=2*etaN*sgT*dot(v1,qu);                 // col-2 Δσ (flips with residual sign — no PSD term)
+              S.thAcc2+=2*etaN*sgT*dot(v1,qu);                 // col-2 Δσ (first-order, flips with residual sign)
+              S.thAccPSD+=etaN*etaN*dot(qu,qu);                // §9b: 2nd-order PSD term ‖ΔJᵀu₁‖² = (η/N)²‖qu‖²
               for(let a=0;a<M;a++){const ja=S.thJ[a],qa=QW[a];for(let q=0;q<p;q++)ja[q]+=etaN*qa[q];}
             }
           } else if(M===1&&S.thJp){
-            // col-1 (Eq-13): additive first-order Δσ = 2η r (JᵀQ J) on the propagated J — flips with residual sign (no PSD term)
-            const sigAct=dot(fr.grad,fr.grad);thA[0]=sigAct;thP[0]=Math.min(Math.max(S.thBase+S.thAcc1,0),10*Math.max(sigAct,1e-30));
-            const rsc=r[0];for(let s=0;s<reps_;s++){const QJ=hvpF(S.thTh0,spec,X,N,inDim,p,S.thJp,eps);S.thAcc1+=2*S.lr*rsc*dot(S.thJp,QJ);for(let q=0;q<p;q++)S.thJp[q]+=S.lr*rsc*QJ[q];}
+            // col-1 (Eq-13): additive first-order Δσ = 2η r (JᵀQ J) on the propagated J — flips with residual sign
+            const sigAct=dot(fr.grad,fr.grad);thA[0]=sigAct;const CAP0=10*Math.max(sigAct,1e-30);
+            thP[0]=Math.min(Math.max(S.thBase+S.thAcc1,0),CAP0);
+            thPpsd[0]=Math.min(Math.max(S.thBase+S.thAcc1+S.thAccPSD1,0),CAP0);   // §9b: + Σ‖ΔJ‖² (≥0)
+            const rsc=r[0];for(let s=0;s<reps_;s++){const QJ=hvpF(S.thTh0,spec,X,N,inDim,p,S.thJp,eps);S.thAcc1+=2*S.lr*rsc*dot(S.thJp,QJ);S.thAccPSD1+=(S.lr*rsc)*(S.lr*rsc)*dot(QJ,QJ);for(let q=0;q<p;q++)S.thJp[q]+=S.lr*rsc*QJ[q];}
           }
         }
-        pushPoint(t,{loss,sharp,r,jt,jb,jtN,jbN,hfMax:feTop[0],hfMin:feBot[0],hfTop:feTop,hfBot:feBot,d4Ht,d4Hb,d4Qt,d4Qb,thP,thA,
+        pushPoint(t,{loss,sharp,r,jt,jb,jtN,jbN,hfMax:feTop[0],hfMin:feBot[0],hfTop:feTop,hfBot:feBot,d4Ht,d4Hb,d4Qt,d4Qb,thP,thA,thPpsd,
           hlTop:hl?hl.top:null,hlBot:hl?hl.bot:null,gnTop:gn?gn.top:null,gnBot:gn?gn.bot:null,srTop:sr?sr.top:null,srBot:sr?sr.bot:null,
           paPos,paNeg,ntkR,ntkH,fhEvT,fhEvB,jhe1,jhe2,jhe1b,jhe2b,jh2e1,jh2e2,jh2e1b,jh2e2b,g2J,g2Jn,
           q9t,q9b,q9tN,q9bN,q9tR,q9bR,q9gt,q9gb,q10,q10N},S.n,S.kth,S.nResid);

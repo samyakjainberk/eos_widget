@@ -1158,6 +1158,7 @@ def run_stream(P):
     qapprox = max(1, P["qapprox"]); qmode = P["qmode"]; tset = P["tset"]   # §9 window + Eq-27 mode i + Eq-29 |T|
     thT0 = -1; thTh0 = None; thBase = 0.0; thJp = None; thJ = None; thFroz = None
     thAcc1 = 0.0; thAcc2 = 0.0; thProd3 = 1.0; thProd4 = 1.0
+    thAccPSD = 0.0; thAccPSD1 = 0.0     # §9b: accumulated 2nd-order PSD term ‖ΔJᵀu₁‖² (≥0), single/multi
 
     for t in range(steps + 1):
         if mytok != RUN_TOKEN.get(_devkey, mytok):
@@ -1364,11 +1365,13 @@ def run_stream(P):
                 d4Qb = [float(Jrp @ qeB[k]) for k in range(n)] + [float(Jrn @ qeB[k]) for k in range(n)]
 
             # §9 theory vs empirical σ₁ over frozen-Q windows (η/N effective step). thP=predicted, thA=actual.
-            thP = thA = None
+            # thPpsd = thP plus the dropped 2nd-order PSD term Σ‖ΔJᵀu₁‖² (§9b panels).
+            thP = thA = thPpsd = None
             if s12:
                 etaN = lr / max(N, 1); reps_ = max(1, ee)
                 if thT0 < 0 or (t - thT0) >= qapprox:               # window start: freeze θ₀, J₀, FH; reset accumulators
                     thT0 = t; thTh0 = th.clone(); thAcc1 = 0.0; thAcc2 = 0.0; thProd3 = 1.0; thProd4 = 1.0
+                    thAccPSD = 0.0; thAccPSD1 = 0.0
                     if multi_ok:
                         thJ, _ = jac_cols(th, X)                  # predicted Jacobian J₀ (M, p)
                         thFroz = fh_frozen(th, X, nProbe, min(n, M), 2, mV, M)
@@ -1376,6 +1379,7 @@ def run_stream(P):
                     elif not multi:
                         Jc0, _ = gradF(th, X); thJp = Jc0.clone(); thBase = float(Jc0 @ Jc0)
                 thP = [None, None, None, None]; thA = [None, None, None, None]
+                thPpsd = [None, None, None, None]   # §9b: prediction + accumulated 2nd-order PSD term ‖ΔJᵀu₁‖²
                 if multi_ok and thJ is not None and thFroz is not None and bEk_vals is not None:
                     Jt = thJ; F = thFroz
                     Kw, Vw = sym_eig_desc(Jt @ Jt.t())                  # propagated NTK eigen
@@ -1397,6 +1401,9 @@ def run_stream(P):
                         return s
                     thP[1] = clmp(thBase + thAcc2)                      # col-2 (Eq-21): additive first-order Δσ (flips with residual sign)
                     thP[2] = clmp(thBase*thProd3); thP[3] = clmp(thBase*thProd4)
+                    # §9b: same predictions + the dropped 2nd-order PSD term Σ‖ΔJᵀu₁‖² (always ≥0 — a sharpening floor)
+                    thPpsd[1] = clmp(thBase + thAcc2 + thAccPSD)
+                    thPpsd[2] = clmp(thBase*thProd3 + thAccPSD); thPpsd[3] = clmp(thBase*thProd4 + thAccPSD)
                     mi = min(max(qmode, 1), NV0) - 1                    # col-3 (Eq-27): single NTK mode i
                     sgi = math.sqrt(max(float(Kw[mi]), 1e-30)); phi = float(rr @ Vw[:, mi])
                     thProd3 *= (1 + 2 * etaN * (sgi/sgT) * phi * fhBil(gnv(mi))) ** reps_
@@ -1409,22 +1416,29 @@ def run_stream(P):
                         QW = jac_hvp(thTh0, X, thJ.t() @ rr)      # {∇²f_a·(Jᵀr)} at θ₀
                         qu = (u1.unsqueeze(1) * QW).sum(0)              # Q[u₁](Jᵀr) = Σ_a u₁_a QW[a]
                         thAcc2 += 2 * etaN * sgT * float(v1 @ qu)       # col-2 Δσ (first-order, flips with residual sign)
+                        thAccPSD += (etaN ** 2) * float(qu @ qu)        # §9b: 2nd-order PSD term ‖ΔJᵀu₁‖² = (η/N)²‖qu‖²
                         thJ = thJ + etaN * QW
                 elif not multi and thJp is not None:
                     # col-1 (Eq-13): additive first-order Δσ = 2η r (JᵀQ J) on propagated J — flips with residual sign
                     Jcur, ocur = gradF(th, X); sigAct = float(Jcur @ Jcur); thA[0] = sigAct
-                    thP[0] = min(max(thBase + thAcc1, 0.0), 10*max(sigAct, 1e-30)); rsc = float((Y.reshape(-1) - ocur)[0])
+                    cap0 = 10*max(sigAct, 1e-30)
+                    thP[0] = min(max(thBase + thAcc1, 0.0), cap0); rsc = float((Y.reshape(-1) - ocur)[0])
+                    thPpsd[0] = min(max(thBase + thAcc1 + thAccPSD1, 0.0), cap0)   # §9b: + Σ‖ΔJ‖² (≥0)
                     for _ in range(reps_):
-                        QJ = hvpF(thTh0, X, thJp); thAcc1 += 2 * lr * rsc * float(thJp @ QJ); thJp = thJp + lr * rsc * QJ
+                        QJ = hvpF(thTh0, X, thJp)
+                        thAcc1 += 2 * lr * rsc * float(thJp @ QJ)
+                        thAccPSD1 += ((lr * rsc) ** 2) * float(QJ @ QJ)   # §9b: ‖ΔJ‖² = (η r)²‖QJ‖²
+                        thJp = thJp + lr * rsc * QJ
 
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness λmax(∇²L) ≈ λmax(GN) = σ₁/N
             thPr = [(x / N if x is not None else None) for x in thP] if thP else None
             thAr = [(x / N if x is not None else None) for x in thA] if thA else None
+            thPpsdR = [(x / N if x is not None else None) for x in thPpsd] if thPpsd else None
 
             yield {
                 "type": "step", "t": t, "steps": steps, "p": p,
                 "loss": loss, "sharp": sharp,
-                "thP": thPr, "thA": thAr,
+                "thP": thPr, "thA": thAr, "thPpsd": thPpsdR,
                 "r": ([] if r is None else r[:nResid].detach().cpu().tolist()),
                 "hfMax": (feTop[0] if feTop else None),
                 "hfMin": (feBot[0] if feBot else None),
