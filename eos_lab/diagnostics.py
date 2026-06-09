@@ -66,6 +66,7 @@ class Diagnostics:
         self.s7, self.s8, self.s9, self.s10, self.s11, self.s12 = (
             P["s7"], P["s8"], P["s9"], P["s10"], P["s11"], P["s12"])
         self.s13 = P.get("s13", 0)          # §7a NTK alignment (residual→NTK, NTK→FH-SVD)
+        self.s14 = P.get("s14", 0)          # §9c: σ₁ predictions vs the FULL loss-Hessian sharpness λmax(∇²L)
         if loss.name == "ce":
             # CE uses the generic residual r = −∂L/∂z = softmax(z)−onehot (the loss-output cotangent). §4
             # (J→H) and §6 (rotation) are model-only; §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) plus
@@ -359,11 +360,17 @@ class Diagnostics:
             rec["d4Qb"] = [float(Jrp @ qeB[k]) for k in range(n)] + [float(Jrn @ qeB[k]) for k in range(n)]
 
         # ---- §9 theory vs empirical σ₁ over frozen-Q windows ----
-        if self.s12:
+        if self.s12 or self.s14:
             thP, thA, thPpsd = self._theory_step(th, X, Y, t, J, out, rr, bEk_vals)
             rec["thP"] = [(x / N if x is not None else None) for x in thP] if thP else None
             rec["thA"] = [(x / N if x is not None else None) for x in thA] if thA else None
             rec["thPpsd"] = [(x / N if x is not None else None) for x in thPpsd] if thPpsd else None
+            if self.s14:   # §9c actual: full loss-Hessian sharpness λmax(∇²L) (per-sample; reuse §1's if present)
+                sh = rec.get("sharpness")
+                if sh is None:
+                    sh = float(lanczos_extreme_vals(self._hL(th, X, Y), self.p, 1, self.mV, SEED_L,
+                                                    self.device, self.dtype)[0][0])
+                rec["thAH"] = sh
 
         # ---- §5 SLQ spectral densities (expensive) ----
         if self.s5:

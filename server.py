@@ -1094,6 +1094,7 @@ def run_stream(P):
                                   P["s5"], P["s6"], P["gs"])
     s7, s8, s9, s10, s11, s12 = P["s7"], P["s8"], P["s9"], P["s10"], P["s11"], P["s12"]
     s13 = P.get("s13", 0)                # §7a NTK alignment (residual→NTK, NTK→FH-SVD)
+    s14 = P.get("s14", 0)                # §9c: σ₁ predictions vs the FULL loss-Hessian sharpness λmax(∇²L)
     if _TL.loss.name == "ce":            # CE: §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) and the generic
         s11 = s12 = False                #   residual r=−∂L/∂z (= softmax−onehot), so they're valid. Off for CE:
                                          #   §4d (sign-groups need a scalar residual) and §9 (squared-loss σ₁).
@@ -1366,8 +1367,14 @@ def run_stream(P):
 
             # §9 theory vs empirical σ₁ over frozen-Q windows (η/N effective step). thP=predicted, thA=actual.
             # thPpsd = thP plus the dropped 2nd-order PSD term Σ‖ΔJᵀu₁‖² (§9b panels).
+            # thAH = the FULL loss-Hessian sharpness λmax(∇²L)=λmax(G+S) — §9c compares the predictions
+            # against it instead of the Gauss-Newton edge thA (=λmax(G)); the gap is the residual term S.
             thP = thA = thPpsd = None
-            if s12:
+            thAH = None
+            if s14:                       # §9c actual: full loss-Hessian sharpness λmax(∇²L) (reuse §1's if present)
+                thAH = sharp if sharp is not None else float(lanczos_extreme_vals(
+                    lambda v: hvpL(th, X, Y, v), p, 1, mV, 0x5EED1)[0][0])
+            if s12 or s14:
                 etaN = lr / max(N, 1); reps_ = max(1, ee)
                 if thT0 < 0 or (t - thT0) >= qapprox:               # window start: freeze θ₀, J₀, FH; reset accumulators
                     thT0 = t; thTh0 = th.clone(); thAcc1 = 0.0; thAcc2 = 0.0; thProd3 = 1.0; thProd4 = 1.0
@@ -1438,7 +1445,7 @@ def run_stream(P):
             yield {
                 "type": "step", "t": t, "steps": steps, "p": p,
                 "loss": loss, "sharp": sharp,
-                "thP": thPr, "thA": thAr, "thPpsd": thPpsdR,
+                "thP": thPr, "thA": thAr, "thPpsd": thPpsdR, "thAH": thAH,
                 "r": ([] if r is None else r[:nResid].detach().cpu().tolist()),
                 "hfMax": (feTop[0] if feTop else None),
                 "hfMin": (feBot[0] if feBot else None),
@@ -1820,6 +1827,7 @@ def _parse_params(q):
         "s7": g("s7", "1") == "1", "s8": g("s8", "1") == "1", "s9": g("s9", "1") == "1",
         "s10": g("s10", "1") == "1", "s11": g("s11", "1") == "1", "s12": g("s12", "0") == "1",
         "s13": g("s13", "1") == "1",
+        "s14": g("s14", "0") == "1",     # §9c: σ₁ predictions vs full loss-Hessian sharpness
         "gs": g("gson", "1") == "1",
         # surrogate-section panel toggles (loss · resid mean/std · top-n eig · histogram · theory · §4 · §4d)
         "c1": g("c1", "1") == "1", "c2": g("c2", "1") == "1", "c3": g("c3", "1") == "1",

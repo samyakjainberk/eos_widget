@@ -239,6 +239,39 @@ def plot_section9(series, meta):
     return fig
 
 
+def plot_section9c(series, meta):
+    """§9c — the same Eq-13/21/27/29 σ₁ predictions, but compared against the FULL loss-Hessian
+    sharpness λmax(∇²L)=λmax(G+S) (the EoS quantity) instead of the Gauss-Newton edge λmax(G).
+    Each column: predicted, predicted+PSD, and the full-Hessian sharpness; the gap is the residual S."""
+    thP = series.get("thP"); thPpsd = series.get("thPpsd"); thAH = series.get("thAH")
+    if thP is None or thAH is None or not any(y == y for y in thAH):
+        return None
+    t = series["t"]
+    labels = ["Eq-13 (single)", "Eq-21 (col-2)", "Eq-27 (col-3)", "Eq-29 (col-4)"]
+
+    def col(arr, i):
+        return arr[i] if (arr is not None and i < len(arr)) else None
+
+    present = [i for i in range(4) if any(y == y for y in (col(thP, i) or []))]
+    if not present:
+        return None
+    fig, axs = plt.subplots(1, len(present), figsize=(4.5 * len(present), 3.3), squeeze=False)
+    for ax, i in zip(axs[0], present):
+        ax.plot(*_finite(t, col(thP, i)), label="predicted")
+        if col(thPpsd, i) is not None:
+            ax.plot(*_finite(t, col(thPpsd, i)), label="predicted + PSD")
+        ax.plot(*_finite(t, thAH), ls="--", color="tab:red", label="sharpness λmax(∇²L)")
+        ref = [y for y in thAH if y == y] or [y for y in (col(thP, i) or []) if y == y]
+        if ref:
+            lo, hi = min(ref), max(ref)
+            pad = 0.3 * (hi - lo) + 1e-9
+            ax.set_ylim(min(lo - pad, 0.0) if lo >= 0 else lo - pad, hi + pad)
+        ax.set_title(labels[i]); ax.set_xlabel("step"); ax.legend(fontsize=8)
+    fig.suptitle("§9c — σ₁ predictions vs the full-Hessian sharpness", fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    return fig
+
+
 def save_panels(results, outdir):
     """Render every supported section to PNGs in `outdir`. Returns the list of files written."""
     os.makedirs(outdir, exist_ok=True)
@@ -255,7 +288,8 @@ def save_panels(results, outdir):
             "section4b_Jr_onto_Q": plot_section4b(series),
             "section4c_QJr_onto_GN": plot_section4c(series),
             "section4d_sign_groups": plot_section4d(series),
-            "section9_theory_vs_empirical": plot_section9(series, meta)}
+            "section9_theory_vs_empirical": plot_section9(series, meta),
+            "section9c_theory_vs_full_hessian": plot_section9c(series, meta)}
     written = []
     for name, fig in figs.items():
         if fig is None:

@@ -156,7 +156,7 @@ def _to_series(history):
     steps = [r["t"] for r in history]
     s = {"t": steps}
     scalar_keys = ["loss", "test_loss", "sharpness", "thr", "resid_mean", "resid_rms",
-                   "H_edge_max", "H_edge_min", "dim_pos", "dim_neg"]
+                   "H_edge_max", "H_edge_min", "dim_pos", "dim_neg", "thAH"]
     for k in scalar_keys:
         if any(k in r for r in history):
             s[k] = [r.get(k, math.nan) for r in history]

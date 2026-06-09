@@ -41,7 +41,7 @@ def run_name(cfg):
 
 # ----------------------------------------------------------------------------- per-step flattening
 _SCALARS = ["loss", "test_loss", "sharpness", "thr", "resid_mean", "resid_rms",
-            "H_edge_max", "H_edge_min", "dim_pos", "dim_neg"]
+            "H_edge_max", "H_edge_min", "dim_pos", "dim_neg", "thAH"]
 _VECTORS = ["H_top", "H_bot", "lossH_top", "lossH_bot", "G_top", "G_bot", "S_top", "S_bot",
             "jt", "jb", "jtN", "jbN", "ntkR", "ntkH", "fhEvT", "fhEvB",
             "jhe1", "jhe2", "jhe1b", "jhe2b", "jh2e1", "jh2e2", "jh2e1b", "jh2e2b",
