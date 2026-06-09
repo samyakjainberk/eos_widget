@@ -1078,8 +1078,9 @@ def run_stream(P):
                                   P["s5"], P["s6"], P["gs"])
     s7, s8, s9, s10, s11, s12 = P["s7"], P["s8"], P["s9"], P["s10"], P["s11"], P["s12"]
     s13 = P.get("s13", 0)                # §7a NTK alignment (residual→NTK, NTK→FH-SVD)
-    if _TL.loss.name == "ce":            # CE keeps the loss-independent geometry §4 (J→H) and §6 (H rotation);
-        s7 = s8 = s9 = s10 = s11 = s12 = s13 = False   # §7/§7a/§8/§4b–d need the M×p Jacobian, §9 is MSE-only
+    if _TL.loss.name == "ce":            # CE: §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) and the generic
+        s11 = s12 = False                #   residual r=−∂L/∂z (= softmax−onehot), so they're valid. Off for CE:
+                                         #   §4d (sign-groups need a scalar residual) and §9 (squared-loss σ₁).
     nSub = min(max(n, kth, (10 if s6 else 1)), half)
     # minibatch-for-everything: each step samples `bs` of the `Nfull`-sequence pool and uses that sample
     # for BOTH the GD step and that step's diagnostics. bs==Nfull ⇒ deterministic full batch (default).
@@ -1089,6 +1090,9 @@ def run_stream(P):
     N = bs                                  # diagnostics + loss normalisation run on the minibatch
     M = N * outD
     multi = M > 1
+    # The multi-sample sections form the explicit M×p Jacobian Jc (and an M×M Gram), so gate them by a
+    # size budget (mirrors eos_lab): feasible for e.g. CIFAR-CE (M≈N·10), infeasible for OWT (M=N·T·vocab).
+    multi_ok = multi and M <= 2048 and M * p <= 700_000_000
     n7 = min(n, max(M, 1))
     n8 = min(n, max(1, p // 2))
     nResid = min(M, 12)
@@ -1100,7 +1104,7 @@ def run_stream(P):
         return
     ce = _TL.loss.name == "ce"
     yield {"type": "meta", "p": p, "n": n, "kth": kth, "nResid": nResid, "thr": thr,
-           "n7": n7, "n8": n8, "multi": multi, "loss": _TL.loss.name, "arch": arch, "dataset": dataset,
+           "n7": n7, "n8": n8, "multi": multi, "multi_ok": multi_ok, "loss": _TL.loss.name, "arch": arch, "dataset": dataset,
            "device": f"{_dev()} · {str(DTYPE).replace('torch.', '')}"}
 
     # ---- data + init (shared helper): synthetic = mulberry32 (browser-identical); cifar/sorting = real data ----
@@ -1212,14 +1216,14 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if multi and (s7 or s8 or s9 or s10 or s11 or s12 or s13):
+            if multi_ok and (s7 or s8 or s9 or s10 or s11 or s12 or s13):
                 Jc, out_flat = jac_cols(th, X)
-                rr = Y.reshape(-1) - out_flat
+                rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None
             jhe1 = jhe2 = jhe1b = jhe2b = jh2e1 = jh2e2 = jh2e1b = jh2e2b = None
-            if (s7 or s13) and multi:
+            if (s7 or s13) and multi_ok:
                 Kv, Vk = sym_eig_desc(Jc @ Jc.t())                 # NTK eigen
                 for k in range(n7):
                     Vk[:, k] = sign_to(Vk[:, k], prevNtk[k]); prevNtk[k] = Vk[:, k]
@@ -1265,7 +1269,7 @@ def run_stream(P):
 
             # §8 vec(J) onto right singular vecs of the p×(p·dₙ) FH reshape
             g2J = g2Jn = None
-            if s8 and multi:
+            if s8 and multi_ok:
                 jfn = max(float(Jc.norm()), 1e-30)                 # ‖J‖_F
                 wv = torch.zeros(p, dtype=DTYPE, device=_dev())
                 for a in range(M):
@@ -1281,7 +1285,7 @@ def run_stream(P):
             # ---- §4b/§4c/§4d base: NTK top eigvec u₁ (deterministic sign), J·r ----
             u1s = Jrs = bEk_vecs = bEk_vals = None
             Jrns = Rn = 1.0
-            if multi and (s9 or s10 or s11 or s12):
+            if multi_ok and (s9 or s10 or s11 or s12):
                 Kb, Vb = sym_eig_desc(Jc @ Jc.t())
                 for k in range(n):
                     Vb[:, k] = pin_sign(Vb[:, k])
@@ -1293,7 +1297,7 @@ def run_stream(P):
 
             # Q[u₁] eigvecs (shared by §4b and §4d), sign-tracked once
             qeT = qeB = None
-            if multi and (s9 or s11):
+            if multi_ok and (s9 or s11):
                 qeT, qeB, _, _ = lanczos_extreme(
                     lambda v: hvpS(th, X, v, u1s.reshape(N, outD)), p, n, mV, 0xC0DE1)
                 for k in range(n):
@@ -1302,7 +1306,7 @@ def run_stream(P):
 
             # §4b J·r onto eigvecs of Q[u₁]; alignment with GN top eigvec g₁=J u₁/‖J u₁‖
             q9t = q9b = q9tN = q9bN = q9tR = q9bR = q9gt = q9gb = None
-            if s9 and multi:
+            if s9 and multi_ok:
                 g1 = Jc.t() @ u1s
                 g1 = g1 / max(float(g1.norm()), 1e-30)
                 q9t = [float(Jrs @ qeT[k]) for k in range(n)]
@@ -1314,7 +1318,7 @@ def run_stream(P):
 
             # §4c Q[u₁]·(J·r) onto GN eigvecs g_k = J v_k/‖·‖
             q10 = q10N = None
-            if s10 and multi:
+            if s10 and multi_ok:
                 QJr = hvpS(th, X, Jrs, u1s.reshape(N, outD))
                 qn = max(float(QJr.norm()), 1e-30)
                 q10 = []
@@ -1326,7 +1330,7 @@ def run_stream(P):
 
             # §4d per-group J / J·r onto the shared H and Q[u₁] eigvecs
             d4Ht = d4Hb = d4Qt = d4Qb = None
-            if s11 and multi and feTV is not None and qeT is not None:
+            if s11 and multi_ok and feTV is not None and qeT is not None:
                 def _grp(rows, weighted):
                     if rows.numel() == 0:
                         return torch.zeros(p, dtype=DTYPE, device=_dev())
@@ -1347,14 +1351,14 @@ def run_stream(P):
                 etaN = lr / max(N, 1); reps_ = max(1, ee)
                 if thT0 < 0 or (t - thT0) >= qapprox:               # window start: freeze θ₀, J₀, FH; reset accumulators
                     thT0 = t; thTh0 = th.clone(); thAcc1 = 0.0; thAcc2 = 0.0; thProd3 = 1.0; thProd4 = 1.0
-                    if multi:
+                    if multi_ok:
                         thJ, _ = jac_cols(th, X)                  # predicted Jacobian J₀ (M, p)
                         thFroz = fh_frozen(th, X, nProbe, min(n, M), 2, mV, M)
                         thBase = float(torch.linalg.eigvalsh(thJ @ thJ.t())[-1])
-                    else:
+                    elif not multi:
                         Jc0, _ = gradF(th, X); thJp = Jc0.clone(); thBase = float(Jc0 @ Jc0)
                 thP = [None, None, None, None]; thA = [None, None, None, None]
-                if multi and thJ is not None and thFroz is not None and bEk_vals is not None:
+                if multi_ok and thJ is not None and thFroz is not None and bEk_vals is not None:
                     Jt = thJ; F = thFroz
                     Kw, Vw = sym_eig_desc(Jt @ Jt.t())                  # propagated NTK eigen
                     NV0 = min(n, M)

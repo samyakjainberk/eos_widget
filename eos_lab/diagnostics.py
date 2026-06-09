@@ -67,12 +67,12 @@ class Diagnostics:
             P["s7"], P["s8"], P["s9"], P["s10"], P["s11"], P["s12"])
         self.s13 = P.get("s13", 0)          # §7a NTK alignment (residual→NTK, NTK→FH-SVD)
         if loss.name == "ce":
-            # CE keeps the loss-independent geometry — §4 (J=∇Σf onto eigvecs of H=∇²Σf) and §6 (rotation
-            # of H's eigenspaces) depend only on the model, not the residual, so they're well-defined and
-            # cheap for cross-entropy too. The rest are MSE-residual / NTK constructs: §7/§7a/§8/§4b–§4d form
-            # the M×p (M=N·classes) Jacobian — infeasible at LM vocab sizes — and §9's Eq-13/21/27/29 are
-            # derived for squared loss (no σ₁ residual recursion for CE), so those stay off.
-            self.s7 = self.s8 = self.s9 = self.s10 = self.s11 = self.s12 = self.s13 = False
+            # CE uses the generic residual r = −∂L/∂z = softmax(z)−onehot (the loss-output cotangent). §4
+            # (J→H) and §6 (rotation) are model-only; §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) plus
+            # this residual, so they're all valid for CE — and gated by the same `multi_ok` size budget
+            # (feasible for e.g. CIFAR-CE, M=N·classes; skipped at LM vocab sizes). Off for CE: §4d (its
+            # sign-groups need a scalar residual) and §9 (the Eq-13/21/27/29 σ₁ recursion is squared-loss).
+            self.s11 = self.s12 = False
         p = model.p
         half = max(1, p // 2)
         self.p = p
@@ -226,7 +226,7 @@ class Diagnostics:
                                          or self.s12 or self.s13)
         if want_multi:
             Jc, out_flat = jac_cols(self.model, th, X)
-            rr = Y.reshape(-1) - out_flat
+            rr = (-N * cS).reshape(-1)        # generic residual −N·∂L/∂out: Y−f (MSE), onehot−softmax (CE)
 
         # ---- §7a (NTK alignment, always-on) + §7 (heavy FH-tensor SVD projections) ----
         # §7a needs only the NTK eigvecs Vk and the FH-tensor eigvecs Vh; the §7 projections additionally

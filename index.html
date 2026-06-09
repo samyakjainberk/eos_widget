@@ -632,15 +632,20 @@ const reps=(cnt,t)=>Array.from({length:cnt},()=>[t]);
 const colsOf=(cnt,arr)=>Array.from({length:cnt},(_,i)=>[arr[i]]);
 const ids=(cnt)=>Array.from({length:cnt},(_,i)=>i);
 // Some panels can't produce data for a given run, so we stamp them with a clear note instead of
-// leaving a blank frame. The MULTI panels (§7a/§7/§8/§4b/§4c/§4d) need the per-output NTK Jacobian
-// (M = N·d_out > 1) — empty for a single sample, and infeasible / squared-loss-only for cross-entropy.
-// The THEORY panels (§9) work for single-sample MSE but not cross-entropy. §1–§4/§6 always compute.
-const NA_MULTI=['p_ntkR','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb'];
+// leaving a blank frame. §7a/§7/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) + the generic residual r=−∂L/∂z,
+// so they work for cross-entropy too — they only need a feasible multi-sample Jacobian (M = N·d_out, gated
+// by multi_ok). §4d needs a scalar residual sign (MSE), and §9's σ₁ recursion is squared-loss; both off for
+// CE. §1–§4/§6 always compute.
+const NA_NTK=['p_ntkR','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N'];
+const NA_4D=['p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb'];
 const NA_THEORY=['p_pred1','p_pred2','p_pred3','p_pred4'];
 function _na(ids,msg){ids.forEach(id=>{const gd=document.getElementById(id);if(gd&&gd.offsetParent!==null)try{Plotly.relayout(id,{annotations:[{text:msg,xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:11,color:'#94a3b8'},align:'center'}]});}catch(e){}});}
-function markUnavailable(multi,ce){
-  if(ce){ _na(NA_MULTI,'n/a for cross-entropy<br>(needs the NTK Jacobian)'); _na(NA_THEORY,'n/a for cross-entropy<br>(squared-loss theory only)'); }
-  else if(!multi){ _na(NA_MULTI,'n/a for a single sample<br>(multi-sample only)'); }
+function markUnavailable(multi,multiOk,ce){
+  if(!multiOk) _na(NA_NTK, multi?'n/a — too large for this run<br>(NTK Jacobian M×p)':'n/a for a single sample<br>(needs ≥2 samples)');
+  if(ce) _na(NA_4D,'n/a for cross-entropy<br>(sign-groups need a scalar residual)');
+  else if(!multiOk) _na(NA_4D, multi?'n/a — too large for this run':'n/a for a single sample');
+  if(ce) _na(NA_THEORY,'n/a for cross-entropy<br>(squared-loss σ₁ theory)');
+  else if(multi&&!multiOk) _na(NA_THEORY,'n/a — too large for this run<br>(NTK Jacobian M×p)');
 }
 function pushPoint(t,D,n,kth,nResid){
   if(OPT.s1){
@@ -822,6 +827,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   else { for(let i=0;i<N*inDim;i++)X[i]=inputStd*gauss(drng); for(let i=0;i<M;i++)Y[i]=tgt*gauss(drng); }
   const multi=M>1, n7=Math.min(n,Math.max(M,1)), n8=Math.min(n,Math.max(1,Math.floor(p/2)));
   initLivePlots(n,kth,nResid,thr,n7,n8,multi);
+  markUnavailable(multi,multi,false);   // browser path = MSE synthetic MLP; feasible whenever multi-sample
   if(preview){ST=null;RUNNING=false;document.getElementById('status').textContent='ready — press Run to start.';updateButtons();return;}  // draw empty plots only
   // §4d: fix the two sample groups by the sign of the summed initial residual r=y−f(x,θ₀) (sum over outputs if d_out>1)
   const posIdx=[],negIdx=[];{const f0=forward(th,spec,X,N,inDim).out;for(let i=0;i<N;i++){let s=0;for(let c=0;c<outDim;c++)s+=Y[i*outDim+c]-f0[i*outDim+c];(s>=0?posIdx:negIdx).push(i);}}
@@ -1126,7 +1132,7 @@ function openStream(start,resuming){
     if(m.type==='meta'){if(m.error){st.textContent=m.error;finish();return;}META=m;
       LAST_GPU_P=m.p;LAST_GPU_ARCH=val('arch');updateParamBadge();   // record backend param count for the badge / §1–§3
       if(!resuming)initLivePlots(m.n,m.kth,m.nResid,m.thr,m.n7,m.n8,m.multi);
-      markUnavailable(m.multi,m.loss==='ce');   // stamp panels that this run can't fill (single-sample / CE)
+      markUnavailable(m.multi,m.multi_ok,m.loss==='ce');   // stamp panels this run can't fill (single-sample / too-large / CE)
       st.textContent=`running on ${m.device} … p=${m.p}, 2/lr=${m.thr.toFixed(2)}`;
     }else if(m.type==='step'){if(!META)return;pushPoint(m.t,m,META.n,META.kth,META.nResid);lastT=m.t;
       if(m.sps!=null)sp.textContent=`steps/sec: ${m.sps.toFixed(1)}`;
