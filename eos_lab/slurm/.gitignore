@@ -1,0 +1,4 @@
+logs/
+runs/
+submit_all.sh
+.wandb_key

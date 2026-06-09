@@ -36,16 +36,44 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+import threading
+
 import torch
+import torch.nn.functional as F
 
 DIR = os.path.dirname(os.path.abspath(__file__))
-DEVICE = torch.device("cpu")   # set in main()
+DEVICE = torch.device("cpu")   # default/fallback device (= DEVICE_POOL[0]); set in main()
+DEVICE_POOL = []               # every device a run may be assigned to (one GPU each); built in main()
 DTYPE = torch.float64          # set in main()
 EPS = 1e-3                     # finite-difference step (matches index.html / _preview.py)
-PMAX = 1_000_000               # hard cap on parameter count p (matrix-free, so memory is O(p))
-RUN_TOKEN = 0                  # monotonic; each new /run claims it so only the latest stream computes
-                              # (the server is multi-threaded — without this, stale/reconnected streams
-                              #  pile up and thrash the single GPU). Older runs see a newer token and stop.
+PMAX = 10_000_000              # hard cap on parameter count p (matrix-free, so memory is O(p))
+# Each /run is assigned a device (auto least-busy across DEVICE_POOL). RUN_TOKEN is PER-DEVICE, so runs on
+# different GPUs coexist; a newer run on the SAME device bumps that device's token and the older one stops.
+# _DEV_LOAD counts active runs per device for the least-busy pick. All three are guarded by _DEV_LOCK.
+_DEV_LOCK = threading.Lock()
+_DEV_LOAD = {}                 # device-string -> number of active runs
+RUN_TOKEN = {}                 # device-string -> monotonic token
+_TL = threading.local()       # per-request model/loss + assigned device (ThreadingHTTPServer: one thread per /run)
+CIFAR_DIR = None               # CLI override for the CIFAR-10 raw-batches directory (auto-detected if None)
+
+def _dev():
+    """Device assigned to the current /run thread; falls back to the default _dev() off-thread."""
+    return getattr(_TL, "device", DEVICE)
+
+def acquire_device():
+    """Pick the least-busy device in the pool for a new run and claim a fresh per-device token."""
+    with _DEV_LOCK:
+        pool = DEVICE_POOL or [DEVICE]
+        dev = min(pool, key=lambda d: (_DEV_LOAD.get(str(d), 0), pool.index(d)))
+        k = str(dev)
+        _DEV_LOAD[k] = _DEV_LOAD.get(k, 0) + 1
+        RUN_TOKEN[k] = RUN_TOKEN.get(k, 0) + 1
+        return dev, RUN_TOKEN[k]
+
+def release_device(dev):
+    with _DEV_LOCK:
+        k = str(dev)
+        _DEV_LOAD[k] = max(0, _DEV_LOAD.get(k, 0) - 1)
 
 
 # ===================== mulberry32 (exact JS port; data + init) =====================
@@ -176,87 +204,488 @@ def bwd_batch(th, spec, caches, dO):
     return g
 
 
-def gradF(th, spec, X):
-    out, C = fwd(th, spec, X)
-    return bwd(th, spec, C, torch.ones_like(out)), out
+def gradF(th, X):
+    """∇_θ Σf — gradient of the summed output. Returns (g, out)."""
+    return _TL.model.vjp(th, X, lambda out: torch.ones_like(out))
 
 
-def gradL(th, spec, X, Y):
-    out, C = fwd(th, spec, X)
+def gradL(th, X, Y):
+    """∇_θ L — loss gradient (loss-aware cotangent). Returns (g, out)."""
     N = X.shape[0]
-    return bwd(th, spec, C, (out - Y) / N), out
+    return _TL.model.vjp(th, X, lambda out: _TL.loss.resid_cotangent(out, Y, N))
 
 
-def gradW(th, spec, X, c):
-    out, C = fwd(th, spec, X)
-    return bwd(th, spec, C, c)
+def gradW(th, X, c):
+    """∇_θ Σ(c⊙f) — backward with an arbitrary output cotangent c (N,oc). Returns g."""
+    return _TL.model.vjp(th, X, c)[0]
 
 
-def init_theta(spec, p, initScale, seed):
+def init_kind_scale(scheme, init, fan_in, fan_out, is_readout):
+    """Weight-draw spec for `scheme`: ('normal', std) or ('uniform', half-range). MIRRORS
+    eos_lab.models.init_kind_scale / index.html initKindScale. `init` = per-scheme scale/gain/std."""
+    fi = max(int(fan_in), 1)
+    fo = max(int(fan_out), 1)
+    if scheme == "xavier_normal":
+        return ("normal", init * math.sqrt(2.0 / (fi + fo)))
+    if scheme == "xavier_uniform":
+        return ("uniform", init * math.sqrt(6.0 / (fi + fo)))
+    if scheme == "mup":
+        return ("normal", init / fi if is_readout else init / math.sqrt(fi))
+    if scheme == "custom":
+        return ("normal", float(init))
+    return ("normal", init / math.sqrt(fi))      # "default" — scale/√fan_in (original)
+
+
+def init_theta(spec, p, initScale, seed, scheme="default"):
     rng = mulberry32(u32(seed))
     th = [0.0] * p
-    for (din, dout, act, wOff, bOff) in spec:
-        sc = initScale / math.sqrt(din)
+    nl = len(spec)
+    for li, (din, dout, act, wOff, bOff) in enumerate(spec):
+        kind, sc = init_kind_scale(scheme, initScale, din, dout, li == nl - 1)
         for i in range(din * dout):
-            th[wOff + i] = gauss(rng) * sc
-    return torch.tensor(th, dtype=DTYPE, device=DEVICE)
+            th[wOff + i] = (gauss(rng) * sc) if kind == "normal" else ((rng() * 2.0 - 1.0) * sc)
+    return torch.tensor(th, dtype=DTYPE, device=_dev())
 
 
-def hvpF(th, spec, X, v):
-    return (gradF(th + EPS * v, spec, X)[0] - gradF(th - EPS * v, spec, X)[0]) / (2 * EPS)
+# ===================== model / loss abstraction =====================
+# Every diagnostic is re-expressed in terms of MODEL.forward(th,X)->out (N,oc) and
+# MODEL.vjp(th,X,cot)->(g,out) [g = ∇_θ Σ(cot⊙out)], so the whole matrix-free suite is
+# architecture-agnostic. `cot` is a tensor (N,oc) OR a callable out->(N,oc). The MLP keeps its
+# exact hand-written fwd/bwd (browser-identical numerics); new architectures (GPU-server-only)
+# implement forward functionally from flat-th slices and use autograd (exact double-backward HVPs).
+# INVARIANT: forward returns (N,oc) and vjp consumes cot as (N,oc), row-major sample-major, for
+# every architecture — matching out.reshape(-1), i*oc+c, eye(M).reshape(M,N,oc) used downstream.
+class Model:
+    exact_hvp = False
+    in_shape = None
+    oc = 1
+    p = 0
+
+    def forward(self, th, X):
+        raise NotImplementedError
+
+    def vjp(self, th, X, cot):
+        raise NotImplementedError
+
+    def jac_cols(self, th, X):
+        """Per-output Jacobian J (M,p) (row a = ∇f_a) + flat out (M,). Default = batched vjp loop."""
+        out = self.forward(th, X)
+        N, oc = out.shape
+        M = N * oc
+        rows = []
+        for a in range(M):
+            dO = torch.zeros(N, oc, dtype=th.dtype, device=th.device)
+            dO.reshape(-1)[a] = 1.0
+            rows.append(self.vjp(th, X, dO)[0])
+        return torch.stack(rows), out.reshape(-1)
+
+    def init_theta(self, seed, initScale):
+        raise NotImplementedError
 
 
-def hvpL(th, spec, X, Y, v):
-    return (gradL(th + EPS * v, spec, X, Y)[0] - gradL(th - EPS * v, spec, X, Y)[0]) / (2 * EPS)
+class MlpModel(Model):
+    """Dense MLP — delegates to the hand-written fwd/bwd so its seeded GD trajectory stays
+    numerically identical to index.html / _preview.py."""
+    def __init__(self, spec, p, in_shape, oc):
+        self.spec, self.p, self.in_shape, self.oc = spec, p, in_shape, oc
+
+    def forward(self, th, X):
+        return fwd(th, self.spec, X)[0]
+
+    def vjp(self, th, X, cot):
+        out, C = fwd(th, self.spec, X)
+        c = cot(out) if callable(cot) else cot
+        return bwd(th, self.spec, C, c), out
+
+    def jac_cols(self, th, X):
+        out, C = fwd(th, self.spec, X)
+        N, oc = out.shape
+        M = N * oc
+        dO = torch.eye(M, dtype=th.dtype, device=th.device).reshape(M, N, oc)
+        return bwd_batch(th, self.spec, C, dO), out.reshape(-1)
+
+    def init_theta(self, seed, initScale):
+        return init_theta(self.spec, self.p, initScale, seed, getattr(self, "init_scheme", "default"))
 
 
-def hvpS(th, spec, X, v, c):
-    return (gradW(th + EPS * v, spec, X, c) - gradW(th - EPS * v, spec, X, c)) / (2 * EPS)
+# ----- loss abstraction: MSE keeps every panel valid; CE = softmax classification -----
+class MSELoss:
+    name = "mse"
+
+    def value(self, out, Y, N):
+        return 0.5 * ((out - Y) ** 2).sum() / N
+
+    def resid_cotangent(self, out, Y, N):       # ∂L/∂out (so ∇_θL = vjp(this))
+        return (out - Y) / N
+
+    def gn_apply(self, out, Jv, N):             # output-space Hessian A applied to Jv (A = I/N)
+        return Jv / N
 
 
-def hvpG(th, spec, X, v):
+class CELoss:
+    """Softmax cross-entropy over the last axis. Handles classification (out (N,C), Y one-hot (N,C),
+    ÷N) and next-token LM (out (N,T,V), Y token ids long (N,T), ÷N·T per-token). MIRRORS eos_lab."""
+    name = "ce"
+
+    @staticmethod
+    def _tokens(out, N):
+        return N * out.shape[1] if out.dim() == 3 else N
+
+    @staticmethod
+    def _onehot(out, Y):
+        if Y.dtype == torch.long:
+            return torch.zeros_like(out).scatter_(-1, Y.unsqueeze(-1), 1.0)
+        return Y
+
+    def value(self, out, Y, N):
+        logp = torch.log_softmax(out, dim=-1)
+        if Y.dtype == torch.long:
+            nll = -logp.gather(-1, Y.unsqueeze(-1)).squeeze(-1)
+            return nll.sum() / self._tokens(out, N)
+        return -(Y * logp).sum() / self._tokens(out, N)
+
+    def resid_cotangent(self, out, Y, N):
+        return (torch.softmax(out, dim=-1) - self._onehot(out, Y)) / self._tokens(out, N)
+
+    def gn_apply(self, out, Jv, N):             # A = (diag(p) − ppᵀ)/tokens
+        p = torch.softmax(out, dim=-1)
+        return (p * Jv - p * (p * Jv).sum(dim=-1, keepdim=True)) / self._tokens(out, N)
+
+
+def build_loss(name):
+    return CELoss() if name == "ce" else MSELoss()
+
+
+# ===================== autograd architectures (GPU-server only) =====================
+# Parameters live in ONE flat th vector (so all the matrix-free Lanczos/HVP machinery is unchanged);
+# forward is built functionally from th slices; grads and EXACT HVPs come from autograd (no
+# finite-difference cancellation — important at fp32 / millions of params). No browser counterpart,
+# so the seeded init uses torch's RNG (fast, reproducible) rather than mulberry32.
+class AutogradModel(Model):
+    exact_hvp = True
+
+    def __init__(self):
+        self._specs = []      # [name, shape, numel, offset, fan_in, init] ; init ∈ {'n','0','1'}
+        self._p = 0
+
+    def _add(self, name, shape, fan_in=None, init="n"):
+        numel = 1
+        for s in shape:
+            numel *= s
+        self._specs.append((name, tuple(shape), numel, self._p, fan_in, init))
+        self._p += numel
+
+    @property
+    def p(self):
+        return self._p
+
+    def _unflatten(self, th):
+        return {name: th[off:off + numel].view(*shape)
+                for name, shape, numel, off, fan_in, init in self._specs}
+
+    def init_theta(self, seed, initScale):
+        g = torch.Generator(device="cpu")
+        g.manual_seed((int(seed) & 0x7FFFFFFF) or 1)
+        scheme = getattr(self, "init_scheme", "default")
+        readout_off = max((off for _, _, _, off, _, ini in self._specs if ini == "n"), default=-1)
+        parts = []
+        for name, shape, numel, off, fan_in, init in self._specs:
+            if init == "0":
+                parts.append(torch.zeros(numel))
+            elif init == "1":
+                parts.append(torch.ones(numel))
+            else:
+                fi = fan_in or numel
+                fo = max(1, numel // fi)
+                kind, sc = init_kind_scale(scheme, initScale, fi, fo, off == readout_off)
+                draw = (torch.randn(numel, generator=g) if kind == "normal"
+                        else (torch.rand(numel, generator=g) * 2.0 - 1.0))
+                parts.append(draw * sc)
+        return torch.cat(parts).to(dtype=DTYPE, device=_dev())
+
+    def forward(self, th, X):
+        return self._net(self._unflatten(th), X)
+
+    def vjp(self, th, X, cot):
+        with torch.enable_grad():
+            thl = th.detach().requires_grad_(True)
+            out = self._net(self._unflatten(thl), X)
+            c = cot(out) if callable(cot) else cot
+            g, = torch.autograd.grad((out * c.detach()).sum(), thl)
+        return g, out.detach()
+
+    def hvp(self, th, X, kind, v, Y=None, c=None):
+        """Exact Hessian–vector products via double-backward (Pearlmutter)."""
+        N = X.shape[0]
+        with torch.enable_grad():
+            if kind == "G":                                   # Gauss-Newton Jᵀ A J v (loss-aware A)
+                fn = lambda t: self._net(self._unflatten(t), X)
+                out, Jv = torch.func.jvp(fn, (th,), (v,))
+                AJv = _TL.loss.gn_apply(out.detach(), Jv.detach(), N)
+                thl = th.detach().requires_grad_(True)
+                o2 = self._net(self._unflatten(thl), X)
+                Gv, = torch.autograd.grad((o2 * AJv).sum(), thl)
+                return Gv.detach()
+            thl = th.detach().requires_grad_(True)
+            out = self._net(self._unflatten(thl), X)
+            if kind == "F":
+                scal = out.sum()
+            elif kind == "L":
+                scal = _TL.loss.value(out, Y, N)
+            else:                                             # "S": Σ_a c_a f_a → Hessian = Σ c_a ∇²f_a
+                cc = c.detach() if torch.is_tensor(c) else c
+                scal = (out * cc).sum()
+            g, = torch.autograd.grad(scal, thl, create_graph=True)
+            Hv, = torch.autograd.grad((g * v).sum(), thl)
+            return Hv.detach()
+
+    def jac_cols(self, th, X):
+        """Per-output Jacobian J (M,p) + flat out (M,), computed with a VECTORIZED vjp
+        (torch.func.jacrev) instead of an M-long Python backward loop — ~20× faster for the
+        transformer/conv nets (M=N·oc backward passes collapse into a few chunked batched passes).
+        Chunked to bound vmap memory."""
+        thl = th.detach()
+
+        def f(t):
+            return self._net(self._unflatten(t), X).reshape(-1)
+
+        out = f(thl).detach()
+        M = out.shape[0]
+        chunk = max(16, min(M, 8_000_000 // max(self.p, 1)))   # bound the vmapped backward's memory
+        with torch.enable_grad():
+            try:
+                J = torch.func.jacrev(f, chunk_size=chunk)(thl)
+            except TypeError:                                  # older torch without chunk_size
+                J = torch.func.jacrev(f)(thl)
+        return J, out
+
+    def _net(self, p, X):
+        raise NotImplementedError
+
+
+class CnnModel(AutogradModel):
+    """Small conv net for CIFAR-10: 3 conv blocks (conv→act→avg-pool) + global-avg-pool + linear head.
+    Average (not max) pooling keeps the network smooth so the loss Hessian / sharpness are well defined."""
+    def __init__(self, inDim, outDim, P):
+        super().__init__()
+        assert inDim == 3 * 32 * 32, "CNN expects CIFAR-shaped input (3×32×32 = 3072)"
+        self.in_shape, self.oc = (3, 32, 32), outDim
+        self.act = P.get("act", "tanh")
+        m = max(0.1, float(P.get("chmul", 1.0)))
+        cin, self._convs = 3, []
+        for j, c in enumerate(max(1, int(round(c * m))) for c in (32, 64, 64)):
+            self._add(f"c{j}w", (c, cin, 3, 3), fan_in=cin * 9)
+            self._add(f"c{j}b", (c,), init="0")
+            self._convs.append((f"c{j}w", f"c{j}b"))
+            cin = c
+        self._add("fcw", (outDim, cin), fan_in=cin)
+        self._add("fcb", (outDim,), init="0")
+
+    def _net(self, p, X):
+        h = X.view(X.shape[0], 3, 32, 32)
+        for wn, bn in self._convs:
+            h = F.avg_pool2d(actf(self.act, F.conv2d(h, p[wn], p[bn], padding=1)), 2)
+        return h.mean(dim=(2, 3)) @ p["fcw"].t() + p["fcb"]        # global avg pool → (N, oc)
+
+
+class Vgg11Model(AutogradModel):
+    """VGG11 conv stack (CIFAR-adapted, no BatchNorm, smooth avg-pool) scaled by chmul + a linear head.
+    chmul=1 → full ~9.4M-param VGG11 (needs the 10M cap); chmul=0.25 → ~0.6M (fast default).
+    Avg (not max) pooling keeps curvature well defined for the sharpness/Hessian analysis."""
+    CFG = [64, "M", 128, "M", 256, 256, "M", 512, 512, "M", 512, 512, "M"]
+
+    def __init__(self, inDim, outDim, P):
+        super().__init__()
+        assert inDim == 3 * 32 * 32, "VGG11 expects CIFAR-shaped input (3×32×32 = 3072)"
+        self.in_shape, self.oc = (3, 32, 32), outDim
+        self.act = P.get("act", "tanh")
+        m = max(0.05, float(P.get("chmul", 0.25)))
+        cin, j, self._layers = 3, 0, []
+        for v in self.CFG:
+            if v == "M":
+                self._layers.append(("M",))
+            else:
+                c = max(1, int(round(v * m)))
+                self._add(f"c{j}w", (c, cin, 3, 3), fan_in=cin * 9)
+                self._add(f"c{j}b", (c,), init="0")
+                self._layers.append(("C", f"c{j}w", f"c{j}b"))
+                cin, j = c, j + 1
+        self._add("fcw", (outDim, cin), fan_in=cin)              # 5 maxpools: 32→1, so feature = cin
+        self._add("fcb", (outDim,), init="0")
+
+    def _net(self, p, X):
+        h = X.view(X.shape[0], 3, 32, 32)
+        for L in self._layers:
+            h = F.avg_pool2d(h, 2) if L[0] == "M" else actf(self.act, F.conv2d(h, p[L[1]], p[L[2]], padding=1))
+        return h.view(h.shape[0], -1) @ p["fcw"].t() + p["fcb"]
+
+
+class GptModel(AutogradModel):
+    """Mini-GPT-style transformer for the sorting task: scalar→d_model embed + learned positional,
+    nlayer pre-norm blocks (multi-head self-attention + MLP), linear head → one scalar per position.
+    Full (non-causal) self-attention so the sorting target is learnable. oc = sequence length L."""
+    def __init__(self, inDim, outDim, P):
+        super().__init__()
+        self.L, self.oc, self.in_shape = inDim, outDim, (inDim,)
+        d, h, nl = int(P.get("dmodel", 64)), int(P.get("nhead", 4)), int(P.get("nlayer", 2))
+        assert d % h == 0, "dmodel must be divisible by nhead"
+        self.d, self.h, self.nl = d, h, nl
+        self._add("emb_w", (d, 1), fan_in=1)
+        self._add("emb_b", (d,), init="0")
+        self._add("pos", (self.L, d), fan_in=d)
+        for i in range(nl):
+            q = f"b{i}_"
+            self._add(q + "ln1g", (d,), init="1"); self._add(q + "ln1b", (d,), init="0")
+            self._add(q + "qkvw", (3 * d, d), fan_in=d); self._add(q + "qkvb", (3 * d,), init="0")
+            self._add(q + "projw", (d, d), fan_in=d); self._add(q + "projb", (d,), init="0")
+            self._add(q + "ln2g", (d,), init="1"); self._add(q + "ln2b", (d,), init="0")
+            self._add(q + "fc1w", (4 * d, d), fan_in=d); self._add(q + "fc1b", (4 * d,), init="0")
+            self._add(q + "fc2w", (d, 4 * d), fan_in=4 * d); self._add(q + "fc2b", (d,), init="0")
+        self._add("lnfg", (d,), init="1"); self._add("lnfb", (d,), init="0")
+        self._add("headw", (1, d), fan_in=d); self._add("headb", (1,), init="0")
+
+    @staticmethod
+    def _ln(x, g, b):
+        mu = x.mean(-1, keepdim=True)
+        var = x.var(-1, unbiased=False, keepdim=True)
+        return (x - mu) / torch.sqrt(var + 1e-5) * g + b
+
+    def _net(self, p, X):
+        N, L, d, h = X.shape[0], self.L, self.d, self.h
+        dh = d // h
+        z = X.view(N, L, 1) @ p["emb_w"].t() + p["emb_b"] + p["pos"].unsqueeze(0)   # (N,L,d)
+        for i in range(self.nl):
+            q = f"b{i}_"
+            a = self._ln(z, p[q + "ln1g"], p[q + "ln1b"])
+            qkv = a @ p[q + "qkvw"].t() + p[q + "qkvb"]                              # (N,L,3d)
+            qq, kk, vv = qkv.split(d, dim=2)
+            qq = qq.view(N, L, h, dh).transpose(1, 2)                               # (N,h,L,dh)
+            kk = kk.view(N, L, h, dh).transpose(1, 2)
+            vv = vv.view(N, L, h, dh).transpose(1, 2)
+            att = torch.softmax((qq @ kk.transpose(-2, -1)) / math.sqrt(dh), dim=-1)
+            o = (att @ vv).transpose(1, 2).reshape(N, L, d)
+            z = z + (o @ p[q + "projw"].t() + p[q + "projb"])
+            a2 = self._ln(z, p[q + "ln2g"], p[q + "ln2b"])
+            mm = F.gelu(a2 @ p[q + "fc1w"].t() + p[q + "fc1b"])
+            z = z + (mm @ p[q + "fc2w"].t() + p[q + "fc2b"])
+        z = self._ln(z, p["lnfg"], p["lnfb"])
+        return (z @ p["headw"].t() + p["headb"]).view(N, L)                          # (N, L)
+
+
+class GptLMModel(AutogradModel):
+    """Mini-GPT language model for OpenWebText: token-embedding lookup + learned positional, nlayer
+    pre-norm blocks (CAUSAL self-attention + MLP), final LN, weight-TIED head (logits = h·Wteᵀ).
+    Input X is (N, block) int token ids; output (N, block, vocab) next-token logits (cross-entropy).
+    MIRRORS eos_lab.models.GptLMModel. oc = vocab."""
+    def __init__(self, block, vocab, P):
+        super().__init__()
+        self.L, self.V, self.oc, self.in_shape = block, vocab, vocab, (block,)
+        d, h, nl = int(P.get("dmodel", 64)), int(P.get("nhead", 4)), int(P.get("nlayer", 2))
+        assert d % h == 0, "dmodel must be divisible by nhead"
+        self.d, self.h, self.nl = d, h, nl
+        self._add("wte", (vocab, d), fan_in=d)          # token embedding (also the tied output head)
+        self._add("wpe", (block, d), fan_in=d)          # learned positional
+        for i in range(nl):
+            q = f"b{i}_"
+            self._add(q + "ln1g", (d,), init="1"); self._add(q + "ln1b", (d,), init="0")
+            self._add(q + "qkvw", (3 * d, d), fan_in=d); self._add(q + "qkvb", (3 * d,), init="0")
+            self._add(q + "projw", (d, d), fan_in=d); self._add(q + "projb", (d,), init="0")
+            self._add(q + "ln2g", (d,), init="1"); self._add(q + "ln2b", (d,), init="0")
+            self._add(q + "fc1w", (4 * d, d), fan_in=d); self._add(q + "fc1b", (4 * d,), init="0")
+            self._add(q + "fc2w", (d, 4 * d), fan_in=4 * d); self._add(q + "fc2b", (d,), init="0")
+        self._add("lnfg", (d,), init="1"); self._add("lnfb", (d,), init="0")
+
+    @staticmethod
+    def _ln(x, g, b):
+        mu = x.mean(-1, keepdim=True)
+        var = x.var(-1, unbiased=False, keepdim=True)
+        return (x - mu) / torch.sqrt(var + 1e-5) * g + b
+
+    def _net(self, p, X):
+        N, T, d, h = X.shape[0], X.shape[1], self.d, self.h
+        dh = d // h
+        z = p["wte"][X.long()] + p["wpe"][:T].unsqueeze(0)                           # (N,T,d)
+        mask = torch.full((T, T), float("-inf"), device=X.device, dtype=z.dtype).triu(1)   # causal
+        for i in range(self.nl):
+            q = f"b{i}_"
+            a = self._ln(z, p[q + "ln1g"], p[q + "ln1b"])
+            qkv = a @ p[q + "qkvw"].t() + p[q + "qkvb"]
+            qq, kk, vv = qkv.split(d, dim=2)
+            qq = qq.view(N, T, h, dh).transpose(1, 2)
+            kk = kk.view(N, T, h, dh).transpose(1, 2)
+            vv = vv.view(N, T, h, dh).transpose(1, 2)
+            att = torch.softmax((qq @ kk.transpose(-2, -1)) / math.sqrt(dh) + mask, dim=-1)
+            o = (att @ vv).transpose(1, 2).reshape(N, T, d)
+            z = z + (o @ p[q + "projw"].t() + p[q + "projb"])
+            a2 = self._ln(z, p[q + "ln2g"], p[q + "ln2b"])
+            mm = F.gelu(a2 @ p[q + "fc1w"].t() + p[q + "fc1b"])
+            z = z + (mm @ p[q + "fc2w"].t() + p[q + "fc2b"])
+        z = self._ln(z, p["lnfg"], p["lnfb"])
+        return z @ p["wte"].t()                                                      # tied head (N,T,vocab)
+
+
+def hvpF(th, X, v):
+    """Function-Hessian (∇²Σf) · v."""
+    if _TL.model.exact_hvp:
+        return _TL.model.hvp(th, X, "F", v)
+    return (gradF(th + EPS * v, X)[0] - gradF(th - EPS * v, X)[0]) / (2 * EPS)
+
+
+def hvpL(th, X, Y, v):
+    """Loss-Hessian (∇²L) · v."""
+    if _TL.model.exact_hvp:
+        return _TL.model.hvp(th, X, "L", v, Y=Y)
+    return (gradL(th + EPS * v, X, Y)[0] - gradL(th - EPS * v, X, Y)[0]) / (2 * EPS)
+
+
+def hvpS(th, X, v, c):
+    """Residual term (Σ_a c_a ∇²f_a) · v."""
+    if _TL.model.exact_hvp:
+        return _TL.model.hvp(th, X, "S", v, c=c)
+    return (gradW(th + EPS * v, X, c) - gradW(th - EPS * v, X, c)) / (2 * EPS)
+
+
+def hvpG(th, X, v):
+    """Gauss-Newton (Jᵀ A J) · v, loss-aware output Hessian A."""
     N = X.shape[0]
-    fp = fwd(th + EPS * v, spec, X)[0]
-    fm = fwd(th - EPS * v, spec, X)[0]
-    f0, C0 = fwd(th, spec, X)
-    return bwd(th, spec, C0, (fp - fm) / (2 * EPS) / N)
+    if _TL.model.exact_hvp:
+        return _TL.model.hvp(th, X, "G", v)
+    fp = _TL.model.forward(th + EPS * v, X)
+    fm = _TL.model.forward(th - EPS * v, X)
+    f0 = _TL.model.forward(th, X)
+    AJv = _TL.loss.gn_apply(f0, (fp - fm) / (2 * EPS), N)
+    return gradW(th, X, AJv)
 
 
-def grad_out(th, spec, X, a):
+def grad_out(th, X, a):
     """∇f_a — gradient of a single (flattened) output index a."""
-    out, C = fwd(th, spec, X)
-    N, oc = out.shape
-    dO = torch.zeros(N, oc, dtype=th.dtype, device=th.device)
-    dO.reshape(-1)[a] = 1.0
-    return bwd(th, spec, C, dO)
+    def cot(out):
+        N, oc = out.shape
+        dO = torch.zeros(N, oc, dtype=out.dtype, device=out.device)
+        dO.reshape(-1)[a] = 1.0
+        return dO
+    return _TL.model.vjp(th, X, cot)[0]
 
 
-def jac_cols(th, spec, X):
-    """Per-output gradients: J of shape (M, p) with row a = ∇f_a; plus flat out (M,).
-    One batched backward over all M outputs (the M one-hot seeds = identity), so the whole
-    Jacobian is computed in parallel across samples/outputs instead of an M-long Python loop."""
-    out, C = fwd(th, spec, X)
-    N, oc = out.shape
-    M = N * oc
-    dO = torch.eye(M, dtype=th.dtype, device=th.device).reshape(M, N, oc)
-    J = bwd_batch(th, spec, C, dO)
-    return J, out.reshape(-1)
+def jac_cols(th, X):
+    """Per-output Jacobian J (M,p) (row a = ∇f_a) + flat out (M,)."""
+    return _TL.model.jac_cols(th, X)
 
 
-def jac_hvp(th, spec, X, z):
+def jac_hvp(th, X, z):
     """{∇²f_a · z}_a — central difference of jac_cols. Shape (M, p)."""
-    cp, _ = jac_cols(th + EPS * z, spec, X)
-    cm, _ = jac_cols(th - EPS * z, spec, X)
+    cp, _ = jac_cols(th + EPS * z, X)
+    cm, _ = jac_cols(th - EPS * z, X)
     return (cp - cm) / (2 * EPS)
 
 
-def hvpG2(th, spec, X, v):
+def hvpG2(th, X, v):
     """G2 = Σ_a (∇²f_a)² applied to v."""
-    u = jac_hvp(th, spec, X, v)
+    u = jac_hvp(th, X, v)
     out = torch.zeros(th.shape[0], dtype=th.dtype, device=th.device)
     for a in range(u.shape[0]):
-        out += (grad_out(th + EPS * u[a], spec, X, a)
-                - grad_out(th - EPS * u[a], spec, X, a)) / (2 * EPS)
+        out += (grad_out(th + EPS * u[a], X, a)
+                - grad_out(th - EPS * u[a], X, a)) / (2 * EPS)
     return out
 
 
@@ -273,12 +702,12 @@ def sym_eig_desc(A):
     return w[idx], V[:, idx]
 
 
-def fh_frozen(th, spec, X, nProbe, n7, nM, mV, M):
+def fh_frozen(th, X, nProbe, n7, nM, mV, M):
     """§9 frozen function-Hessian-tensor SVD at θ: returns (gamma[i], y[i] R^M, z[i][j] R^p, tau[i][j])."""
-    Jc, _ = jac_cols(th, spec, X)
-    GH = torch.zeros(M, M, dtype=DTYPE, device=DEVICE)
+    Jc, _ = jac_cols(th, X)
+    GH = torch.zeros(M, M, dtype=DTYPE, device=_dev())
     for pr in range(nProbe):
-        Hz = jac_hvp(th, spec, X, _randn_vec(Jc.shape[1], (0xC0FFEE + pr * 40503) & 0xFFFFFFFF))
+        Hz = jac_hvp(th, X, _randn_vec(Jc.shape[1], (0xC0FFEE + pr * 40503) & 0xFFFFFFFF))
         GH += Hz @ Hz.t()
     GH /= nProbe
     Hv, Vh = sym_eig_desc(GH)                       # right singular vecs y_i = Vh[:,i]
@@ -288,7 +717,7 @@ def fh_frozen(th, spec, X, nProbe, n7, nM, mV, M):
         out["gamma"].append(math.sqrt(max(float(Hv[i]), 1e-30)))
         out["y"].append(Vh[:, i])
         tv, bv, tval, bval = lanczos_extreme(
-            lambda v: hvpS(th, spec, X, v, Vh[:, i].reshape(X.shape[0], -1)), Jc.shape[1], nM, mV,
+            lambda v: hvpS(th, X, v, Vh[:, i].reshape(X.shape[0], -1)), Jc.shape[1], nM, mV,
             (0x9E37 + i * 0x1000) & 0xFFFFFFFF)
         out["z"].append(list(tv) + list(bv))
         out["tau"].append(list(tval) + list(bval))
@@ -297,9 +726,9 @@ def fh_frozen(th, spec, X, nProbe, n7, nM, mV, M):
 
 # ===================== Lanczos / SLQ =====================
 def _randn_vec(p, seed):
-    g = torch.Generator(device=DEVICE)
+    g = torch.Generator(device=_dev())
     g.manual_seed(int(seed) & 0x7FFFFFFF)
-    return torch.randn(p, dtype=DTYPE, device=DEVICE, generator=g)
+    return torch.randn(p, dtype=DTYPE, device=_dev(), generator=g)
 
 
 def _lanczos_core(hvp, p, m, seed):
@@ -308,8 +737,8 @@ def _lanczos_core(hvp, p, m, seed):
     Q = []
     al = []
     be = []
-    qp = torch.zeros(p, dtype=DTYPE, device=DEVICE)
-    beta = torch.zeros((), dtype=DTYPE, device=DEVICE)
+    qp = torch.zeros(p, dtype=DTYPE, device=_dev())
+    beta = torch.zeros((), dtype=DTYPE, device=_dev())
     for _ in range(min(p, m)):
         Q.append(q)
         w = hvp(q)
@@ -344,10 +773,10 @@ def _eig_sorted(T):
 def lanczos_extreme(hvp, p, n, m, seed):
     Q, T, k = _lanczos_core(hvp, p, m, seed)
     mu, Sv, idx = _eig_sorted(T)
-    Qmat = torch.stack(Q)                     # (k, p) on DEVICE
+    Qmat = torch.stack(Q)                     # (k, p) on _dev()
 
     def ritz(col):
-        c = Sv[:, col].to(device=DEVICE, dtype=DTYPE)
+        c = Sv[:, col].to(device=_dev(), dtype=DTYPE)
         return c @ Qmat                       # (p,)
 
     topVecs = [ritz(int(idx[min(i, k - 1)])) for i in range(n)]
@@ -446,63 +875,160 @@ def sign_to(cur, prev):
     return -cur if float(cur @ prev) < 0 else cur
 
 
-# ===================== streaming run =====================
-def run_stream(P):
-    """Yield SSE message dicts: one 'meta', then ('step' [+ 'slq']) per eig-tick, then 'done'."""
-    spec, p = build_spec(P["indim"], P["width"], P["depth"], P["act"],
-                         P["bias"] == "1", P["outdim"])
-    half = max(1, p // 2)
-    n = min(max(1, P["neig"]), half)
-    kth = min(max(1, P["kth"]), half)
-    s1, s2, s3, s4, s5, s6, gs = (P["s1"], P["s2"], P["s3"], P["s4"],
-                                  P["s5"], P["s6"], P["gs"])
-    s7, s8, s9, s10, s11, s12 = P["s7"], P["s8"], P["s9"], P["s10"], P["s11"], P["s12"]
-    nSub = min(max(n, kth, (10 if s6 else 1)), half)
-    N, inD, outD = P["nsamp"], P["indim"], P["outdim"]
-    M = N * outD
-    multi = M > 1
-    n7 = min(n, max(M, 1))
-    n8 = min(n, max(1, p // 2))
-    nResid = min(M, 12)
-    lr = P["lr"]
-    thr = 2.0 / lr
+# ===================== datasets =====================
+_CIFAR_CACHE = {}
 
-    if p > PMAX:
-        yield {"type": "meta", "error": f"p={p} parameters exceeds the cap ({PMAX}). Reduce width/depth."}
-        return
-    yield {"type": "meta", "p": p, "n": n, "kth": kth, "nResid": nResid, "thr": thr,
-           "n7": n7, "n8": n8, "multi": multi,
-           "device": f"{DEVICE} · {str(DTYPE).replace('torch.', '')}"}
 
-    # ---- data + init: exact mulberry32 → identical GD trajectory to the browser ----
-    th = init_theta(spec, p, P["init"], P["seed"] + 1)         # θ first (residual signs need it)
+def _find_cifar_dir():
+    cands = [CIFAR_DIR,
+             os.path.join(DIR, "cifar-10-batches-py"),
+             "/home/alexandreduplessis/.torch/cifar-10-batches-py",
+             os.path.expanduser("~/.torch/cifar-10-batches-py"),
+             os.path.expanduser("~/data/cifar-10-batches-py")]
+    for c in cands:
+        if c and os.path.isdir(c) and os.path.isfile(os.path.join(c, "data_batch_1")):
+            return c
+    return None
+
+
+def _load_cifar_raw():
+    """Load all 5 CIFAR-10 train batches, normalized per-channel, as (50000, 3072) + int labels.
+    Pure pickle+numpy (no torchvision). Cached per directory."""
+    import pickle
+    import numpy as np
+    d = _find_cifar_dir()
+    if d is None:
+        raise FileNotFoundError(
+            "CIFAR-10 raw batches not found — pass --cifar-dir <dir containing data_batch_1..5>")
+    if d in _CIFAR_CACHE:
+        return _CIFAR_CACHE[d]
+    xs, ys = [], []
+    for i in range(1, 6):
+        with open(os.path.join(d, f"data_batch_{i}"), "rb") as f:
+            b = pickle.load(f, encoding="bytes")
+        xs.append(np.asarray(b[b"data"], dtype=np.float32))
+        ys.extend(list(b[b"labels"]))
+    X = np.concatenate(xs, 0).reshape(-1, 3, 32, 32) / 255.0       # (50000,3,32,32) in [0,1]
+    mean = np.array([0.4914, 0.4822, 0.4465], np.float32).reshape(1, 3, 1, 1)
+    std = np.array([0.2470, 0.2435, 0.2616], np.float32).reshape(1, 3, 1, 1)
+    X = ((X - mean) / std).reshape(-1, 3072)                       # channel-major flatten (C,H,W)
+    Y = np.asarray(ys, dtype=np.int64)
+    _CIFAR_CACHE[d] = (X, Y)
+    return X, Y
+
+
+def load_cifar(n, seed):
+    """A fixed (seeded) subset of n CIFAR-10 images. X (n,3072); Y (n,10) one-hot (MSE & CE both use it)."""
+    import numpy as np
+    X, Y = _load_cifar_raw()
+    rng = np.random.RandomState(seed & 0x7FFFFFFF)
+    idx = rng.permutation(X.shape[0])[:n]
+    Xt = torch.tensor(X[idx], dtype=DTYPE, device=_dev())
+    Yt = torch.zeros(n, 10, dtype=DTYPE, device=_dev())
+    Yt[torch.arange(n), torch.tensor(Y[idx], dtype=torch.long, device=_dev())] = 1.0
+    return Xt, Yt
+
+
+def load_sort(n, L, drng):
+    """Sorting task: input a random length-L sequence, target = the ascending-sorted sequence.
+    MSE regression, oc = L. Uses the seeded mulberry32 RNG so runs are reproducible."""
+    Xl = [[gauss(drng) for _ in range(L)] for _ in range(n)]
+    X = torch.tensor(Xl, dtype=DTYPE, device=_dev())
+    Y, _ = torch.sort(X, dim=1)
+    return X, Y
+
+
+_OWT_CACHE = {}
+
+
+def _owt_tokens(split):
+    """Memory-mapped uint16 OWT token array. MIRRORS eos_lab.data._owt_tokens."""
+    import numpy as np
+    for d in [os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "owt"),
+              os.path.expanduser("~/data/owt")]:
+        if os.path.isfile(os.path.join(d, "train.bin")):
+            key = (d, split)
+            if key not in _OWT_CACHE:
+                _OWT_CACHE[key] = np.memmap(os.path.join(d, f"{split}.bin"), dtype=np.uint16, mode="r")
+            return _OWT_CACHE[key]
+    raise FileNotFoundError("OpenWebText tokens not found — run `python -m eos_lab.owt_prepare` "
+                            "to build data/owt/{train,val}.bin.")
+
+
+def load_owt(n, block, seed, split="train"):
+    """`n` length-`block` token sequences at random offsets; (X, Y) int64 (n, block) with Y the
+    next-token shift. MIRRORS eos_lab.data.load_owt. (Token ids are dtype-independent.)"""
+    import numpy as np
+    tok = _owt_tokens(split)
+    hi = len(tok) - block - 1
+    if hi <= 0:
+        raise ValueError(f"OWT {split}.bin has {len(tok)} tokens; need > block+1 = {block + 1}.")
+    rng = np.random.RandomState(seed & 0x7FFFFFFF)
+    offs = rng.randint(0, hi, size=n)
+    X = np.stack([np.asarray(tok[o:o + block], dtype=np.int64) for o in offs])
+    Y = np.stack([np.asarray(tok[o + 1:o + 1 + block], dtype=np.int64) for o in offs])
+    return (torch.tensor(X, dtype=torch.long, device=_dev()),
+            torch.tensor(Y, dtype=torch.long, device=_dev()))
+
+
+# ===================== model factory =====================
+def build_model(arch, inDim, outDim, P):
+    if arch == "mlp":
+        spec, p = build_spec(inDim, P["width"], P["depth"], P["act"], P["bias"] == "1", outDim)
+        m = MlpModel(spec, p, (inDim,), outDim)
+    elif arch == "cnn":
+        m = CnnModel(inDim, outDim, P)
+    elif arch == "vgg11":
+        m = Vgg11Model(inDim, outDim, P)
+    elif arch == "gpt":
+        m = GptLMModel(inDim, outDim, P) if P.get("dataset") == "owt" else GptModel(inDim, outDim, P)
+    else:
+        raise ValueError(f"unknown arch '{arch}'")
+    m.init_scheme = P.get("initscheme", "default")     # weight-init scheme (default/mup/xavier_*/custom)
+    return m
+
+
+# ===================== data + init (shared by both run modes) =====================
+def init_data_theta(P, dataset, N, inD, outD):
+    """θ (seeded init) + data (X,Y) + §4d sign groups. Synthetic uses the exact mulberry32 RNG so the
+    MLP trajectory matches the browser; cifar/sorting load real data."""
+    th = _TL.model.init_theta(P["seed"] + 1, P["init"])            # θ first (residual signs need it)
     drng = mulberry32(u32(P["seed"] * 7919 + 1))
     ssign = P.get("ssign", "off")
     tgt = float(P["tgt"])
     inStd = float(P["inputstd"])
     fixedx = P["fixedx"] == "1"
-    if fixedx:
-        X = torch.ones(N, inD, dtype=DTYPE, device=DEVICE)
+    if dataset == "owt":
+        # inD = block size; token-id X/Y. CE has no residual geometry → §4d sign-groups are empty.
+        X, Y = load_owt(N, inD, P["seed"])
+        empt = torch.empty(0, dtype=torch.long, device=_dev())
+        return th, X, Y, empt, empt
+    if dataset == "cifar10":
+        X, Y = load_cifar(N, P["seed"])
+    elif dataset == "sorting":
+        X, Y = load_sort(N, inD, drng)
+    elif fixedx:
+        X = torch.ones(N, inD, dtype=DTYPE, device=_dev())
         if ssign == "off":
-            Y = torch.full((N, outD), tgt, dtype=DTYPE, device=DEVICE)
+            Y = torch.full((N, outD), tgt, dtype=DTYPE, device=_dev())
         else:                                                  # construct Y so r=y−f has a fixed sign, |r|≥floor
             s = 1.0 if ssign == "pos" else -1.0
             floor = 0.25 * max(abs(tgt), 1e-6)
-            F = fwd(th, spec, X)[0]
+            F = _TL.model.forward(th, X)
             Y = F + s * torch.clamp(torch.full_like(F, abs(tgt)), min=floor)
     elif ssign == "off":
         Xl = [[inStd * gauss(drng) for _ in range(inD)] for _ in range(N)]
         Yl = [[tgt * gauss(drng) for _ in range(outD)] for _ in range(N)]
-        X = torch.tensor(Xl, dtype=DTYPE, device=DEVICE)
-        Y = torch.tensor(Yl, dtype=DTYPE, device=DEVICE)
+        X = torch.tensor(Xl, dtype=DTYPE, device=_dev())
+        Y = torch.tensor(Yl, dtype=DTYPE, device=_dev())
     else:
         # sample a pool, keep N whose initial residual r=y−f(x,θ₀) is sign-definite with largest |r|
         s = 1.0 if ssign == "pos" else -1.0
         floor = 0.25 * max(abs(tgt), 1e-6)
         K = max(64 * N, 3000)
-        Xc = torch.tensor([[inStd * gauss(drng) for _ in range(inD)] for _ in range(K)], dtype=DTYPE, device=DEVICE)
-        Yc = torch.tensor([[tgt * gauss(drng) for _ in range(outD)] for _ in range(K)], dtype=DTYPE, device=DEVICE)
-        Fc = fwd(th, spec, Xc)[0]
+        Xc = torch.tensor([[inStd * gauss(drng) for _ in range(inD)] for _ in range(K)], dtype=DTYPE, device=_dev())
+        Yc = torch.tensor([[tgt * gauss(drng) for _ in range(outD)] for _ in range(K)], dtype=DTYPE, device=_dev())
+        Fc = _TL.model.forward(th, Xc)
         Rc = Yc - Fc
         okSign = (Rc * s > 0).all(dim=1)
         mn = Rc.abs().amin(dim=1)
@@ -514,19 +1040,72 @@ def run_stream(P):
             if not bool(okSign[k]):
                 chosen.append(k)
         chosen = chosen[:N]
-        X = torch.empty(N, inD, dtype=DTYPE, device=DEVICE)
-        Y = torch.empty(N, outD, dtype=DTYPE, device=DEVICE)
+        X = torch.empty(N, inD, dtype=DTYPE, device=_dev())
+        Y = torch.empty(N, outD, dtype=DTYPE, device=_dev())
         for i, k in enumerate(chosen):
             X[i] = Xc[k]
             f = Fc[k]
             Y[i] = f + s * torch.clamp((Yc[k] - f).abs(), min=floor)
-
     # §4d: fix the two sample groups by the sign of the summed initial residual r=y−f(x,θ₀)
-    ssum0 = (Y - fwd(th, spec, X)[0]).sum(dim=1)
+    ssum0 = (Y - _TL.model.forward(th, X)).sum(dim=1)
     pos_rows = torch.tensor([i * outD + c for i in range(N) if float(ssum0[i]) >= 0 for c in range(outD)],
-                            dtype=torch.long, device=DEVICE)
+                            dtype=torch.long, device=_dev())
     neg_rows = torch.tensor([i * outD + c for i in range(N) if float(ssum0[i]) < 0 for c in range(outD)],
-                            dtype=torch.long, device=DEVICE)
+                            dtype=torch.long, device=_dev())
+    return th, X, Y, pos_rows, neg_rows
+
+
+# ===================== streaming run =====================
+def run_stream(P):
+    """Yield SSE message dicts: one 'meta', then ('step' [+ 'slq']) per eig-tick, then 'done'."""
+    dataset = P.get("dataset", "synthetic")
+    arch = P.get("arch", "mlp")
+    if dataset == "cifar10":
+        inDimE, outDimE = 3072, 10
+    elif dataset == "sorting":
+        inDimE = outDimE = int(P["seqlen"])
+    elif dataset == "owt":
+        inDimE, outDimE = int(P["seqlen"]), int(P["vocab"])   # block size, vocab
+    else:
+        inDimE, outDimE = P["indim"], P["outdim"]
+    _TL.model = build_model(arch, inDimE, outDimE, P)
+    _TL.loss = build_loss(P.get("loss", "mse"))
+    p = _TL.model.p
+    half = max(1, p // 2)
+    n = min(max(1, P["neig"]), half)
+    kth = min(max(1, P["kth"]), half)
+    s1, s2, s3, s4, s5, s6, gs = (P["s1"], P["s2"], P["s3"], P["s4"],
+                                  P["s5"], P["s6"], P["gs"])
+    s7, s8, s9, s10, s11, s12 = P["s7"], P["s8"], P["s9"], P["s10"], P["s11"], P["s12"]
+    s13 = P.get("s13", 0)                # §7a NTK alignment (residual→NTK, NTK→FH-SVD)
+    if _TL.loss.name == "ce":            # CE keeps the loss-independent geometry §4 (J→H) and §6 (H rotation);
+        s7 = s8 = s9 = s10 = s11 = s12 = s13 = False   # §7/§7a/§8/§4b–d need the M×p Jacobian, §9 is MSE-only
+    nSub = min(max(n, kth, (10 if s6 else 1)), half)
+    # minibatch-for-everything: each step samples `bs` of the `Nfull`-sequence pool and uses that sample
+    # for BOTH the GD step and that step's diagnostics. bs==Nfull ⇒ deterministic full batch (default).
+    Nfull, inD, outD = P["nsamp"], inDimE, outDimE
+    bs = Nfull if int(P.get("batch", 0)) <= 0 else min(int(P["batch"]), Nfull)
+    full_batch = bs >= Nfull
+    N = bs                                  # diagnostics + loss normalisation run on the minibatch
+    M = N * outD
+    multi = M > 1
+    n7 = min(n, max(M, 1))
+    n8 = min(n, max(1, p // 2))
+    nResid = min(M, 12)
+    lr = P["lr"]
+    thr = 2.0 / lr
+
+    if p > PMAX:
+        yield {"type": "meta", "error": f"p={p} parameters exceeds the cap ({PMAX}). Reduce width/depth."}
+        return
+    ce = _TL.loss.name == "ce"
+    yield {"type": "meta", "p": p, "n": n, "kth": kth, "nResid": nResid, "thr": thr,
+           "n7": n7, "n8": n8, "multi": multi, "loss": _TL.loss.name, "arch": arch, "dataset": dataset,
+           "device": f"{_dev()} · {str(DTYPE).replace('torch.', '')}"}
+
+    # ---- data + init (shared helper): synthetic = mulberry32 (browser-identical); cifar/sorting = real data ----
+    th, X, Y, pos_rows, neg_rows = init_data_theta(P, dataset, Nfull, inD, outD)
+    Xpool, Ypool, poolPos, poolNeg = X, Y, pos_rows, neg_rows   # full pool; minibatch sampled per-step below
 
     mF = min(p, max(2 * nSub + 24, 44))
     mV = min(p, max(2 * n + 16, 28))
@@ -538,9 +1117,8 @@ def run_stream(P):
     slqStride = max(1, math.ceil((steps // ee + 1) / 50))
     start = max(0, min(int(P.get("start", 0)), steps))  # resume: fast-forward GD to here, then stream
 
-    global RUN_TOKEN
-    RUN_TOKEN += 1
-    mytok = RUN_TOKEN                                    # this run is current; a newer /run will bump RUN_TOKEN
+    mytok = P.get("_token", 0)                          # per-device token claimed in _sse via acquire_device()
+    _devkey = str(_dev())                               # a newer /run on THIS device bumps RUN_TOKEN[_devkey] → we stop
 
     t0 = time.time()
     eigTick = 0
@@ -562,42 +1140,49 @@ def run_stream(P):
     thAcc1 = 0.0; thAcc2 = 0.0; thProd3 = 1.0; thProd4 = 1.0
 
     for t in range(steps + 1):
-        if mytok != RUN_TOKEN:
+        if mytok != RUN_TOKEN.get(_devkey, mytok):
             return            # a newer /run started → drop this stale stream so it stops using the GPU
+        if not full_batch:    # fresh minibatch for this step (GD + diagnostics); §4d groups undefined
+            import numpy as _np
+            sel = torch.as_tensor(
+                _np.random.RandomState((P["seed"] * 1000003 + t) & 0x7FFFFFFF).choice(Nfull, size=bs, replace=False),
+                dtype=torch.long, device=_dev())
+            X, Y = Xpool[sel], Ypool[sel]
+            pos_rows = neg_rows = torch.empty(0, dtype=torch.long, device=_dev())
         if t == start:
             t0 = time.time()  # reset rate clock once streaming begins (exclude fast-forward)
         if t >= start and t % ee == 0:
-            J, out = gradF(th, spec, X)
-            loss = float(0.5 * ((out - Y) ** 2).sum() / N)
+            J, out = gradF(th, X)
+            loss = float(_TL.loss.value(out, Y, N))
             if not math.isfinite(loss) or loss > 1e10:
                 yield {"type": "error",
                        "error": f"diverged at step {t} (loss={loss:.2e}). Lower lr or init_scale."}
                 return
-            r = (Y - out).reshape(-1)
-            cS = (out - Y) / N
+            r = None if ce else (Y - out).reshape(-1)     # CE/LM has no residual (Y are token ids)
+            cS = _TL.loss.resid_cotangent(out, Y, N)
 
             needVecs = s4 or s6
             needVals = s1 or s2 or s3 or needVecs
             feTop, feBot, feTV, feBV = [], [], None, None
             if needVecs:
                 feTV, feBV, feTop, feBot = lanczos_extreme(
-                    lambda v: hvpF(th, spec, X, v), p, nSub, mF, 0xA53F9)
+                    lambda v: hvpF(th, X, v), p, nSub, mF, 0xA53F9)
             elif needVals:
                 feTop, feBot = lanczos_extreme_vals(
-                    lambda v: hvpF(th, spec, X, v), p, n, mV, 0xA53F9)
+                    lambda v: hvpF(th, X, v), p, n, mV, 0xA53F9)
 
             hlt = hlb = None
             if s1 or s2 or s3:
                 hlt, hlb = lanczos_extreme_vals(
-                    lambda v: hvpL(th, spec, X, Y, v), p, n, mV, 0x5EED1)
+                    lambda v: hvpL(th, X, Y, v), p, n, mV, 0x5EED1)
             sharp = hlt[0] if hlt else None
 
             gnt = gnb = srt = srb = None
             if (s2 or s3) and gs:
                 gnt, gnb = lanczos_extreme_vals(
-                    lambda v: hvpG(th, spec, X, v), p, n, mV, 0x6A17C)
+                    lambda v: hvpG(th, X, v), p, n, mV, 0x6A17C)
                 srt, srb = lanczos_extreme_vals(
-                    lambda v: hvpS(th, spec, X, v, cS), p, n, mV, 0x7B23D)
+                    lambda v: hvpS(th, X, v, cS), p, n, mV, 0x7B23D)
 
             # sign-track H eigvecs once (shared by §4 and §4d)
             if needVecs and feTV is not None:
@@ -627,64 +1212,66 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if multi and (s7 or s8 or s9 or s10 or s11 or s12):
-                Jc, out_flat = jac_cols(th, spec, X)
+            if multi and (s7 or s8 or s9 or s10 or s11 or s12 or s13):
+                Jc, out_flat = jac_cols(th, X)
                 rr = Y.reshape(-1) - out_flat
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None
             jhe1 = jhe2 = jhe1b = jhe2b = jh2e1 = jh2e2 = jh2e1b = jh2e2b = None
-            if s7 and multi:
+            if (s7 or s13) and multi:
                 Kv, Vk = sym_eig_desc(Jc @ Jc.t())                 # NTK eigen
                 for k in range(n7):
                     Vk[:, k] = sign_to(Vk[:, k], prevNtk[k]); prevNtk[k] = Vk[:, k]
-                UJ = []                                            # left singular vecs of J (param space)
-                for k in range(n7):
-                    u = (Jc.t() @ Vk[:, k]) / math.sqrt(max(float(Kv[k]), 1e-30))
-                    u = sign_to(u, prevUJ[k]); prevUJ[k] = u; UJ.append(u)
-                GH = torch.zeros(M, M, dtype=DTYPE, device=DEVICE)  # Hessian Frobenius Gram (Hutchinson)
+                GH = torch.zeros(M, M, dtype=DTYPE, device=_dev())  # Hessian Frobenius Gram (Hutchinson)
                 for pr in range(nProbe):
-                    Hz = jac_hvp(th, spec, X, _randn_vec(p, (0xC0FFEE + pr * 40503) & 0xFFFFFFFF))
+                    Hz = jac_hvp(th, X, _randn_vec(p, (0xC0FFEE + pr * 40503) & 0xFFFFFFFF))
                     GH += Hz @ Hz.t()
                 GH /= nProbe
                 Hv, Vh = sym_eig_desc(GH)                          # right singular vecs of FH tensor
                 for k in range(n7):
                     Vh[:, k] = sign_to(Vh[:, k], prevVH[k]); prevVH[k] = Vh[:, k]
-                nM = min(2, max(1, p // 2))
-                fe1t, fe1b, fe1tv, fe1bv = lanczos_extreme(
-                    lambda v: hvpS(th, spec, X, v, Vh[:, 0].reshape(N, outD)), p, nM, mV, 0x9E37)
-                gh1 = Vh[:, 1] if Vh.shape[1] > 1 else Vh[:, 0]
-                fe2t, fe2b, fe2tv, fe2bv = lanczos_extreme(
-                    lambda v: hvpS(th, spec, X, v, gh1.reshape(N, outD)), p, nM, mV, 0x7C19)
-                def _l(a, i):
-                    return a[i] if i < len(a) else a[0]
-                m1 = [fe1t[0], _l(fe1t, 1), fe1b[0], _l(fe1b, 1)]
-                m2 = [fe2t[0], _l(fe2t, 1), fe2b[0], _l(fe2b, 1)]
-                for j in range(4):
-                    m1[j] = sign_to(m1[j], prevM1[j]); prevM1[j] = m1[j]
-                    m2[j] = sign_to(m2[j], prevM2[j]); prevM2[j] = m2[j]
-                fhEvT = [fe1tv[0], _l(fe1tv, 1), fe2tv[0], _l(fe2tv, 1)]
-                fhEvB = [fe1bv[0], _l(fe1bv, 1), fe2bv[0], _l(fe2bv, 1)]
+                # §7a NTK alignment (always-on panel): residual→NTK eigvec; NTK eigvec→FH right-sing vec
                 ntkR = [float(rr @ Vk[:, k]) for k in range(n7)]
                 ntkH = [float(Vk[:, 0] @ Vh[:, k]) for k in range(n7)]
-                jhe1 = [float(UJ[k] @ m1[0]) for k in range(n7)]
-                jhe2 = [float(UJ[k] @ m1[1]) for k in range(n7)]
-                jhe1b = [float(UJ[k] @ m1[2]) for k in range(n7)]
-                jhe2b = [float(UJ[k] @ m1[3]) for k in range(n7)]
-                jh2e1 = [float(UJ[k] @ m2[0]) for k in range(n7)]
-                jh2e2 = [float(UJ[k] @ m2[1]) for k in range(n7)]
-                jh2e1b = [float(UJ[k] @ m2[2]) for k in range(n7)]
-                jh2e2b = [float(UJ[k] @ m2[3]) for k in range(n7)]
+                if s7:                                            # heavy §7 FH-eigenvector projections
+                    UJ = []                                        # left singular vecs of J (param space)
+                    for k in range(n7):
+                        u = (Jc.t() @ Vk[:, k]) / math.sqrt(max(float(Kv[k]), 1e-30))
+                        u = sign_to(u, prevUJ[k]); prevUJ[k] = u; UJ.append(u)
+                    nM = min(2, max(1, p // 2))
+                    fe1t, fe1b, fe1tv, fe1bv = lanczos_extreme(
+                        lambda v: hvpS(th, X, v, Vh[:, 0].reshape(N, outD)), p, nM, mV, 0x9E37)
+                    gh1 = Vh[:, 1] if Vh.shape[1] > 1 else Vh[:, 0]
+                    fe2t, fe2b, fe2tv, fe2bv = lanczos_extreme(
+                        lambda v: hvpS(th, X, v, gh1.reshape(N, outD)), p, nM, mV, 0x7C19)
+                    def _l(a, i):
+                        return a[i] if i < len(a) else a[0]
+                    m1 = [fe1t[0], _l(fe1t, 1), fe1b[0], _l(fe1b, 1)]
+                    m2 = [fe2t[0], _l(fe2t, 1), fe2b[0], _l(fe2b, 1)]
+                    for j in range(4):
+                        m1[j] = sign_to(m1[j], prevM1[j]); prevM1[j] = m1[j]
+                        m2[j] = sign_to(m2[j], prevM2[j]); prevM2[j] = m2[j]
+                    fhEvT = [fe1tv[0], _l(fe1tv, 1), fe2tv[0], _l(fe2tv, 1)]
+                    fhEvB = [fe1bv[0], _l(fe1bv, 1), fe2bv[0], _l(fe2bv, 1)]
+                    jhe1 = [float(UJ[k] @ m1[0]) for k in range(n7)]
+                    jhe2 = [float(UJ[k] @ m1[1]) for k in range(n7)]
+                    jhe1b = [float(UJ[k] @ m1[2]) for k in range(n7)]
+                    jhe2b = [float(UJ[k] @ m1[3]) for k in range(n7)]
+                    jh2e1 = [float(UJ[k] @ m2[0]) for k in range(n7)]
+                    jh2e2 = [float(UJ[k] @ m2[1]) for k in range(n7)]
+                    jh2e1b = [float(UJ[k] @ m2[2]) for k in range(n7)]
+                    jh2e2b = [float(UJ[k] @ m2[3]) for k in range(n7)]
 
             # §8 vec(J) onto right singular vecs of the p×(p·dₙ) FH reshape
             g2J = g2Jn = None
             if s8 and multi:
                 jfn = max(float(Jc.norm()), 1e-30)                 # ‖J‖_F
-                wv = torch.zeros(p, dtype=DTYPE, device=DEVICE)
+                wv = torch.zeros(p, dtype=DTYPE, device=_dev())
                 for a in range(M):
-                    wv += (grad_out(th + EPS * Jc[a], spec, X, a)
-                           - grad_out(th - EPS * Jc[a], spec, X, a)) / (2 * EPS)
-                gt, _, gtv, _ = lanczos_extreme(lambda v: hvpG2(th, spec, X, v), p, n8, mV, 0xB2D4)
+                    wv += (grad_out(th + EPS * Jc[a], X, a)
+                           - grad_out(th - EPS * Jc[a], X, a)) / (2 * EPS)
+                gt, _, gtv, _ = lanczos_extreme(lambda v: hvpG2(th, X, v), p, n8, mV, 0xB2D4)
                 g2J = []
                 for k in range(n8):
                     uk = sign_to(gt[k], prevG2[k]); prevG2[k] = uk
@@ -708,7 +1295,7 @@ def run_stream(P):
             qeT = qeB = None
             if multi and (s9 or s11):
                 qeT, qeB, _, _ = lanczos_extreme(
-                    lambda v: hvpS(th, spec, X, v, u1s.reshape(N, outD)), p, n, mV, 0xC0DE1)
+                    lambda v: hvpS(th, X, v, u1s.reshape(N, outD)), p, n, mV, 0xC0DE1)
                 for k in range(n):
                     qeT[k] = sign_to(qeT[k], prevQ9t[k]); prevQ9t[k] = qeT[k]
                     qeB[k] = sign_to(qeB[k], prevQ9b[k]); prevQ9b[k] = qeB[k]
@@ -728,7 +1315,7 @@ def run_stream(P):
             # §4c Q[u₁]·(J·r) onto GN eigvecs g_k = J v_k/‖·‖
             q10 = q10N = None
             if s10 and multi:
-                QJr = hvpS(th, spec, X, Jrs, u1s.reshape(N, outD))
+                QJr = hvpS(th, X, Jrs, u1s.reshape(N, outD))
                 qn = max(float(QJr.norm()), 1e-30)
                 q10 = []
                 for k in range(n):
@@ -742,7 +1329,7 @@ def run_stream(P):
             if s11 and multi and feTV is not None and qeT is not None:
                 def _grp(rows, weighted):
                     if rows.numel() == 0:
-                        return torch.zeros(p, dtype=DTYPE, device=DEVICE)
+                        return torch.zeros(p, dtype=DTYPE, device=_dev())
                     sub = Jc[rows]
                     if weighted:
                         sub = rr[rows].unsqueeze(1) * sub
@@ -761,11 +1348,11 @@ def run_stream(P):
                 if thT0 < 0 or (t - thT0) >= qapprox:               # window start: freeze θ₀, J₀, FH; reset accumulators
                     thT0 = t; thTh0 = th.clone(); thAcc1 = 0.0; thAcc2 = 0.0; thProd3 = 1.0; thProd4 = 1.0
                     if multi:
-                        thJ, _ = jac_cols(th, spec, X)                  # predicted Jacobian J₀ (M, p)
-                        thFroz = fh_frozen(th, spec, X, nProbe, min(n, M), 2, mV, M)
+                        thJ, _ = jac_cols(th, X)                  # predicted Jacobian J₀ (M, p)
+                        thFroz = fh_frozen(th, X, nProbe, min(n, M), 2, mV, M)
                         thBase = float(torch.linalg.eigvalsh(thJ @ thJ.t())[-1])
                     else:
-                        Jc0, _ = gradF(th, spec, X); thJp = Jc0.clone(); thBase = float(Jc0 @ Jc0)
+                        Jc0, _ = gradF(th, X); thJp = Jc0.clone(); thBase = float(Jc0 @ Jc0)
                 thP = [None, None, None, None]; thA = [None, None, None, None]
                 if multi and thJ is not None and thFroz is not None and bEk_vals is not None:
                     Jt = thJ; F = thFroz
@@ -797,22 +1384,26 @@ def run_stream(P):
                         S4 += (sgv/sgT) * fhBil(gnv(vk)) * rho
                     thProd4 *= (1 + 2 * etaN * S4) ** reps_
                     for _ in range(reps_):                             # advance Eq-15: J += (η/N) Q[Jᵀr], Q frozen at θ₀
-                        QW = jac_hvp(thTh0, spec, X, thJ.t() @ rr)      # {∇²f_a·(Jᵀr)} at θ₀
+                        QW = jac_hvp(thTh0, X, thJ.t() @ rr)      # {∇²f_a·(Jᵀr)} at θ₀
                         qu = (u1.unsqueeze(1) * QW).sum(0)              # Q[u₁](Jᵀr) = Σ_a u₁_a QW[a]
                         thAcc2 += 2 * etaN * sgT * float(v1 @ qu)       # col-2 Δσ (first-order, flips with residual sign)
                         thJ = thJ + etaN * QW
                 elif not multi and thJp is not None:
                     # col-1 (Eq-13): additive first-order Δσ = 2η r (JᵀQ J) on propagated J — flips with residual sign
-                    Jcur, ocur = gradF(th, spec, X); sigAct = float(Jcur @ Jcur); thA[0] = sigAct
+                    Jcur, ocur = gradF(th, X); sigAct = float(Jcur @ Jcur); thA[0] = sigAct
                     thP[0] = min(max(thBase + thAcc1, 0.0), 10*max(sigAct, 1e-30)); rsc = float((Y.reshape(-1) - ocur)[0])
                     for _ in range(reps_):
-                        QJ = hvpF(thTh0, spec, X, thJp); thAcc1 += 2 * lr * rsc * float(thJp @ QJ); thJp = thJp + lr * rsc * QJ
+                        QJ = hvpF(thTh0, X, thJp); thAcc1 += 2 * lr * rsc * float(thJp @ QJ); thJp = thJp + lr * rsc * QJ
+
+            # report σ₁ per-sample (÷N) so the theory matches the true sharpness λmax(∇²L) ≈ λmax(GN) = σ₁/N
+            thPr = [(x / N if x is not None else None) for x in thP] if thP else None
+            thAr = [(x / N if x is not None else None) for x in thA] if thA else None
 
             yield {
                 "type": "step", "t": t, "steps": steps, "p": p,
                 "loss": loss, "sharp": sharp,
-                "thP": thP, "thA": thA,
-                "r": r[:nResid].detach().cpu().tolist(),
+                "thP": thPr, "thA": thAr,
+                "r": ([] if r is None else r[:nResid].detach().cpu().tolist()),
                 "hfMax": (feTop[0] if feTop else None),
                 "hfMin": (feBot[0] if feBot else None),
                 "hfTop": feTop[:n], "hfBot": feBot[:n],
@@ -834,15 +1425,324 @@ def run_stream(P):
             if s5 and eigTick % slqStride == 0:
                 yield {
                     "type": "slq",
-                    "sH": slq_density(lambda v: hvpF(th, spec, X, v), p, nProbe, mSLQ, 80, 0x11),
-                    "sG": slq_density(lambda v: hvpG(th, spec, X, v), p, nProbe, mSLQ, 80, 0x22),
-                    "sS": slq_density(lambda v: hvpS(th, spec, X, v, cS), p, nProbe, mSLQ, 80, 0x33),
-                    "sHL": slq_density(lambda v: hvpL(th, spec, X, Y, v), p, nProbe, mSLQ, 80, 0x44),
+                    "sH": slq_density(lambda v: hvpF(th, X, v), p, nProbe, mSLQ, 80, 0x11),
+                    "sG": slq_density(lambda v: hvpG(th, X, v), p, nProbe, mSLQ, 80, 0x22),
+                    "sS": slq_density(lambda v: hvpS(th, X, v, cS), p, nProbe, mSLQ, 80, 0x33),
+                    "sHL": slq_density(lambda v: hvpL(th, X, Y, v), p, nProbe, mSLQ, 80, 0x44),
                 }
             eigTick += 1
             done += 1
 
-        th = th - lr * gradL(th, spec, X, Y)[0]
+        th = th - lr * gradL(th, X, Y)[0]
+
+    yield {"type": "done", "p": p}
+
+
+def _resid_hist(rA, rS, bins=40):
+    """Overlaid histograms of the d_n=N·d_out residual elements: actual vs surrogate, shared bins."""
+    a = rA.detach().to("cpu", torch.float64)
+    s = rS.detach().to("cpu", torch.float64)
+    lo = float(min(a.min(), s.min()))
+    hi = float(max(a.max(), s.max()))
+    if not hi > lo:
+        hi = lo + 1.0
+    edges = torch.linspace(lo, hi, bins + 1)
+    centers = (0.5 * (edges[:-1] + edges[1:])).tolist()
+    ha = torch.histc(a, bins=bins, min=lo, max=hi).tolist()
+    hs = torch.histc(s, bins=bins, min=lo, max=hi).tolist()
+    return {"type": "hist", "x": centers, "ya": ha, "ys": hs}
+
+
+# ===================== surrogate-comparison run (quadratic / linear approximation) =====================
+def run_surrogate_compare(P):
+    """Train the actual model AND a frozen-window surrogate in lockstep and stream their comparison.
+    surrogate='quad': 2nd-order Taylor f₀+J₀Δθ+½ΔθᵀQΔθ; 'linear': f₀+J₀Δθ (drop curvature).
+    Q (function Hessian) and J₀ are frozen at each window start (every `qapprox` steps); the surrogate
+    runs GD on the loss of that approximation. Loss = MSE or (small-class) cross-entropy — everything
+    loss-touching goes through the loss object, so the surrogate GD uses ∂L/∂out and the surrogate loss
+    Hessian uses the matching Gauss–Newton metric. The §9 σ₁ theory is squared-loss only (skipped for CE).
+    Panels: loss, residual mean/std, top-n loss-Hessian eigenvalues, residual histogram, §9 theory σ₁,
+    §4 and §4d projections."""
+    kind = P.get("surrogate", "quad")
+    dataset = P.get("dataset", "synthetic")
+    arch = P.get("arch", "mlp")
+    if dataset == "owt":
+        # The surrogate freezes the FULL per-output Jacobian J₀ (M = nsamp·seqlen·vocab rows). At GPT-2's
+        # 50257-token vocab that is ~10¹¹ entries — impossible to form — and the Taylor/σ₁ machinery is
+        # squared-loss only. So OpenWebText has no surrogate comparison; use the main section for it.
+        yield {"type": "error", "error": "OpenWebText (LM cross-entropy) has no quadratic/linear "
+               "surrogate comparison: the surrogate needs the full per-output Jacobian (M = N·seqlen·"
+               "vocab ≈ 10¹¹ rows for GPT-2 vocab), which is infeasible, and the Taylor σ₁ theory is "
+               "MSE-only. Run OpenWebText from the main section above (§1/§2/§3/§5 + §4/§6)."}
+        return
+    if dataset == "cifar10":
+        inDimE, outDimE = 3072, 10
+    elif dataset == "sorting":
+        inDimE = outDimE = int(P["seqlen"])
+    else:
+        inDimE, outDimE = P["indim"], P["outdim"]
+    _TL.model = build_model(arch, inDimE, outDimE, P)
+    _TL.loss = build_loss(P.get("loss", "mse"))           # MSE, or small-class cross-entropy
+    ceLoss = _TL.loss.name == "ce"
+    p = _TL.model.p
+    N, inD, outD = P["nsamp"], inDimE, outDimE
+    M = N * outD
+    multi = M > 1
+    half = max(1, p // 2)
+    n = min(max(1, P["neig"]), half)
+    lr = P["lr"]
+    thr = 2.0 / lr
+    ee = max(1, P["eigevery"])
+    steps = P["steps"]
+    W = max(1, P["qapprox"])
+    nProbe = max(1, P["slqprobes"])
+    qmode = P["qmode"]
+    tset = P["tset"]
+    mV = min(p, max(2 * n + 16, 28))
+    cL, cR, cE, cH, cT, c4, c4d = (P["c1"], P["c2"], P["c3"], P["c4"], P["c5"], P["c6"], P["c7"])
+    c7a = P.get("c8", True)         # §7a NTK alignment panel (actual model)
+    cT = cT and not ceLoss          # the Eq-13/21/27/29 σ₁ theory (§9) is derived for squared loss only
+    c7a = c7a and not ceLoss        # NTK alignment uses the MSE residual r → MSE only (multi-class CE: off)
+
+    if p > PMAX:
+        yield {"type": "meta", "error": f"p={p} parameters exceeds the cap ({PMAX}). Reduce the model size."}
+        return
+    yield {"type": "meta", "p": p, "n": n, "thr": thr, "kind": kind, "multi": multi, "M": M,
+           "device": f"{_dev()} · {str(DTYPE).replace('torch.', '')}"}
+
+    th, X, Y, pos_rows, neg_rows = init_data_theta(P, dataset, N, inD, outD)
+    Yf = Y.reshape(-1)
+    zero_p = torch.zeros(p, dtype=DTYPE, device=_dev())
+
+    mytok = P.get("_token", 0)                          # per-device token claimed in _sse via acquire_device()
+    _devkey = str(_dev())
+    start = max(0, min(int(P.get("start", 0)), steps))
+    slqStride = max(1, math.ceil((steps // ee + 1) / 50))
+    t0 = time.time()
+    eigTick = 0
+    # frozen-window state
+    th0 = J0 = gF0 = f0flat = th_sur = feTV0 = feBV0 = None
+    thBase = 0.0
+    thJ = thFroz = thJp = None
+    thAcc1 = thAcc2 = 0.0
+    thProd3 = thProd4 = 1.0
+
+    for t in range(steps + 1):
+        if mytok != RUN_TOKEN.get(_devkey, mytok):
+            return
+        if t == start:
+            t0 = time.time()
+        if t % W == 0:                                       # window start: freeze θ₀, J₀, Q; reset surrogate
+            th0 = th.clone()
+            J0, f0flat = jac_cols(th0, X)
+            gF0 = gradF(th0, X)[0]
+            th_sur = th0.clone()
+            if c4 or c4d:
+                feTV0, feBV0, _, _ = lanczos_extreme(lambda v: hvpF(th0, X, v), p, n, mV, 0xF00D)
+                feTV0 = [pin_sign(x) for x in feTV0]
+                feBV0 = [pin_sign(x) for x in feBV0]
+            thAcc1 = thAcc2 = 0.0
+            thProd3 = thProd4 = 1.0
+            if cT:
+                if multi:
+                    thJ = J0.clone()
+                    thFroz = fh_frozen(th0, X, nProbe, min(n, M), 2, mV, M)
+                    thBase = float(torch.linalg.eigvalsh(thJ @ thJ.t())[-1])
+                else:
+                    thJp = gF0.clone()
+                    thBase = float(gF0 @ gF0)
+
+        if t >= start and t % ee == 0:
+            # ---- actual model ----
+            J_act, out_act = gradF(th, X)
+            lossA = float(_TL.loss.value(out_act, Y, N))
+            if not math.isfinite(lossA) or lossA > 1e10:
+                yield {"type": "error", "error": f"actual run diverged at step {t} (loss={lossA:.2e})."}
+                return
+            # "residual" = −N·∂L/∂out: Y−f for MSE, Y−softmax(f) for CE (loss-generic via the cotangent)
+            rA = (-N * _TL.loss.resid_cotangent(out_act, Y, N)).reshape(-1)
+            # ---- surrogate forward / gradient (frozen Q,J₀ at θ₀) ----
+            dth = th_sur - th0
+            f_sur = f0flat + (J0 @ dth)
+            Jq = J0
+            if kind == "quad":
+                QD = jac_hvp(th0, X, dth)
+                f_sur = f_sur + 0.5 * (QD @ dth)
+                Jq = J0 + QD
+            out_sur = f_sur.reshape(N, outD)
+            rS = (-N * _TL.loss.resid_cotangent(out_sur, Y, N)).reshape(-1)
+            lossS = float(_TL.loss.value(out_sur, Y, N))
+
+            rmeanA, rstdA = float(rA.mean()), float(rA.std(unbiased=False))
+            rmeanS, rstdS = float(rS.mean()), float(rS.std(unbiased=False))
+
+            # ---- top-n loss-Hessian eigenvalues (actual & surrogate) ----
+            eigA = eigS = None
+            sharpA = sharpS = None
+            if cE:
+                eigA, _ = lanczos_extreme_vals(lambda v: hvpL(th, X, Y, v), p, n, mV, 0x5EED1)
+                sharpA = eigA[0]
+                # surrogate loss Hessian = Gauss-Newton(Jq) + residual-curvature with the curvature FROZEN at θ₀.
+                # Both quad and linear include the frozen residual term so that at a window start (Jq=J₀,
+                # f_sur=f₀) the surrogate Hessian equals the actual loss Hessian G+S and the eigenvalues snap.
+                # surrogate Gauss–Newton uses the loss-aware output metric A (=I/N for MSE, the softmax
+                # GGN for CE); the residual-curvature term keeps the FROZEN cotangent at θ₀.
+                csur = _TL.loss.resid_cotangent(out_sur, Y, N)
+                surHL = lambda v: (Jq.t() @ _TL.loss.gn_apply(out_sur, (Jq @ v).reshape(N, outD), N).reshape(-1)
+                                   + hvpS(th0, X, v, csur))
+                eigS, _ = lanczos_extreme_vals(surHL, p, n, mV, 0x5EED2)
+                sharpS = eigS[0]
+
+            # ---- §4 projections: J onto top/bottom-n eigvecs of H (actual own H, surrogate frozen H₀) ----
+            feTVa = feBVa = None
+            j4tA = j4bA = j4tS = j4bS = None
+            if (c4 or c4d) and feTV0 is not None:
+                # use the SAME Lanczos seed as the frozen H₀ eigvecs (feTV0, 0xF00D): at a window start
+                # θ=θ₀ so the operator and probe are identical → feTVa==feTV0 and §4/§4d snap exactly.
+                feTVa, feBVa, _, _ = lanczos_extreme(lambda v: hvpF(th, X, v), p, n, mV, 0xF00D)
+                feTVa = [pin_sign(x) for x in feTVa]
+                feBVa = [pin_sign(x) for x in feBVa]
+            if c4 and feTV0 is not None:
+                J_sur = gF0 + (hvpF(th0, X, dth) if kind == "quad" else zero_p)
+                j4tA = [float(J_act @ feTVa[k]) for k in range(n)]
+                j4bA = [float(J_act @ feBVa[k]) for k in range(n)]
+                j4tS = [float(J_sur @ feTV0[k]) for k in range(n)]
+                j4bS = [float(J_sur @ feBV0[k]) for k in range(n)]
+
+            # ---- §4d projections: per-group J (±residual-sign groups) onto H eigvecs ----
+            d4tA = d4bA = d4tS = d4bS = None
+            if c4d and feTV0 is not None:
+                Jc_act, _ = jac_cols(th, X)
+
+                def grp(Jm, rows):
+                    return Jm[rows].sum(0) if rows.numel() else zero_p
+                JpA, JnA = grp(Jc_act, pos_rows), grp(Jc_act, neg_rows)
+                JpS, JnS = grp(Jq, pos_rows), grp(Jq, neg_rows)
+                d4tA = [float(JpA @ feTVa[k]) for k in range(n)] + [float(JnA @ feTVa[k]) for k in range(n)]
+                d4bA = [float(JpA @ feBVa[k]) for k in range(n)] + [float(JnA @ feBVa[k]) for k in range(n)]
+                d4tS = [float(JpS @ feTV0[k]) for k in range(n)] + [float(JnS @ feTV0[k]) for k in range(n)]
+                d4bS = [float(JpS @ feBV0[k]) for k in range(n)] + [float(JnS @ feBV0[k]) for k in range(n)]
+
+            # ---- §7a NTK alignment (actual model): residual→NTK eigvec; NTK eigvec→FH right-sing vec ----
+            ntkR = ntkH = None
+            if c7a and multi:
+                Jc_a, _ = jac_cols(th, X)
+                Kv7, Vk7 = sym_eig_desc(Jc_a @ Jc_a.t())
+                for k in range(min(n, M)):
+                    Vk7[:, k] = pin_sign(Vk7[:, k])
+                GH7 = torch.zeros(M, M, dtype=DTYPE, device=_dev())
+                for pr in range(nProbe):
+                    Hz = jac_hvp(th, X, _randn_vec(p, (0xC0FFEE + pr * 40503) & 0xFFFFFFFF))
+                    GH7 += Hz @ Hz.t()
+                GH7 /= nProbe
+                _, Vh7 = sym_eig_desc(GH7)
+                for k in range(min(n, M)):
+                    Vh7[:, k] = pin_sign(Vh7[:, k])
+                nntk = min(n, M)
+                ntkR = [float(rA @ Vk7[:, k]) for k in range(nntk)]
+                ntkH = [float(Vk7[:, 0] @ Vh7[:, k]) for k in range(nntk)]
+
+            # ---- §9 theory σ₁ (unchanged frozen-Q propagation) vs the SURROGATE's measured σ₁ ----
+            thP = thA = None
+            if cT:
+                etaN = lr / max(N, 1)
+                reps_ = max(1, ee)
+                thP = [None, None, None, None]
+                thA = [None, None, None, None]
+                if multi and thJ is not None and thFroz is not None:
+                    rr = rA
+                    Jt = thJ
+                    Fz = thFroz
+                    Kw, Vw = sym_eig_desc(Jt @ Jt.t())
+                    NV0 = min(n, M)
+                    for k in range(NV0):
+                        Vw[:, k] = pin_sign(Vw[:, k])
+                    sig1 = max(float(Kw[0]), 1e-30)
+                    sgT = math.sqrt(sig1)
+                    u1 = Vw[:, 0]
+                    v1 = Jt.t() @ u1
+                    v1 = v1 / max(float(v1.norm()), 1e-30)
+                    sigSur = float(torch.linalg.eigvalsh(Jq @ Jq.t())[-1])   # surrogate σ₁ (measured)
+                    thA[1] = thA[2] = thA[3] = sigSur
+                    cap = 10 * max(sigSur, 1e-30)
+                    clmp = lambda x: min(max(x, 0.0), cap)
+
+                    def gnv(k):
+                        g = Jt.t() @ Vw[:, k]
+                        return g / max(float(g.norm()), 1e-30)
+
+                    def fhBil(vk):
+                        s = 0.0
+                        for i in range(len(Fz["gamma"])):
+                            yu = float(Fz["y"][i] @ u1)
+                            sj = sum(Fz["tau"][i][j] * float(v1 @ Fz["z"][i][j]) * float(vk @ Fz["z"][i][j])
+                                     for j in range(len(Fz["z"][i])))
+                            s += Fz["gamma"][i] * sj * yu
+                        return s
+                    thP[1] = clmp(thBase + thAcc2)
+                    thP[2] = clmp(thBase * thProd3)
+                    thP[3] = clmp(thBase * thProd4)
+                    mi = min(max(qmode, 1), NV0) - 1
+                    sgi = math.sqrt(max(float(Kw[mi]), 1e-30))
+                    phi = float(rr @ Vw[:, mi])
+                    thProd3 *= (1 + 2 * etaN * (sgi / sgT) * phi * fhBil(gnv(mi))) ** reps_
+                    S4 = 0.0
+                    NV = min(max(tset, 1), NV0)
+                    for vk in range(NV):
+                        sgv = math.sqrt(max(float(Kw[vk]), 1e-30))
+                        rho = float(rr @ Vw[:, vk])
+                        S4 += (sgv / sgT) * fhBil(gnv(vk)) * rho
+                    thProd4 *= (1 + 2 * etaN * S4) ** reps_
+                    for _ in range(reps_):
+                        QW = jac_hvp(th0, X, thJ.t() @ rr)
+                        qu = (u1.unsqueeze(1) * QW).sum(0)
+                        thAcc2 += 2 * etaN * sgT * float(v1 @ qu)
+                        thJ = thJ + etaN * QW
+                elif not multi and thJp is not None:
+                    sigSur = float(Jq.reshape(-1) @ Jq.reshape(-1))
+                    thA[0] = sigSur
+                    thP[0] = min(max(thBase + thAcc1, 0.0), 10 * max(sigSur, 1e-30))
+                    rsc = float((Yf - out_act.reshape(-1))[0])
+                    for _ in range(reps_):
+                        QJ = hvpF(th0, X, thJp)
+                        thAcc1 += 2 * lr * rsc * float(thJp @ QJ)
+                        thJp = thJp + lr * rsc * QJ
+
+            # report σ₁ per-sample (÷N) so the theory matches the true sharpness scale (σ₁/N)
+            thPr = [(x / N if x is not None else None) for x in thP] if thP else None
+            thAr = [(x / N if x is not None else None) for x in thA] if thA else None
+
+            yield {
+                "type": "step", "t": t, "steps": steps, "p": p, "kind": kind,
+                "lossA": lossA if cL else None, "lossS": lossS if cL else None,
+                "rmeanA": rmeanA if cR else None, "rstdA": rstdA if cR else None,
+                "rmeanS": rmeanS if cR else None, "rstdS": rstdS if cR else None,
+                "eigA": eigA, "eigS": eigS, "sharpA": sharpA, "sharpS": sharpS,
+                "thP": thPr, "thA": thAr,
+                "j4tA": j4tA, "j4bA": j4bA, "j4tS": j4tS, "j4bS": j4bS,
+                "d4tA": d4tA, "d4bA": d4bA, "d4tS": d4tS, "d4bS": d4bS,
+                "ntkR": ntkR, "ntkH": ntkH,
+                "sps": (t - start + 1) / max(time.time() - t0, 1e-9),
+            }
+            if cH and eigTick % slqStride == 0:
+                yield _resid_hist(rA, rS)
+            eigTick += 1
+
+        # advance the actual model AND the frozen-window surrogate by one GD step EVERY iteration, so the
+        # surrogate stays in lockstep with the actual model regardless of eigevery / qapprox alignment
+        # (the surrogate GD is on the frozen-θ₀ MSE Taylor model; Q,J₀ are frozen at the window start).
+        th = th - lr * gradL(th, X, Y)[0]
+        if th0 is not None:
+            dths = th_sur - th0
+            if kind == "quad":
+                QDs = jac_hvp(th0, X, dths)
+                fss = f0flat + (J0 @ dths) + 0.5 * (QDs @ dths)
+                Jqs = J0 + QDs
+            else:
+                fss = f0flat + (J0 @ dths)
+                Jqs = J0
+            gss = _TL.loss.resid_cotangent(fss.reshape(N, outD), Y, N).reshape(-1)   # MSE: (fss−Y)/N
+            th_sur = th_sur - lr * (Jqs.t() @ gss)
 
     yield {"type": "done", "p": p}
 
@@ -862,18 +1762,28 @@ def _parse_params(q):
         "depth": fi("depth", 5), "width": fi("width", 1), "act": g("act", "linear"),
         "bias": g("bias", "0"), "fixedx": g("fixedx", "1"),
         "lr": ff("lr", 0.36), "init": ff("init", 0.4),
-        "nsamp": fi("nsamp", 1), "indim": fi("indim", 1), "outdim": fi("outdim", 1),
+        "nsamp": fi("nsamp", 1), "batch": fi("batch", 0), "indim": fi("indim", 1), "outdim": fi("outdim", 1),
         "tgt": ff("tgt", 1.0), "neig": fi("neig", 3), "kth": fi("kth", 1),
         "steps": fi("steps", 400), "eigevery": fi("eigevery", 1),
         "slqprobes": fi("slqprobes", 4), "energyp": ff("energyp", 99),
         "seed": fi("seed", 0), "start": fi("start", 0), "inputstd": ff("inputstd", 1.0),
         "ssign": g("ssign", "off"), "qapprox": max(1, fi("qapprox", 25)),
         "qmode": max(1, fi("qmode", 1)), "tset": max(1, fi("tset", 3)),
+        "dataset": g("dataset", "synthetic"), "arch": g("arch", "mlp"), "loss": g("loss", "mse"),
+        "chmul": ff("chmul", 0.25), "nlayer": fi("nlayer", 2), "nhead": fi("nhead", 4),
+        "dmodel": fi("dmodel", 64), "seqlen": fi("seqlen", 16), "vocab": fi("vocab", 50257),
+        "initscheme": g("initscheme", "default"),
+        "surrogate": g("surrogate", "quad"), "mode": g("mode", "run"),
         "s1": g("s1", "1") == "1", "s2": g("s2", "1") == "1", "s3": g("s3", "1") == "1",
         "s4": g("s4", "1") == "1", "s5": g("s5", "1") == "1", "s6": g("s6", "1") == "1",
         "s7": g("s7", "1") == "1", "s8": g("s8", "1") == "1", "s9": g("s9", "1") == "1",
         "s10": g("s10", "1") == "1", "s11": g("s11", "1") == "1", "s12": g("s12", "0") == "1",
+        "s13": g("s13", "1") == "1",
         "gs": g("gson", "1") == "1",
+        # surrogate-section panel toggles (loss · resid mean/std · top-n eig · histogram · theory · §4 · §4d)
+        "c1": g("c1", "1") == "1", "c2": g("c2", "1") == "1", "c3": g("c3", "1") == "1",
+        "c4": g("c4", "1") == "1", "c5": g("c5", "0") == "1", "c6": g("c6", "1") == "1",
+        "c7": g("c7", "1") == "1", "c8": g("c8", "1") == "1",
     }
 
 
@@ -923,7 +1833,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Connection", "keep-alive")
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
-        gen = run_stream(_parse_params(q))
+        P = _parse_params(q)
+        dev, tok = acquire_device()                 # auto least-busy GPU; concurrent tabs land on different devices
+        _TL.device = dev
+        if dev.type == "cuda":
+            torch.cuda.set_device(dev)
+        P["_token"] = tok
+        gen = run_surrogate_compare(P) if P.get("mode") == "surrogate" else run_stream(P)
         try:
             for msg in gen:
                 payload = "data: " + json.dumps(_sanitize(msg)) + "\n\n"
@@ -931,13 +1847,42 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
             gen.close()   # client navigated away / pressed Run again → stop compute
-        except Exception as e:  # surface compute errors (OOM, etc.) to the page
+        except Exception as e:  # surface compute errors (OOM, etc.) to the page without crashing the server
+            oom = isinstance(e, torch.cuda.OutOfMemoryError) or "out of memory" in str(e).lower()
+            if _dev().type == "cuda":
+                try:
+                    torch.cuda.empty_cache()       # release the freed blocks back to the GPU / other users
+                except Exception:
+                    pass
+            msg = ("GPU out of memory. Reduce number_of_samples, lower the model size (smaller chmul / "
+                   "dmodel / width), or turn off the heavy panels (§4d, §7, §8, §9 / theory). On a shared "
+                   "GPU, restart server.py with --device auto to pick the freest one.") if oom else str(e)
             try:
-                err = "data: " + json.dumps({"type": "error", "error": str(e)}) + "\n\n"
+                err = "data: " + json.dumps({"type": "error", "error": msg}) + "\n\n"
                 self.wfile.write(err.encode("utf-8"))
                 self.wfile.flush()
             except Exception:
                 pass
+        finally:
+            if dev.type == "cuda":
+                try:
+                    with torch.cuda.device(dev):
+                        torch.cuda.empty_cache()   # return this run's memory to its GPU between runs
+                except Exception:
+                    pass
+            release_device(dev)
+
+
+def build_device_pool(devices_arg, device_arg):
+    """Devices that runs are assigned to (one GPU each, auto least-busy in acquire_device()).
+    devices_arg: 'all' (every visible GPU) | 'cuda:0,cuda:1,...' | None → single device from --device."""
+    if devices_arg:
+        if devices_arg.strip().lower() == "all":
+            if torch.cuda.is_available():
+                return [torch.device(f"cuda:{i}") for i in range(torch.cuda.device_count())]
+            return [torch.device("cpu")]
+        return [torch.device(s.strip()) for s in devices_arg.split(",") if s.strip()]
+    return [pick_device(device_arg)]
 
 
 def pick_device(pref):
@@ -961,24 +1906,36 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8000)
-    ap.add_argument("--device", default="auto", help="auto | cpu | cuda | cuda:N")
+    ap.add_argument("--device", default="auto", help="auto | cpu | cuda | cuda:N (single-device default)")
+    ap.add_argument("--devices", default=None,
+                    help="multi-GPU pool: 'all' (every visible GPU) | comma list 'cuda:0,cuda:1' | "
+                         "omitted = just --device. Concurrent runs are auto-assigned least-busy across the pool.")
     ap.add_argument("--dtype", default="auto", choices=["auto", "float32", "float64"],
                     help="auto = fp32 on GPU (fast on A6000), fp64 on CPU")
+    ap.add_argument("--cifar-dir", default=None,
+                    help="directory with CIFAR-10 raw batches (data_batch_1..5); auto-detected if omitted")
     a = ap.parse_args()
 
-    global DEVICE, DTYPE
-    DEVICE = pick_device(a.device)
+    global DEVICE, DEVICE_POOL, DTYPE, CIFAR_DIR
+    CIFAR_DIR = a.cifar_dir
+    DEVICE_POOL = build_device_pool(a.devices, a.device)
+    DEVICE = DEVICE_POOL[0]
     if a.dtype == "auto":
-        DTYPE = torch.float32 if DEVICE.type == "cuda" else torch.float64
+        DTYPE = torch.float32 if _dev().type == "cuda" else torch.float64
     else:
         DTYPE = torch.float32 if a.dtype == "float32" else torch.float64
     torch.set_grad_enabled(False)
-    if DEVICE.type == "cuda":
-        torch.cuda.set_device(DEVICE)
+    if _dev().type == "cuda":
+        torch.cuda.set_device(_dev())
+        # the heavy compute is on the GPU; the per-step Lanczos loop is Python-orchestrated, so on a
+        # busy login node spawning many CPU threads only thrashes — pin to 1 to keep the GPU fed.
+        torch.set_num_threads(1)
 
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     print("EoS / Progressive-Sharpening — GPU backend")
-    print(f"  device : {DEVICE}   dtype: {str(DTYPE).replace('torch.', '')}")
+    print(f"  device : {_dev()}   dtype: {str(DTYPE).replace('torch.', '')}")
+    if len(DEVICE_POOL) > 1:
+        print(f"  pool   : {', '.join(str(d) for d in DEVICE_POOL)}  (concurrent runs auto-assigned least-busy)")
     print(f"  serving: http://{a.host}:{a.port}/   (index.html — set Compute → \"GPU backend\")")
     print(f"  tunnel : ssh -N -L {a.port}:localhost:{a.port} <this-box>"
           f"   then open http://localhost:{a.port}/")
