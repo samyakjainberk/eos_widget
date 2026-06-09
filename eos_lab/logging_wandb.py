@@ -46,7 +46,7 @@ _VECTORS = ["H_top", "H_bot", "lossH_top", "lossH_bot", "G_top", "G_bot", "S_top
             "jt", "jb", "jtN", "jbN", "ntkR", "ntkH", "fhEvT", "fhEvB",
             "jhe1", "jhe2", "jhe1b", "jhe2b", "jh2e1", "jh2e2", "jh2e1b", "jh2e2b",
             "g2J", "g2Jn", "q9t", "q9b", "q9tN", "q9bN", "q9tR", "q9bR", "q9gt", "q9gb",
-            "q10", "q10N", "d4Ht", "d4Hb", "d4Qt", "d4Qb", "thP", "thA"]
+            "q10", "q10N", "d4Ht", "d4Hb", "d4Qt", "d4Qb", "thP", "thA", "thPpsd"]
 
 
 def flatten_rec(rec):

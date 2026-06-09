@@ -124,6 +124,8 @@ class Diagnostics:
         self._thAcc2 = 0.0
         self._thProd3 = 1.0
         self._thProd4 = 1.0
+        self._thAccPSD = 0.0     # §9b: accumulated 2nd-order PSD term ‖ΔJᵀu₁‖² (≥0), multi
+        self._thAccPSD1 = 0.0    # §9b: accumulated PSD term ‖ΔJ‖² (≥0), single-sample
 
     def sections_skipped(self):
         """Names of enabled sections that are auto-skipped because the M×p Jacobian is too large."""
@@ -358,9 +360,10 @@ class Diagnostics:
 
         # ---- §9 theory vs empirical σ₁ over frozen-Q windows ----
         if self.s12:
-            thP, thA = self._theory_step(th, X, Y, t, J, out, rr, bEk_vals)
+            thP, thA, thPpsd = self._theory_step(th, X, Y, t, J, out, rr, bEk_vals)
             rec["thP"] = [(x / N if x is not None else None) for x in thP] if thP else None
             rec["thA"] = [(x / N if x is not None else None) for x in thA] if thA else None
+            rec["thPpsd"] = [(x / N if x is not None else None) for x in thPpsd] if thPpsd else None
 
         # ---- §5 SLQ spectral densities (expensive) ----
         if self.s5:
@@ -374,7 +377,8 @@ class Diagnostics:
 
     def _theory_step(self, th, X, Y, t, J, out, rr, bEk_vals):
         """§9 Eq-13/21/27/29 predicted σ₁ over frozen-Q windows. MIRRORS server's s12 block.
-        Returns (thP, thA): 4-vectors of predicted / actual σ₁ (col-1 single-sample, cols-2/3/4 multi)."""
+        Returns (thP, thA, thPpsd): predicted / actual / (predicted + 2nd-order PSD term ‖ΔJᵀu₁‖²) σ₁,
+        as 4-vectors (col-1 single-sample, cols-2/3/4 multi)."""
         N, p = self.N, self.p
         lr, ee = self.lr, self.eigevery
         outD = self.outD
@@ -384,13 +388,14 @@ class Diagnostics:
         reps_ = max(1, ee)
         multi = self.multi                    # true M>1 (single-sample theory needs M==1)
         if multi and not self.multi_ok:       # multi theory needs the M×p Jacobian — infeasible at this size
-            return [None, None, None, None], [None, None, None, None]
+            return [None, None, None, None], [None, None, None, None], [None, None, None, None]
 
         if self._thT0 < 0 or (t - self._thT0) >= qapprox:     # window start: freeze θ₀, J₀, FH
             self._thT0 = t
             self._thTh0 = th.clone()
             self._thAcc1 = self._thAcc2 = 0.0
             self._thProd3 = self._thProd4 = 1.0
+            self._thAccPSD = self._thAccPSD1 = 0.0
             if multi:
                 self._thJ, _ = jac_cols(self.model, th, X)
                 self._thFroz = fh_frozen(self.model, th, X, self.nprobe, min(self.n, self.M),
@@ -403,6 +408,7 @@ class Diagnostics:
 
         thP = [None, None, None, None]
         thA = [None, None, None, None]
+        thPpsd = [None, None, None, None]   # §9b: prediction + accumulated 2nd-order PSD term ‖ΔJᵀu₁‖²
         if multi and self._thJ is not None and self._thFroz is not None and bEk_vals is not None:
             Jt, Fz = self._thJ, self._thFroz
             Kw, Vw = sym_eig_desc(Jt @ Jt.t())
@@ -431,6 +437,10 @@ class Diagnostics:
             thP[1] = clmp(self._thBase + self._thAcc2)
             thP[2] = clmp(self._thBase * self._thProd3)
             thP[3] = clmp(self._thBase * self._thProd4)
+            # §9b: same predictions + the dropped 2nd-order PSD term Σ‖ΔJᵀu₁‖² (always ≥0 — a sharpening floor)
+            thPpsd[1] = clmp(self._thBase + self._thAcc2 + self._thAccPSD)
+            thPpsd[2] = clmp(self._thBase * self._thProd3 + self._thAccPSD)
+            thPpsd[3] = clmp(self._thBase * self._thProd4 + self._thAccPSD)
             mi = min(max(qmode, 1), NV0) - 1
             sgi = math.sqrt(max(float(Kw[mi]), 1e-30)); phi = float(rr @ Vw[:, mi])
             self._thProd3 *= (1 + 2 * etaN * (sgi / sgT) * phi * fhBil(gnv(mi))) ** reps_
@@ -443,13 +453,17 @@ class Diagnostics:
                 QW = jac_hvp(self.model, self._thTh0, X, self._thJ.t() @ rr)
                 qu = (u1.unsqueeze(1) * QW).sum(0)
                 self._thAcc2 += 2 * etaN * sgT * float(v1 @ qu)
+                self._thAccPSD += (etaN ** 2) * float(qu @ qu)    # §9b: ‖ΔJᵀu₁‖² = (η/N)²‖qu‖²
                 self._thJ = self._thJ + etaN * QW
         elif (not multi) and self._thJp is not None:
             Jcur, ocur = grad_sum_f(self.model, th, X); sigAct = float(Jcur @ Jcur); thA[0] = sigAct
-            thP[0] = min(max(self._thBase + self._thAcc1, 0.0), 10 * max(sigAct, 1e-30))
+            cap0 = 10 * max(sigAct, 1e-30)
+            thP[0] = min(max(self._thBase + self._thAcc1, 0.0), cap0)
+            thPpsd[0] = min(max(self._thBase + self._thAcc1 + self._thAccPSD1, 0.0), cap0)   # §9b: + Σ‖ΔJ‖²
             rsc = float((Y.reshape(-1) - ocur)[0])
             for _ in range(reps_):
                 QJ = hvp_F(self.model, self._thTh0, X, self._thJp)
                 self._thAcc1 += 2 * lr * rsc * float(self._thJp @ QJ)
+                self._thAccPSD1 += ((lr * rsc) ** 2) * float(QJ @ QJ)    # §9b: ‖ΔJ‖² = (η r)²‖QJ‖²
                 self._thJp = self._thJp + lr * rsc * QJ
-        return thP, thA
+        return thP, thA, thPpsd

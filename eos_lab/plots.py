@@ -200,7 +200,7 @@ def plot_section9(series, meta):
     """§9 — theory (Eq-13/21/27/29) vs empirical σ₁. Only the columns with data are drawn:
     Eq-13 is single-sample (M==1) so it is empty for multi-output datasets, and the whole panel
     is skipped when neither theory nor empirical produced any finite point (e.g. multi_ok=False)."""
-    thP = series.get("thP"); thA = series.get("thA")
+    thP = series.get("thP"); thA = series.get("thA"); thPpsd = series.get("thPpsd")
     if thP is None and thA is None:
         return None
     t = series["t"]
@@ -219,13 +219,16 @@ def plot_section9(series, meta):
     for ax, i in zip(axs[0], present):
         emp = [y for y in (col(thA, i) or []) if y == y]
         prd = [y for y in (col(thP, i) or []) if y == y]
+        prdP = [y for y in (col(thPpsd, i) or []) if y == y]
         if col(thP, i) is not None:
             ax.plot(*_finite(t, col(thP, i)), label="predicted")
+        if col(thPpsd, i) is not None:                       # §9b: prediction + 2nd-order PSD term ‖ΔJᵀu₁‖²
+            ax.plot(*_finite(t, col(thPpsd, i)), label="predicted + PSD")
         if col(thA, i) is not None:
             ax.plot(*_finite(t, col(thA, i)), ls="--", label="empirical σ₁")
         # The frozen-window theory spikes at each window restart; clamp the y-range to the empirical
         # band (with headroom) so the tracking region stays readable instead of being crushed flat.
-        ref = emp or prd
+        ref = emp or prd or prdP
         if ref:
             lo, hi = min(ref), max(ref)
             pad = 0.3 * (hi - lo) + 1e-9
