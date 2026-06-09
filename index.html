@@ -638,16 +638,38 @@ const ids=(cnt)=>Array.from({length:cnt},(_,i)=>i);
 // CE. §1–§4/§6 always compute.
 const NA_NTK=['p_ntkR','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N'];
 const NA_4D=['p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb'];
-const NA_THEORY=['p_pred1','p_pred2','p_pred3','p_pred4'];
+const NA_THEORY1=['p_pred1'];                          // §9 col 1 — single-sample (Eq 13)
+const NA_THEORY_M=['p_pred2','p_pred3','p_pred4'];      // §9 cols 2-4 — multi-sample (Eq 21/27/29)
 function _na(ids,msg){ids.forEach(id=>{const gd=document.getElementById(id);if(gd&&gd.offsetParent!==null)try{Plotly.relayout(id,{annotations:[{text:msg,xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:11,color:'#94a3b8'},align:'center'}]});}catch(e){}});}
 function markUnavailable(multi,multiOk,ce){
   if(!multiOk) _na(NA_NTK, multi?'n/a — too large for this run<br>(NTK Jacobian M×p)':'n/a for a single sample<br>(needs ≥2 samples)');
   if(ce) _na(NA_4D,'n/a for cross-entropy<br>(sign-groups need a scalar residual)');
   else if(!multiOk) _na(NA_4D, multi?'n/a — too large for this run':'n/a for a single sample');
-  if(ce) _na(NA_THEORY,'n/a for cross-entropy<br>(squared-loss σ₁ theory)');
-  else if(multi&&!multiOk) _na(NA_THEORY,'n/a — too large for this run<br>(NTK Jacobian M×p)');
+  // §9 col 1 is the single-sample prediction (Eq 13) — empty on a multi-sample run; cols 2-4 are the
+  // multi-sample predictions (Eq 21/27/29) — need a feasible Jacobian. Both squared-loss only.
+  if(ce){ _na(NA_THEORY1,'n/a for cross-entropy<br>(squared-loss σ₁)'); _na(NA_THEORY_M,'n/a for cross-entropy<br>(squared-loss σ₁)'); }
+  else{
+    if(multi) _na(NA_THEORY1,'n/a — single-sample column<br>(this run is multi-sample)');
+    if(!multiOk) _na(NA_THEORY_M, multi?'n/a — too large for this run<br>(NTK Jacobian M×p)':'n/a — multi-sample only<br>(needs ≥2 samples)');
+  }
+}
+// Invariant: a watermark must never sit on a panel that is actually plotting. So the instant a panel
+// receives data, drop its "n/a" annotation — this self-heals any stale / mispredicted stamp (e.g. a §9
+// column that does fill, or a server that computes a section without sending multi_ok). Cheap: relayout
+// only fires while an annotation is still present, then no-ops.
+function clearNAonData(D){
+  const C=(cond,...ids)=>{if(!cond)return;ids.forEach(id=>{const gd=document.getElementById(id);
+    if(gd&&gd.layout&&gd.layout.annotations&&gd.layout.annotations.length)try{Plotly.relayout(id,{annotations:[]});}catch(e){}});};
+  if(D.thP)for(let c=0;c<4;c++)C(D.thP[c]!=null||D.thA&&D.thA[c]!=null,'p_pred'+(c+1));   // §9 per column
+  C(D.ntkR,'p_ntkR'); C(D.ntkH,'p_ntkH');                                                  // §7a
+  C(D.fhEvT,'p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b'); // §7
+  C(D.g2J,'p_g2J','p_g2Jn');                                                               // §8
+  C(D.q9t,'p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb');           // §4b
+  C(D.q10,'p_q10','p_q10N');                                                               // §4c
+  C(D.d4Ht,'p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb');                                           // §4d
 }
 function pushPoint(t,D,n,kth,nResid){
+  clearNAonData(D);
   if(OPT.s1){
     Plotly.extendTraces('p_loss',{x:[[t]],y:[[D.loss]]},[0]);
     Plotly.extendTraces('p_sharp',{x:[[t]],y:[[D.sharp]]},[0]);
