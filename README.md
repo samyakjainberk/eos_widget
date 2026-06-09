@@ -20,38 +20,38 @@ rises during training (*progressive sharpening*) until it pins near $2/\eta$ at 
 the loss oscillates with period 2.
 
 **Symbols.** $J=\tfrac{df}{d\theta}$ (function Jacobian), $Q=\tfrac{d^2f}{d\theta^2}$ (function Hessian),
-$r=y-f$ (residual), $p=\lVert r\rVert$, $\eta$ (learning rate), $N$ (number of samples), $d_n=N\,d_{\text{out}}$.
+$r=y-f$ (residual), $p=\lVert r\rVert$, $\eta$ (learning rate), $N$ (number of samples), $d_n=Nd_{\text{out}}$.
 For MSE the loss Hessian splits as $\nabla^2_\theta\mathcal L=G+S$ with the **Gauss–Newton**
 $G=\tfrac1N\sum_i\nabla f_i\nabla f_i^\top$ and **residual term** $S=\tfrac1N\sum_i(f_i-y_i)\nabla^2 f_i$.
-The **NTK** is $K=JJ^\top$ with eigenpairs $(\sigma_i,u_i)$; via the SVD $J=\sum_j\sqrt{\sigma_j}\,u_jv_j^\top$,
+The **NTK** is $K=JJ^\top$ with eigenpairs $(\sigma_i,u_i)$; via the SVD $J=\sum_j\sqrt{\sigma_j}u_jv_j^\top$,
 the $u_i$ / $v_i$ are the NTK left / right singular vectors and $\sigma_1$ the top NTK eigenvalue (the §9 target).
 $Q[u]=\sum_a u_a\nabla^2 f_a$ is the function Hessian weighted by $u$, and the function-Hessian tensor factors as
-$Q=\sum_i\gamma_i\,x_iy_i^\top$ — reshaping and eigendecomposing $x_i$ gives eigenvectors $z_{ij}$ and eigenvalues
+$Q=\sum_i\gamma_ix_iy_i^\top$ — reshaping and eigendecomposing $x_i$ gives eigenvectors $z_{ij}$ and eigenvalues
 $\tau_{ij}$, while $y_i$ are its singular vectors.
 
 **Predictive model (Eq. 1).** Over a window, freeze $J,Q$ at $\theta_t$ and approximate
 
-$$f_{\theta_{t+\Delta t}}=f_{\theta_t}+J_{\theta_t}^{\top}\Delta\theta+\Delta\theta^{\top}Q_{\theta_t}\Delta\theta,\qquad Q_{\theta_{t+\Delta t}}=Q_{\theta_t}.$$
+$$f_{\theta_{t+\Delta t}}=f_{\theta_t}+J_{\theta_t}^{\top}\Delta\theta+\Delta\theta^{\top}Q_{\theta_t}\Delta\theta \qquad Q_{\theta_{t+\Delta t}}=Q_{\theta_t}$$
 
-**Single sample (Eq. 13).** With $Q=\sum_i\sigma_iu_iu_i^\top$, propagating $J_{t+1}=(I+\eta\,r_tQ)J_t$
+**Single sample (Eq. 13).** With $Q=\sum_i\sigma_iu_iu_i^\top$, propagating $J_{t+1}=(I+\eta r_tQ)J_t$
 (so $\sigma_1=\lVert J\rVert^2$) gives, over $s$ steps,
 
-$$(\Delta\mathrm{NTK})_{t\to t+s}=2\eta\prod_{\tau=t}^{t+s}\sum_i (J^\top u_i)^2\,(r_\tau\sigma_i)\,(1+\eta\,r_\tau\sigma_i)^2 .$$
+$$(\Delta\mathrm{NTK})_{t\to t+s}=2\eta\prod_{\tau=t}^{t+s}\sum_i (J^\top u_i)^2(r_\tau\sigma_i)(1+\eta r_\tau\sigma_i)^2$$
 
 The NTK grows ($\Rightarrow$ sharpening) when $r\sigma_i>0$ and shrinks when $r\sigma_i<0$, i.e. as long as the
 residual $r$ keeps its sign.
 
 **Multiple samples.** Continuously (Eq. 21), the top NTK eigenvalue obeys
-$\dot\sigma_1=2\eta\,\sqrt{\sigma_1}\,v_1^\top Q[u_1]\,r^\top J$. Discretely, assuming the residual is aligned
+$\dot\sigma_1=2\eta\sqrt{\sigma_1}v_1^\top Q[u_1]r^\top J$. Discretely, assuming the residual is aligned
 with the top NTK mode (Eq. 27),
 
-$$\sigma_{1,t+s}=\sigma_{1,t}\prod_{k=0}^{s-1}\Big[\,1+2\eta\sum_{ij}\gamma_i\,\tau_{ij}\,(v_{1,t+k}^\top z_{ij})^2\,(y_i^\top u_{1,t+k})\,p_{t+k}\,\Big],$$
+$$\sigma_{1,t+s}=\sigma_{1,t}\prod_{k=0}^{s-1}\Big[1+2\eta\sum_{ij}\gamma_i\tau_{ij}(v_{1,t+k}^\top z_{ij})^2(y_i^\top u_{1,t+k})p_{t+k}\Big]$$
 
 where $v_1^\top z_{ij}$ is the alignment of the top Gauss–Newton eigenvector with the function-Hessian tensor and
 $y_i^\top u_1$ that of the top NTK eigenvector. Relaxing "aligned with the top mode" to "the residual's
 projection onto the top-$|T|$ NTK modes keeps its sign" gives Eq. 29:
 
-$$\sigma_{1,t+s}=\sigma_{1,t}\prod_{k=0}^{s-1}\Big[\,1+2\eta\sum_{v\in T}\tfrac{\sqrt{\sigma_v}}{\sqrt{\sigma_1}}\sum_{ij}\gamma_i\,\tau_{ij}\,(v_{1,t+k}^\top z_{ij})(v_{v,t+k}^\top z_{ij})\,(y_i^\top u_{1,t+k})\,p_{t+k}\,\Big].$$
+$$\sigma_{1,t+s}=\sigma_{1,t}\prod_{k=0}^{s-1}\Big[1+2\eta\sum_{v\in T}\tfrac{\sqrt{\sigma_v}}{\sqrt{\sigma_1}}\sum_{ij}\gamma_i\tau_{ij}(v_{1,t+k}^\top z_{ij})(v_{v,t+k}^\top z_{ij})(y_i^\top u_{1,t+k})p_{t+k}\Big]$$
 
 Progressive sharpening is predicted when the bracketed sum is $>0$ on average; when the (projected) residuals
 oscillate and flip sign the growth turns to decay — the cyclic **self-stabilization** at the edge of stability.
