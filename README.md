@@ -69,7 +69,7 @@ Panel §9 overlays each prediction (Eqs. 13 / 21 / 27 / 29) on the measured $\si
 | **7a / 7 / 8** | NTK alignment; multi-sample NTK + function-Hessian SVD; `vec(J)` onto FH-reshape singular vecs | multi-sample · MSE or CE |
 | **4b / 4c** | `J·r` onto `Q[u₁]` eigvecs; `Q[u₁]·(J·r)` onto Gauss–Newton | multi-sample · MSE or CE |
 | **4d** | per-residual-sign-group projections | multi-sample · MSE |
-| **9** | predicted vs actual sharpness `σ₁` | MSE |
+| **9** | predicted vs actual sharpness `σ₁` (Eq. 13 single-sample; Eq. 21/27/29 multi-sample) | MSE · single or multi |
 
 A checkbox per section toggles its computation. §7a/§7/§8/§4b/§4c use the *function* NTK `Jᵤ·Jᵤᵀ` and the
 generic residual `r = −∂L/∂z` (MSE: `y−f`, CE: `softmax(z)−onehot`), so they work for **cross-entropy** too;
