@@ -69,8 +69,8 @@ class Config:
     s3: int = 1
     s4: int = 1     # §4 J→H projections (on by default)
     s5: int = 0     # §5 SLQ spectra (expensive; off by default)
-    s6: int = 1
-    s7: int = 1     # §7 multi-sample NTK + FH tensor SVD (on by default)
+    s6: int = 0
+    s7: int = 0     # §7 multi-sample NTK + FH tensor SVD (off by default)
     s8: int = 0     # §8 vec(J) onto FH-reshape singular vecs (off by default)
     s9: int = 0     # §4b  (multi-sample only; off by default)
     s10: int = 0    # §4c  (multi-sample only; off by default)
@@ -109,13 +109,13 @@ class Config:
 PRESETS = {
     "linear":    dict(dataset="synthetic", arch="mlp", act="linear", depth=4, width=100, bias=0,
                       fixedx=1, indim=10, outdim=1, nsamp=1, lr=0.3, init=0.1, steps=400,
-                      s1=1, s2=1, s3=1, s5=0, s6=1),
+                      s1=1, s2=1, s3=1, s5=0, s6=0),
     "msample":   dict(dataset="synthetic", arch="mlp", act="tanh", depth=4, width=100, bias=0,
                       fixedx=0, indim=10, outdim=1, nsamp=10, lr=0.3, init=0.1, steps=800,
-                      s1=1, s2=1, s3=1, s5=0, s6=1),
+                      s1=1, s2=1, s3=1, s5=0, s6=0),
     "gpu_run":   dict(dataset="synthetic", arch="mlp", act="tanh", depth=4, width=100, bias=0,
                       fixedx=0, indim=10, outdim=1, nsamp=25, lr=0.5, init=0.1, steps=2000,
-                      s1=1, s2=1, s3=1, s5=0, s6=1),
+                      s1=1, s2=1, s3=1, s5=0, s6=0),
     "cifar_mlp": dict(dataset="cifar10", arch="mlp", loss="mse", depth=2, width=128, act="tanh",
                       bias=0, fixedx=0, nsamp=128, lr=0.02, init=0.5, steps=300, eigevery=2,
                       slqprobes=3, s1=1, s2=1, s3=1, s5=0, s6=0),

@@ -66,13 +66,16 @@ Panel §9 overlays each prediction (Eqs. 13 / 21 / 27 / 29) on the measured $\si
 | **4** | `J` projected onto eigenvectors of `H` | always |
 | **5** | SLQ spectral density (log) of `H`, `G`, `S`, loss Hessian | always |
 | **6** | eigenspace rotation of `H` (principal angles of the ± subspaces) | always |
-| **7a / 7 / 8** | NTK alignment; multi-sample NTK + function-Hessian SVD; `vec(J)` onto FH-reshape singular vecs | multi-sample |
-| **4b / 4c / 4d** | `J·r` onto `Q[u₁]` eigvecs; `Q[u₁]·(J·r)` onto GN; per-residual-sign-group projections | multi-sample |
+| **7a / 7 / 8** | NTK alignment; multi-sample NTK + function-Hessian SVD; `vec(J)` onto FH-reshape singular vecs | multi-sample · MSE or CE |
+| **4b / 4c** | `J·r` onto `Q[u₁]` eigvecs; `Q[u₁]·(J·r)` onto Gauss–Newton | multi-sample · MSE or CE |
+| **4d** | per-residual-sign-group projections | multi-sample · MSE |
 | **9** | predicted vs actual sharpness `σ₁` | MSE |
 
-A checkbox per section toggles its computation. The multi-sample sections form the explicit `M×p` Jacobian
-(`M = N·d_out`) so they're empty for a single sample, and §9's theory is squared-loss only — a panel a run
-can't fill is stamped *"n/a"* instead of left blank.
+A checkbox per section toggles its computation. §7a/§7/§8/§4b/§4c use the *function* NTK `Jᵤ·Jᵤᵀ` and the
+generic residual `r = −∂L/∂z` (MSE: `y−f`, CE: `softmax(z)−onehot`), so they work for **cross-entropy** too;
+they only need the explicit `M×p` Jacobian (`M = N·d_out`) to be feasible — skipped (stamped *"too large"*)
+for e.g. OpenWebText, and empty for a single sample. Only **§4d** (its sign-groups need a scalar residual)
+and **§9** (the squared-loss σ₁ recursion) are MSE-only. Any panel a run can't fill is stamped *"n/a"*.
 
 ## Datasets · architectures · loss · init
 
