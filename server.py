@@ -310,16 +310,32 @@ class MlpModel(Model):
 
 # ----- loss abstraction: MSE keeps every panel valid; CE = softmax classification -----
 class MSELoss:
+    """Squared error. Handles two shapes (sum over the last/output axis):
+      * regression / one-hot classification — out (N, C),    Y (N, C) float       → ÷N
+      * next-token LM (OpenWebText)          — out (N, T, V), Y token ids (N, T)   → one-hot, ÷N·T
+    so the language model can be trained with MSE (regress the logits toward the one-hot next token).
+    The per-token normalisation mirrors CELoss, so the same learning rate sits at a comparable scale
+    whether you pick MSE or CE on OWT. MIRRORS eos_lab.models.MSELoss."""
     name = "mse"
 
+    @staticmethod
+    def _tokens(out, N):
+        return N * out.shape[1] if out.dim() == 3 else N      # per-token (LM) vs per-sample
+
+    @staticmethod
+    def _target(out, Y):
+        if Y.dtype == torch.long:                             # LM integer targets → one-hot on the fly
+            return torch.zeros_like(out).scatter_(-1, Y.unsqueeze(-1), 1.0)
+        return Y
+
     def value(self, out, Y, N):
-        return 0.5 * ((out - Y) ** 2).sum() / N
+        return 0.5 * ((out - self._target(out, Y)) ** 2).sum() / self._tokens(out, N)
 
     def resid_cotangent(self, out, Y, N):       # ∂L/∂out (so ∇_θL = vjp(this))
-        return (out - Y) / N
+        return (out - self._target(out, Y)) / self._tokens(out, N)
 
-    def gn_apply(self, out, Jv, N):             # output-space Hessian A applied to Jv (A = I/N)
-        return Jv / N
+    def gn_apply(self, out, Jv, N):             # output-space Hessian A applied to Jv (A = I/tokens)
+        return Jv / self._tokens(out, N)
 
 
 class CELoss:
@@ -1162,7 +1178,9 @@ def run_stream(P):
                 yield {"type": "error",
                        "error": f"diverged at step {t} (loss={loss:.2e}). Lower lr or init_scale."}
                 return
-            r = None if ce else (Y - out).reshape(-1)     # CE/LM has no residual (Y are token ids)
+            # CE, and the OWT language model under ANY loss, have no scalar per-output residual y−f
+            # (Y are token ids and out is (N,T,V)); the §1 residual trace / §4d sign-groups are empty.
+            r = None if (ce or dataset == "owt") else (Y - out).reshape(-1)
             cS = _TL.loss.resid_cotangent(out, Y, N)
 
             needVecs = s4 or s6
@@ -1471,13 +1489,18 @@ def run_surrogate_compare(P):
     dataset = P.get("dataset", "synthetic")
     arch = P.get("arch", "mlp")
     if dataset == "owt":
-        # The surrogate freezes the FULL per-output Jacobian J₀ (M = nsamp·seqlen·vocab rows). At GPT-2's
-        # 50257-token vocab that is ~10¹¹ entries — impossible to form — and the Taylor/σ₁ machinery is
-        # squared-loss only. So OpenWebText has no surrogate comparison; use the main section for it.
-        yield {"type": "error", "error": "OpenWebText (LM cross-entropy) has no quadratic/linear "
-               "surrogate comparison: the surrogate needs the full per-output Jacobian (M = N·seqlen·"
-               "vocab ≈ 10¹¹ rows for GPT-2 vocab), which is infeasible, and the Taylor σ₁ theory is "
-               "MSE-only. Run OpenWebText from the main section above (§1/§2/§3/§5 + §4/§6)."}
+        # The quadratic/linear surrogate freezes the FULL per-output Jacobian J₀ (and, in the multi-sample
+        # σ₁ theory, an M×M NTK Gram) with M = nsamp·seqlen·vocab rows. At GPT-2's 50257-token vocab that
+        # is ~10⁸–10¹¹ rows — forming J₀ (M×p) or the M×M Gram is many orders of magnitude beyond memory.
+        # This is a hard scaling limit of the surrogate construction, independent of the loss. (MSE on the
+        # LM IS now supported in the MAIN section; the Taylor σ₁ theory there is also gated off for OWT by
+        # the same multi_ok size budget.) So OpenWebText has no surrogate comparison at realistic vocab.
+        reason = ("the Taylor σ₁ theory is squared-loss only AND " if P.get("loss") == "ce" else "")
+        yield {"type": "error", "error": "OpenWebText has no quadratic/linear surrogate comparison: " + reason +
+               "the surrogate must materialise the full per-output Jacobian J₀ (M = N·seqlen·vocab rows; "
+               "≈10⁸–10¹¹ at GPT-2's 50257 vocab) and an M×M NTK Gram — far beyond memory. This is a hard "
+               "size limit, not a toggle. Run OpenWebText from the main section above (§1/§2/§3/§5 + §4/§6), "
+               "which fully supports both CE and MSE."}
         return
     if dataset == "cifar10":
         inDimE, outDimE = 3072, 10

@@ -358,16 +358,32 @@ def build_model(arch, in_dim, out_dim, P, device, dtype):
 
 # --------------------------------------------------------------------------- losses
 class MSELoss:
+    """Squared error. Handles two shapes uniformly (sum over the last/output axis):
+      * regression / one-hot classification — out (N, C),    Y (N, C) float       → ÷N
+      * next-token LM (OpenWebText)          — out (N, T, V), Y token ids (N, T)   → one-hot, ÷N·T
+    so the language model can be trained with MSE (regress the logits toward the one-hot next token).
+    The per-token normalisation mirrors CELoss, so a given learning rate sits at a comparable scale
+    whether MSE or CE is selected on OWT."""
     name = "mse"
 
+    @staticmethod
+    def _tokens(out, N):
+        return N * out.shape[1] if out.dim() == 3 else N      # per-token (LM) vs per-sample
+
+    @staticmethod
+    def _target(out, Y):
+        if Y.dtype == torch.long:                             # LM integer targets → one-hot on the fly
+            return torch.zeros_like(out).scatter_(-1, Y.unsqueeze(-1), 1.0)
+        return Y
+
     def value(self, out, Y, N):
-        return 0.5 * ((out - Y) ** 2).sum() / N
+        return 0.5 * ((out - self._target(out, Y)) ** 2).sum() / self._tokens(out, N)
 
     def resid_cotangent(self, out, Y, N):   # ∂L/∂out, so ∇_θL = J^T · this
-        return (out - Y) / N
+        return (out - self._target(out, Y)) / self._tokens(out, N)
 
-    def gn_apply(self, out, Jv, N):          # output-space Gauss–Newton metric A = I/N
-        return Jv / N
+    def gn_apply(self, out, Jv, N):          # output-space Gauss–Newton metric A = I/tokens
+        return Jv / self._tokens(out, N)
 
 
 class CELoss:
