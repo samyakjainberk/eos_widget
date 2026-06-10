@@ -197,7 +197,7 @@ def plot_section4d(series):
 
 
 def plot_section9(series, meta):
-    """§9 — theory (Eq-13/21/27/29) vs empirical σ₁. Only the columns with data are drawn:
+    """§9 — theory (Eq-13/21/22/23/29) vs empirical σ₁. Only the columns with data are drawn:
     Eq-13 is single-sample (M==1) so it is empty for multi-output datasets, and the whole panel
     is skipped when neither theory nor empirical produced any finite point (e.g. multi_ok=False)."""
     thP = series.get("thP"); thA = series.get("thA"); thPpsd = series.get("thPpsd")
@@ -240,7 +240,7 @@ def plot_section9(series, meta):
 
 
 def plot_section9c(series, meta):
-    """§9c — the same Eq-13/21/27/29 σ₁ predictions, but compared against the FULL loss-Hessian
+    """§9c — the same Eq-13/21/22/23/29 σ₁ predictions, but compared against the FULL loss-Hessian
     sharpness λmax(∇²L)=λmax(G+S) (the EoS quantity) instead of the Gauss-Newton edge λmax(G).
     Each column: predicted, predicted+PSD, and the full-Hessian sharpness; the gap is the residual S."""
     thP = series.get("thP"); thPpsd = series.get("thPpsd"); thAH = series.get("thAH")

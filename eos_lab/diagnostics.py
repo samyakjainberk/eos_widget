@@ -14,7 +14,7 @@ Section ↔ flag map (same as config.Config):
   §4b s9   J·r onto eigvecs of Q[u₁]; alignment with GN top eigvec g₁    (multi-sample)
   §4c s10  Q[u₁]·(J·r) onto GN eigvecs g_k                       (multi-sample)
   §4d s11  per-residual-sign-group J / J·r onto the shared H and Q[u₁] eigvecs (multi-sample)
-  §9  s12  theoretical (Eq-13/21/27/29) vs empirical σ₁ over frozen-Q windows
+  §9  s12  theoretical (Eq-13/21/22/23/29) vs empirical σ₁ over frozen-Q windows
 
 The multi-sample sections (§7/§8/§4b/§4c/§4d and the multi branch of §9) form the M×p Jacobian Jc
 explicitly, so they are gated by a size budget (`multi_ok`) and silently skipped when M or M·p is
@@ -73,7 +73,7 @@ class Diagnostics:
             # (J→H) and §6 (rotation) are model-only; §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) plus
             # this residual, so they're all valid for CE — and gated by the same `multi_ok` size budget
             # (feasible for e.g. CIFAR-CE, M=N·classes; skipped at LM vocab sizes). Off for CE: §4d (its
-            # sign-groups need a scalar residual) and §9 (the Eq-13/21/27/29 σ₁ recursion is squared-loss).
+            # sign-groups need a scalar residual) and §9 (the Eq-13/21/22/23/29 σ₁ recursion is squared-loss).
             self.s11 = self.s12 = False
         p = model.p
         half = max(1, p // 2)
@@ -385,9 +385,9 @@ class Diagnostics:
         return rec
 
     def _theory_step(self, th, X, Y, t, J, out, rr, bEk_vals):
-        """§9 Eq-13/21/27/29 predicted σ₁ over frozen-Q windows. MIRRORS server's s12 block.
+        """§9 Eq-13/21/22/23/29 predicted σ₁ over frozen-Q windows. MIRRORS server's s12 block.
         Returns (thP, thA, thPpsd): predicted / actual / (predicted + 2nd-order PSD term ‖ΔJᵀu₁‖²) σ₁,
-        as 4-vectors (col-1 single-sample, cols-2/3/4 multi)."""
+        as 5-vectors (col-1 single-sample Eq-13; cols-2..5 multi = Eq-21/22/23/29)."""
         N, p = self.N, self.p
         lr, ee = self.lr, self.eigevery
         outD = self.outD
@@ -415,7 +415,7 @@ class Diagnostics:
                 self._thJp = Jc0.clone()
                 self._thBase = float(Jc0 @ Jc0)
 
-        thP = [None]*5      # col 1-5: Eq-13, Eq-21, Eq-22, Eq-29, Eq-23
+        thP = [None]*5      # display cols 1-5: Eq-13, Eq-21, Eq-22, Eq-23, Eq-29 (col-4 reads thProd5=Eq-23, col-5 reads thProd4=Eq-29)
         thA = [None]*5
         thPpsd = [None]*5   # §9b: prediction + accumulated 2nd-order PSD term ‖ΔJᵀu₁‖²
         if multi and self._thJ is not None and self._thFroz is not None and bEk_vals is not None:

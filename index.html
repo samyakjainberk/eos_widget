@@ -693,7 +693,7 @@ function markUnavailable(multi,multiOk,ce){
   if(ce) _na(NA_4D,'n/a for cross-entropy<br>(sign-groups need a scalar residual)');
   else if(!multiOk) _na(NA_4D, multi?'n/a — too large for this run':'n/a for a single sample');
   // §9 col 1 is the single-sample prediction (Eq 13) — empty on a multi-sample run; cols 2-4 are the
-  // multi-sample predictions (Eq 21/27/29) — need a feasible Jacobian. Both squared-loss only.
+  // multi-sample predictions (Eq 21/22/23/29) — need a feasible Jacobian. Both squared-loss only.
   if(ce){ _na(NA_THEORY1,'n/a for cross-entropy<br>(squared-loss σ₁)'); _na(NA_THEORY_M,'n/a for cross-entropy<br>(squared-loss σ₁)'); }
   else{
     if(multi) _na(NA_THEORY1,'n/a — single-sample column<br>(this run is multi-sample)');
@@ -1085,7 +1085,7 @@ async function loop(){                                   // drives ST forward; r
               const K0=new Float64Array(M*M);for(let a=0;a<M;a++)for(let b=a;b<M;b++){const v=dot(S.thJ[a],S.thJ[b]);K0[a*M+b]=v;K0[b*M+a]=v;}S.thBase=symEigDesc(K0,M).vals[0];}
             else{S.thJp=fr.grad.slice();S.thBase=dot(fr.grad,fr.grad);}
           }
-          thP=[null,null,null,null,null];thA=[null,null,null,null,null];thPpsd=[null,null,null,null,null];   // col 1-5: Eq-13/21/22/29/23
+          thP=[null,null,null,null,null];thA=[null,null,null,null,null];thPpsd=[null,null,null,null,null];   // display cols 1-5: Eq-13/21/22/23/29 (col-4 reads thProd5=Eq-23, col-5 reads thProd4=Eq-29)
           if(M>1&&S.thJ&&S.thFroz&&bEk){
             const Jt=S.thJ,F=S.thFroz;
             const Km=new Float64Array(M*M);for(let a=0;a<M;a++)for(let b=a;b<M;b++){const v=dot(Jt[a],Jt[b]);Km[a*M+b]=v;Km[b*M+a]=v;}

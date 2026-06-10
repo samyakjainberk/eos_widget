@@ -1404,7 +1404,7 @@ def run_stream(P):
                         thBase = float(torch.linalg.eigvalsh(thJ @ thJ.t())[-1])
                     elif not multi:
                         Jc0, _ = gradF(th, X); thJp = Jc0.clone(); thBase = float(Jc0 @ Jc0)
-                thP = [None]*5; thA = [None]*5      # col 1-5: Eq-13, Eq-21, Eq-22, Eq-29, Eq-23
+                thP = [None]*5; thA = [None]*5      # display cols 1-5: Eq-13, Eq-21, Eq-22, Eq-23, Eq-29 (col-4=thProd5=Eq-23, col-5=thProd4=Eq-29)
                 thPpsd = [None]*5   # §9b: prediction + accumulated 2nd-order PSD term ‖ΔJᵀu₁‖²
                 if multi_ok and thJ is not None and thFroz is not None and bEk_vals is not None:
                     Jt = thJ; F = thFroz
@@ -1575,7 +1575,7 @@ def run_surrogate_compare(P):
     cL, cR, cE, cH, cT, c4, c4d = (P["c1"], P["c2"], P["c3"], P["c4"], P["c5"], P["c6"], P["c7"])
     c7a = P.get("c8", True)         # §7a NTK alignment panel (actual model)
     c9c = P.get("c9", False)        # §9c: σ₁ predictions vs the full loss-Hessian sharpness λmax(∇²L)
-    cT = cT and not ceLoss          # the Eq-13/21/27/29 σ₁ theory (§9) is derived for squared loss only
+    cT = cT and not ceLoss          # the Eq-13/21/22/23/29 σ₁ theory (§9) is derived for squared loss only
     c7a = c7a and not ceLoss        # NTK alignment uses the MSE residual r → MSE only (multi-class CE: off)
     c9c = c9c and not ceLoss        # §9c is the same squared-loss σ₁ recursion → MSE only
 
@@ -1729,7 +1729,7 @@ def run_surrogate_compare(P):
             if cT or c9c:
                 etaN = lr / max(N, 1)
                 reps_ = max(1, ee)
-                thP = [None]*5      # col 1-5: Eq-13, Eq-21, Eq-22, Eq-29, Eq-23
+                thP = [None]*5      # display cols 1-5: Eq-13, Eq-21, Eq-22, Eq-23, Eq-29 (col-4=thProd5=Eq-23, col-5=thProd4=Eq-29)
                 thA = [None]*5
                 thPpsd = [None]*5
                 if multi and thJ is not None and thFroz is not None:
