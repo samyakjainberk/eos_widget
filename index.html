@@ -566,11 +566,19 @@ function refreshSLQ(id,d){Plotly.restyle(id,{x:[d.x],y:[d.y]},[0]);
   Plotly.relayout(id,{'xaxis.autorange':true,'yaxis.range':[Math.log10(pk)-7,Math.log10(pk)+0.2]});}
 let OPT={s1:true,s2:true,s3:true,s4:true,s5:true,s6:true,gs:true};
 
+// Show/hide each §1 section by its panel toggle (en1..en12 → sec_1..sec_12 · en13 → sec_7a · en14 → sec_9c).
+// Multi-sample-only sections (§7/§8/§4b–d and §7a) also need M=N·d_out>1. Called at run start AND on every
+// toggle change, so a toggled-off section disappears immediately instead of lingering until the next Run.
+function syncSectionVis(multi){
+  if(multi===undefined) multi = (+val('nsamp') * Math.max(1,+val('outdim')) > 1);
+  for(let i=1;i<=12;i++){const el=document.getElementById('sec_'+i);if(el)el.style.display=(chk('en'+i)&&(i<7||multi||i===12))?'':'none';}
+  {const el=document.getElementById('sec_7a');if(el)el.style.display=(chk('en13')&&multi)?'':'none';}   // §7a NTK alignment (s13, multi-only)
+  {const el=document.getElementById('sec_9c');if(el)el.style.display=chk('en14')?'':'none';}            // §9c vs full-Hessian sharpness
+  requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
+}
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   resetPlotDecim();   // fresh decimation state for this run (bounds plotted points → no progressive hang)
-  for(let i=1;i<=12;i++){const el=document.getElementById('sec_'+i);if(el)el.style.display=(OPT['s'+i]&&(i<7||multi||i===12))?'':'none';}  // sec_12 (theory) relevant for single & multi
-  {const el=document.getElementById('sec_7a');if(el)el.style.display=(OPT.s13&&multi)?'':'none';}   // §7a: NTK alignment (own toggle s13, multi-only)
-  {const el=document.getElementById('sec_9c');if(el)el.style.display=OPT.s14?'':'none';}   // §9c: predictions vs full-Hessian sharpness
+  syncSectionVis(multi);   // gate sections by the panel toggles (multi from the actual run)
   const dis=s=>OPT.gs?s:s+'  (off)';
   // §1
   newP('p_loss',oneTrace('loss','#2563eb'),baseLayout('loss (log scale)','loss',true));
@@ -1307,8 +1315,8 @@ function syncLossPanels(){
 // (for the browser-previewable case) redraws EMPTY plots. Training starts only when Run is pressed.
 function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic' && val('arch')==='mlp'){ runLocal(true); } }
 document.getElementById('loss').addEventListener('change',syncLossPanels);
-document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);drawPreview();}});
-['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';}));
+document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
 document.getElementById('run').addEventListener('click',run);
 document.getElementById('stop').addEventListener('click',stopRun);
 document.getElementById('resume').addEventListener('click',resumeRun);
