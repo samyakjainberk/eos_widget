@@ -1438,10 +1438,10 @@ def run_stream(P):
                     S4 = 0.0; S5 = 0.0; NV = min(max(tset, 1), NV0)    # both sum Σ_k (√σ_k/√σ₁)(r·u_k)·v₁ᵀQ[u₁]v_k over the top-|T| modes
                     for vk in range(NV):
                         sgv = math.sqrt(max(float(Kw[vk]), 1e-30)); rho = float(rr @ Vw[:, vk]); gk = gnv(vk)
-                        S4 += (sgv/sgT) * fhBil(gk) * rho              # col-4 (Eq-29): bilinear via the γτz eigendecomposition of Q (approx)
-                        S5 += (sgv/sgT) * float(qv1 @ gk) * rho        # col-5 (Eq-23): bilinear computed directly (exact — no Q decomposition)
-                    thProd4 *= (1 + 2 * etaN * S4) ** reps_            # col-4 (Eq-29)
-                    thProd5 *= (1 + 2 * etaN * S5) ** reps_            # col-5 (Eq-23): differs from Eq-29 only by the Q-eigendecomposition approx
+                        S4 += (sgv/sgT) * fhBil(gk) * rho              # col-5 (Eq-29): bilinear via the γτz eigendecomposition of Q (approx)
+                        S5 += (sgv/sgT) * float(qv1 @ gk) * rho        # col-4 (Eq-23): bilinear computed directly (exact — no Q decomposition)
+                    thProd4 *= (1 + 2 * etaN * S4) ** reps_            # col-5 (Eq-29)
+                    thProd5 *= (1 + 2 * etaN * S5) ** reps_            # col-4 (Eq-23): differs from Eq-29 only by the Q-eigendecomposition approx
                     for _ in range(reps_):                             # advance Eq-15: J += (η/N) Q[Jᵀr], Q frozen at θ₀
                         QW = jac_hvp(thTh0, X, thJ.t() @ rr)      # {∇²f_a·(Jᵀr)} at θ₀
                         qu = (u1.unsqueeze(1) * QW).sum(0)              # Q[u₁](Jᵀr) = Σ_a u₁_a QW[a]
@@ -1780,10 +1780,10 @@ def run_surrogate_compare(P):
                     for vk in range(NV):
                         sgv = math.sqrt(max(float(Kw[vk]), 1e-30))
                         rho = float(rr @ Vw[:, vk]); gk = gnv(vk)
-                        S4 += (sgv / sgT) * fhBil(gk) * rho            # col-4 (Eq-29): bilinear via the γτz eigendecomposition of Q (approx)
-                        S5 += (sgv / sgT) * float(qv1 @ gk) * rho      # col-5 (Eq-23): bilinear v₁ᵀQ[u₁]v_k computed directly (exact)
-                    thProd4 *= (1 + 2 * etaN * S4) ** reps_             # col-4 (Eq-29)
-                    thProd5 *= (1 + 2 * etaN * S5) ** reps_            # col-5 (Eq-23): differs from Eq-29 only by the Q-decomposition approx
+                        S4 += (sgv / sgT) * fhBil(gk) * rho            # col-5 (Eq-29): bilinear via the γτz eigendecomposition of Q (approx)
+                        S5 += (sgv / sgT) * float(qv1 @ gk) * rho      # col-4 (Eq-23): bilinear v₁ᵀQ[u₁]v_k computed directly (exact)
+                    thProd4 *= (1 + 2 * etaN * S4) ** reps_             # col-5 (Eq-29)
+                    thProd5 *= (1 + 2 * etaN * S5) ** reps_            # col-4 (Eq-23): differs from Eq-29 only by the Q-decomposition approx
                     for _ in range(reps_):
                         QW = jac_hvp(th0, X, thJ.t() @ rr)
                         qu = (u1.unsqueeze(1) * QW).sum(0)
