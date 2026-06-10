@@ -1175,7 +1175,7 @@ def run_stream(P):
     prevG2 = [None] * n8
     prevQ9t = [None] * n
     prevQ9b = [None] * n
-    qapprox = max(1, P["qapprox"]); qmode = P["qmode"]; tset = P["tset"]   # §9 window + Eq-27 mode i + Eq-29 |T|
+    qapprox = max(1, P["qapprox"]); qmode = P["qmode"]; tset = P["tset"]   # §9 window + (legacy qmode) + Eq-29 |T|
     thT0 = -1; thTh0 = None; thBase = 0.0; thJp = None; thJ = None; thFroz = None
     thAcc1 = 0.0; thAcc2 = 0.0; thProd3 = 1.0; thProd4 = 1.0
     thAccPSD = 0.0; thAccPSD1 = 0.0     # §9b: accumulated 2nd-order PSD term ‖ΔJᵀu₁‖² (≥0), single/multi

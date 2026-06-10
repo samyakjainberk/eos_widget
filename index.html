@@ -459,7 +459,7 @@ function jacHVP(th,spec,X,N,inDim,p,z,eps){const cp=jacCols(thAdd(th,z,eps),spec
 function gradOut(th,spec,X,N,inDim,p,a){const f=forward(th,spec,X,N,inDim);const M=f.out.length;const dO=new Float64Array(M);dO[a]=1;return backward(th,spec,f.caches,dO,N,p);}
 // G2 = Σ_a (∇²f_a)²  HVP  (= Hwide Hwideᵀ·v for the p×(p·dn) reshape Hwide=[∇²f_1|…|∇²f_dn])
 function hvpG2(th,spec,X,N,inDim,p,v,eps){const u=jacHVP(th,spec,X,N,inDim,p,v,eps);const dn=u.length,out=new Float64Array(p);for(let a=0;a<dn;a++){const ua=u[a],gp=gradOut(thAdd(th,ua,eps),spec,X,N,inDim,p,a),gm=gradOut(thAdd(th,ua,-eps),spec,X,N,inDim,p,a);for(let i=0;i<p;i++)out[i]+=(gp[i]-gm[i])/(2*eps);}return out;}
-// §9 frozen function-Hessian-tensor SVD at θ (for the Eq-27/29 predictions): right singular vecs y_i (R^M),
+// §9 frozen function-Hessian-tensor SVD at θ (for the Eq-22/29 predictions): right singular vecs y_i (R^M),
 // singular values γ_i, and per-i eigvecs/eigvals z_ij/τ_ij of the reshaped left singular vec M_i=Σ_a (y_i)_a∇²f_a.
 function computeFHfrozen(th,spec,X,N,inDim,p,eps,nProbe,n7,nM,mV,M){
   const dn=M, jc=jacCols(th,spec,X,N,inDim,p).cols;
@@ -849,7 +849,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const fixedX=val('fixedx')==='1', inputStd=+val('inputstd');
   let n=+val('neig'),kth=+val('kth'),steps=+val('steps'),eigEvery=+val('eigevery'),seed=+val('seed');
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
-  const qmode=Math.max(1,+val('qmode')||1), tset=Math.max(1,+val('tset')||1);   // Eq-27 residual mode i; Eq-29 set-T size
+  const qmode=Math.max(1,+val('qmode')||1), tset=Math.max(1,+val('tset')||1);   // qmode (legacy, unused by Eq-22); Eq-29 set-T size
   const nProbe=Math.max(1,+val('slqprobes')), efrac=Math.min(1,Math.max(0.5,(+val('energyp'))/100));
   const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),gs:val('gson')==='1'};
   OPT=opt;
@@ -1049,7 +1049,7 @@ async function loop(){                                   // drives ST forward; r
         }
         // §9 (sec_12): theory vs empirical σ₁. At each window start freeze θ₀, the function Hessian Q, and the
         // Jacobian J₀; then iterate Eq-15  J_{t+1}=J_t+(η/N)Q[Jᵀr]  using ONLY the actual residuals r_t, and read
-        // σ₁,u₁,v₁ from the propagated J. col-2 = σ₁=λmax(JJᵀ); col-3/4 = Eq-27/29 analytic forms on that geometry.
+        // σ₁,u₁,v₁ from the propagated J. col-2 = σ₁=λmax(JJᵀ); col-3/4 = Eq-22/29 analytic forms on that geometry.
         let thP=null,thA=null,thPpsd=null;
         // §9c actual: full loss-Hessian sharpness λmax(∇²L). Browser thP/thA are RAW (un-÷N), so scale by N
         // to match (server divides thP/thA by N and sends sharp per-sample, so it's consistent there too).
@@ -1078,7 +1078,7 @@ async function loop(){                                   // drives ST forward; r
             // §9b: same predictions + the dropped 2nd-order PSD term Σ‖ΔJᵀu₁‖² (always ≥0 — a sharpening floor)
             thPpsd[1]=clmp(S.thBase+S.thAcc2+S.thAccPSD);
             thPpsd[2]=clmp(S.thBase*S.thProd3+S.thAccPSD);thPpsd[3]=clmp(S.thBase*S.thProd4+S.thAccPSD);
-            // col-3 (Eq-22): r̂≈u₁ ⇒ σ_{t+1}=σ_t[1+2η p·v₁ᵀQ[u₁]v₁], p=‖r‖ (the compact form, not the mode-expanded Eq-27)
+            // col-3 (Eq-22): r̂≈u₁ ⇒ σ_{t+1}=σ_t[1+2η p·v₁ᵀQ[u₁]v₁], p=‖r‖ (the compact bilinear form)
             thP[2]=clmp(S.thBase*S.thProd3);
             const pnorm=norm(r);
             S.thProd3*=Math.pow(1+2*etaN*pnorm*fhBil(v1),reps_);

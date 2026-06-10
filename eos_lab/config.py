@@ -55,7 +55,7 @@ class Config:
     energyp: float = 99.0           # §6 subspace energy %
     gson: int = 1                   # compute G & S spectra in §2/§3
     qapprox: int = 25              # §9 frozen-Q window length (steps)
-    qmode: int = 1                 # §9 Eq-27 single NTK mode index i
+    qmode: int = 1                 # §9 col-3 mode index — legacy (Eq-22 uses no mode)
     tset: int = 3                  # §9 Eq-29 number of top modes |T|
 
     # ---- which sections to compute ----
