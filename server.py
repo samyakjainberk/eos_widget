@@ -1431,15 +1431,17 @@ def run_stream(P):
                     thPpsd[1] = clmp(thBase + thAcc2 + thAccPSD)
                     thPpsd[2] = clmp(thBase*thProd3 + thAccPSD); thPpsd[3] = clmp(thBase*thProd4 + thAccPSD)
                     thPpsd[4] = clmp(thBase*thProd5 + thAccPSD)
-                    pproj = float(rr @ u1)                              # col-3 (Eq-22): p_t = r·u₁ (residual onto
-                    thProd3 *= (1 + 2 * etaN * pproj * fhBil(v1)) ** reps_  #   NTK mode u₁ = the v₁-coeff of Jᵀr),
-                    S4 = 0.0; pSum5 = 0.0; NV = min(max(tset, 1), NV0)   # col-4 (Eq-29): cross bilinear over top-|T|; col-5 (Eq-23): Eq-22's
-                    for vk in range(NV):                                #   bilinear v₁ᵀQ[u₁]v₁ with the residual projections summed over top-|T|
-                        sgv = math.sqrt(max(float(Kw[vk]), 1e-30)); rho = float(rr @ Vw[:, vk])
-                        S4 += (sgv/sgT) * fhBil(gnv(vk)) * rho           # Eq-29: Σ_v (√σ_v/√σ₁) v₁ᵀQ[u₁]v_v (r·u_v)
-                        pSum5 += (sgv/sgT) * rho                         # Eq-23: Σ_k (√σ_k/√σ₁) (r·u_k)
-                    thProd4 *= (1 + 2 * etaN * S4) ** reps_
-                    thProd5 *= (1 + 2 * etaN * fhBil(v1) * pSum5) ** reps_   # col-5 (Eq-23): σ_{t+1}=σ_t[1+2η v₁ᵀQ[u₁]v₁ Σ_k(√σ_k/√σ₁)(r·u_k)]
+                    QV1 = jac_hvp(thTh0, X, v1)                        # frozen-Q HVP {∇²f_a|θ₀ · v₁}; qv1 = Q[u₁]v₁ ⇒ the
+                    qv1 = (u1.unsqueeze(1) * QV1).sum(0)               #   EXACT bilinear v₁ᵀQ[u₁]v_k = qv1·v_k (used by Eq-22 & Eq-23)
+                    pproj = float(rr @ u1)                             # col-3 (Eq-22): p_t = r·u₁ (residual onto NTK mode u₁ = v₁-coeff of Jᵀr)
+                    thProd3 *= (1 + 2 * etaN * pproj * float(qv1 @ v1)) ** reps_   # σ_{t+1}=σ_t[1+2η (r·u₁) v₁ᵀQ[u₁]v₁]  (exact bilinear)
+                    S4 = 0.0; S5 = 0.0; NV = min(max(tset, 1), NV0)    # both sum Σ_k (√σ_k/√σ₁)(r·u_k)·v₁ᵀQ[u₁]v_k over the top-|T| modes
+                    for vk in range(NV):
+                        sgv = math.sqrt(max(float(Kw[vk]), 1e-30)); rho = float(rr @ Vw[:, vk]); gk = gnv(vk)
+                        S4 += (sgv/sgT) * fhBil(gk) * rho              # col-4 (Eq-29): bilinear via the γτz eigendecomposition of Q (approx)
+                        S5 += (sgv/sgT) * float(qv1 @ gk) * rho        # col-5 (Eq-23): bilinear computed directly (exact — no Q decomposition)
+                    thProd4 *= (1 + 2 * etaN * S4) ** reps_            # col-4 (Eq-29)
+                    thProd5 *= (1 + 2 * etaN * S5) ** reps_            # col-5 (Eq-23): differs from Eq-29 only by the Q-eigendecomposition approx
                     for _ in range(reps_):                             # advance Eq-15: J += (η/N) Q[Jᵀr], Q frozen at θ₀
                         QW = jac_hvp(thTh0, X, thJ.t() @ rr)      # {∇²f_a·(Jᵀr)} at θ₀
                         qu = (u1.unsqueeze(1) * QW).sum(0)              # Q[u₁](Jᵀr) = Σ_a u₁_a QW[a]
@@ -1768,18 +1770,20 @@ def run_surrogate_compare(P):
                     thPpsd[2] = clmp(thBase * thProd3 + thAccPSD)
                     thPpsd[3] = clmp(thBase * thProd4 + thAccPSD)
                     thPpsd[4] = clmp(thBase * thProd5 + thAccPSD)
-                    pproj = float(rr @ u1)                            # col-3 (Eq-22): p_t = r·u₁ (the v₁-coeff of Jᵀr),
-                    thProd3 *= (1 + 2 * etaN * pproj * fhBil(v1)) ** reps_   # σ_{t+1}=σ_t[1+2η p·v₁ᵀQ[u₁]v₁]
+                    QV1 = jac_hvp(th0, X, v1)                          # frozen-Q HVP {∇²f_a|θ₀ · v₁}; qv1 = Q[u₁]v₁ ⇒ EXACT bilinear
+                    qv1 = (u1.unsqueeze(1) * QV1).sum(0)               #   v₁ᵀQ[u₁]v_k = qv1·v_k (used by Eq-22 & Eq-23)
+                    pproj = float(rr @ u1)                            # col-3 (Eq-22): p_t = r·u₁ (the v₁-coeff of Jᵀr)
+                    thProd3 *= (1 + 2 * etaN * pproj * float(qv1 @ v1)) ** reps_   # σ_{t+1}=σ_t[1+2η (r·u₁) v₁ᵀQ[u₁]v₁]  (exact)
                     S4 = 0.0
-                    pSum5 = 0.0
+                    S5 = 0.0
                     NV = min(max(tset, 1), NV0)
                     for vk in range(NV):
                         sgv = math.sqrt(max(float(Kw[vk]), 1e-30))
-                        rho = float(rr @ Vw[:, vk])
-                        S4 += (sgv / sgT) * fhBil(gnv(vk)) * rho        # Eq-29: cross bilinear v₁ᵀQ[u₁]v_v
-                        pSum5 += (sgv / sgT) * rho                      # Eq-23: residual projections Σ_k(√σ_k/√σ₁)(r·u_k)
-                    thProd4 *= (1 + 2 * etaN * S4) ** reps_
-                    thProd5 *= (1 + 2 * etaN * fhBil(v1) * pSum5) ** reps_   # col-5 (Eq-23): Eq-22's bilinear, projections summed over top-|T|
+                        rho = float(rr @ Vw[:, vk]); gk = gnv(vk)
+                        S4 += (sgv / sgT) * fhBil(gk) * rho            # col-4 (Eq-29): bilinear via the γτz eigendecomposition of Q (approx)
+                        S5 += (sgv / sgT) * float(qv1 @ gk) * rho      # col-5 (Eq-23): bilinear v₁ᵀQ[u₁]v_k computed directly (exact)
+                    thProd4 *= (1 + 2 * etaN * S4) ** reps_             # col-4 (Eq-29)
+                    thProd5 *= (1 + 2 * etaN * S5) ** reps_            # col-5 (Eq-23): differs from Eq-29 only by the Q-decomposition approx
                     for _ in range(reps_):
                         QW = jac_hvp(th0, X, thJ.t() @ rr)
                         qu = (u1.unsqueeze(1) * QW).sum(0)

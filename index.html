@@ -629,14 +629,14 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_pred2',tvT(),baseLayout('multi: Eq.21 — σ₁ from Eq-15-propagated J (residuals only)','σ₁',false));
   newP('p_pred3',tvT(),baseLayout('multi: Eq.22 (p·v₁ᵀQ[u₁]v₁)','σ₁',false));
   newP('p_pred4',tvT(),baseLayout('multi: Eq.29 (sum over top-|T| NTK modes)','σ₁',false));
-  newP('p_pred5',tvT(),baseLayout('multi: Eq.23 (Eq.22 bilinear, projections summed over top-|T|)','σ₁',false));
+  newP('p_pred5',tvT(),baseLayout('multi: Eq.23 (exact v₁ᵀQ[u₁]v_k — no Q decomposition)','σ₁',false));
   // §9b — same five predictions with the 2nd-order PSD term ‖ΔJᵀu₁‖² added: predicted+PSD (blue) vs actual (red)
   const tvP=lab=>[{x:[],y:[],mode:'lines',name:'predicted + PSD',line:{color:'#2563eb',width:1.9}},{x:[],y:[],mode:'lines',name:'actual',line:{color:'#dc2626',width:1.6}}];
   newP('p_predp1',tvP(),baseLayout('single-sample Eq.13 + PSD term ‖ΔJ‖²','σ₁',false));
   newP('p_predp2',tvP(),baseLayout('multi Eq.21 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
   newP('p_predp3',tvP(),baseLayout('multi Eq.22 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
   newP('p_predp4',tvP(),baseLayout('multi Eq.29 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
-  newP('p_predp5',tvP(),baseLayout('multi Eq.23 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
+  newP('p_predp5',tvP(),baseLayout('multi Eq.23 (exact bilinear) + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
   // §9c — same predictions vs the FULL loss-Hessian sharpness λmax(∇²L): predicted (blue), predicted+PSD (green), sharpness (red dashed)
   const tvH=lab=>[{x:[],y:[],mode:'lines',name:'predicted',line:{color:'#2563eb',width:1.9}},
                   {x:[],y:[],mode:'lines',name:'predicted + PSD',line:{color:'#16a34a',width:1.7}},
@@ -645,7 +645,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_predh2',tvH(),baseLayout('multi Eq.21 vs full-Hessian sharpness','σ₁',false));
   newP('p_predh3',tvH(),baseLayout('multi Eq.22 vs full-Hessian sharpness','σ₁',false));
   newP('p_predh4',tvH(),baseLayout('multi Eq.29 vs full-Hessian sharpness','σ₁',false));
-  newP('p_predh5',tvH(),baseLayout('multi Eq.23 vs full-Hessian sharpness','σ₁',false));
+  newP('p_predh5',tvH(),baseLayout('multi Eq.23 (exact bilinear) vs full-Hessian sharpness','σ₁',false));
   attachHover();
   resizeAllPlots();
 }
@@ -1081,19 +1081,21 @@ async function loop(){                                   // drives ST forward; r
             // §9b: same predictions + the dropped 2nd-order PSD term Σ‖ΔJᵀu₁‖² (always ≥0 — a sharpening floor)
             thPpsd[1]=clmp(S.thBase+S.thAcc2+S.thAccPSD);
             thPpsd[2]=clmp(S.thBase*S.thProd3+S.thAccPSD);thPpsd[3]=clmp(S.thBase*S.thProd4+S.thAccPSD);thPpsd[4]=clmp(S.thBase*S.thProd5+S.thAccPSD);
-            // col-3 (Eq-22): σ_{t+1}=σ_t[1+2η p·v₁ᵀQ[u₁]v₁] with p_t = r·u₁ (the v₁-coefficient of Jᵀr — the
-            // residual's projection onto the top NTK eigenvector u₁), the compact form of the col-4 recursion
+            // Q[u₁]v₁ via a frozen-Q HVP ⇒ the EXACT bilinear v₁ᵀQ[u₁]v_k = qv1·v_k (used by Eq-22 col-3 and Eq-23 col-5).
+            const QV1=jacHVP(S.thTh0,spec,X,N,inDim,p,v1,eps);   // {∇²f_a|θ₀·v₁}
+            const qv1=new Float64Array(p);for(let a=0;a<M;a++){const c=u1[a],qa=QV1[a];for(let q=0;q<p;q++)qv1[q]+=c*qa[q];}   // Q[u₁]v₁
+            // col-3 (Eq-22): σ_{t+1}=σ_t[1+2η (r·u₁) v₁ᵀQ[u₁]v₁], p_t = r·u₁ (residual's projection onto the top NTK eigvec u₁)
             thP[2]=clmp(S.thBase*S.thProd3);
             const pproj=dot(r,ek.vecs[0]);
-            S.thProd3*=Math.pow(1+2*etaN*pproj*fhBil(v1),reps_);
-            // col-4 (Eq-29): cross bilinear v₁ᵀQ[u₁]v_v summed over top-|T| modes.  col-5 (Eq-23): Eq-22's bilinear
-            // v₁ᵀQ[u₁]v₁ with the residual projections (r·u_k) summed over the same top-|T| modes.
+            S.thProd3*=Math.pow(1+2*etaN*pproj*dot(qv1,v1),reps_);   // exact bilinear
+            // col-4 (Eq-29): bilinear v₁ᵀQ[u₁]v_k via the γτz eigendecomposition of Q (approx).  col-5 (Eq-23): the SAME bilinear
+            // computed directly (exact) from the HVP above — the two differ only by that Q-decomposition approximation.
             thP[3]=clmp(S.thBase*S.thProd4);
             thP[4]=clmp(S.thBase*S.thProd5);
-            let S4=0,pSum5=0;const NV=Math.min(Math.max(S.tset,1),NV0);
-            for(let vk=0;vk<NV;vk++){const sgv=Math.sqrt(Math.max(ek.vals[vk],1e-30)),rho=dot(r,ek.vecs[vk]);S4+=(sgv/sgT)*fhBil(gnv(vk))*rho;pSum5+=(sgv/sgT)*rho;}
-            S.thProd4*=Math.pow(1+2*etaN*S4,reps_);
-            S.thProd5*=Math.pow(1+2*etaN*fhBil(v1)*pSum5,reps_);   // Eq-23: σ_{t+1}=σ_t[1+2η v₁ᵀQ[u₁]v₁ Σ_k(√σ_k/√σ₁)(r·u_k)]
+            let S4=0,S5=0;const NV=Math.min(Math.max(S.tset,1),NV0);
+            for(let vk=0;vk<NV;vk++){const sgv=Math.sqrt(Math.max(ek.vals[vk],1e-30)),rho=dot(r,ek.vecs[vk]),gk=gnv(vk);S4+=(sgv/sgT)*fhBil(gk)*rho;S5+=(sgv/sgT)*dot(qv1,gk)*rho;}
+            S.thProd4*=Math.pow(1+2*etaN*S4,reps_);     // Eq-29 (γτz-decomposed bilinear)
+            S.thProd5*=Math.pow(1+2*etaN*S5,reps_);     // Eq-23 (exact direct bilinear v₁ᵀQ[u₁]v_k)
             // advance the predicted Jacobian by Eq-15: J += (η/N) Q[Jᵀr], Q frozen at θ₀, r = ACTUAL residual.
             // Reuse QW={∇²f_a·(Jᵀr)} for col-2's first-order Δσ = 2(η/N)√σ₁ v₁ᵀQ[u₁](Jᵀr) = 2(η/N)√σ₁ v₁ᵀΣ_a u₁_a QW[a].
             for(let s=0;s<reps_;s++){
@@ -1461,7 +1463,7 @@ function cmpInit(pre, n, kind) {
   newP(pre + '_pred2', tvT(), baseLayout('multi: Eq.21 σ₁', 'σ₁', false));
   newP(pre + '_pred3', tvT(), baseLayout('multi: Eq.22 σ₁', 'σ₁', false));
   newP(pre + '_pred4', tvT(), baseLayout('multi: Eq.29 σ₁', 'σ₁', false));
-  newP(pre + '_pred5', tvT(), baseLayout('multi: Eq.23 σ₁', 'σ₁', false));
+  newP(pre + '_pred5', tvT(), baseLayout('multi: Eq.23 σ₁ (exact bilinear)', 'σ₁', false));
   // §9b — same predictions + the 2nd-order PSD term ‖ΔJᵀu₁‖² vs surrogate σ₁
   const tvP = () => [{ x:[], y:[], mode:'lines', name:'predicted + PSD', line:{ color:'#2563eb', width:1.9 } },
     { x:[], y:[], mode:'lines', name:'surrogate σ₁', line:{ color:'#dc2626', width:1.6 } }];

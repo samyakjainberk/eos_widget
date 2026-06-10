@@ -66,11 +66,15 @@ keeps its sign" gives Eq. 29 (the col-4 panel):
 
 $$\sigma_{1,t+s}=\sigma_{1,t}\prod_{k=0}^{s-1}\Big[1+2\eta\sum_{v\in T}\tfrac{\sqrt{\sigma_v}}{\sqrt{\sigma_1}}\sum_{ij}\gamma_i\tau_{ij}(v_{1,t+k}^\top z_{ij})(v_{v,t+k}^\top z_{ij})(y_i^\top u_{1,t+k})p_{t+k}\Big]$$
 
-A third multi-sample form, **Eq. 23** (the col-5 panel), is Eq. 22 generalised — it keeps Eq. 22's bilinear
-$v_1^\top Q[u_1]v_1$ but sums the residual projections over the same top-$|T|$ NTK modes (so it reduces to Eq. 22 at
-$|T|=1$, and unlike Eq. 29 the bilinear is *not* taken across modes):
+A third multi-sample form, **Eq. 23** (the col-5 panel), decomposes $J^\top r$ over the top-$|T|$ NTK modes
+(so it reduces to Eq. 22 at $|T|=1$):
 
-$$\sigma_{1,t+1}=\sigma_{1,t}\Big[1+2\eta\,v_1^\top Q[u_1]v_1\sum_{k\in T}\tfrac{\sqrt{\sigma_k}}{\sqrt{\sigma_1}}\,(r\!\cdot\!u_k)\Big]$$
+$$\sigma_{1,t+1}=\sigma_{1,t}\Big[1+2\eta\sum_{k\in T}\tfrac{\sqrt{\sigma_k}}{\sqrt{\sigma_1}}\,(r\!\cdot\!u_k)\,v_1^\top Q[u_1]v_k\Big]$$
+
+It is the same expression as Eq. 29, **except the bilinear $v_1^\top Q[u_1]v_k$ is evaluated directly** (a frozen-$Q$
+Hessian-vector product, $Q[u_1]v_1$ once per window then dotted with each $v_k$), whereas Eq. 29 evaluates it through
+the $\sum_{ij}\gamma_i\tau_{ij}\dots$ **eigendecomposition of $Q$** (which assumes the reshaped $x_i$ are symmetric). The
+two columns therefore differ by exactly that approximation — the gap between them measures the eigendecomposition error.
 
 Progressive sharpening is predicted when the bracketed sum is $>0$ on average; when the (projected) residuals
 oscillate and flip sign the growth turns to decay — the cyclic **self-stabilization** at the edge of stability.
