@@ -53,15 +53,16 @@ The NTK grows ($\Rightarrow$ sharpening) when $r\sigma_i>0$ and shrinks when $r\
 residual $r$ keeps its sign.
 
 **Multiple samples.** Continuously (Eq. 21), the top NTK eigenvalue obeys
-$\dot\sigma_1=2\eta\sqrt{\sigma_1}v_1^\top Q[u_1]r^\top J$. Assuming the residual aligns with the top NTK mode
-($\hat r\simeq u_1$, $p=\lVert r\rVert$) it collapses to **Eq. 22**, $\dot\sigma_1\approx 2\eta\,p\,\sigma_1\,v_1^\top Q[u_1]v_1$,
-whose discrete recursion is
+$\dot\sigma_1=2\eta\sqrt{\sigma_1}\,v_1^\top Q[u_1]\,(J^\top r)$. Since $J^\top r=\sum_j\sqrt{\sigma_j}(r\!\cdot\!u_j)v_j$
+has $v_1$-component $\sqrt{\sigma_1}\,(r\!\cdot\!u_1)$, keeping the top mode gives **Eq. 22**,
+$\dot\sigma_1\approx 2\eta\,(r\!\cdot\!u_1)\,\sigma_1\,v_1^\top Q[u_1]v_1$, whose discrete recursion is
 
-$$\sigma_{1,t+1}=\sigma_{1,t}\big[1+2\eta\,p_t\,v_1^\top Q[u_1]v_1\big]$$
+$$\sigma_{1,t+1}=\sigma_{1,t}\big[1+2\eta\,(r\!\cdot\!u_1)\,v_1^\top Q[u_1]v_1\big]$$
 
-a compact factor in $p_t=\lVert r\rVert$ and the function-Hessian bilinear form $v_1^\top Q[u_1]v_1$ (the §9 col-3
-panel). Relaxing "aligned with the top mode" to "the residual's projection onto the top-$|T|$ NTK modes keeps
-its sign" gives Eq. 29 (the col-4 panel):
+a compact factor in $p_t=r\!\cdot\!u_1$ (the residual's projection onto the top NTK eigenvector — equal to
+$\lVert r\rVert$ exactly when $\hat r\simeq u_1$) and the function-Hessian bilinear form $v_1^\top Q[u_1]v_1$ (the §9
+col-3 panel). Relaxing "aligned with the top mode" to "the residual's projection onto the top-$|T|$ NTK modes
+keeps its sign" gives Eq. 29 (the col-4 panel):
 
 $$\sigma_{1,t+s}=\sigma_{1,t}\prod_{k=0}^{s-1}\Big[1+2\eta\sum_{v\in T}\tfrac{\sqrt{\sigma_v}}{\sqrt{\sigma_1}}\sum_{ij}\gamma_i\tau_{ij}(v_{1,t+k}^\top z_{ij})(v_{v,t+k}^\top z_{ij})(y_i^\top u_{1,t+k})p_{t+k}\Big]$$
 

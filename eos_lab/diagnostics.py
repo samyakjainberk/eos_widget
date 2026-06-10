@@ -449,8 +449,8 @@ class Diagnostics:
             thPpsd[1] = clmp(self._thBase + self._thAcc2 + self._thAccPSD)
             thPpsd[2] = clmp(self._thBase * self._thProd3 + self._thAccPSD)
             thPpsd[3] = clmp(self._thBase * self._thProd4 + self._thAccPSD)
-            pnorm = float(rr.norm())                       # col-3 (Eq-22): p=‖r‖, σ_{t+1}=σ_t[1+2η p·v₁ᵀQ[u₁]v₁]
-            self._thProd3 *= (1 + 2 * etaN * pnorm * fhBil(v1)) ** reps_
+            pproj = float(rr @ u1)                         # col-3 (Eq-22): p_t = r·u₁ (the v₁-coeff of Jᵀr),
+            self._thProd3 *= (1 + 2 * etaN * pproj * fhBil(v1)) ** reps_   # σ_{t+1}=σ_t[1+2η p·v₁ᵀQ[u₁]v₁]
             S4 = 0.0; NV = min(max(tset, 1), NV0)
             for vk in range(NV):
                 sgv = math.sqrt(max(float(Kw[vk]), 1e-30)); rho = float(rr @ Vw[:, vk])
