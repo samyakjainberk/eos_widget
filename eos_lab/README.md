@@ -6,7 +6,7 @@ train a small network with full-batch gradient descent and watch **progressive s
 HTTP server: import it, or point it at a GPU and get back arrays and figures.
 
 It mirrors the widget faithfully: at the same `seed` the gradient-descent trajectory is **bit-identical**
-and every diagnostic is checked against `server.py` (see [Faithfulness](#faithfulness)), so a run here and a
+and every diagnostic is checked against `server.py`, so a run here and a
 run in the browser are directly comparable.
 
 ## Running it
