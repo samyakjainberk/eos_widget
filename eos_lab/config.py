@@ -137,6 +137,6 @@ PRESETS = {
     # Chebyshev regression (Cohen et al. EoS): nsamp points on [-1,1] labeled by T_degree; the canonical
     # 1-hidden-layer tanh net (Linear(1,100)→tanh→Linear(100,1)). Sharpens to the 2/η edge of stability.
     "chebyshev": dict(dataset="chebyshev", arch="mlp", loss="mse", act="tanh", depth=1, width=100, bias=1,
-                      fixedx=0, indim=1, outdim=1, nsamp=20, degree=3, lr=0.2, init=0.5, steps=500,
+                      fixedx=0, indim=1, outdim=1, nsamp=20, degree=3, lr=0.02, init=0.5, steps=5000,
                       s1=1, s2=1, s3=1, s5=0, s6=0),
 }
