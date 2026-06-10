@@ -61,6 +61,7 @@ class Diagnostics:
     def __init__(self, model, loss, cfg, device, dtype, max_M=2048, max_Mp=700_000_000):
         self.model, self.loss, self.device, self.dtype = model, loss, device, dtype
         P = cfg.P()
+        self.dataset = P.get("dataset", "synthetic")   # owt is a token-LM (3D out) → no scalar residual y−f
         self.s1, self.s2, self.s3, self.s4 = P["s1"], P["s2"], P["s3"], P["s4"]
         self.s5, self.s6, self.gs = P["s5"], P["s6"], P["gs"]
         self.s7, self.s8, self.s9, self.s10, self.s11, self.s12 = (
@@ -161,8 +162,8 @@ class Diagnostics:
         loss_val = float(self.loss.value(out, Y, N))
         cS = self.loss.resid_cotangent(out, Y, N)           # ∂L/∂out (feeds the S term + SLQ-S)
         rec = {"t": t, "loss": loss_val, "thr": self.thr}
-        if self.loss.name != "ce":                          # MSE residual r = y−f; CE/LM has no residual
-            r = (Y - out).reshape(-1)                        #   (and Y are token ids, shape ≠ out)
+        if self.loss.name != "ce" and self.dataset != "owt":  # CE, and the OWT LM under ANY loss, have no
+            r = (Y - out).reshape(-1)                          #   scalar residual y−f (Y are token ids, shape ≠ out)
             rec["resid_mean"] = float(r.mean())
             rec["resid_rms"] = float(r.pow(2).mean().sqrt())
             rec["resid_head"] = r[:self.nResid].detach().cpu().tolist()
