@@ -1393,7 +1393,7 @@ function cmpHTML(pre, kind) {
     <span class="steps" id="${pre}_sps">steps/sec: —</span>
   </div>
   <div id="${pre}_status" style="font-family:var(--sans);color:var(--muted);font-size:13px;margin:4px 0 8px;min-height:18px"></div>
-  <div class="plotrow row4"><div id="${pre}_loss" class="plot"></div><div id="${pre}_resid" class="plot"></div><div id="${pre}_eig" class="plot"></div><div id="${pre}_hist" class="plot"></div></div>
+  <div class="plotrow row4"><div id="${pre}_lossfig" class="plot"></div><div id="${pre}_resid" class="plot"></div><div id="${pre}_eig" class="plot"></div><div id="${pre}_hist" class="plot"></div></div>
   <div id="${pre}_theoryrow" class="plotrow row4"><div id="${pre}_pred1" class="plot"></div><div id="${pre}_pred2" class="plot"></div><div id="${pre}_pred3" class="plot"></div><div id="${pre}_pred4" class="plot"></div></div>
   <div class="plotrow row2"><div id="${pre}_ntkR" class="plot"></div><div id="${pre}_ntkH" class="plot"></div></div>
   <div class="plotrow row4"><div id="${pre}_j4tA" class="plot"></div><div id="${pre}_j4tS" class="plot"></div><div id="${pre}_j4bA" class="plot"></div><div id="${pre}_j4bS" class="plot"></div></div>
@@ -1418,7 +1418,7 @@ function cmpInit(pre, n, kind) {
   // (theory row is always rendered — never display:none — so its 4 plots are measured against the real
   // grid cell and line up with the other rows; the §9 theory toggle only gates the server-side computation.)
   const sl = kind === 'quad' ? 'quad' : 'linear';
-  newP(pre + '_loss', [{ x:[], y:[], mode:'lines', name:'actual', line:{ color:'#2563eb', width:1.9 } },
+  newP(pre + '_lossfig', [{ x:[], y:[], mode:'lines', name:'actual', line:{ color:'#2563eb', width:1.9 } },
     { x:[], y:[], mode:'lines', name:'surrogate (' + sl + ')', line:{ color:'#ea580c', width:1.7, dash:'dash' } }],
     baseLayout('loss — actual vs ' + sl + ' surrogate', 'loss', true));
   // actual drawn WIDE, surrogate drawn THIN on top — so where they coincide (they track closely) both
@@ -1469,14 +1469,14 @@ function cmpInit(pre, n, kind) {
 // re-measure this section's plots against their grid cells (rAF + a delayed pass for the layout reflow);
 // only visible plots (offsetParent!=null) so a hidden theory row doesn't get mis-sized.
 function cmpResize(pre) {
-  const go = () => ['loss','resid','eig','hist','pred1','pred2','pred3','pred4','ntkR','ntkH','j4tA','j4tS','j4bA','j4bS','d4tp','d4tn','d4bp','d4bn']
+  const go = () => ['lossfig','resid','eig','hist','pred1','pred2','pred3','pred4','ntkR','ntkH','j4tA','j4tS','j4bA','j4bS','d4tp','d4tn','d4bp','d4bn']
     .forEach(s => { const gd = document.getElementById(pre + '_' + s);
       if (gd && gd._fullLayout && gd.offsetParent !== null) { try { Plotly.Plots.resize(gd); } catch (e) {} } });
   requestAnimationFrame(go); setTimeout(go, 80);
 }
 function cmpPush(pre, m) {
   const S = SEC[pre], n = S.n, t = m.t;
-  if (m.lossA != null || m.lossS != null) Plotly.extendTraces(pre + '_loss', { x:[[t],[t]], y:[[m.lossA],[m.lossS]] }, [0,1]);
+  if (m.lossA != null || m.lossS != null) Plotly.extendTraces(pre + '_lossfig', { x:[[t],[t]], y:[[m.lossA],[m.lossS]] }, [0,1]);
   if (m.rmeanA != null) Plotly.extendTraces(pre + '_resid', { x:[[t],[t],[t],[t]], y:[[m.rmeanA],[m.rstdA],[m.rmeanS],[m.rstdS]] }, [0,1,2,3]);
   const pair = (id, A, B) => { if (!A) return; const idx=[], xs=[], ys=[];
     for (let k=0;k<n;k++){ idx.push(k); xs.push([t]); ys.push([A[k]]); }
