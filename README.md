@@ -114,7 +114,9 @@ Set from the dropdowns (real-data / conv / transformer runs use the GPU backend)
 
 Below the main widget, the **quadratic / linear surrogate** sections train the real model and a
 frozen-window Taylor surrogate (Eq. 1, with/without the curvature term) in lockstep and overlay their
-loss, residuals, eigenvalues, §9 theory and projections — actual solid, surrogate dashed. They default
+loss, residuals, eigenvalues, the §9 / §9b / §9c σ₁-prediction panels (same Eq. 13/21/22/29 columns,
+with the PSD term and the full-Hessian-sharpness comparison), and projections — actual solid, surrogate
+dashed. They default
 to the **EoS-demo** preset (a small tanh MLP whose loss visibly trains to the edge of stability), so the
 first loss panel shows real evolution: the quadratic surrogate tracks the actual within each window, and
 the linear (NTK) surrogate diverges once the frozen sharpness passes `2/η` — expected at EoS. (The wide
