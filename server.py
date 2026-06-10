@@ -1500,13 +1500,6 @@ def run_stream(P):
             done += 1
 
         th = th - lr * gradL(th, X, Y)[0]
-        # Periodically release the CUDA caching allocator's unused blocks. The per-step diagnostics allocate
-        # many large temporaries (Jacobians, HVP outputs, M×M Gram/NTK matrices); PyTorch keeps the freed
-        # blocks cached, so resident GPU memory can creep up and fragment over a long run. This frees only
-        # UNUSED cached memory — it never touches `th`/live state, and the step's plot data is already
-        # streamed before this runs, so the visualization is unaffected.
-        if t % 25 == 0 and th.is_cuda:
-            torch.cuda.empty_cache()
 
     yield {"type": "done", "p": p}
 

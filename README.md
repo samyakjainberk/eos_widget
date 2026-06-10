@@ -53,7 +53,7 @@ The NTK grows ($\Rightarrow$ sharpening) when $r\sigma_i>0$ and shrinks when $r\
 residual $r$ keeps its sign.
 
 **Multiple samples.** Continuously (Eq. 21), the top NTK eigenvalue obeys
-$\dot\sigma_1=2\eta\sqrt{\sigma_1}\,v_1^\top Q[u_1]\,(J^\top r)$, where $J^\top r=\sum_j\sqrt{\sigma_j}\,(r\!\cdot\!u_j)\,v_j$.
+$\dot\sigma_1=2\eta\sqrt{\sigma_1}\,v_1^\top Q[u_1]\,(J^\top r)$, where $J^\top r=\sum_j\sqrt{\sigma_j}\,(r\cdot u_j)\,v_j$.
 The paper closes this two ways.
 
 **Eq. 22** assumes the residual aligns with the top NTK mode ($\hat r\simeq u_1$, so $r\approx\lVert r\rVert\,u_1$) and
@@ -63,12 +63,12 @@ $$\dot\sigma_1\approx 2\eta\,\lVert r\rVert\,\sigma_1\,v_1^\top Q[u_1]v_1,\qquad
 \sigma_{1,t+1}=\sigma_{1,t}\big[1+2\eta\,\lVert r\rVert\,v_1^\top Q[u_1]v_1\big].$$
 
 **Eq. 23** drops that full-alignment assumption and decomposes $J^\top r$ over the top-$|T|$ NTK modes (so it
-recovers Eq. 22 at $|T|=1$, but with the projection $r\!\cdot\!u_1$ in place of $\lVert r\rVert$):
+recovers Eq. 22 at $|T|=1$, but with the projection $r\cdot u_1$ in place of $\lVert r\rVert$):
 
-$$\dot\sigma_1\approx 2\eta\sqrt{\sigma_1}\sum_{k\in T}\sqrt{\sigma_k}\,(r\!\cdot\!u_k)\,v_1^\top Q[u_1]v_k,\qquad
-\sigma_{1,t+1}=\sigma_{1,t}\Big[1+2\eta\sum_{k\in T}\tfrac{\sqrt{\sigma_k}}{\sqrt{\sigma_1}}\,(r\!\cdot\!u_k)\,v_1^\top Q[u_1]v_k\Big].$$
+$$\dot\sigma_1\approx 2\eta\sqrt{\sigma_1}\sum_{k\in T}\sqrt{\sigma_k}\,(r\cdot u_k)\,v_1^\top Q[u_1]v_k,\qquad
+\sigma_{1,t+1}=\sigma_{1,t}\Big[1+2\eta\sum_{k\in T}\tfrac{\sqrt{\sigma_k}}{\sqrt{\sigma_1}}\,(r\cdot u_k)\,v_1^\top Q[u_1]v_k\Big].$$
 
-The **col-3 (Eq. 22)** panel uses $p_t=r\!\cdot\!u_1$ — the residual's projection onto $u_1$, i.e. the $|T|=1$ case of
+The **col-3 (Eq. 22)** panel uses $p_t=r\cdot u_1$ — the residual's projection onto $u_1$, i.e. the $|T|=1$ case of
 Eq. 23 — rather than the literal $\lVert r\rVert$: the two agree under the alignment assumption, but the projection
 tracks the actual residual ($\lVert r\rVert$ overshoots when it isn't aligned). Both Eq. 22 and **col-4 (Eq. 23)**
 evaluate the bilinear $v_1^\top Q[u_1]v_k$ **exactly**, via a frozen-$Q$ Hessian-vector product ($Q[u_1]v_1$ once per
@@ -78,7 +78,7 @@ Relaxing "aligned with the top mode" to "the residual's projection onto the top-
 and evaluating the bilinear through the $\sum_{ij}\gamma_i\tau_{ij}\dots$ **eigendecomposition of $Q$** (which assumes
 the reshaped $x_i$ are symmetric), gives **Eq. 29** — the **col-5** panel:
 
-$$\sigma_{1,t+s}=\sigma_{1,t}\prod_{k=0}^{s-1}\Big[1+2\eta\sum_{v\in T}\tfrac{\sqrt{\sigma_v}}{\sqrt{\sigma_1}}\sum_{ij}\gamma_i\tau_{ij}(v_{1,t+k}^\top z_{ij})(v_{v,t+k}^\top z_{ij})(y_i^\top u_{1,t+k})\,(r\!\cdot\!u_v)\Big]$$
+$$\sigma_{1,t+s}=\sigma_{1,t}\prod_{k=0}^{s-1}\Big[1+2\eta\sum_{v\in T}\tfrac{\sqrt{\sigma_v}}{\sqrt{\sigma_1}}\sum_{ij}\gamma_i\tau_{ij}(v_{1,t+k}^\top z_{ij})(v_{v,t+k}^\top z_{ij})(y_i^\top u_{1,t+k})\,(r\cdot u_v)\Big]$$
 
 So **col-4 (Eq. 23)** and **col-5 (Eq. 29)** are the *same* top-$|T|$-mode sum; they differ only in how
 $v_1^\top Q[u_1]v_k$ is evaluated — directly (exact) vs through the $Q$-eigendecomposition — and the gap between
