@@ -1431,8 +1431,8 @@ def run_stream(P):
                     thPpsd[1] = clmp(thBase + thAcc2 + thAccPSD)
                     thPpsd[2] = clmp(thBase*thProd3 + thAccPSD); thPpsd[3] = clmp(thBase*thProd5 + thAccPSD)
                     thPpsd[4] = clmp(thBase*thProd4 + thAccPSD)
-                    QV1 = jac_hvp(thTh0, X, v1)                        # frozen-Q HVP {∇²f_a|θ₀ · v₁}; qv1 = Q[u₁]v₁ ⇒ the
-                    qv1 = (u1.unsqueeze(1) * QV1).sum(0)               #   EXACT bilinear v₁ᵀQ[u₁]v_k = qv1·v_k (used by Eq-22 & Eq-23)
+                    qv1 = hvpS(thTh0, X, v1, u1.reshape(N, outD))      # Q[u₁]v₁ = (Σ_a u₁_a ∇²f_a)·v₁ via the weighted HVP (2 grad
+                    #   evals, not the full M×p jac_hvp) ⇒ the EXACT bilinear v₁ᵀQ[u₁]v_k = qv1·v_k (used by Eq-22 & Eq-23)
                     pproj = float(rr @ u1)                             # col-3 (Eq-22): p_t = r·u₁ (residual onto NTK mode u₁ = v₁-coeff of Jᵀr)
                     thProd3 *= (1 + 2 * etaN * pproj * float(qv1 @ v1)) ** reps_   # σ_{t+1}=σ_t[1+2η (r·u₁) v₁ᵀQ[u₁]v₁]  (exact bilinear)
                     S4 = 0.0; S5 = 0.0; NV = min(max(tset, 1), NV0)    # both sum Σ_k (√σ_k/√σ₁)(r·u_k)·v₁ᵀQ[u₁]v_k over the top-|T| modes
@@ -1770,8 +1770,8 @@ def run_surrogate_compare(P):
                     thPpsd[2] = clmp(thBase * thProd3 + thAccPSD)
                     thPpsd[3] = clmp(thBase * thProd5 + thAccPSD)         # col-4 = Eq-23
                     thPpsd[4] = clmp(thBase * thProd4 + thAccPSD)         # col-5 = Eq-29
-                    QV1 = jac_hvp(th0, X, v1)                          # frozen-Q HVP {∇²f_a|θ₀ · v₁}; qv1 = Q[u₁]v₁ ⇒ EXACT bilinear
-                    qv1 = (u1.unsqueeze(1) * QV1).sum(0)               #   v₁ᵀQ[u₁]v_k = qv1·v_k (used by Eq-22 & Eq-23)
+                    qv1 = hvpS(th0, X, v1, u1.reshape(N, outD))        # Q[u₁]v₁ via the weighted HVP (2 grad evals, not the full
+                    #   M×p jac_hvp) ⇒ the EXACT bilinear v₁ᵀQ[u₁]v_k = qv1·v_k (used by Eq-22 & Eq-23)
                     pproj = float(rr @ u1)                            # col-3 (Eq-22): p_t = r·u₁ (the v₁-coeff of Jᵀr)
                     thProd3 *= (1 + 2 * etaN * pproj * float(qv1 @ v1)) ** reps_   # σ_{t+1}=σ_t[1+2η (r·u₁) v₁ᵀQ[u₁]v₁]  (exact)
                     S4 = 0.0

@@ -452,8 +452,8 @@ class Diagnostics:
             thPpsd[2] = clmp(self._thBase * self._thProd3 + self._thAccPSD)
             thPpsd[3] = clmp(self._thBase * self._thProd5 + self._thAccPSD)   # col-4 = Eq-23
             thPpsd[4] = clmp(self._thBase * self._thProd4 + self._thAccPSD)   # col-5 = Eq-29
-            QV1 = jac_hvp(self.model, self._thTh0, X, v1)  # frozen-Q HVP {∇²f_a|θ₀ · v₁}; qv1 = Q[u₁]v₁ ⇒ EXACT bilinear
-            qv1 = (u1.unsqueeze(1) * QV1).sum(0)           #   v₁ᵀQ[u₁]v_k = qv1·v_k (used by Eq-22 & Eq-23)
+            qv1 = hvp_S(self.model, self._thTh0, X, u1.reshape(N, outD), v1)  # Q[u₁]v₁ = (Σ_a u₁_a ∇²f_a)·v₁ via the weighted
+            #   HVP (2 grad evals, not the full M×p jac_hvp) ⇒ the EXACT bilinear v₁ᵀQ[u₁]v_k = qv1·v_k (Eq-22 & Eq-23)
             pproj = float(rr @ u1)                         # col-3 (Eq-22): p_t = r·u₁ (the v₁-coeff of Jᵀr)
             self._thProd3 *= (1 + 2 * etaN * pproj * float(qv1 @ v1)) ** reps_   # σ_{t+1}=σ_t[1+2η (r·u₁) v₁ᵀQ[u₁]v₁]  (exact)
             S4 = 0.0; S5 = 0.0; NV = min(max(tset, 1), NV0)

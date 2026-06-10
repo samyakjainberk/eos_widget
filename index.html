@@ -537,6 +537,12 @@ const SLQ_PLOTS=['p_sH','p_sG','p_sS','p_sHL'];
 const TIME_PLOTS=['p_loss','p_sharp','p_resid','p_eHfX','p_eHfT','p_eHLT','p_eGNT','p_eSRT','p_eHfB','p_eHLB','p_eGNB','p_eSRB','p_Jtop','p_Jbot','p_Jtopn','p_Jbotn','p_paPos','p_paNeg','p_ntkR','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb','p_pred1','p_pred2','p_pred3','p_pred4','p_pred5','p_predp1','p_predp2','p_predp3','p_predp4','p_predp5','p_predh1','p_predh2','p_predh3','p_predh4','p_predh5'];
 const PLOT_IDS=TIME_PLOTS.concat(SLQ_PLOTS);
 function newP(id,traces,layout){Plotly.newPlot(id,traces,layout,CFG);const gd=document.getElementById(id);gd._baseShapes=layout.shapes?JSON.parse(JSON.stringify(layout.shapes)):[];}
+// Cap every live trace at PLOT_CAP points (Plotly drops the oldest beyond it). Without this each tick re-renders
+// the full, ever-growing trace across ~dozens of panels, so per-tick render cost climbs with the step count and
+// the page — fine early — progressively hangs. Capping makes the per-tick render cost plateau (sliding window for
+// runs longer than PLOT_CAP diagnostic points). Bump PLOT_CAP for more history at the cost of heavier redraws.
+let PLOT_CAP=1200;
+function extP(id,u,idx){Plotly.extendTraces(id,u,idx,PLOT_CAP);}
 function slqLayout(title){const L=baseLayout(title,'density (log)',false);L.xaxis.title.text='eigenvalue';L.yaxis.type='log';L.showlegend=false;return L;}
 function oneTrace(name,color){return [{x:[],y:[],mode:'lines',name,line:{color,width:1.9}}];}
 // LOG density: Hessian spectra are a tall bulk near 0 + outlier clusters ~10³–10⁴× smaller, invisible
@@ -702,86 +708,86 @@ function clearNAonData(D){
 function pushPoint(t,D,n,kth,nResid){
   clearNAonData(D);
   if(OPT.s1){
-    Plotly.extendTraces('p_loss',{x:[[t]],y:[[D.loss]]},[0]);
-    Plotly.extendTraces('p_sharp',{x:[[t]],y:[[D.sharp]]},[0]);
-    if(D.r&&D.r.length)Plotly.extendTraces('p_resid',{x:reps(D.r.length,t),y:colsOf(D.r.length,D.r)},ids(D.r.length));  // CE/LM sends no residual
-    Plotly.extendTraces('p_eHfX',{x:[[t],[t]],y:[[D.hfMax],[D.hfMin]]},[0,1]);
+    extP('p_loss',{x:[[t]],y:[[D.loss]]},[0]);
+    extP('p_sharp',{x:[[t]],y:[[D.sharp]]},[0]);
+    if(D.r&&D.r.length)extP('p_resid',{x:reps(D.r.length,t),y:colsOf(D.r.length,D.r)},ids(D.r.length));  // CE/LM sends no residual
+    extP('p_eHfX',{x:[[t],[t]],y:[[D.hfMax],[D.hfMin]]},[0,1]);
   }
   if(OPT.s2){
-    Plotly.extendTraces('p_eHfT',{x:reps(n,t),y:colsOf(n,D.hfTop)},ids(n));
-    Plotly.extendTraces('p_eHLT',{x:reps(n,t),y:colsOf(n,D.hlTop)},ids(n));
-    if(OPT.gs){Plotly.extendTraces('p_eGNT',{x:reps(n,t),y:colsOf(n,D.gnTop)},ids(n));Plotly.extendTraces('p_eSRT',{x:reps(n,t),y:colsOf(n,D.srTop)},ids(n));}
+    extP('p_eHfT',{x:reps(n,t),y:colsOf(n,D.hfTop)},ids(n));
+    extP('p_eHLT',{x:reps(n,t),y:colsOf(n,D.hlTop)},ids(n));
+    if(OPT.gs){extP('p_eGNT',{x:reps(n,t),y:colsOf(n,D.gnTop)},ids(n));extP('p_eSRT',{x:reps(n,t),y:colsOf(n,D.srTop)},ids(n));}
   }
   if(OPT.s3){
-    Plotly.extendTraces('p_eHfB',{x:reps(n,t),y:colsOf(n,D.hfBot)},ids(n));
-    Plotly.extendTraces('p_eHLB',{x:reps(n,t),y:colsOf(n,D.hlBot)},ids(n));
-    if(OPT.gs){Plotly.extendTraces('p_eGNB',{x:reps(n,t),y:colsOf(n,D.gnBot)},ids(n));Plotly.extendTraces('p_eSRB',{x:reps(n,t),y:colsOf(n,D.srBot)},ids(n));}
+    extP('p_eHfB',{x:reps(n,t),y:colsOf(n,D.hfBot)},ids(n));
+    extP('p_eHLB',{x:reps(n,t),y:colsOf(n,D.hlBot)},ids(n));
+    if(OPT.gs){extP('p_eGNB',{x:reps(n,t),y:colsOf(n,D.gnBot)},ids(n));extP('p_eSRB',{x:reps(n,t),y:colsOf(n,D.srBot)},ids(n));}
   }
   if(OPT.s4&&D.jt){   // D.jt is null on cross-entropy runs (server disables §4); guard like §7–§12
-    Plotly.extendTraces('p_Jtop',{x:reps(n,t),y:colsOf(n,D.jt)},ids(n));
-    Plotly.extendTraces('p_Jbot',{x:reps(n,t),y:colsOf(n,D.jb)},ids(n));
-    Plotly.extendTraces('p_Jtopn',{x:reps(n,t),y:colsOf(n,D.jtN)},ids(n));
-    Plotly.extendTraces('p_Jbotn',{x:reps(n,t),y:colsOf(n,D.jbN)},ids(n));
+    extP('p_Jtop',{x:reps(n,t),y:colsOf(n,D.jt)},ids(n));
+    extP('p_Jbot',{x:reps(n,t),y:colsOf(n,D.jb)},ids(n));
+    extP('p_Jtopn',{x:reps(n,t),y:colsOf(n,D.jtN)},ids(n));
+    extP('p_Jbotn',{x:reps(n,t),y:colsOf(n,D.jbN)},ids(n));
   }
   if(OPT.s6){
-    Plotly.extendTraces('p_paPos',{x:[[t],[t]],y:[[D.paPos?D.paPos.mx:null],[D.paPos?D.paPos.mn:null]]},[0,1]);
-    Plotly.extendTraces('p_paNeg',{x:[[t],[t]],y:[[D.paNeg?D.paNeg.mx:null],[D.paNeg?D.paNeg.mn:null]]},[0,1]);
+    extP('p_paPos',{x:[[t],[t]],y:[[D.paPos?D.paPos.mx:null],[D.paPos?D.paPos.mn:null]]},[0,1]);
+    extP('p_paNeg',{x:[[t],[t]],y:[[D.paNeg?D.paNeg.mx:null],[D.paNeg?D.paNeg.mn:null]]},[0,1]);
   }
   if(OPT.s13&&D.ntkR){                 // §7a NTK alignment (separate, default-on panel)
     const m7a=D.ntkR.length;
-    Plotly.extendTraces('p_ntkR',{x:reps(m7a,t),y:colsOf(m7a,D.ntkR)},ids(m7a));
-    Plotly.extendTraces('p_ntkH',{x:reps(m7a,t),y:colsOf(m7a,D.ntkH)},ids(m7a));
+    extP('p_ntkR',{x:reps(m7a,t),y:colsOf(m7a,D.ntkR)},ids(m7a));
+    extP('p_ntkH',{x:reps(m7a,t),y:colsOf(m7a,D.ntkH)},ids(m7a));
   }
   if(OPT.s7&&D.jhe1){                  // §7 heavy multi-sample NTK/FH-SVD projections
     const m7=D.jhe1.length;
-    Plotly.extendTraces('p_fhEvT',{x:reps(4,t),y:colsOf(4,D.fhEvT)},ids(4));
-    Plotly.extendTraces('p_fhEvB',{x:reps(4,t),y:colsOf(4,D.fhEvB)},ids(4));
-    Plotly.extendTraces('p_jhe1',{x:reps(m7,t),y:colsOf(m7,D.jhe1)},ids(m7));
-    Plotly.extendTraces('p_jhe2',{x:reps(m7,t),y:colsOf(m7,D.jhe2)},ids(m7));
-    Plotly.extendTraces('p_jhe1b',{x:reps(m7,t),y:colsOf(m7,D.jhe1b)},ids(m7));
-    Plotly.extendTraces('p_jhe2b',{x:reps(m7,t),y:colsOf(m7,D.jhe2b)},ids(m7));
-    Plotly.extendTraces('p_jh2e1',{x:reps(m7,t),y:colsOf(m7,D.jh2e1)},ids(m7));
-    Plotly.extendTraces('p_jh2e2',{x:reps(m7,t),y:colsOf(m7,D.jh2e2)},ids(m7));
-    Plotly.extendTraces('p_jh2e1b',{x:reps(m7,t),y:colsOf(m7,D.jh2e1b)},ids(m7));
-    Plotly.extendTraces('p_jh2e2b',{x:reps(m7,t),y:colsOf(m7,D.jh2e2b)},ids(m7));
+    extP('p_fhEvT',{x:reps(4,t),y:colsOf(4,D.fhEvT)},ids(4));
+    extP('p_fhEvB',{x:reps(4,t),y:colsOf(4,D.fhEvB)},ids(4));
+    extP('p_jhe1',{x:reps(m7,t),y:colsOf(m7,D.jhe1)},ids(m7));
+    extP('p_jhe2',{x:reps(m7,t),y:colsOf(m7,D.jhe2)},ids(m7));
+    extP('p_jhe1b',{x:reps(m7,t),y:colsOf(m7,D.jhe1b)},ids(m7));
+    extP('p_jhe2b',{x:reps(m7,t),y:colsOf(m7,D.jhe2b)},ids(m7));
+    extP('p_jh2e1',{x:reps(m7,t),y:colsOf(m7,D.jh2e1)},ids(m7));
+    extP('p_jh2e2',{x:reps(m7,t),y:colsOf(m7,D.jh2e2)},ids(m7));
+    extP('p_jh2e1b',{x:reps(m7,t),y:colsOf(m7,D.jh2e1b)},ids(m7));
+    extP('p_jh2e2b',{x:reps(m7,t),y:colsOf(m7,D.jh2e2b)},ids(m7));
   }
   if(OPT.s8&&D.g2J){
     const m8=D.g2J.length;
-    Plotly.extendTraces('p_g2J',{x:reps(m8,t),y:colsOf(m8,D.g2J)},ids(m8));
-    Plotly.extendTraces('p_g2Jn',{x:reps(m8,t),y:colsOf(m8,D.g2Jn)},ids(m8));
+    extP('p_g2J',{x:reps(m8,t),y:colsOf(m8,D.g2J)},ids(m8));
+    extP('p_g2Jn',{x:reps(m8,t),y:colsOf(m8,D.g2Jn)},ids(m8));
   }
   if(OPT.s9&&D.q9t){
-    Plotly.extendTraces('p_q9t',{x:reps(n,t),y:colsOf(n,D.q9t)},ids(n));
-    Plotly.extendTraces('p_q9b',{x:reps(n,t),y:colsOf(n,D.q9b)},ids(n));
-    Plotly.extendTraces('p_q9tN',{x:reps(n,t),y:colsOf(n,D.q9tN)},ids(n));
-    Plotly.extendTraces('p_q9bN',{x:reps(n,t),y:colsOf(n,D.q9bN)},ids(n));
-    Plotly.extendTraces('p_q9tR',{x:reps(n,t),y:colsOf(n,D.q9tR)},ids(n));
-    Plotly.extendTraces('p_q9bR',{x:reps(n,t),y:colsOf(n,D.q9bR)},ids(n));
-    Plotly.extendTraces('p_q9gt',{x:reps(n,t),y:colsOf(n,D.q9gt)},ids(n));
-    Plotly.extendTraces('p_q9gb',{x:reps(n,t),y:colsOf(n,D.q9gb)},ids(n));
+    extP('p_q9t',{x:reps(n,t),y:colsOf(n,D.q9t)},ids(n));
+    extP('p_q9b',{x:reps(n,t),y:colsOf(n,D.q9b)},ids(n));
+    extP('p_q9tN',{x:reps(n,t),y:colsOf(n,D.q9tN)},ids(n));
+    extP('p_q9bN',{x:reps(n,t),y:colsOf(n,D.q9bN)},ids(n));
+    extP('p_q9tR',{x:reps(n,t),y:colsOf(n,D.q9tR)},ids(n));
+    extP('p_q9bR',{x:reps(n,t),y:colsOf(n,D.q9bR)},ids(n));
+    extP('p_q9gt',{x:reps(n,t),y:colsOf(n,D.q9gt)},ids(n));
+    extP('p_q9gb',{x:reps(n,t),y:colsOf(n,D.q9gb)},ids(n));
   }
   if(OPT.s10&&D.q10){
-    Plotly.extendTraces('p_q10',{x:reps(n,t),y:colsOf(n,D.q10)},ids(n));
-    Plotly.extendTraces('p_q10N',{x:reps(n,t),y:colsOf(n,D.q10N)},ids(n));
+    extP('p_q10',{x:reps(n,t),y:colsOf(n,D.q10)},ids(n));
+    extP('p_q10N',{x:reps(n,t),y:colsOf(n,D.q10N)},ids(n));
   }
   if(OPT.s11&&D.d4Ht){const m=2*n;
-    Plotly.extendTraces('p_d4Ht',{x:reps(m,t),y:colsOf(m,D.d4Ht)},ids(m));
-    Plotly.extendTraces('p_d4Hb',{x:reps(m,t),y:colsOf(m,D.d4Hb)},ids(m));
-    Plotly.extendTraces('p_d4Qt',{x:reps(m,t),y:colsOf(m,D.d4Qt)},ids(m));
-    Plotly.extendTraces('p_d4Qb',{x:reps(m,t),y:colsOf(m,D.d4Qb)},ids(m));
+    extP('p_d4Ht',{x:reps(m,t),y:colsOf(m,D.d4Ht)},ids(m));
+    extP('p_d4Hb',{x:reps(m,t),y:colsOf(m,D.d4Hb)},ids(m));
+    extP('p_d4Qt',{x:reps(m,t),y:colsOf(m,D.d4Qt)},ids(m));
+    extP('p_d4Qb',{x:reps(m,t),y:colsOf(m,D.d4Qb)},ids(m));
   }
   if(OPT.s12&&D.thP){   // theory vs empirical — 4 panels, each [predicted, actual]
     for(let c=0;c<5;c++){const pv=D.thP[c],av=D.thA[c];if(pv==null&&av==null)continue;
-      Plotly.extendTraces('p_pred'+(c+1),{x:[[t],[t]],y:[[pv],[av]]},[0,1]);}
+      extP('p_pred'+(c+1),{x:[[t],[t]],y:[[pv],[av]]},[0,1]);}
   }
   if(OPT.s12&&D.thPpsd){   // §9b — predicted + PSD term vs actual
     for(let c=0;c<5;c++){const pv=D.thPpsd[c],av=D.thA&&D.thA[c];if(pv==null&&av==null)continue;
-      Plotly.extendTraces('p_predp'+(c+1),{x:[[t],[t]],y:[[pv],[av]]},[0,1]);}
+      extP('p_predp'+(c+1),{x:[[t],[t]],y:[[pv],[av]]},[0,1]);}
   }
   if(OPT.s14&&D.thP){   // §9c — predicted & predicted+PSD vs the FULL loss-Hessian sharpness (thAH)
     const sh=(D.thAH==null?null:D.thAH);
     for(let c=0;c<5;c++){const pv=D.thP[c],pp=D.thPpsd?D.thPpsd[c]:null;if(pv==null&&pp==null&&sh==null)continue;
-      Plotly.extendTraces('p_predh'+(c+1),{x:[[t],[t],[t]],y:[[pv],[pp],[sh]]},[0,1,2]);}
+      extP('p_predh'+(c+1),{x:[[t],[t],[t]],y:[[pv],[pp],[sh]]},[0,1,2]);}
   }
 }
 
@@ -1081,9 +1087,11 @@ async function loop(){                                   // drives ST forward; r
             // §9b: same predictions + the dropped 2nd-order PSD term Σ‖ΔJᵀu₁‖² (always ≥0 — a sharpening floor)
             thPpsd[1]=clmp(S.thBase+S.thAcc2+S.thAccPSD);
             thPpsd[2]=clmp(S.thBase*S.thProd3+S.thAccPSD);thPpsd[3]=clmp(S.thBase*S.thProd5+S.thAccPSD);thPpsd[4]=clmp(S.thBase*S.thProd4+S.thAccPSD);   // col-4=Eq-23, col-5=Eq-29 (swapped)
-            // Q[u₁]v₁ via a frozen-Q HVP ⇒ the EXACT bilinear v₁ᵀQ[u₁]v_k = qv1·v_k (used by Eq-22 col-3 and Eq-23 col-5).
-            const QV1=jacHVP(S.thTh0,spec,X,N,inDim,p,v1,eps);   // {∇²f_a|θ₀·v₁}
-            const qv1=new Float64Array(p);for(let a=0;a<M;a++){const c=u1[a],qa=QV1[a];for(let q=0;q<p;q++)qv1[q]+=c*qa[q];}   // Q[u₁]v₁
+            // Q[u₁]v₁ = ∇²(u₁·f)·v₁ ⇒ the EXACT bilinear v₁ᵀQ[u₁]v_k = qv1·v_k (used by Eq-22 col-3 and Eq-23 col-4).
+            // Finite-diff of the weighted gradient Jᵀu₁ (one backward pass each) — far cheaper than the full M×p jacHVP.
+            const gqp=gradWeighted(thAdd(S.thTh0,v1,eps),spec,X,N,inDim,p,u1).grad;
+            const gqm=gradWeighted(thAdd(S.thTh0,v1,-eps),spec,X,N,inDim,p,u1).grad;
+            const qv1=new Float64Array(p);for(let q=0;q<p;q++)qv1[q]=(gqp[q]-gqm[q])/(2*eps);   // Q[u₁]v₁
             // col-3 (Eq-22): σ_{t+1}=σ_t[1+2η (r·u₁) v₁ᵀQ[u₁]v₁], p_t = r·u₁ (residual's projection onto the top NTK eigvec u₁)
             thP[2]=clmp(S.thBase*S.thProd3);
             const pproj=dot(r,ek.vecs[0]);
@@ -1514,16 +1522,16 @@ function cmpResize(pre) {
 }
 function cmpPush(pre, m) {
   const S = SEC[pre], n = S.n, t = m.t;
-  if (m.lossA != null || m.lossS != null) Plotly.extendTraces(pre + '_lossfig', { x:[[t],[t]], y:[[m.lossA],[m.lossS]] }, [0,1]);
-  if (m.rmeanA != null) Plotly.extendTraces(pre + '_resid', { x:[[t],[t],[t],[t]], y:[[m.rmeanA],[m.rstdA],[m.rmeanS],[m.rstdS]] }, [0,1,2,3]);
+  if (m.lossA != null || m.lossS != null) extP(pre + '_lossfig', { x:[[t],[t]], y:[[m.lossA],[m.lossS]] }, [0,1]);
+  if (m.rmeanA != null) extP(pre + '_resid', { x:[[t],[t],[t],[t]], y:[[m.rmeanA],[m.rstdA],[m.rmeanS],[m.rstdS]] }, [0,1,2,3]);
   const pair = (id, A, B) => { if (!A) return; const idx=[], xs=[], ys=[];
     for (let k=0;k<n;k++){ idx.push(k); xs.push([t]); ys.push([A[k]]); }
     for (let k=0;k<n;k++){ idx.push(n+k); xs.push([t]); ys.push([B[k]]); }
-    Plotly.extendTraces(id, { x:xs, y:ys }, idx); };
+    extP(id, { x:xs, y:ys }, idx); };
   if (m.eigA) pair(pre + '_eig', m.eigA, m.eigS);
   const one = (id, V) => { if (!V) return; const idx=[], xs=[], ys=[];
     for (let k=0;k<n;k++){ idx.push(k); xs.push([t]); ys.push([V[k]]); }
-    Plotly.extendTraces(id, { x:xs, y:ys }, idx); };
+    extP(id, { x:xs, y:ys }, idx); };
   one(pre + '_j4tA', m.j4tA); one(pre + '_j4tS', m.j4tS);
   one(pre + '_j4bA', m.j4bA); one(pre + '_j4bS', m.j4bS);
   one(pre + '_ntkR', m.ntkR); one(pre + '_ntkH', m.ntkH);
@@ -1532,16 +1540,16 @@ function cmpPush(pre, m) {
   const grp = (id, A, B, off) => { if (!A) return; const idx=[], xs=[], ys=[];
     for (let k=0;k<n;k++){ idx.push(k);   xs.push([t]); ys.push([A[off+k]]); }   // actual, this group
     for (let k=0;k<n;k++){ idx.push(n+k); xs.push([t]); ys.push([B[off+k]]); }   // surrogate, this group
-    Plotly.extendTraces(id, { x:xs, y:ys }, idx); };
+    extP(id, { x:xs, y:ys }, idx); };
   grp(pre + '_d4tp', m.d4tA, m.d4tS, 0); grp(pre + '_d4tn', m.d4tA, m.d4tS, n);
   grp(pre + '_d4bp', m.d4bA, m.d4bS, 0); grp(pre + '_d4bn', m.d4bA, m.d4bS, n);
   if (m.thP) for (let c=0;c<5;c++){ const pv=m.thP[c], av=m.thA[c]; if (pv==null && av==null) continue;
-    Plotly.extendTraces(pre + '_pred' + (c+1), { x:[[t],[t]], y:[[pv],[av]] }, [0,1]); }
+    extP(pre + '_pred' + (c+1), { x:[[t],[t]], y:[[pv],[av]] }, [0,1]); }
   if (m.thPpsd) for (let c=0;c<5;c++){ const pv=m.thPpsd[c], av=m.thA && m.thA[c]; if (pv==null && av==null) continue;
-    Plotly.extendTraces(pre + '_predp' + (c+1), { x:[[t],[t]], y:[[pv],[av]] }, [0,1]); }       // §9b
+    extP(pre + '_predp' + (c+1), { x:[[t],[t]], y:[[pv],[av]] }, [0,1]); }       // §9b
   if (m.thAH != null && m.thP) for (let c=0;c<5;c++){ const pv=m.thP[c], pp=m.thPpsd?m.thPpsd[c]:null;
     if (pv==null && pp==null) continue;
-    Plotly.extendTraces(pre + '_predh' + (c+1), { x:[[t],[t],[t]], y:[[pv],[pp],[m.thAH]] }, [0,1,2]); }  // §9c
+    extP(pre + '_predh' + (c+1), { x:[[t],[t],[t]], y:[[pv],[pp],[m.thAH]] }, [0,1,2]); }  // §9c
 }
 function cmpButtons(pre) { const S = SEC[pre];
   document.getElementById(pre + '_run').disabled = S.running;
