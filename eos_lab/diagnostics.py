@@ -397,7 +397,7 @@ class Diagnostics:
         reps_ = max(1, ee)
         multi = self.multi                    # true M>1 (single-sample theory needs M==1)
         if multi and not self.multi_ok:       # multi theory needs the M×p Jacobian — infeasible at this size
-            return [None, None, None, None], [None, None, None, None], [None, None, None, None]
+            return [None] * 5, [None] * 5, [None] * 5
 
         if self._thT0 < 0 or (t - self._thT0) >= qapprox:     # window start: freeze θ₀, J₀, FH
             self._thT0 = t

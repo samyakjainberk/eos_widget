@@ -147,7 +147,7 @@ _VECTOR_KEYS = [
     "q9t", "q9b", "q9tN", "q9bN", "q9tR", "q9bR", "q9gt", "q9gb",     # §4b
     "q10", "q10N",                                                    # §4c
     "d4Ht", "d4Hb", "d4Qt", "d4Qb",                                   # §4d
-    "thP", "thA",                                                     # §9 (length-4, may contain None)
+    "thP", "thA", "thPpsd",                                           # §9 / §9b (length-5, may contain None)
 ]
 
 
