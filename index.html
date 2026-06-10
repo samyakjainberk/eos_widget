@@ -1435,17 +1435,19 @@ function cmpHTML(pre, kind) {
     <label><input type="checkbox" id="${pre}_c9"> 9c · vs full-Hessian sharpness</label>
     <button id="${pre}_run" class="btn-run">Run</button>
     <button id="${pre}_stop" class="btn-stop" disabled>Stop</button>
+    <button id="${pre}_resume" class="btn-run" disabled>Resume</button>
     <button id="${pre}_reset" class="btn-reset">Reset</button>
+    <button id="${pre}_dlzip" class="btn-reset" title="Download every visible plot as a PNG (plus the run config) in one zip">⬇ plots (zip)</button>
     <span class="steps" id="${pre}_sps">steps/sec: —</span>
   </div>
   <div id="${pre}_status" style="font-family:var(--sans);color:var(--muted);font-size:13px;margin:4px 0 8px;min-height:18px"></div>
-  <div class="plotrow row4"><div id="${pre}_lossfig" class="plot"></div><div id="${pre}_resid" class="plot"></div><div id="${pre}_eig" class="plot"></div><div id="${pre}_hist" class="plot"></div></div>
+  <div id="${pre}_row_basic" class="plotrow row4"><div id="${pre}_lossfig" class="plot"></div><div id="${pre}_resid" class="plot"></div><div id="${pre}_eig" class="plot"></div><div id="${pre}_hist" class="plot"></div></div>
+  <div id="${pre}_row_ntk" class="plotrow row2"><div id="${pre}_ntkR" class="plot"></div><div id="${pre}_ntkH" class="plot"></div></div>
+  <div id="${pre}_row_j4" class="plotrow row2"><div id="${pre}_j4t" class="plot"></div><div id="${pre}_j4b" class="plot"></div></div>
+  <div id="${pre}_row_d4" class="plotrow row4"><div id="${pre}_d4tp" class="plot"></div><div id="${pre}_d4tn" class="plot"></div><div id="${pre}_d4bp" class="plot"></div><div id="${pre}_d4bn" class="plot"></div></div>
   <div id="${pre}_theoryrow" class="plotrow row5"><div id="${pre}_pred1" class="plot"></div><div id="${pre}_pred2" class="plot"></div><div id="${pre}_pred3" class="plot"></div><div id="${pre}_pred4" class="plot"></div><div id="${pre}_pred5" class="plot"></div></div>
   <div id="${pre}_theoryrowB" class="plotrow row5"><div id="${pre}_predp1" class="plot"></div><div id="${pre}_predp2" class="plot"></div><div id="${pre}_predp3" class="plot"></div><div id="${pre}_predp4" class="plot"></div><div id="${pre}_predp5" class="plot"></div></div>
-  <div id="${pre}_theoryrowH" class="plotrow row5"><div id="${pre}_predh1" class="plot"></div><div id="${pre}_predh2" class="plot"></div><div id="${pre}_predh3" class="plot"></div><div id="${pre}_predh4" class="plot"></div><div id="${pre}_predh5" class="plot"></div></div>
-  <div class="plotrow row2"><div id="${pre}_ntkR" class="plot"></div><div id="${pre}_ntkH" class="plot"></div></div>
-  <div class="plotrow row4"><div id="${pre}_j4tA" class="plot"></div><div id="${pre}_j4tS" class="plot"></div><div id="${pre}_j4bA" class="plot"></div><div id="${pre}_j4bS" class="plot"></div></div>
-  <div class="plotrow row4"><div id="${pre}_d4tp" class="plot"></div><div id="${pre}_d4tn" class="plot"></div><div id="${pre}_d4bp" class="plot"></div><div id="${pre}_d4bn" class="plot"></div></div>`;
+  <div id="${pre}_theoryrowH" class="plotrow row5"><div id="${pre}_predh1" class="plot"></div><div id="${pre}_predh2" class="plot"></div><div id="${pre}_predh3" class="plot"></div><div id="${pre}_predh4" class="plot"></div><div id="${pre}_predh5" class="plot"></div></div>`;
 }
 function cmpURL(pre, kind, start) {
   const v = id => { const e = document.getElementById(pre + '_' + id); return e ? e.value : ''; };
@@ -1464,8 +1466,8 @@ function cmpURL(pre, kind, start) {
 function cmpInit(pre, n, kind) {
   const S = SEC[pre]; S.n = n;
   S.plotStride = 1; S.plotN = 0; S.plotCall = 0;   // fresh decimation state for this surrogate run
-  // (theory row is always rendered — never display:none — so its 4 plots are measured against the real
-  // grid cell and line up with the other rows; the §9 theory toggle only gates the server-side computation.)
+  // All panels are created visible (so Plotly sizes them against their grid cell), then cmpVisibility() below
+  // hides the ones whose toggle is off. Panel order: loss/resid/eig/hist, §7a, §4, §4d, then the σ₁-theory rows.
   const sl = kind === 'quad' ? 'quad' : 'linear';
   newP(pre + '_lossfig', [{ x:[], y:[], mode:'lines', name:'actual', line:{ color:'#2563eb', width:1.9 } },
     { x:[], y:[], mode:'lines', name:'surrogate (' + sl + ')', line:{ color:'#ea580c', width:1.7, dash:'dash' } }],
@@ -1514,13 +1516,11 @@ function cmpInit(pre, n, kind) {
   const ntkTr = () => { const a = []; for (let k = 0; k < n; k++) a.push({ x:[], y:[], mode:'lines', name:'k=' + (k+1), line:{ color:PALETTE[k%PALETTE.length], width:1.6 } }); return a; };
   newP(pre + '_ntkR', ntkTr(), baseLayout('§7a · residual onto top-n NTK eigvecs', '⟨r, vₖ⟩', false));
   newP(pre + '_ntkH', ntkTr(), baseLayout('§7a · top NTK eigvec onto FH right-sing vecs', '⟨u₁, Vₖ⟩', false));
-  // §4 split: actual and surrogate each get their own panel (was 2 plots overlaying act solid + sur dash,
-  // 2n traces — hard to read; now 4 plots of n traces).
-  const ser = dash => { const a = []; for (let k = 0; k < n; k++) a.push({ x:[], y:[], mode:'lines', name:'' + (k+1), line:{ color:PALETTE[k%PALETTE.length], width:dash ? 1.4 : 1.8, dash:dash ? 'dash' : 'solid' } }); return a; };
-  newP(pre + '_j4tA', ser(false), baseLayout('§4 · actual J onto top-n eigvecs of H', '⟨J, w⟩', false));
-  newP(pre + '_j4tS', ser(true),  baseLayout('§4 · surrogate J onto top-n eigvecs of H', '⟨J, w⟩', false));
-  newP(pre + '_j4bA', ser(false), baseLayout('§4 · actual J onto bottom-n eigvecs of H', '⟨J, w⟩', false));
-  newP(pre + '_j4bS', ser(true),  baseLayout('§4 · surrogate J onto bottom-n eigvecs of H', '⟨J, w⟩', false));
+  // §4 overlaid: top-n and bottom-n each in ONE panel — actual (solid) over surrogate (dashed), 2n traces.
+  const j4pair = () => { const a = []; for (let k = 0; k < n; k++) a.push({ x:[], y:[], mode:'lines', name:'act ' + (k+1), line:{ color:PALETTE[k%PALETTE.length], width:1.8 } });
+    for (let k = 0; k < n; k++) a.push({ x:[], y:[], mode:'lines', name:'sur ' + (k+1), line:{ color:PALETTE[k%PALETTE.length], width:1.4, dash:'dash' } }); return a; };
+  newP(pre + '_j4t', j4pair(), baseLayout('§4 · J onto top-n eigvecs of H — actual (solid) vs surrogate (dashed)', '⟨J, w⟩', false));
+  newP(pre + '_j4b', j4pair(), baseLayout('§4 · J onto bottom-n eigvecs of H — actual (solid) vs surrogate (dashed)', '⟨J, w⟩', false));
   // §4d split into one plot PER residual-sign group (was 2 plots overlaying +/− with 4n traces each —
   // hard to read; now 4 plots of 2n traces). Per group: act = solid, surrogate = dash.
   const d4g = () => { const a = []; const mk = (lab, w, dash, k) => ({ x:[], y:[], mode:'lines', name:lab, line:{ color:PALETTE[k%PALETTE.length], width:w, dash:dash } });
@@ -1531,12 +1531,22 @@ function cmpInit(pre, n, kind) {
   newP(pre + '_d4tn', d4g(), baseLayout('§4d · −group J onto top-n eigvecs of H', '⟨J, w⟩', false));
   newP(pre + '_d4bp', d4g(), baseLayout('§4d · +group J onto bottom-n eigvecs of H', '⟨J, w⟩', false));
   newP(pre + '_d4bn', d4g(), baseLayout('§4d · −group J onto bottom-n eigvecs of H', '⟨J, w⟩', false));
+  cmpVisibility(pre);
   cmpResize(pre);
+}
+// Show/hide each surrogate panel by its toggle (c1 loss · c2 resid · c3 eigs · c4 hist · c5 theory σ₁ rows ·
+// c6 §4 · c7 §4d · c8 §7a · c9 §9c). Panels are created visible (so Plotly sizes them) then hidden here.
+function cmpVisibility(pre) {
+  const ck = id => { const e = document.getElementById(pre + '_' + id); return e ? e.checked : true; };
+  const set = (id, on) => { const e = document.getElementById(pre + '_' + id); if (e) e.style.display = on ? '' : 'none'; };
+  set('lossfig', ck('c1')); set('resid', ck('c2')); set('eig', ck('c3')); set('hist', ck('c4'));
+  set('theoryrow', ck('c5')); set('theoryrowB', ck('c5')); set('theoryrowH', ck('c9'));
+  set('row_j4', ck('c6')); set('row_d4', ck('c7')); set('row_ntk', ck('c8'));
 }
 // re-measure this section's plots against their grid cells (rAF + a delayed pass for the layout reflow);
 // only visible plots (offsetParent!=null) so a hidden theory row doesn't get mis-sized.
 function cmpResize(pre) {
-  const go = () => ['lossfig','resid','eig','hist','pred1','pred2','pred3','pred4','predp1','predp2','predp3','predp4','predh1','predh2','predh3','predh4','ntkR','ntkH','j4tA','j4tS','j4bA','j4bS','d4tp','d4tn','d4bp','d4bn']
+  const go = () => ['lossfig','resid','eig','hist','pred1','pred2','pred3','pred4','pred5','predp1','predp2','predp3','predp4','predp5','predh1','predh2','predh3','predh4','predh5','ntkR','ntkH','j4t','j4b','d4tp','d4tn','d4bp','d4bn']
     .forEach(s => { const gd = document.getElementById(pre + '_' + s);
       if (gd && gd._fullLayout && gd.offsetParent !== null) { try { Plotly.Plots.resize(gd); } catch (e) {} } });
   requestAnimationFrame(go); setTimeout(go, 80);
@@ -1555,8 +1565,8 @@ function cmpPush(pre, m) {
   const one = (id, V) => { if (!V) return; const idx=[], xs=[], ys=[];
     for (let k=0;k<n;k++){ idx.push(k); xs.push([t]); ys.push([V[k]]); }
     extP(id, { x:xs, y:ys }, idx); };
-  one(pre + '_j4tA', m.j4tA); one(pre + '_j4tS', m.j4tS);
-  one(pre + '_j4bA', m.j4bA); one(pre + '_j4bS', m.j4bS);
+  pair(pre + '_j4t', m.j4tA, m.j4tS);   // §4 top-n: actual (traces 0..n-1) over surrogate (n..2n-1)
+  pair(pre + '_j4b', m.j4bA, m.j4bS);   // §4 bottom-n
   one(pre + '_ntkR', m.ntkR); one(pre + '_ntkH', m.ntkH);
   // d4tA/d4bA (+ surrogate S) are length-2n: +group = [0..n-1], −group = [n..2n-1]. Route each group to
   // its own split plot (act traces 0..n-1, surrogate traces n..2n-1) — matches d4g's trace order above.
@@ -1578,19 +1588,20 @@ function cmpPush(pre, m) {
 }
 function cmpButtons(pre) { const S = SEC[pre];
   document.getElementById(pre + '_run').disabled = S.running;
-  document.getElementById(pre + '_stop').disabled = !S.running; }
+  document.getElementById(pre + '_stop').disabled = !S.running;
+  const rb = document.getElementById(pre + '_resume'); if (rb) rb.disabled = S.running || !S.meta || S.lastT < 0; }
 function cmpFinish(pre) { const S = SEC[pre]; if (S.es) { S.es.close(); S.es = null; } S.running = false; cmpButtons(pre); }
 function cmpStop(pre) { const S = SEC[pre]; if (S.es) { S.es.close(); S.es = null; } S.running = false;
   document.getElementById(pre + '_status').textContent = `stopped at step ${S.lastT}.`; cmpButtons(pre); }
-function cmpRun(pre, kind) {
+function cmpStream(pre, kind, start, resuming) {
   const S = SEC[pre]; if (S.es) { S.es.close(); S.es = null; }
-  S.running = true; S.lastT = -1; S.meta = null; cmpButtons(pre);
+  S.running = true; if (!resuming) { S.lastT = -1; S.meta = null; } cmpButtons(pre);
   const st = document.getElementById(pre + '_status'), sp = document.getElementById(pre + '_sps');
-  st.textContent = 'connecting to GPU backend…'; sp.textContent = 'steps/sec: —';
-  let es; try { es = new EventSource(cmpURL(pre, kind, 0)); } catch (e) { st.textContent = 'cannot reach backend: ' + e.message; cmpFinish(pre); return; }
+  st.textContent = resuming ? 'resuming…' : 'connecting to GPU backend…'; sp.textContent = 'steps/sec: —';
+  let es; try { es = new EventSource(cmpURL(pre, kind, start)); } catch (e) { st.textContent = 'cannot reach backend: ' + e.message; cmpFinish(pre); return; }
   S.es = es;
   es.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-    if (m.type === 'meta') { if (m.error) { st.textContent = m.error; cmpFinish(pre); return; } S.meta = m; S.thr = m.thr; cmpInit(pre, m.n, kind);
+    if (m.type === 'meta') { if (m.error) { st.textContent = m.error; cmpFinish(pre); return; } S.meta = m; S.thr = m.thr; if (!resuming) cmpInit(pre, m.n, kind); else S.n = m.n;
       st.textContent = `running on ${m.device} · p=${m.p} · 2/lr=${m.thr.toFixed(2)} · ${kind}`; }
     else if (m.type === 'step') { if (!S.meta) return; cmpPush(pre, m); S.lastT = m.t; if (m.sps != null) sp.textContent = 'steps/sec: ' + m.sps.toFixed(1);
       st.textContent = `running on ${S.meta.device} · step ${m.t}/${m.steps} · p=${S.meta.p} · ${kind}`; }
@@ -1600,16 +1611,40 @@ function cmpRun(pre, kind) {
   };
   es.onerror = () => { if (S.running) st.textContent = 'backend connection lost — start it with “python server.py”, then press Run.'; cmpFinish(pre); };
 }
+function cmpRun(pre, kind) { cmpStream(pre, kind, 0, false); }
+function cmpResume(pre, kind) { const S = SEC[pre]; const steps = +document.getElementById(pre + '_steps').value;
+  if (S.meta && !S.running && S.lastT >= 0 && S.lastT < steps) cmpStream(pre, kind, S.lastT + 1, true); }
+async function cmpDownloadPlots(pre) {
+  const st = document.getElementById(pre + '_status'), prev = st ? st.textContent : '';
+  const ids = ['lossfig','resid','eig','hist','ntkR','ntkH','j4t','j4b','d4tp','d4tn','d4bp','d4bn',
+    'pred1','pred2','pred3','pred4','pred5','predp1','predp2','predp3','predp4','predp5','predh1','predh2','predh3','predh4','predh5'];
+  const files = []; let i = 1;
+  for (const s of ids) { const gd = document.getElementById(pre + '_' + s);
+    if (!gd || !gd._fullLayout || gd.offsetParent === null) continue;             // visible + initialized only
+    let t = (gd.layout && gd.layout.title && gd.layout.title.text) || s;
+    t = String(t).replace(/<[^>]*>/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 56) || s;
+    if (st) st.textContent = 'exporting plots… ' + i;
+    try { const durl = await Plotly.toImage(gd, { format:'png', scale:2, width:gd._fullLayout.width||640, height:gd._fullLayout.height||320 });
+      files.push({ name:String(i).padStart(2,'0')+'_'+t+'.png', data:_b64bytes(durl) }); i++; } catch (e) {}
+  }
+  if (!files.length) { if (st) st.textContent = 'no visible plots to export — run something first.'; return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(_zip(files));
+  a.download = 'eos_surrogate_' + pre + '.zip';
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  if (st) st.textContent = prev;
+}
 function makeCompareSection(pre, kind) {
   document.getElementById('cmp_' + pre).innerHTML = cmpHTML(pre, kind);
   SEC[pre] = { kind, es:null, running:false, lastT:-1, meta:null, n:1, thr:1 };
   document.getElementById(pre + '_run').addEventListener('click', () => cmpRun(pre, kind));
   document.getElementById(pre + '_stop').addEventListener('click', () => cmpStop(pre));
+  document.getElementById(pre + '_resume').addEventListener('click', () => cmpResume(pre, kind));
   document.getElementById(pre + '_reset').addEventListener('click', () => cmpStop(pre));
-  document.getElementById(pre + '_c5').addEventListener('change', () => cmpResize(pre));   // theory row always visible; toggle only gates computation
-  // §9c row (predicted vs full-Hessian sharpness) is off by default — show it only when its toggle is on
-  const c9row = () => { const el = document.getElementById(pre + '_theoryrowH'); if (el) el.style.display = document.getElementById(pre + '_c9').checked ? '' : 'none'; cmpResize(pre); };
-  document.getElementById(pre + '_c9').addEventListener('change', c9row);
+  document.getElementById(pre + '_dlzip').addEventListener('click', () => cmpDownloadPlots(pre));
+  // every panel toggle (c1 loss · c2 resid · c3 eigs · c4 hist · c5 theory σ₁ · c6 §4 · c7 §4d · c8 §7a · c9 §9c)
+  // shows/hides its panel(s) immediately (once the plots exist) — matches the §1 behaviour
+  for (const c of ['c1','c2','c3','c4','c5','c6','c7','c8','c9'])
+    document.getElementById(pre + '_' + c).addEventListener('change', () => { cmpVisibility(pre); cmpResize(pre); });
   // preset dropdown: applying a preset sets the controls and runs (like section-1)
   // selecting a preset applies its defaults and redraws EMPTY plots for the new config; it does NOT run
   document.getElementById(pre + '_preset').addEventListener('change', e => { if (e.target.value !== 'custom') {
