@@ -1430,9 +1430,8 @@ def run_stream(P):
                     # §9b: same predictions + the dropped 2nd-order PSD term Σ‖ΔJᵀu₁‖² (always ≥0 — a sharpening floor)
                     thPpsd[1] = clmp(thBase + thAcc2 + thAccPSD)
                     thPpsd[2] = clmp(thBase*thProd3 + thAccPSD); thPpsd[3] = clmp(thBase*thProd4 + thAccPSD)
-                    mi = min(max(qmode, 1), NV0) - 1                    # col-3 (Eq-27): single NTK mode i
-                    sgi = math.sqrt(max(float(Kw[mi]), 1e-30)); phi = float(rr @ Vw[:, mi])
-                    thProd3 *= (1 + 2 * etaN * (sgi/sgT) * phi * fhBil(gnv(mi))) ** reps_
+                    pnorm = float(rr.norm())                            # col-3 (Eq-22): p = ‖r‖, r̂≈u₁ ⇒
+                    thProd3 *= (1 + 2 * etaN * pnorm * fhBil(v1)) ** reps_  #   σ_{t+1}=σ_t[1+2η p·v₁ᵀQ[u₁]v₁]
                     S4 = 0.0; NV = min(max(tset, 1), NV0)              # col-4 (Eq-29): sum over top-|T| modes
                     for vk in range(NV):
                         sgv = math.sqrt(max(float(Kw[vk]), 1e-30)); rho = float(rr @ Vw[:, vk])
@@ -1764,10 +1763,8 @@ def run_surrogate_compare(P):
                     thPpsd[1] = clmp(thBase + thAcc2 + thAccPSD)          # §9b: + 2nd-order PSD term Σ‖ΔJᵀu₁‖²
                     thPpsd[2] = clmp(thBase * thProd3 + thAccPSD)
                     thPpsd[3] = clmp(thBase * thProd4 + thAccPSD)
-                    mi = min(max(qmode, 1), NV0) - 1
-                    sgi = math.sqrt(max(float(Kw[mi]), 1e-30))
-                    phi = float(rr @ Vw[:, mi])
-                    thProd3 *= (1 + 2 * etaN * (sgi / sgT) * phi * fhBil(gnv(mi))) ** reps_
+                    pnorm = float(rr.norm())                          # col-3 (Eq-22): p=‖r‖, σ_{t+1}=σ_t[1+2η p·v₁ᵀQ[u₁]v₁]
+                    thProd3 *= (1 + 2 * etaN * pnorm * fhBil(v1)) ** reps_
                     S4 = 0.0
                     NV = min(max(tset, 1), NV0)
                     for vk in range(NV):

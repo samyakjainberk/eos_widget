@@ -53,20 +53,21 @@ The NTK grows ($\Rightarrow$ sharpening) when $r\sigma_i>0$ and shrinks when $r\
 residual $r$ keeps its sign.
 
 **Multiple samples.** Continuously (Eq. 21), the top NTK eigenvalue obeys
-$\dot\sigma_1=2\eta\sqrt{\sigma_1}v_1^\top Q[u_1]r^\top J$. Discretely, assuming the residual is aligned
-with the top NTK mode (Eq. 27),
+$\dot\sigma_1=2\eta\sqrt{\sigma_1}v_1^\top Q[u_1]r^\top J$. Assuming the residual aligns with the top NTK mode
+($\hat r\simeq u_1$, $p=\lVert r\rVert$) it collapses to **Eq. 22**, $\dot\sigma_1\approx 2\eta\,p\,\sigma_1\,v_1^\top Q[u_1]v_1$,
+whose discrete recursion is
 
-$$\sigma_{1,t+s}=\sigma_{1,t}\prod_{k=0}^{s-1}\Big[1+2\eta\sum_{ij}\gamma_i\tau_{ij}(v_{1,t+k}^\top z_{ij})^2(y_i^\top u_{1,t+k})p_{t+k}\Big]$$
+$$\sigma_{1,t+1}=\sigma_{1,t}\big[1+2\eta\,p_t\,v_1^\top Q[u_1]v_1\big]$$
 
-where $v_1^\top z_{ij}$ is the alignment of the top Gauss–Newton eigenvector with the function-Hessian tensor and
-$y_i^\top u_1$ that of the top NTK eigenvector. Relaxing "aligned with the top mode" to "the residual's
-projection onto the top-$|T|$ NTK modes keeps its sign" gives Eq. 29:
+a compact factor in $p_t=\lVert r\rVert$ and the function-Hessian bilinear form $v_1^\top Q[u_1]v_1$ (the §9 col-3
+panel). Relaxing "aligned with the top mode" to "the residual's projection onto the top-$|T|$ NTK modes keeps
+its sign" gives Eq. 29 (the col-4 panel):
 
 $$\sigma_{1,t+s}=\sigma_{1,t}\prod_{k=0}^{s-1}\Big[1+2\eta\sum_{v\in T}\tfrac{\sqrt{\sigma_v}}{\sqrt{\sigma_1}}\sum_{ij}\gamma_i\tau_{ij}(v_{1,t+k}^\top z_{ij})(v_{v,t+k}^\top z_{ij})(y_i^\top u_{1,t+k})p_{t+k}\Big]$$
 
 Progressive sharpening is predicted when the bracketed sum is $>0$ on average; when the (projected) residuals
 oscillate and flip sign the growth turns to decay — the cyclic **self-stabilization** at the edge of stability.
-Panel §9 overlays each prediction (Eqs. 13 / 21 / 27 / 29) on the measured $\sigma_1$ (the top
+Panel §9 overlays each prediction (Eqs. 13 / 21 / 22 / 29) on the measured $\sigma_1$ (the top
 Gauss–Newton / NTK eigenvalue). Two companion panels reuse the same predictions:
 **§9b** adds the dropped second-order term $\lVert\Delta J^\top u_1\rVert^2=(\eta/N)^2\lVert q_u\rVert^2\ge 0$
 (single-sample $\lVert\Delta J\rVert^2$) — an always-non-negative sharpening floor the first-order recursion omits;
@@ -85,7 +86,7 @@ instead of the Gauss–Newton edge, so the gap is exactly the residual term $S$.
 | **7a / 7 / 8** | NTK alignment; multi-sample NTK + function-Hessian SVD; `vec(J)` onto FH-reshape singular vecs | multi-sample · MSE or CE |
 | **4b / 4c** | `J·r` onto `Q[u₁]` eigvecs; `Q[u₁]·(J·r)` onto Gauss–Newton | multi-sample · MSE or CE |
 | **4d** | per-residual-sign-group projections | multi-sample · MSE |
-| **9** | predicted vs actual sharpness `σ₁` (Eq. 13 single-sample; Eq. 21/27/29 multi-sample) | MSE · single or multi |
+| **9** | predicted vs actual sharpness `σ₁` (Eq. 13 single-sample; Eq. 21/22/29 multi-sample) | MSE · single or multi |
 | **9b** | the same predictions **+ the 2nd-order PSD term** `‖ΔJᵀu₁‖²` vs actual `σ₁` | MSE · single or multi |
 | **9c** | the same predictions vs the **full-Hessian sharpness** `λmax(∇²L)` (own toggle) | MSE · single or multi |
 

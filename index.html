@@ -166,7 +166,7 @@
       <div class="ctl"><label>subspace energy %</label><input id="energyp" type="number" value="99" min="50" max="100" step="1"></div>
       <div class="ctl"><label>G &amp; S spectra</label><select id="gson"><option value="1" selected>on</option><option value="0">off</option></select></div>
       <div class="ctl"><label>every_iter_quadric_approx</label><input id="qapprox" type="number" value="25" min="10" max="2000" step="10"></div>
-      <div class="ctl"><label>Eq-27 residual mode i</label><input id="qmode" type="number" value="1" min="1" max="8" step="1"></div>
+      <div class="ctl"><label>qmode (legacy, unused)</label><input id="qmode" type="number" value="1" min="1" max="8" step="1"></div>
       <div class="ctl"><label>Eq-29 set-T size |T|</label><input id="tset" type="number" value="3" min="1" max="8" step="1"></div>
     </div>
     <div class="runbar">
@@ -255,7 +255,7 @@
 
 <div id="sec_12">
 <h2>9 · Predicted vs actual sharpness $\sigma_1$</h2>
-<p class="cap">Each window freezes $Q$ at $\theta_0$ and forward-predicts the top NTK eigenvalue $\sigma_1$ (reset to the measured value at every window start). <b>Predicted</b> (blue) vs <b>actual</b> (red). <b>Col 1</b> — single sample, Eq.&nbsp;13: $J_{t+1}=(I+\eta r_tQ)J_t,\ \sigma_1=\lVert J\rVert^2$. <b>Col 2</b> — multi-sample, Eq.&nbsp;21: iterate $J_{t+1}=J_t+\tfrac{\eta}{N}Q[J^\top r]$, read $\sigma_1=\lambda_{\max}(JJ^\top)$. <b>Cols 3–4</b> — recursion $\sigma_{1,t+1}=\sigma_{1,t}\big[1+2\eta\sum_{ij}\gamma_i\tau_{ij}(v_1^\top z_{ij})^2(y_i^\top u_1)\,p_t\big]$ over one NTK mode (Eq.&nbsp;27) or the top-$|T|$ modes (Eq.&nbsp;29); $v_1^\top z_{ij}$, $y_i^\top u_1$ are GN/NTK alignments with the function-Hessian tensor (§7a/§7). Sharpening when this sum $>0$; sign-flipping residuals turn growth to decay — <i>self-stabilization</i>.</p>
+<p class="cap">Each window freezes $Q$ at $\theta_0$ and forward-predicts the top NTK eigenvalue $\sigma_1$ (reset to the measured value at every window start). <b>Predicted</b> (blue) vs <b>actual</b> (red). <b>Col 1</b> — single sample, Eq.&nbsp;13: $J_{t+1}=(I+\eta r_tQ)J_t,\ \sigma_1=\lVert J\rVert^2$. <b>Col 2</b> — multi-sample, Eq.&nbsp;21: iterate $J_{t+1}=J_t+\tfrac{\eta}{N}Q[J^\top r]$, read $\sigma_1=\lambda_{\max}(JJ^\top)$. <b>Col 3</b> — multi-sample, Eq.&nbsp;22 (residual aligned with $u_1$, $p=\lVert r\rVert$): $\sigma_{1,t+1}=\sigma_{1,t}\big[1+2\eta\,p_t\,v_1^\top Q[u_1]v_1\big]$, the compact form. <b>Col 4</b> — Eq.&nbsp;29, the top-$|T|$-mode recursion $\sigma_{1,t+1}=\sigma_{1,t}\big[1+2\eta\sum_{v\in T}\tfrac{\sqrt{\sigma_v}}{\sqrt{\sigma_1}}\sum_{ij}\gamma_i\tau_{ij}(v_1^\top z_{ij})(v_v^\top z_{ij})(y_i^\top u_1)\,p_t\big]$; $v_1^\top z_{ij}$, $y_i^\top u_1$ are GN/NTK alignments with the function-Hessian tensor (§7a/§7). Sharpening when the bracket $>0$; sign-flipping residuals turn growth to decay — <i>self-stabilization</i>.</p>
 <div class="plotrow row4"><div id="p_pred1" class="plot"></div><div id="p_pred2" class="plot"></div><div id="p_pred3" class="plot"></div><div id="p_pred4" class="plot"></div></div>
 <p class="cap"><b>With the second-order PSD term.</b> The recursions above keep only the first-order $\Delta\sigma_1$, which flips sign with the residual. Expanding $\sigma_1=u_1^\top(J+\Delta J)(J+\Delta J)^\top u_1$ leaves a dropped second-order term $\lVert\Delta J^\top u_1\rVert^2=(\eta/N)^2\lVert q_u\rVert^2\ge 0$ (single-sample: $\lVert\Delta J\rVert^2=(\eta r)^2\lVert QJ\rVert^2$) — always non-negative, a sharpening floor independent of residual sign. These panels add its running sum to each prediction: <b>predicted + PSD</b> (blue) vs <b>actual</b> (red).</p>
 <div class="plotrow row4"><div id="p_predp1" class="plot"></div><div id="p_predp2" class="plot"></div><div id="p_predp3" class="plot"></div><div id="p_predp4" class="plot"></div></div>
@@ -627,13 +627,13 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   const tvT=lab=>[{x:[],y:[],mode:'lines',name:'predicted',line:{color:'#2563eb',width:1.9}},{x:[],y:[],mode:'lines',name:'actual',line:{color:'#dc2626',width:1.6}}];
   newP('p_pred1',tvT(),baseLayout('single-sample: predicted vs actual σ₁ (Eq.13)','σ₁',false));
   newP('p_pred2',tvT(),baseLayout('multi: Eq.21 — σ₁ from Eq-15-propagated J (residuals only)','σ₁',false));
-  newP('p_pred3',tvT(),baseLayout('multi: Eq.27 (residual ∝ NTK mode i)','σ₁',false));
+  newP('p_pred3',tvT(),baseLayout('multi: Eq.22 (p·v₁ᵀQ[u₁]v₁)','σ₁',false));
   newP('p_pred4',tvT(),baseLayout('multi: Eq.29 (sum over top-|T| NTK modes)','σ₁',false));
   // §9b — same four predictions with the 2nd-order PSD term ‖ΔJᵀu₁‖² added: predicted+PSD (blue) vs actual (red)
   const tvP=lab=>[{x:[],y:[],mode:'lines',name:'predicted + PSD',line:{color:'#2563eb',width:1.9}},{x:[],y:[],mode:'lines',name:'actual',line:{color:'#dc2626',width:1.6}}];
   newP('p_predp1',tvP(),baseLayout('single-sample Eq.13 + PSD term ‖ΔJ‖²','σ₁',false));
   newP('p_predp2',tvP(),baseLayout('multi Eq.21 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
-  newP('p_predp3',tvP(),baseLayout('multi Eq.27 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
+  newP('p_predp3',tvP(),baseLayout('multi Eq.22 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
   newP('p_predp4',tvP(),baseLayout('multi Eq.29 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
   // §9c — same predictions vs the FULL loss-Hessian sharpness λmax(∇²L): predicted (blue), predicted+PSD (green), sharpness (red dashed)
   const tvH=lab=>[{x:[],y:[],mode:'lines',name:'predicted',line:{color:'#2563eb',width:1.9}},
@@ -641,7 +641,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
                   {x:[],y:[],mode:'lines',name:'sharpness λmax(∇²L)',line:{color:'#dc2626',width:1.6,dash:'dash'}}];
   newP('p_predh1',tvH(),baseLayout('single-sample Eq.13 vs full-Hessian sharpness','σ₁',false));
   newP('p_predh2',tvH(),baseLayout('multi Eq.21 vs full-Hessian sharpness','σ₁',false));
-  newP('p_predh3',tvH(),baseLayout('multi Eq.27 vs full-Hessian sharpness','σ₁',false));
+  newP('p_predh3',tvH(),baseLayout('multi Eq.22 vs full-Hessian sharpness','σ₁',false));
   newP('p_predh4',tvH(),baseLayout('multi Eq.29 vs full-Hessian sharpness','σ₁',false));
   attachHover();
   resizeAllPlots();
@@ -1078,10 +1078,10 @@ async function loop(){                                   // drives ST forward; r
             // §9b: same predictions + the dropped 2nd-order PSD term Σ‖ΔJᵀu₁‖² (always ≥0 — a sharpening floor)
             thPpsd[1]=clmp(S.thBase+S.thAcc2+S.thAccPSD);
             thPpsd[2]=clmp(S.thBase*S.thProd3+S.thAccPSD);thPpsd[3]=clmp(S.thBase*S.thProd4+S.thAccPSD);
-            // col-3 (Eq-27): single NTK mode i with the propagated geometry + actual residual projection
+            // col-3 (Eq-22): r̂≈u₁ ⇒ σ_{t+1}=σ_t[1+2η p·v₁ᵀQ[u₁]v₁], p=‖r‖ (the compact form, not the mode-expanded Eq-27)
             thP[2]=clmp(S.thBase*S.thProd3);
-            const mi=Math.min(Math.max(S.qmode,1),NV0)-1,sgi=Math.sqrt(Math.max(ek.vals[mi],1e-30)),phi=dot(r,ek.vecs[mi]);
-            S.thProd3*=Math.pow(1+2*etaN*(sgi/sgT)*phi*fhBil(gnv(mi)),reps_);
+            const pnorm=norm(r);
+            S.thProd3*=Math.pow(1+2*etaN*pnorm*fhBil(v1),reps_);
             // col-4 (Eq-29): sum over the top-|T| NTK modes
             thP[3]=clmp(S.thBase*S.thProd4);
             let S4=0;const NV=Math.min(Math.max(S.tset,1),NV0);
@@ -1381,7 +1381,7 @@ function cmpHTML(pre, kind) {
       ${C('eigevery', 'eig every', 1, 1)}
       ${C('every_iter', 'every_iter_quadric_approx', 25, 1)}
       ${C('slqprobes', 'probes', 3, 1)}
-      ${C('qmode', 'Eq-27 mode i', 1, 1)}
+      ${C('qmode', 'qmode (legacy)', 1, 1)}
       ${C('tset', 'Eq-29 |T|', 3, 1)}
     </div></div>
   </div>
@@ -1452,14 +1452,14 @@ function cmpInit(pre, n, kind) {
     { x:[], y:[], mode:'lines', name:'surrogate σ₁', line:{ color:'#dc2626', width:1.6 } }];
   newP(pre + '_pred1', tvT(), baseLayout('single-sample: predicted vs surrogate σ₁ (Eq.13)', 'σ₁', false));
   newP(pre + '_pred2', tvT(), baseLayout('multi: Eq.21 σ₁', 'σ₁', false));
-  newP(pre + '_pred3', tvT(), baseLayout('multi: Eq.27 σ₁', 'σ₁', false));
+  newP(pre + '_pred3', tvT(), baseLayout('multi: Eq.22 σ₁', 'σ₁', false));
   newP(pre + '_pred4', tvT(), baseLayout('multi: Eq.29 σ₁', 'σ₁', false));
   // §9b — same predictions + the 2nd-order PSD term ‖ΔJᵀu₁‖² vs surrogate σ₁
   const tvP = () => [{ x:[], y:[], mode:'lines', name:'predicted + PSD', line:{ color:'#2563eb', width:1.9 } },
     { x:[], y:[], mode:'lines', name:'surrogate σ₁', line:{ color:'#dc2626', width:1.6 } }];
   newP(pre + '_predp1', tvP(), baseLayout('Eq.13 + PSD term ‖ΔJ‖²', 'σ₁', false));
   newP(pre + '_predp2', tvP(), baseLayout('Eq.21 + PSD term ‖ΔJᵀu₁‖²', 'σ₁', false));
-  newP(pre + '_predp3', tvP(), baseLayout('Eq.27 + PSD term ‖ΔJᵀu₁‖²', 'σ₁', false));
+  newP(pre + '_predp3', tvP(), baseLayout('Eq.22 + PSD term ‖ΔJᵀu₁‖²', 'σ₁', false));
   newP(pre + '_predp4', tvP(), baseLayout('Eq.29 + PSD term ‖ΔJᵀu₁‖²', 'σ₁', false));
   // §9c — predicted (blue) & predicted+PSD (green) vs the actual model's full-Hessian sharpness λmax(∇²L) (red dashed)
   const tvH = () => [{ x:[], y:[], mode:'lines', name:'predicted', line:{ color:'#2563eb', width:1.9 } },
@@ -1467,7 +1467,7 @@ function cmpInit(pre, n, kind) {
     { x:[], y:[], mode:'lines', name:'sharpness λmax(∇²L)', line:{ color:'#dc2626', width:1.6, dash:'dash' } }];
   newP(pre + '_predh1', tvH(), baseLayout('Eq.13 vs full-Hessian sharpness', 'σ₁', false));
   newP(pre + '_predh2', tvH(), baseLayout('Eq.21 vs full-Hessian sharpness', 'σ₁', false));
-  newP(pre + '_predh3', tvH(), baseLayout('Eq.27 vs full-Hessian sharpness', 'σ₁', false));
+  newP(pre + '_predh3', tvH(), baseLayout('Eq.22 vs full-Hessian sharpness', 'σ₁', false));
   newP(pre + '_predh4', tvH(), baseLayout('Eq.29 vs full-Hessian sharpness', 'σ₁', false));
   // §7a NTK alignment (actual model): residual→NTK eigvec; NTK eigvec→FH right-singular vec
   const ntkTr = () => { const a = []; for (let k = 0; k < n; k++) a.push({ x:[], y:[], mode:'lines', name:'k=' + (k+1), line:{ color:PALETTE[k%PALETTE.length], width:1.6 } }); return a; };
