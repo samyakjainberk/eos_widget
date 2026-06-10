@@ -279,11 +279,13 @@
 <div class="plotrow row4"><div id="p_paPos" class="plot"></div><div id="p_paNeg" class="plot"></div></div>
 </div>
 
-<div id="sec_7">
+<div id="sec_7a">
 <h2>7a · NTK alignment</h2>
 <p class="cap">Multiple samples only. Two always-on NTK diagnostics: the residual projected onto the top-$n$ eigenvectors of the NTK $K=J^{\top}J$, and the top NTK eigenvector projected onto the right-singular vectors of the function-Hessian tensor. (Split out of §7 so it stays on without the heavier FH-SVD projections.)</p>
 <div class="plotrow row2"><div id="p_ntkR" class="plot"></div><div id="p_ntkH" class="plot"></div></div>
+</div>
 
+<div id="sec_7">
 <h2>7 · Multi-sample NTK &amp; function-Hessian SVD</h2>
 <p class="cap">Shown only for multiple samples ($d_n=N\cdot d_{\text{out}}>1$). NTK $K=J^{\top}J$; the function-Hessian tensor reshaped to $\mathbb{R}^{p^2\times d_n}$ and SVD'd (matrix-free). $M_1,M_2$ = reshape of the topmost / 2nd-topmost left singular vectors into $p\times p$. Row 1: top-2 eigenvalues of $M_1,M_2$; bottom-2 eigenvalues of $M_1,M_2$. (Uses <b>SLQ probes</b> for the Hessian Frobenius products.)</p>
 <div class="plotrow row2"><div id="p_fhEvT" class="plot"></div><div id="p_fhEvB" class="plot"></div></div>
@@ -567,6 +569,7 @@ let OPT={s1:true,s2:true,s3:true,s4:true,s5:true,s6:true,gs:true};
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   resetPlotDecim();   // fresh decimation state for this run (bounds plotted points → no progressive hang)
   for(let i=1;i<=12;i++){const el=document.getElementById('sec_'+i);if(el)el.style.display=(OPT['s'+i]&&(i<7||multi||i===12))?'':'none';}  // sec_12 (theory) relevant for single & multi
+  {const el=document.getElementById('sec_7a');if(el)el.style.display=(OPT.s13&&multi)?'':'none';}   // §7a: NTK alignment (own toggle s13, multi-only)
   {const el=document.getElementById('sec_9c');if(el)el.style.display=OPT.s14?'':'none';}   // §9c: predictions vs full-Hessian sharpness
   const dis=s=>OPT.gs?s:s+'  (off)';
   // §1
@@ -963,7 +966,7 @@ async function loop(){                                   // drives ST forward; r
         }
         // §7 multi-sample NTK & function-Hessian-tensor SVD diagnostics
         let ntkR=null,ntkH=null,fhEvT=null,fhEvB=null,jhe1=null,jhe2=null,jhe1b=null,jhe2b=null,jh2e1=null,jh2e2=null,jh2e1b=null,jh2e2b=null;
-        if(O.s7&&M>1){
+        if((O.s7||O.s13)&&M>1){     // §7a (s13) needs only the NTK + FH-right-singular eigen; §7 (s7) adds the heavier projections
           const dn=M, n7=Math.min(S.n,dn);
           const jc=jacCols(S.th,spec,X,N,inDim,p), Jc=jc.cols;       // Jacobian columns ∇f_a
           const Km=new Float64Array(dn*dn);
@@ -971,32 +974,35 @@ async function loop(){                                   // drives ST forward; r
           const ek=symEigDesc(Km,dn);                                // NTK eigen
           for(let k=0;k<n7;k++){ek.vecs[k]=signTo(ek.vecs[k],S.pNtk[k]);S.pNtk[k]=ek.vecs[k];}
           const rr=new Float64Array(dn);for(let i=0;i<dn;i++)rr[i]=Y[i]-jc.out[i];
-          const UJ=[];                                               // left singular vecs of J (param space)
-          for(let k=0;k<n7;k++){const u=new Float64Array(p),vk=ek.vecs[k];
-            for(let a=0;a<dn;a++){const c=vk[a],ja=Jc[a];for(let i=0;i<p;i++)u[i]+=c*ja[i];}
-            const s=Math.sqrt(Math.max(ek.vals[k],1e-30));for(let i=0;i<p;i++)u[i]/=s;
-            UJ.push(signTo(u,S.pUJ[k]));S.pUJ[k]=UJ[k];}
-          const GH=new Float64Array(dn*dn);                          // Hessian Frobenius Gram via Hutchinson
+          const GH=new Float64Array(dn*dn);                          // Hessian Frobenius Gram via Hutchinson → FH right-singular vecs
           for(let pr=0;pr<S.nProbe;pr++){const z=randVec(p,(0xC0FFEE+pr*2654435761)>>>0);const Hz=jacHVP(S.th,spec,X,N,inDim,p,z,eps);
             for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(Hz[a],Hz[b]);GH[a*dn+b]+=v;GH[b*dn+a]+=v;}}
           for(let i=0;i<dn*dn;i++)GH[i]/=S.nProbe;
           const eh=symEigDesc(GH,dn);                                // right singular vecs of FH tensor
           for(let k=0;k<n7;k++){eh.vecs[k]=signTo(eh.vecs[k],S.pVH[k]);S.pVH[k]=eh.vecs[k];}
-          // M_j = reshape(j-th left singular vec) = Hessian of Σ_a eh.vecs[j][a] f_a ; top-2 & bottom-2 eigvecs
-          const nM=Math.min(2,Math.max(1,Math.floor(p/2))), gv=i=>(i<eh.vecs.length?eh.vecs[i]:eh.vecs[0]);
-          const fe1=lanczosExtreme(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,gv(0)),p,nM,S.mV,0x9E37);
-          const fe2=lanczosExtreme(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,gv(1)),p,nM,S.mV,0x7C19);
-          const last=(a,i)=>a[i]!==undefined?a[i]:a[0];
-          const m1=[fe1.topVecs[0],last(fe1.topVecs,1),fe1.botVecs[0],last(fe1.botVecs,1)];
-          const m2=[fe2.topVecs[0],last(fe2.topVecs,1),fe2.botVecs[0],last(fe2.botVecs,1)];
-          for(let j=0;j<4;j++){m1[j]=signTo(m1[j],S.pM1[j]);S.pM1[j]=m1[j];m2[j]=signTo(m2[j],S.pM2[j]);S.pM2[j]=m2[j];}
-          fhEvT=[fe1.topVals[0],last(fe1.topVals,1),fe2.topVals[0],last(fe2.topVals,1)];
-          fhEvB=[fe1.botVals[0],last(fe1.botVals,1),fe2.botVals[0],last(fe2.botVals,1)];
-          ntkR=[];ntkH=[];jhe1=[];jhe2=[];jhe1b=[];jhe2b=[];jh2e1=[];jh2e2=[];jh2e1b=[];jh2e2b=[];
-          for(let k=0;k<n7;k++){
-            ntkR.push(dot(rr,ek.vecs[k]));ntkH.push(dot(ek.vecs[0],eh.vecs[k]));
-            jhe1.push(dot(UJ[k],m1[0]));jhe2.push(dot(UJ[k],m1[1]));jhe1b.push(dot(UJ[k],m1[2]));jhe2b.push(dot(UJ[k],m1[3]));
-            jh2e1.push(dot(UJ[k],m2[0]));jh2e2.push(dot(UJ[k],m2[1]));jh2e1b.push(dot(UJ[k],m2[2]));jh2e2b.push(dot(UJ[k],m2[3]));
+          ntkR=[];ntkH=[];                                           // §7a (s13): residual→NTK eigvec; NTK eigvec→FH right-sing vec
+          for(let k=0;k<n7;k++){ntkR.push(dot(rr,ek.vecs[k]));ntkH.push(dot(ek.vecs[0],eh.vecs[k]));}
+          if(O.s7){                                                  // §7 only: heavier FH-SVD projections (UJ onto the M_j eigvecs)
+            const UJ=[];                                             // left singular vecs of J (param space)
+            for(let k=0;k<n7;k++){const u=new Float64Array(p),vk=ek.vecs[k];
+              for(let a=0;a<dn;a++){const c=vk[a],ja=Jc[a];for(let i=0;i<p;i++)u[i]+=c*ja[i];}
+              const s=Math.sqrt(Math.max(ek.vals[k],1e-30));for(let i=0;i<p;i++)u[i]/=s;
+              UJ.push(signTo(u,S.pUJ[k]));S.pUJ[k]=UJ[k];}
+            // M_j = reshape(j-th left singular vec) = Hessian of Σ_a eh.vecs[j][a] f_a ; top-2 & bottom-2 eigvecs
+            const nM=Math.min(2,Math.max(1,Math.floor(p/2))), gv=i=>(i<eh.vecs.length?eh.vecs[i]:eh.vecs[0]);
+            const fe1=lanczosExtreme(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,gv(0)),p,nM,S.mV,0x9E37);
+            const fe2=lanczosExtreme(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,gv(1)),p,nM,S.mV,0x7C19);
+            const last=(a,i)=>a[i]!==undefined?a[i]:a[0];
+            const m1=[fe1.topVecs[0],last(fe1.topVecs,1),fe1.botVecs[0],last(fe1.botVecs,1)];
+            const m2=[fe2.topVecs[0],last(fe2.topVecs,1),fe2.botVecs[0],last(fe2.botVecs,1)];
+            for(let j=0;j<4;j++){m1[j]=signTo(m1[j],S.pM1[j]);S.pM1[j]=m1[j];m2[j]=signTo(m2[j],S.pM2[j]);S.pM2[j]=m2[j];}
+            fhEvT=[fe1.topVals[0],last(fe1.topVals,1),fe2.topVals[0],last(fe2.topVals,1)];
+            fhEvB=[fe1.botVals[0],last(fe1.botVals,1),fe2.botVals[0],last(fe2.botVals,1)];
+            jhe1=[];jhe2=[];jhe1b=[];jhe2b=[];jh2e1=[];jh2e2=[];jh2e1b=[];jh2e2b=[];
+            for(let k=0;k<n7;k++){
+              jhe1.push(dot(UJ[k],m1[0]));jhe2.push(dot(UJ[k],m1[1]));jhe1b.push(dot(UJ[k],m1[2]));jhe2b.push(dot(UJ[k],m1[3]));
+              jh2e1.push(dot(UJ[k],m2[0]));jh2e2.push(dot(UJ[k],m2[1]));jh2e1b.push(dot(UJ[k],m2[2]));jh2e2b.push(dot(UJ[k],m2[3]));
+            }
           }
         }
         // §8 J onto the right singular vectors of the p×(p·dn) function-Hessian reshape

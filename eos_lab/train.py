@@ -132,6 +132,8 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
                 on_step(rec, meta)
         if t < cfg.steps:
             th = th - cfg.lr * grad_loss(model, loss, th, Xb, Yb)[0]
+            if t % 25 == 0 and th.is_cuda:     # release unused cached GPU blocks (mirror server.run_stream)
+                torch.cuda.empty_cache()
 
     meta["wall_sec"] = time.time() - t0
     return {"meta": meta, "config": cfg, "history": history, "series": _to_series(history)}
