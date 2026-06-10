@@ -1549,8 +1549,10 @@ def run_surrogate_compare(P):
     mV = min(p, max(2 * n + 16, 28))
     cL, cR, cE, cH, cT, c4, c4d = (P["c1"], P["c2"], P["c3"], P["c4"], P["c5"], P["c6"], P["c7"])
     c7a = P.get("c8", True)         # §7a NTK alignment panel (actual model)
+    c9c = P.get("c9", False)        # §9c: σ₁ predictions vs the full loss-Hessian sharpness λmax(∇²L)
     cT = cT and not ceLoss          # the Eq-13/21/27/29 σ₁ theory (§9) is derived for squared loss only
     c7a = c7a and not ceLoss        # NTK alignment uses the MSE residual r → MSE only (multi-class CE: off)
+    c9c = c9c and not ceLoss        # §9c is the same squared-loss σ₁ recursion → MSE only
 
     if p > PMAX:
         yield {"type": "meta", "error": f"p={p} parameters exceeds the cap ({PMAX}). Reduce the model size."}
@@ -1574,6 +1576,7 @@ def run_surrogate_compare(P):
     thJ = thFroz = thJp = None
     thAcc1 = thAcc2 = 0.0
     thProd3 = thProd4 = 1.0
+    thAccPSD = thAccPSD1 = 0.0      # §9b: accumulated 2nd-order PSD term ‖ΔJᵀu₁‖² (≥0), multi / single
 
     for t in range(steps + 1):
         if mytok != RUN_TOKEN.get(_devkey, mytok):
@@ -1591,7 +1594,8 @@ def run_surrogate_compare(P):
                 feBV0 = [pin_sign(x) for x in feBV0]
             thAcc1 = thAcc2 = 0.0
             thProd3 = thProd4 = 1.0
-            if cT:
+            thAccPSD = thAccPSD1 = 0.0
+            if cT or c9c:
                 if multi:
                     thJ = J0.clone()
                     thFroz = fh_frozen(th0, X, nProbe, min(n, M), 2, mV, M)
@@ -1640,6 +1644,8 @@ def run_surrogate_compare(P):
                                    + hvpS(th0, X, v, csur))
                 eigS, _ = lanczos_extreme_vals(surHL, p, n, mV, 0x5EED2)
                 sharpS = eigS[0]
+            if c9c and sharpA is None:        # §9c needs the actual model's λmax(∇²L) even if §eig (cE) is off
+                sharpA = float(lanczos_extreme_vals(lambda v: hvpL(th, X, Y, v), p, 1, mV, 0x5EED1)[0][0])
 
             # ---- §4 projections: J onto top/bottom-n eigvecs of H (actual own H, surrogate frozen H₀) ----
             feTVa = feBVa = None
@@ -1691,12 +1697,16 @@ def run_surrogate_compare(P):
                 ntkH = [float(Vk7[:, 0] @ Vh7[:, k]) for k in range(nntk)]
 
             # ---- §9 theory σ₁ (unchanged frozen-Q propagation) vs the SURROGATE's measured σ₁ ----
-            thP = thA = None
-            if cT:
+            # §9b adds the dropped 2nd-order PSD term; §9c compares against the actual model's full
+            # loss-Hessian sharpness λmax(∇²L) (=sharpA) instead of the surrogate's Gauss-Newton edge.
+            thP = thA = thPpsd = None
+            thAH = sharpA if c9c else None
+            if cT or c9c:
                 etaN = lr / max(N, 1)
                 reps_ = max(1, ee)
                 thP = [None, None, None, None]
                 thA = [None, None, None, None]
+                thPpsd = [None, None, None, None]
                 if multi and thJ is not None and thFroz is not None:
                     rr = rA
                     Jt = thJ
@@ -1730,6 +1740,9 @@ def run_surrogate_compare(P):
                     thP[1] = clmp(thBase + thAcc2)
                     thP[2] = clmp(thBase * thProd3)
                     thP[3] = clmp(thBase * thProd4)
+                    thPpsd[1] = clmp(thBase + thAcc2 + thAccPSD)          # §9b: + 2nd-order PSD term Σ‖ΔJᵀu₁‖²
+                    thPpsd[2] = clmp(thBase * thProd3 + thAccPSD)
+                    thPpsd[3] = clmp(thBase * thProd4 + thAccPSD)
                     mi = min(max(qmode, 1), NV0) - 1
                     sgi = math.sqrt(max(float(Kw[mi]), 1e-30))
                     phi = float(rr @ Vw[:, mi])
@@ -1745,20 +1758,25 @@ def run_surrogate_compare(P):
                         QW = jac_hvp(th0, X, thJ.t() @ rr)
                         qu = (u1.unsqueeze(1) * QW).sum(0)
                         thAcc2 += 2 * etaN * sgT * float(v1 @ qu)
+                        thAccPSD += (etaN ** 2) * float(qu @ qu)         # §9b: ‖ΔJᵀu₁‖² = (η/N)²‖qu‖²
                         thJ = thJ + etaN * QW
                 elif not multi and thJp is not None:
                     sigSur = float(Jq.reshape(-1) @ Jq.reshape(-1))
                     thA[0] = sigSur
-                    thP[0] = min(max(thBase + thAcc1, 0.0), 10 * max(sigSur, 1e-30))
+                    cap0 = 10 * max(sigSur, 1e-30)
+                    thP[0] = min(max(thBase + thAcc1, 0.0), cap0)
+                    thPpsd[0] = min(max(thBase + thAcc1 + thAccPSD1, 0.0), cap0)   # §9b: + Σ‖ΔJ‖²
                     rsc = float((Yf - out_act.reshape(-1))[0])
                     for _ in range(reps_):
                         QJ = hvpF(th0, X, thJp)
                         thAcc1 += 2 * lr * rsc * float(thJp @ QJ)
+                        thAccPSD1 += ((lr * rsc) ** 2) * float(QJ @ QJ)   # §9b: ‖ΔJ‖² = (η r)²‖QJ‖²
                         thJp = thJp + lr * rsc * QJ
 
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness scale (σ₁/N)
             thPr = [(x / N if x is not None else None) for x in thP] if thP else None
             thAr = [(x / N if x is not None else None) for x in thA] if thA else None
+            thPpsdR = [(x / N if x is not None else None) for x in thPpsd] if thPpsd else None
 
             yield {
                 "type": "step", "t": t, "steps": steps, "p": p, "kind": kind,
@@ -1766,7 +1784,7 @@ def run_surrogate_compare(P):
                 "rmeanA": rmeanA if cR else None, "rstdA": rstdA if cR else None,
                 "rmeanS": rmeanS if cR else None, "rstdS": rstdS if cR else None,
                 "eigA": eigA, "eigS": eigS, "sharpA": sharpA, "sharpS": sharpS,
-                "thP": thPr, "thA": thAr,
+                "thP": thPr, "thA": thAr, "thPpsd": thPpsdR, "thAH": thAH,
                 "j4tA": j4tA, "j4bA": j4bA, "j4tS": j4tS, "j4bS": j4bS,
                 "d4tA": d4tA, "d4bA": d4bA, "d4tS": d4tS, "d4bS": d4bS,
                 "ntkR": ntkR, "ntkH": ntkH,
@@ -1832,7 +1850,7 @@ def _parse_params(q):
         # surrogate-section panel toggles (loss · resid mean/std · top-n eig · histogram · theory · §4 · §4d)
         "c1": g("c1", "1") == "1", "c2": g("c2", "1") == "1", "c3": g("c3", "1") == "1",
         "c4": g("c4", "1") == "1", "c5": g("c5", "0") == "1", "c6": g("c6", "1") == "1",
-        "c7": g("c7", "1") == "1", "c8": g("c8", "1") == "1",
+        "c7": g("c7", "1") == "1", "c8": g("c8", "1") == "1", "c9": g("c9", "0") == "1",
     }
 
 

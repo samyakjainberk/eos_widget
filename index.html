@@ -1282,7 +1282,7 @@ const SEC = {};
 // default-setting presets for the surrogate sections (applied to the prefixed q_*/l_* controls)
 // the surrogate materializes the full M×p Jacobian (M = nsamp·out_dim) for a whole window, so the
 // CIFAR/sorting presets use modest sample counts to stay fast and within GPU memory.
-const CMP_BASE = { c1:1, c2:1, c3:1, c4:1, c5:1, c6:1, c7:0, c8:1, eigevery:1, every_iter:20, slqprobes:3,
+const CMP_BASE = { c1:1, c2:1, c3:1, c4:1, c5:1, c6:1, c7:0, c8:1, c9:0, eigevery:1, every_iter:20, slqprobes:3,
   qmode:1, tset:3, seed:0, tgt:1.0, inputstd:1.0, ssign:'off', bias:'0', neig:3, loss:'mse', initscheme:'default',
   chmul:0.25, dmodel:64, nhead:4, nlayer:2, seqlen:16, vocab:50257 };
 // The model + optimisation hyperparameters here are kept IDENTICAL to the matching main-widget PRESETS
@@ -1387,6 +1387,7 @@ function cmpHTML(pre, kind) {
     <label><input type="checkbox" id="${pre}_c6" checked> §4 J·eigvecs(H)</label>
     <label><input type="checkbox" id="${pre}_c7"> §4d group J·eigvecs(H)</label>
     <label><input type="checkbox" id="${pre}_c8" checked> §7a NTK alignment</label>
+    <label><input type="checkbox" id="${pre}_c9"> 9c · vs full-Hessian sharpness</label>
     <button id="${pre}_run" class="btn-run">Run</button>
     <button id="${pre}_stop" class="btn-stop" disabled>Stop</button>
     <button id="${pre}_reset" class="btn-reset">Reset</button>
@@ -1395,6 +1396,8 @@ function cmpHTML(pre, kind) {
   <div id="${pre}_status" style="font-family:var(--sans);color:var(--muted);font-size:13px;margin:4px 0 8px;min-height:18px"></div>
   <div class="plotrow row4"><div id="${pre}_lossfig" class="plot"></div><div id="${pre}_resid" class="plot"></div><div id="${pre}_eig" class="plot"></div><div id="${pre}_hist" class="plot"></div></div>
   <div id="${pre}_theoryrow" class="plotrow row4"><div id="${pre}_pred1" class="plot"></div><div id="${pre}_pred2" class="plot"></div><div id="${pre}_pred3" class="plot"></div><div id="${pre}_pred4" class="plot"></div></div>
+  <div id="${pre}_theoryrowB" class="plotrow row4"><div id="${pre}_predp1" class="plot"></div><div id="${pre}_predp2" class="plot"></div><div id="${pre}_predp3" class="plot"></div><div id="${pre}_predp4" class="plot"></div></div>
+  <div id="${pre}_theoryrowH" class="plotrow row4"><div id="${pre}_predh1" class="plot"></div><div id="${pre}_predh2" class="plot"></div><div id="${pre}_predh3" class="plot"></div><div id="${pre}_predh4" class="plot"></div></div>
   <div class="plotrow row2"><div id="${pre}_ntkR" class="plot"></div><div id="${pre}_ntkH" class="plot"></div></div>
   <div class="plotrow row4"><div id="${pre}_j4tA" class="plot"></div><div id="${pre}_j4tS" class="plot"></div><div id="${pre}_j4bA" class="plot"></div><div id="${pre}_j4bS" class="plot"></div></div>
   <div class="plotrow row4"><div id="${pre}_d4tp" class="plot"></div><div id="${pre}_d4tn" class="plot"></div><div id="${pre}_d4bp" class="plot"></div><div id="${pre}_d4bn" class="plot"></div></div>`;
@@ -1409,7 +1412,7 @@ function cmpURL(pre, kind, start) {
     dataset:'dataset', arch:'arch', loss:'loss', chmul:'chmul', nlayer:'nlayer', nhead:'nhead', dmodel:'dmodel',
     seqlen:'seqlen', vocab:'vocab', every_iter:'qapprox' };
   for (const k in map) ps.set(map[k], v(k));
-  for (const c of ['c1','c2','c3','c4','c5','c6','c7','c8']) ps.set(c, document.getElementById(pre + '_' + c).checked ? '1' : '0');
+  for (const c of ['c1','c2','c3','c4','c5','c6','c7','c8','c9']) ps.set(c, document.getElementById(pre + '_' + c).checked ? '1' : '0');
   ps.set('start', String(start || 0));
   return 'run?' + ps.toString();
 }
@@ -1443,6 +1446,21 @@ function cmpInit(pre, n, kind) {
   newP(pre + '_pred2', tvT(), baseLayout('multi: Eq.21 σ₁', 'σ₁', false));
   newP(pre + '_pred3', tvT(), baseLayout('multi: Eq.27 σ₁', 'σ₁', false));
   newP(pre + '_pred4', tvT(), baseLayout('multi: Eq.29 σ₁', 'σ₁', false));
+  // §9b — same predictions + the 2nd-order PSD term ‖ΔJᵀu₁‖² vs surrogate σ₁
+  const tvP = () => [{ x:[], y:[], mode:'lines', name:'predicted + PSD', line:{ color:'#2563eb', width:1.9 } },
+    { x:[], y:[], mode:'lines', name:'surrogate σ₁', line:{ color:'#dc2626', width:1.6 } }];
+  newP(pre + '_predp1', tvP(), baseLayout('Eq.13 + PSD term ‖ΔJ‖²', 'σ₁', false));
+  newP(pre + '_predp2', tvP(), baseLayout('Eq.21 + PSD term ‖ΔJᵀu₁‖²', 'σ₁', false));
+  newP(pre + '_predp3', tvP(), baseLayout('Eq.27 + PSD term ‖ΔJᵀu₁‖²', 'σ₁', false));
+  newP(pre + '_predp4', tvP(), baseLayout('Eq.29 + PSD term ‖ΔJᵀu₁‖²', 'σ₁', false));
+  // §9c — predicted (blue) & predicted+PSD (green) vs the actual model's full-Hessian sharpness λmax(∇²L) (red dashed)
+  const tvH = () => [{ x:[], y:[], mode:'lines', name:'predicted', line:{ color:'#2563eb', width:1.9 } },
+    { x:[], y:[], mode:'lines', name:'predicted + PSD', line:{ color:'#16a34a', width:1.7 } },
+    { x:[], y:[], mode:'lines', name:'sharpness λmax(∇²L)', line:{ color:'#dc2626', width:1.6, dash:'dash' } }];
+  newP(pre + '_predh1', tvH(), baseLayout('Eq.13 vs full-Hessian sharpness', 'σ₁', false));
+  newP(pre + '_predh2', tvH(), baseLayout('Eq.21 vs full-Hessian sharpness', 'σ₁', false));
+  newP(pre + '_predh3', tvH(), baseLayout('Eq.27 vs full-Hessian sharpness', 'σ₁', false));
+  newP(pre + '_predh4', tvH(), baseLayout('Eq.29 vs full-Hessian sharpness', 'σ₁', false));
   // §7a NTK alignment (actual model): residual→NTK eigvec; NTK eigvec→FH right-singular vec
   const ntkTr = () => { const a = []; for (let k = 0; k < n; k++) a.push({ x:[], y:[], mode:'lines', name:'k=' + (k+1), line:{ color:PALETTE[k%PALETTE.length], width:1.6 } }); return a; };
   newP(pre + '_ntkR', ntkTr(), baseLayout('§7a · residual onto top-n NTK eigvecs', '⟨r, vₖ⟩', false));
@@ -1469,7 +1487,7 @@ function cmpInit(pre, n, kind) {
 // re-measure this section's plots against their grid cells (rAF + a delayed pass for the layout reflow);
 // only visible plots (offsetParent!=null) so a hidden theory row doesn't get mis-sized.
 function cmpResize(pre) {
-  const go = () => ['lossfig','resid','eig','hist','pred1','pred2','pred3','pred4','ntkR','ntkH','j4tA','j4tS','j4bA','j4bS','d4tp','d4tn','d4bp','d4bn']
+  const go = () => ['lossfig','resid','eig','hist','pred1','pred2','pred3','pred4','predp1','predp2','predp3','predp4','predh1','predh2','predh3','predh4','ntkR','ntkH','j4tA','j4tS','j4bA','j4bS','d4tp','d4tn','d4bp','d4bn']
     .forEach(s => { const gd = document.getElementById(pre + '_' + s);
       if (gd && gd._fullLayout && gd.offsetParent !== null) { try { Plotly.Plots.resize(gd); } catch (e) {} } });
   requestAnimationFrame(go); setTimeout(go, 80);
@@ -1499,6 +1517,11 @@ function cmpPush(pre, m) {
   grp(pre + '_d4bp', m.d4bA, m.d4bS, 0); grp(pre + '_d4bn', m.d4bA, m.d4bS, n);
   if (m.thP) for (let c=0;c<4;c++){ const pv=m.thP[c], av=m.thA[c]; if (pv==null && av==null) continue;
     Plotly.extendTraces(pre + '_pred' + (c+1), { x:[[t],[t]], y:[[pv],[av]] }, [0,1]); }
+  if (m.thPpsd) for (let c=0;c<4;c++){ const pv=m.thPpsd[c], av=m.thA && m.thA[c]; if (pv==null && av==null) continue;
+    Plotly.extendTraces(pre + '_predp' + (c+1), { x:[[t],[t]], y:[[pv],[av]] }, [0,1]); }       // §9b
+  if (m.thAH != null && m.thP) for (let c=0;c<4;c++){ const pv=m.thP[c], pp=m.thPpsd?m.thPpsd[c]:null;
+    if (pv==null && pp==null) continue;
+    Plotly.extendTraces(pre + '_predh' + (c+1), { x:[[t],[t],[t]], y:[[pv],[pp],[m.thAH]] }, [0,1,2]); }  // §9c
 }
 function cmpButtons(pre) { const S = SEC[pre];
   document.getElementById(pre + '_run').disabled = S.running;
@@ -1531,6 +1554,9 @@ function makeCompareSection(pre, kind) {
   document.getElementById(pre + '_stop').addEventListener('click', () => cmpStop(pre));
   document.getElementById(pre + '_reset').addEventListener('click', () => cmpStop(pre));
   document.getElementById(pre + '_c5').addEventListener('change', () => cmpResize(pre));   // theory row always visible; toggle only gates computation
+  // §9c row (predicted vs full-Hessian sharpness) is off by default — show it only when its toggle is on
+  const c9row = () => { const el = document.getElementById(pre + '_theoryrowH'); if (el) el.style.display = document.getElementById(pre + '_c9').checked ? '' : 'none'; cmpResize(pre); };
+  document.getElementById(pre + '_c9').addEventListener('change', c9row);
   // preset dropdown: applying a preset sets the controls and runs (like section-1)
   // selecting a preset applies its defaults and redraws EMPTY plots for the new config; it does NOT run
   document.getElementById(pre + '_preset').addEventListener('change', e => { if (e.target.value !== 'custom') {
@@ -1541,7 +1567,7 @@ function makeCompareSection(pre, kind) {
     document.getElementById(pre + '_status').textContent = 'preset applied — press Run to start.';
   } });
   // editing any control switches this section's preset to "custom"
-  ['dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','depth','width','act','bias','fixedx','inputstd','ssign','indim','outdim','nsamp','tgt','lr','init','initscheme','steps','seed','neig','eigevery','every_iter','slqprobes','qmode','tset','c1','c2','c3','c4','c5','c6','c7','c8']
+  ['dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','depth','width','act','bias','fixedx','inputstd','ssign','indim','outdim','nsamp','tgt','lr','init','initscheme','steps','seed','neig','eigevery','every_iter','slqprobes','qmode','tset','c1','c2','c3','c4','c5','c6','c7','c8','c9']
     .forEach(id => { const el = document.getElementById(pre + '_' + id); if (el) el.addEventListener(el.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input', () => { document.getElementById(pre + '_preset').value = 'custom'; }); });
   cmpApplyPreset(pre, 'eos_demo');   // default the surrogate sections to a config whose loss visibly evolves (and reaches EoS)
   // draw empty, labeled plots right away (like the main widget) so the section isn't blank before Run
@@ -1549,6 +1575,7 @@ function makeCompareSection(pre, kind) {
   const n0 = Math.max(1, parseInt(document.getElementById(pre + '_neig').value) || 3);
   SEC[pre].thr = 2 / lr0;
   cmpInit(pre, n0, kind);
+  c9row();   // set initial §9c-row visibility (hidden unless its toggle is on)
   document.getElementById(pre + '_status').textContent = 'press Run to start this ' + kind + ' comparison (needs the GPU backend — python server.py).';
 }
 
