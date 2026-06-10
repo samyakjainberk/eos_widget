@@ -1289,6 +1289,11 @@ const CMP_BASE = { c1:1, c2:1, c3:1, c4:1, c5:1, c6:1, c7:0, c8:1, eigevery:1, e
 // (depth/width/act/lr/init/steps/nsamp/arch knobs) so a given preset is the *same run* in the main
 // section and in the surrogate sections — only the surrogate-specific knobs (c1–c7, every_iter) differ.
 const CMP_PRESETS = {
+  // Default for the surrogate sections: a small tanh net that visibly TRAINS (loss 0.35→0.05) and reaches
+  // the edge of stability, so the surrogate tracks the actual within each frozen-Q window and then visibly
+  // diverges before the next window reset — the whole point of the comparison. (The wide width=100 demos
+  // below keep the loss near-flat — their dynamics live in the sharpness panel, not the loss.)
+  eos_demo: { ...CMP_BASE, dataset:'synthetic', arch:'mlp', fixedx:'0', act:'tanh', depth:3, width:20, indim:10, outdim:1, nsamp:20, lr:2.0, init:0.5, steps:200 },
   linear:   { ...CMP_BASE, dataset:'synthetic', arch:'mlp', fixedx:'1', act:'linear', depth:4, width:100, indim:10, outdim:1, nsamp:1, lr:0.3, init:0.1, steps:400 },
   msample:  { ...CMP_BASE, dataset:'synthetic', arch:'mlp', fixedx:'0', act:'tanh', depth:4, width:100, indim:10, outdim:1, nsamp:10, lr:0.3, init:0.1, steps:800 },
   single:   { ...CMP_BASE, dataset:'synthetic', arch:'mlp', fixedx:'1', act:'tanh', depth:4, width:100, indim:10, outdim:1, nsamp:1, lr:0.3, init:0.1, steps:400, neig:2, c5:1 },
@@ -1321,7 +1326,8 @@ function cmpHTML(pre, kind) {
   <div class="presetbar" style="background:#f0fdf4;border-color:#bbf7d0">
     <label style="color:#15803d" for="${pre}_preset">Preset</label>
     <select id="${pre}_preset">
-      <option value="linear" selected>Linear MLP — synthetic (matches §1 default)</option>
+      <option value="eos_demo" selected>EoS demo — tanh MLP (loss visibly evolves)</option>
+      <option value="linear">Linear MLP — synthetic (matches §1 default)</option>
       <option value="msample">Multi-sample tanh MLP — synthetic</option>
       <option value="single">Single-sample fixed-input MLP</option>
       <option value="cifar_mlp">CIFAR-10 · MLP</option>
@@ -1537,7 +1543,7 @@ function makeCompareSection(pre, kind) {
   // editing any control switches this section's preset to "custom"
   ['dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','depth','width','act','bias','fixedx','inputstd','ssign','indim','outdim','nsamp','tgt','lr','init','initscheme','steps','seed','neig','eigevery','every_iter','slqprobes','qmode','tset','c1','c2','c3','c4','c5','c6','c7','c8']
     .forEach(id => { const el = document.getElementById(pre + '_' + id); if (el) el.addEventListener(el.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input', () => { document.getElementById(pre + '_preset').value = 'custom'; }); });
-  cmpApplyPreset(pre, 'linear');   // default every surrogate section to the §1 'linear' config so all three sections start identical
+  cmpApplyPreset(pre, 'eos_demo');   // default the surrogate sections to a config whose loss visibly evolves (and reaches EoS)
   // draw empty, labeled plots right away (like the main widget) so the section isn't blank before Run
   const lr0 = parseFloat(document.getElementById(pre + '_lr').value) || 0.3;
   const n0 = Math.max(1, parseInt(document.getElementById(pre + '_neig').value) || 3);

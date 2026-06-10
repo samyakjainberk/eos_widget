@@ -59,7 +59,9 @@ Every widget toggle is implemented and **on by default**. Section ↔ flag map (
 - **§7** `s7` multi-sample NTK & function-Hessian tensor SVD
 - **§8** `s8` `vec(J)` onto right-singular vectors of the `p×(p·dₙ)` FH reshape
 - **§4b/§4c/§4d** `s9`/`s10`/`s11` `J·r` onto eigvecs of `Q[u₁]` · `Q[u₁]·(J·r)` onto GN eigvecs · per-residual-sign-group projections
-- **§9** `s12` theoretical (Eq-13/21/27/29) vs empirical σ₁ over frozen-Q windows
+- **§9** `s12` theoretical (Eq-13/21/27/29) vs empirical σ₁ (top NTK / Gauss–Newton eigenvalue) over frozen-Q windows;
+  the record also carries **§9b** `thPpsd` (predictions + the 2nd-order PSD term `‖ΔJᵀu₁‖²`)
+- **§9c** `s14` the same predictions vs the **full loss-Hessian sharpness** `λmax(∇²L)` (`thAH`) instead of the Gauss–Newton edge
 
 The multi-sample sections (§7/§8/§4b–d and the multi branch of §9) form the explicit `M×p` Jacobian, so
 they are **auto-skipped** when `M = N·d_out` or `M·p` is too large (gated by `Diagnostics.multi_ok`,

@@ -55,7 +55,12 @@ $$\sigma_{1,t+s}=\sigma_{1,t}\prod_{k=0}^{s-1}\Big[1+2\eta\sum_{v\in T}\tfrac{\s
 
 Progressive sharpening is predicted when the bracketed sum is $>0$ on average; when the (projected) residuals
 oscillate and flip sign the growth turns to decay — the cyclic **self-stabilization** at the edge of stability.
-Panel §9 overlays each prediction (Eqs. 13 / 21 / 27 / 29) on the measured $\sigma_1$.
+Panel §9 overlays each prediction (Eqs. 13 / 21 / 27 / 29) on the measured $\sigma_1$ (the top
+Gauss–Newton / NTK eigenvalue). Two companion panels reuse the same predictions:
+**§9b** adds the dropped second-order term $\lVert\Delta J^\top u_1\rVert^2=(\eta/N)^2\lVert q_u\rVert^2\ge 0$
+(single-sample $\lVert\Delta J\rVert^2$) — an always-non-negative sharpening floor the first-order recursion omits;
+**§9c** compares the predictions against the **full loss-Hessian sharpness** $\lambda_{\max}(\nabla^2\mathcal L)=\lambda_{\max}(G+S)$
+instead of the Gauss–Newton edge, so the gap is exactly the residual term $S$.
 
 ## Panels
 
@@ -70,6 +75,8 @@ Panel §9 overlays each prediction (Eqs. 13 / 21 / 27 / 29) on the measured $\si
 | **4b / 4c** | `J·r` onto `Q[u₁]` eigvecs; `Q[u₁]·(J·r)` onto Gauss–Newton | multi-sample · MSE or CE |
 | **4d** | per-residual-sign-group projections | multi-sample · MSE |
 | **9** | predicted vs actual sharpness `σ₁` (Eq. 13 single-sample; Eq. 21/27/29 multi-sample) | MSE · single or multi |
+| **9b** | the same predictions **+ the 2nd-order PSD term** `‖ΔJᵀu₁‖²` vs actual `σ₁` | MSE · single or multi |
+| **9c** | the same predictions vs the **full-Hessian sharpness** `λmax(∇²L)` (own toggle) | MSE · single or multi |
 
 A checkbox per section toggles its computation. §7a/§7/§8/§4b/§4c use the *function* NTK `Jᵤ·Jᵤᵀ` and the
 generic residual `r = −∂L/∂z` (MSE: `y−f`, CE: `softmax(z)−onehot`), so they work for **cross-entropy** too;
@@ -82,7 +89,8 @@ and **§9** (the squared-loss σ₁ recursion) are MSE-only. Any panel a run can
 Set from the dropdowns (real-data / conv / transformer runs use the GPU backend):
 
 - **Datasets** — `synthetic` (in-browser MLP), **CIFAR-10**, **sorting** (sort a sequence; MSE),
-  **OpenWebText** (GPT-2-BPE next-token LM; cross-entropy, minibatched).
+  **OpenWebText** (GPT-2-BPE next-token LM; cross-entropy *or* MSE, minibatched — under MSE the
+  logits are regressed toward the one-hot next token, normalised per token).
 - **Architectures** — `MLP`, `CNN`, **VGG11** (`chmul` scales channels, up to ~9.4M params),
   **mini-GPT** (sorting regressor, or a tied-embedding token-LM for OpenWebText).
 - **Loss** — `MSE` (all panels) or `cross-entropy` (keeps §4/§6; residual-NTK & theory panels n/a).
@@ -91,7 +99,11 @@ Set from the dropdowns (real-data / conv / transformer runs use the GPU backend)
 
 Below the main widget, the **quadratic / linear surrogate** sections train the real model and a
 frozen-window Taylor surrogate (Eq. 1, with/without the curvature term) in lockstep and overlay their
-loss, residuals, eigenvalues, §9 theory and projections — actual solid, surrogate dashed.
+loss, residuals, eigenvalues, §9 theory and projections — actual solid, surrogate dashed. They default
+to the **EoS-demo** preset (a small tanh MLP whose loss visibly trains to the edge of stability), so the
+first loss panel shows real evolution: the quadratic surrogate tracks the actual within each window, and
+the linear (NTK) surrogate diverges once the frozen sharpness passes `2/η` — expected at EoS. (The wide
+`width=100` presets keep the loss near-flat; their dynamics live in the sharpness panel, not the loss.)
 
 ## Run
 
