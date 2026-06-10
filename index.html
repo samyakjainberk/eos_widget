@@ -147,7 +147,7 @@
     <div class="panel-title">Data &amp; training</div>
     <div class="grid">
       <div class="ctl"><label>number_of_samples</label><input id="nsamp" type="number" value="1" min="1" max="120" step="1"></div>
-      <div class="ctl"><label>batch_size (0 = full)</label><input id="batch" type="number" value="0" min="0" max="120" step="1"></div>
+      <div class="ctl"><label>batch_size (0 = full)</label><input id="batch" type="number" value="0" min="0" max="4096" step="1"></div>
       <div class="ctl"><label>target_scale</label><input id="tgt" type="number" value="1.0" step="0.5"></div>
       <div class="ctl"><label>learning rate</label><input id="lr" type="number" value="0.3" step="0.001"></div>
       <div class="ctl"><label>init_scale</label><input id="init" type="number" value="0.1" step="0.05"></div>
@@ -1142,7 +1142,7 @@ async function loop(){                                   // drives ST forward; r
             const rsc=r[0];for(let s=0;s<reps_;s++){const QJ=hvpF(S.thTh0,spec,X,N,inDim,p,S.thJp,eps);S.thAcc1+=2*S.lr*rsc*dot(S.thJp,QJ);S.thAccPSD1+=(S.lr*rsc)*(S.lr*rsc)*dot(QJ,QJ);for(let q=0;q<p;q++)S.thJp[q]+=S.lr*rsc*QJ[q];}
           }
         }
-        pushPoint(t,{loss,sharp,r,jt,jb,jtN,jbN,hfMax:feTop[0],hfMin:feBot[0],hfTop:feTop,hfBot:feBot,d4Ht,d4Hb,d4Qt,d4Qb,thP,thA,thPpsd,thAH,
+        pushPoint(t,{loss,sharp,r,jt,jb,jtN,jbN,hfMax:feTop[0]/N,hfMin:feBot[0]/N,hfTop:feTop.map(v=>v/N),hfBot:feBot.map(v=>v/N),d4Ht,d4Hb,d4Qt,d4Qb,thP,thA,thPpsd,thAH,   // H eigs ÷N (∇²Σf summed over N samples → per-sample, matches G/S)
           hlTop:hl?hl.top:null,hlBot:hl?hl.bot:null,gnTop:gn?gn.top:null,gnBot:gn?gn.bot:null,srTop:sr?sr.top:null,srBot:sr?sr.bot:null,
           paPos,paNeg,ntkR,ntkH,fhEvT,fhEvB,jhe1,jhe2,jhe1b,jhe2b,jh2e1,jh2e2,jh2e1b,jh2e2b,g2J,g2Jn,
           q9t,q9b,q9tN,q9bN,q9tR,q9bR,q9gt,q9gb,q10,q10N},S.n,S.kth,S.nResid);
@@ -1278,7 +1278,7 @@ const PRESETS={
   // CIFAR-10 (MSE) — VGG11 (avg-pool, no BN). chmul=0.25→~0.6M (fast); set chmul=1 for the full ~9.4M VGG11
   cifar_vgg:{dataset:'cifar10',arch:'vgg11',loss:'mse',depth:2,width:128,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:64,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'0',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // sorting task — mini-GPT transformer (full self-attention), MSE regression to the sorted sequence
-  sort_gpt:{dataset:'sorting',arch:'gpt',loss:'mse',depth:2,width:128,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.002,init:0.1,nsamp:128,indim:16,outdim:16,tgt:1.0,neig:3,kth:1,steps:400,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
+  sort_gpt:{dataset:'sorting',arch:'gpt',loss:'mse',depth:2,width:128,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.0002,init:0.1,nsamp:128,batch:128,indim:16,outdim:16,tgt:1.0,neig:3,kth:1,steps:4000,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // OpenWebText next-token LM — GPT-2 BPE, cross-entropy. nsamp sequences form the pool; each step
   // samples a `batch` minibatch used for BOTH the GD step and that step's diagnostics. CE keeps §1/§2/§3.
   owt_gpt:{dataset:'owt',arch:'gpt',loss:'ce',depth:2,width:128,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.0006,init:0.1,nsamp:64,batch:16,indim:16,outdim:16,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:5,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:128,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
@@ -1331,20 +1331,17 @@ const CMP_BASE = { c1:1, c2:1, c3:1, c4:1, c5:1, c6:1, c7:0, c8:1, c9:1, eigever
 // (depth/width/act/lr/init/steps/nsamp/arch knobs) so a given preset is the *same run* in the main
 // section and in the surrogate sections — only the surrogate-specific knobs (c1–c7, every_iter) differ.
 const CMP_PRESETS = {
-  // Default for the surrogate sections: a small tanh net that visibly TRAINS (loss 0.35→0.05) and reaches
-  // the edge of stability, so the surrogate tracks the actual within each frozen-Q window and then visibly
-  // diverges before the next window reset — the whole point of the comparison. (The wide width=100 demos
-  // below keep the loss near-flat — their dynamics live in the sharpness panel, not the loss.)
-  eos_demo: { ...CMP_BASE, dataset:'synthetic', arch:'mlp', fixedx:'0', act:'tanh', depth:3, width:20, indim:10, outdim:1, nsamp:20, lr:2.0, init:0.5, steps:200 },
-  linear:   { ...CMP_BASE, dataset:'synthetic', arch:'mlp', fixedx:'1', act:'linear', depth:4, width:100, indim:10, outdim:1, nsamp:1, lr:0.3, init:0.1, steps:400 },
-  msample:  { ...CMP_BASE, dataset:'synthetic', arch:'mlp', fixedx:'0', act:'tanh', depth:4, width:100, indim:10, outdim:1, nsamp:10, lr:0.3, init:0.1, steps:800 },
-  single:   { ...CMP_BASE, dataset:'synthetic', arch:'mlp', fixedx:'1', act:'tanh', depth:4, width:100, indim:10, outdim:1, nsamp:1, lr:0.3, init:0.1, steps:400, neig:2, c5:1 },
-  cifar_mlp:{ ...CMP_BASE, dataset:'cifar10', arch:'mlp', fixedx:'0', act:'tanh', depth:2, width:128, indim:10, outdim:1, nsamp:128, lr:0.02, init:0.5, steps:300, eigevery:2 },
-  cifar_cnn:{ ...CMP_BASE, dataset:'cifar10', arch:'cnn', fixedx:'0', act:'tanh', depth:2, width:128, indim:10, outdim:1, nsamp:128, lr:0.05, init:0.5, steps:300, eigevery:2, chmul:1.0 },
-  cifar_vgg:{ ...CMP_BASE, dataset:'cifar10', arch:'vgg11', fixedx:'0', act:'tanh', depth:2, width:128, indim:10, outdim:1, nsamp:64, lr:0.05, init:0.5, steps:300, eigevery:2, chmul:0.25 },
-  sort_gpt: { ...CMP_BASE, dataset:'sorting', arch:'gpt', fixedx:'0', act:'tanh', depth:2, width:60, indim:16, outdim:16, nsamp:128, lr:0.002, init:0.1, steps:400, eigevery:2 },
-  owt_gpt:  { ...CMP_BASE, dataset:'owt', arch:'gpt', loss:'ce', fixedx:'0', act:'tanh', depth:2, width:128, indim:16, outdim:16, nsamp:64, lr:0.0006, init:0.1, steps:2000, seqlen:128, vocab:50257 },
-  chebyshev:{ ...CMP_BASE, dataset:'chebyshev', arch:'mlp', loss:'mse', fixedx:'0', act:'tanh', depth:1, width:100, bias:'1', indim:1, outdim:1, nsamp:20, degree:3, lr:0.2, init:0.5, steps:500 },
+  // Kept IDENTICAL to the main-widget PRESETS — same names, same hyperparameter values — so a given preset
+  // is the same run in §1 and in the surrogate sections (only the surrogate-specific c1–c9 / every_iter differ).
+  linear:   { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'linear', bias:'0', fixedx:'1', indim:10, outdim:1, nsamp:1, lr:0.3, init:0.1, steps:400, eigevery:1, neig:3, slqprobes:4 },
+  msample:  { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:10, lr:0.3, init:0.1, steps:800, eigevery:1, neig:3, slqprobes:4 },
+  gpu_run:  { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:25, lr:0.5, init:0.1, steps:2000, eigevery:1, neig:3, slqprobes:4 },
+  cifar_mlp:{ ...CMP_BASE, dataset:'cifar10', arch:'mlp', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.02, init:0.5, steps:300, eigevery:2, chmul:0.25 },
+  cifar_cnn:{ ...CMP_BASE, dataset:'cifar10', arch:'cnn', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.05, init:0.5, steps:300, eigevery:2, chmul:1.0 },
+  cifar_vgg:{ ...CMP_BASE, dataset:'cifar10', arch:'vgg11', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:64, lr:0.05, init:0.5, steps:300, eigevery:2, chmul:0.25 },
+  sort_gpt: { ...CMP_BASE, dataset:'sorting', arch:'gpt', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:16, outdim:16, nsamp:128, lr:0.0002, init:0.1, steps:4000, eigevery:2, seqlen:16 },
+  owt_gpt:  { ...CMP_BASE, dataset:'owt', arch:'gpt', loss:'ce', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:16, outdim:16, nsamp:64, lr:0.0006, init:0.1, steps:2000, seqlen:128, vocab:50257 },
+  chebyshev:{ ...CMP_BASE, dataset:'chebyshev', arch:'mlp', loss:'mse', depth:1, width:100, act:'tanh', bias:'1', fixedx:'0', indim:1, outdim:1, nsamp:20, degree:3, lr:0.2, init:0.5, steps:500, slqprobes:4 },
 };
 function cmpApplyPreset(pre, name) {
   const P = CMP_PRESETS[name]; if (!P) return;
@@ -1369,16 +1366,15 @@ function cmpHTML(pre, kind) {
   <div class="presetbar" style="background:#f0fdf4;border-color:#bbf7d0">
     <label style="color:#15803d" for="${pre}_preset">Preset</label>
     <select id="${pre}_preset">
-      <option value="eos_demo" selected>EoS demo — tanh MLP (loss visibly evolves)</option>
-      <option value="linear">Linear MLP — synthetic (matches §1 default)</option>
-      <option value="msample">Multi-sample tanh MLP — synthetic</option>
-      <option value="single">Single-sample fixed-input MLP</option>
-      <option value="cifar_mlp">CIFAR-10 · MLP</option>
-      <option value="cifar_cnn">CIFAR-10 · small CNN</option>
-      <option value="cifar_vgg">CIFAR-10 · VGG11</option>
-      <option value="sort_gpt">sorting · mini-GPT</option>
-      <option value="owt_gpt">OpenWebText · mini-GPT LM</option>
-      <option value="chebyshev">Chebyshev · T₃ regression</option>
+      <option value="linear" selected>Wide deep-linear net — single sample (fixed input)</option>
+      <option value="msample">Multi-sample tanh MLP — NTK / function-Hessian analysis</option>
+      <option value="gpu_run">GPU run — large multi-sample net, 100 samples (server.py backend)</option>
+      <option value="cifar_mlp">CIFAR-10 · MLP (GPU backend)</option>
+      <option value="cifar_cnn">CIFAR-10 · small CNN (GPU backend)</option>
+      <option value="cifar_vgg">CIFAR-10 · VGG11 (GPU backend, ~0.6M; chmul=1 → ~9.4M)</option>
+      <option value="sort_gpt">sorting · mini-GPT transformer (GPU backend)</option>
+      <option value="owt_gpt">OpenWebText · mini-GPT LM, minibatch SGD (GPU backend)</option>
+      <option value="chebyshev">Chebyshev · T₃ regression on [-1,1] (GPU backend)</option>
       <option value="custom">— custom (manual) —</option>
     </select>
     <span class="hint">picking a preset applies its defaults and runs (needs the GPU backend) · sample-sign toggle sets the §4d groups</span>
@@ -1657,7 +1653,7 @@ function makeCompareSection(pre, kind) {
   // editing any control switches this section's preset to "custom"
   ['dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','depth','width','act','bias','fixedx','inputstd','ssign','indim','outdim','nsamp','tgt','lr','init','initscheme','steps','seed','neig','eigevery','every_iter','slqprobes','qmode','tset','c1','c2','c3','c4','c5','c6','c7','c8','c9']
     .forEach(id => { const el = document.getElementById(pre + '_' + id); if (el) el.addEventListener(el.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input', () => { document.getElementById(pre + '_preset').value = 'custom'; }); });
-  cmpApplyPreset(pre, 'eos_demo');   // default the surrogate sections to a config whose loss visibly evolves (and reaches EoS)
+  cmpApplyPreset(pre, 'linear');   // default surrogate preset = §1 default ('linear'), so the sections match exactly
   // draw empty, labeled plots right away (like the main widget) so the section isn't blank before Run
   const lr0 = parseFloat(document.getElementById(pre + '_lr').value) || 0.3;
   const n0 = Math.max(1, parseInt(document.getElementById(pre + '_neig').value) || 3);

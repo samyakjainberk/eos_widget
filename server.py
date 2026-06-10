@@ -1470,9 +1470,9 @@ def run_stream(P):
                 "loss": loss, "sharp": sharp,
                 "thP": thPr, "thA": thAr, "thPpsd": thPpsdR, "thAH": thAH,
                 "r": ([] if r is None else r[:nResid].detach().cpu().tolist()),
-                "hfMax": (feTop[0] if feTop else None),
-                "hfMin": (feBot[0] if feBot else None),
-                "hfTop": feTop[:n], "hfBot": feBot[:n],
+                "hfMax": (feTop[0] / N if feTop else None),         # ÷N: function-Hessian H=∇²Σf is summed over the
+                "hfMin": (feBot[0] / N if feBot else None),         #   N samples → divide to match the per-sample loss
+                "hfTop": [v / N for v in feTop[:n]], "hfBot": [v / N for v in feBot[:n]],   # Hessian (G+S) scale (mirrors eos_lab)
                 "hlTop": hlt, "hlBot": hlb,
                 "gnTop": gnt, "gnBot": gnb, "srTop": srt, "srBot": srb,
                 "jt": jt, "jb": jb, "jtN": jtN, "jbN": jbN,
