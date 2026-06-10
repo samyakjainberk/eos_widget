@@ -445,13 +445,13 @@ class Diagnostics:
 
             thP[1] = clmp(self._thBase + self._thAcc2)
             thP[2] = clmp(self._thBase * self._thProd3)
-            thP[3] = clmp(self._thBase * self._thProd4)
-            thP[4] = clmp(self._thBase * self._thProd5)
+            thP[3] = clmp(self._thBase * self._thProd5)   # col-4 = Eq-23 (swapped)
+            thP[4] = clmp(self._thBase * self._thProd4)   # col-5 = Eq-29 (swapped)
             # §9b: same predictions + the dropped 2nd-order PSD term Σ‖ΔJᵀu₁‖² (always ≥0 — a sharpening floor)
             thPpsd[1] = clmp(self._thBase + self._thAcc2 + self._thAccPSD)
             thPpsd[2] = clmp(self._thBase * self._thProd3 + self._thAccPSD)
-            thPpsd[3] = clmp(self._thBase * self._thProd4 + self._thAccPSD)
-            thPpsd[4] = clmp(self._thBase * self._thProd5 + self._thAccPSD)
+            thPpsd[3] = clmp(self._thBase * self._thProd5 + self._thAccPSD)   # col-4 = Eq-23
+            thPpsd[4] = clmp(self._thBase * self._thProd4 + self._thAccPSD)   # col-5 = Eq-29
             QV1 = jac_hvp(self.model, self._thTh0, X, v1)  # frozen-Q HVP {∇²f_a|θ₀ · v₁}; qv1 = Q[u₁]v₁ ⇒ EXACT bilinear
             qv1 = (u1.unsqueeze(1) * QV1).sum(0)           #   v₁ᵀQ[u₁]v_k = qv1·v_k (used by Eq-22 & Eq-23)
             pproj = float(rr @ u1)                         # col-3 (Eq-22): p_t = r·u₁ (the v₁-coeff of Jᵀr)

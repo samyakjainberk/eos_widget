@@ -59,7 +59,7 @@ Every section from the widget is here, and each is a flag on `config.Config` (al
 - **§6** — how fast the dominant eigenspace of `H` rotates from step to step (principal angles).
 - **§7 / §8** — the multi-sample NTK and function-Hessian SVD, and `vec(J)` onto the FH-reshape singular vectors.
 - **§4b / §4c / §4d** — residual-weighted Jacobian projections (multi-sample only).
-- **§9** — the theory: each σ₁ prediction (Eqs. 13/21/22/29/23) overlaid on the measured top NTK / Gauss–Newton eigenvalue, over frozen-`Q` windows. The records also carry **§9b** (`thPpsd`: the predictions plus the second-order PSD term `‖ΔJᵀu₁‖²`, an always-positive sharpening floor the first-order recursion drops).
+- **§9** — the theory: each σ₁ prediction (Eqs. 13/21/22/23/29) overlaid on the measured top NTK / Gauss–Newton eigenvalue, over frozen-`Q` windows. The records also carry **§9b** (`thPpsd`: the predictions plus the second-order PSD term `‖ΔJᵀu₁‖²`, an always-positive sharpening floor the first-order recursion drops).
 - **§9c** — the same predictions compared against the **full loss-Hessian sharpness** `λmax(∇²L)` (`thAH`) rather than the Gauss–Newton edge; the gap between them is the residual term `S`.
 
 The multi-sample sections build an explicit `M×p` Jacobian (`M = N·d_out`), so they're **skipped

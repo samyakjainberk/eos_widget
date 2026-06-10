@@ -1426,11 +1426,11 @@ def run_stream(P):
                             s += F["gamma"][i]*sj*yu
                         return s
                     thP[1] = clmp(thBase + thAcc2)                      # col-2 (Eq-21): additive first-order Δσ (flips with residual sign)
-                    thP[2] = clmp(thBase*thProd3); thP[3] = clmp(thBase*thProd4); thP[4] = clmp(thBase*thProd5)
+                    thP[2] = clmp(thBase*thProd3); thP[3] = clmp(thBase*thProd5); thP[4] = clmp(thBase*thProd4)   # col-4=Eq-23, col-5=Eq-29
                     # §9b: same predictions + the dropped 2nd-order PSD term Σ‖ΔJᵀu₁‖² (always ≥0 — a sharpening floor)
                     thPpsd[1] = clmp(thBase + thAcc2 + thAccPSD)
-                    thPpsd[2] = clmp(thBase*thProd3 + thAccPSD); thPpsd[3] = clmp(thBase*thProd4 + thAccPSD)
-                    thPpsd[4] = clmp(thBase*thProd5 + thAccPSD)
+                    thPpsd[2] = clmp(thBase*thProd3 + thAccPSD); thPpsd[3] = clmp(thBase*thProd5 + thAccPSD)
+                    thPpsd[4] = clmp(thBase*thProd4 + thAccPSD)
                     QV1 = jac_hvp(thTh0, X, v1)                        # frozen-Q HVP {∇²f_a|θ₀ · v₁}; qv1 = Q[u₁]v₁ ⇒ the
                     qv1 = (u1.unsqueeze(1) * QV1).sum(0)               #   EXACT bilinear v₁ᵀQ[u₁]v_k = qv1·v_k (used by Eq-22 & Eq-23)
                     pproj = float(rr @ u1)                             # col-3 (Eq-22): p_t = r·u₁ (residual onto NTK mode u₁ = v₁-coeff of Jᵀr)
@@ -1764,12 +1764,12 @@ def run_surrogate_compare(P):
                         return s
                     thP[1] = clmp(thBase + thAcc2)
                     thP[2] = clmp(thBase * thProd3)
-                    thP[3] = clmp(thBase * thProd4)
-                    thP[4] = clmp(thBase * thProd5)
+                    thP[3] = clmp(thBase * thProd5)                       # col-4 = Eq-23 (swapped)
+                    thP[4] = clmp(thBase * thProd4)                       # col-5 = Eq-29 (swapped)
                     thPpsd[1] = clmp(thBase + thAcc2 + thAccPSD)          # §9b: + 2nd-order PSD term Σ‖ΔJᵀu₁‖²
                     thPpsd[2] = clmp(thBase * thProd3 + thAccPSD)
-                    thPpsd[3] = clmp(thBase * thProd4 + thAccPSD)
-                    thPpsd[4] = clmp(thBase * thProd5 + thAccPSD)
+                    thPpsd[3] = clmp(thBase * thProd5 + thAccPSD)         # col-4 = Eq-23
+                    thPpsd[4] = clmp(thBase * thProd4 + thAccPSD)         # col-5 = Eq-29
                     QV1 = jac_hvp(th0, X, v1)                          # frozen-Q HVP {∇²f_a|θ₀ · v₁}; qv1 = Q[u₁]v₁ ⇒ EXACT bilinear
                     qv1 = (u1.unsqueeze(1) * QV1).sum(0)               #   v₁ᵀQ[u₁]v_k = qv1·v_k (used by Eq-22 & Eq-23)
                     pproj = float(rr @ u1)                            # col-3 (Eq-22): p_t = r·u₁ (the v₁-coeff of Jᵀr)

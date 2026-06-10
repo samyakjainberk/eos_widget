@@ -204,7 +204,7 @@ def plot_section9(series, meta):
     if thP is None and thA is None:
         return None
     t = series["t"]
-    labels = ["Eq-13 (single)", "Eq-21 (col-2)", "Eq-22 (col-3)", "Eq-29 (col-4)", "Eq-23 (col-5)"]
+    labels = ["Eq-13 (single)", "Eq-21 (col-2)", "Eq-22 (col-3)", "Eq-23 (col-4)", "Eq-29 (col-5)"]
 
     def col(arr, i):
         return arr[i] if (arr is not None and i < len(arr)) else None
@@ -247,7 +247,7 @@ def plot_section9c(series, meta):
     if thP is None or thAH is None or not any(y == y for y in thAH):
         return None
     t = series["t"]
-    labels = ["Eq-13 (single)", "Eq-21 (col-2)", "Eq-22 (col-3)", "Eq-29 (col-4)", "Eq-23 (col-5)"]
+    labels = ["Eq-13 (single)", "Eq-21 (col-2)", "Eq-22 (col-3)", "Eq-23 (col-4)", "Eq-29 (col-5)"]
 
     def col(arr, i):
         return arr[i] if (arr is not None and i < len(arr)) else None

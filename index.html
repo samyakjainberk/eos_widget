@@ -255,7 +255,7 @@
 
 <div id="sec_12">
 <h2>9 · Predicted vs actual sharpness $\sigma_1$</h2>
-<p class="cap">Each window freezes $Q$ at $\theta_0$ and forward-predicts the top NTK eigenvalue $\sigma_1$ (reset to the measured value at every window start). <b>Predicted</b> (blue) vs <b>actual</b> (red). <b>Col 1</b> — single sample, Eq.&nbsp;13: $J_{t+1}=(I+\eta r_tQ)J_t,\ \sigma_1=\lVert J\rVert^2$. <b>Col 2</b> — multi-sample, Eq.&nbsp;21: iterate $J_{t+1}=J_t+\tfrac{\eta}{N}Q[J^\top r]$, read $\sigma_1=\lambda_{\max}(JJ^\top)$. <b>Col 3</b> — multi-sample, Eq.&nbsp;22: $\sigma_{1,t+1}=\sigma_{1,t}\big[1+2\eta\,(r\!\cdot\!u_1)\,v_1^\top Q[u_1]v_1\big]$, with $p_t=r\!\cdot\!u_1$ (the residual's projection onto the top NTK eigenvector — the $v_1$-coefficient of $J^\top r$) — the compact form. <b>Col 4</b> — Eq.&nbsp;29, the top-$|T|$-mode recursion $\sigma_{1,t+1}=\sigma_{1,t}\big[1+2\eta\sum_{v\in T}\tfrac{\sqrt{\sigma_v}}{\sqrt{\sigma_1}}\sum_{ij}\gamma_i\tau_{ij}(v_1^\top z_{ij})(v_v^\top z_{ij})(y_i^\top u_1)\,p_t\big]$; $v_1^\top z_{ij}$, $y_i^\top u_1$ are GN/NTK alignments with the function-Hessian tensor (§7a/§7). Sharpening when the bracket $>0$; sign-flipping residuals turn growth to decay — <i>self-stabilization</i>.</p>
+<p class="cap">Each window freezes $Q$ at $\theta_0$ and forward-predicts the top NTK eigenvalue $\sigma_1$ (reset to the measured value at every window start). <b>Predicted</b> (blue) vs <b>actual</b> (red). <b>Col 1</b> — single sample, Eq.&nbsp;13: $J_{t+1}=(I+\eta r_tQ)J_t,\ \sigma_1=\lVert J\rVert^2$. <b>Col 2</b> — multi-sample, Eq.&nbsp;21: iterate $J_{t+1}=J_t+\tfrac{\eta}{N}Q[J^\top r]$, read $\sigma_1=\lambda_{\max}(JJ^\top)$. <b>Col 3</b> — multi-sample, Eq.&nbsp;22: $\sigma_{1,t+1}=\sigma_{1,t}\big[1+2\eta\,(r\!\cdot\!u_1)\,v_1^\top Q[u_1]v_1\big]$, with $p_t=r\!\cdot\!u_1$ (the residual's projection onto the top NTK eigenvector — the $v_1$-coefficient of $J^\top r$) — the compact form. <b>Col 4</b> — Eq.&nbsp;23, the top-$|T|$-mode sum $\sigma_{1,t+1}=\sigma_{1,t}\big[1+2\eta\sum_{k\in T}\tfrac{\sqrt{\sigma_k}}{\sqrt{\sigma_1}}(r\!\cdot\!u_k)\,v_1^\top Q[u_1]v_k\big]$ with the bilinear $v_1^\top Q[u_1]v_k$ evaluated <b>exactly</b> (a frozen-$Q$ HVP). <b>Col 5</b> — Eq.&nbsp;29, the same sum but with $v_1^\top Q[u_1]v_k$ taken through the $\sum_{ij}\gamma_i\tau_{ij}(v_1^\top z_{ij})(v_v^\top z_{ij})(y_i^\top u_1)$ <b>eigendecomposition of $Q$</b>; the two columns differ by exactly that approximation. Sharpening when the bracket $>0$; sign-flipping residuals turn growth to decay — <i>self-stabilization</i>.</p>
 <div class="plotrow row5"><div id="p_pred1" class="plot"></div><div id="p_pred2" class="plot"></div><div id="p_pred3" class="plot"></div><div id="p_pred4" class="plot"></div><div id="p_pred5" class="plot"></div></div>
 <p class="cap"><b>With the second-order PSD term.</b> The recursions above keep only the first-order $\Delta\sigma_1$, which flips sign with the residual. Expanding $\sigma_1=u_1^\top(J+\Delta J)(J+\Delta J)^\top u_1$ leaves a dropped second-order term $\lVert\Delta J^\top u_1\rVert^2=(\eta/N)^2\lVert q_u\rVert^2\ge 0$ (single-sample: $\lVert\Delta J\rVert^2=(\eta r)^2\lVert QJ\rVert^2$) — always non-negative, a sharpening floor independent of residual sign. These panels add its running sum to each prediction: <b>predicted + PSD</b> (blue) vs <b>actual</b> (red).</p>
 <div class="plotrow row5"><div id="p_predp1" class="plot"></div><div id="p_predp2" class="plot"></div><div id="p_predp3" class="plot"></div><div id="p_predp4" class="plot"></div><div id="p_predp5" class="plot"></div></div>
@@ -263,7 +263,7 @@
 
 <div id="sec_9c">
 <h2>9c · Predicted $\sigma_1$ vs the full-Hessian sharpness</h2>
-<p class="cap">Same five predictions as §9, but the <b>experimental</b> curve is now the sharpness $\lambda_{\max}(\nabla^2 L)$ of the <b>full loss Hessian</b> $G+S$ (red dashed) — the quantity the EoS threshold $2/\eta$ acts on — instead of the Gauss–Newton edge $\lambda_{\max}(G)$ used in §9. Each panel shows <b>predicted</b> (blue) and <b>predicted + PSD</b> (green) against it; the gap is the contribution of the residual term $S$ that the NTK/Gauss–Newton prediction omits. Col 1 — single sample (Eq. 13); cols 2–5 — multi-sample (Eq. 21 / 22 / 29 / 23).</p>
+<p class="cap">Same five predictions as §9, but the <b>experimental</b> curve is now the sharpness $\lambda_{\max}(\nabla^2 L)$ of the <b>full loss Hessian</b> $G+S$ (red dashed) — the quantity the EoS threshold $2/\eta$ acts on — instead of the Gauss–Newton edge $\lambda_{\max}(G)$ used in §9. Each panel shows <b>predicted</b> (blue) and <b>predicted + PSD</b> (green) against it; the gap is the contribution of the residual term $S$ that the NTK/Gauss–Newton prediction omits. Col 1 — single sample (Eq. 13); cols 2–5 — multi-sample (Eq. 21 / 22 / 23 / 29).</p>
 <div class="plotrow row5"><div id="p_predh1" class="plot"></div><div id="p_predh2" class="plot"></div><div id="p_predh3" class="plot"></div><div id="p_predh4" class="plot"></div><div id="p_predh5" class="plot"></div></div>
 </div>
 
@@ -628,15 +628,15 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_pred1',tvT(),baseLayout('single-sample: predicted vs actual σ₁ (Eq.13)','σ₁',false));
   newP('p_pred2',tvT(),baseLayout('multi: Eq.21 — σ₁ from Eq-15-propagated J (residuals only)','σ₁',false));
   newP('p_pred3',tvT(),baseLayout('multi: Eq.22 (p·v₁ᵀQ[u₁]v₁)','σ₁',false));
-  newP('p_pred4',tvT(),baseLayout('multi: Eq.29 (sum over top-|T| NTK modes)','σ₁',false));
-  newP('p_pred5',tvT(),baseLayout('multi: Eq.23 (exact v₁ᵀQ[u₁]v_k — no Q decomposition)','σ₁',false));
+  newP('p_pred4',tvT(),baseLayout('multi: Eq.23 (exact v₁ᵀQ[u₁]v_k — no Q decomposition)','σ₁',false));
+  newP('p_pred5',tvT(),baseLayout('multi: Eq.29 (sum over top-|T| NTK modes)','σ₁',false));
   // §9b — same five predictions with the 2nd-order PSD term ‖ΔJᵀu₁‖² added: predicted+PSD (blue) vs actual (red)
   const tvP=lab=>[{x:[],y:[],mode:'lines',name:'predicted + PSD',line:{color:'#2563eb',width:1.9}},{x:[],y:[],mode:'lines',name:'actual',line:{color:'#dc2626',width:1.6}}];
   newP('p_predp1',tvP(),baseLayout('single-sample Eq.13 + PSD term ‖ΔJ‖²','σ₁',false));
   newP('p_predp2',tvP(),baseLayout('multi Eq.21 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
   newP('p_predp3',tvP(),baseLayout('multi Eq.22 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
-  newP('p_predp4',tvP(),baseLayout('multi Eq.29 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
-  newP('p_predp5',tvP(),baseLayout('multi Eq.23 (exact bilinear) + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
+  newP('p_predp4',tvP(),baseLayout('multi Eq.23 (exact bilinear) + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
+  newP('p_predp5',tvP(),baseLayout('multi Eq.29 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
   // §9c — same predictions vs the FULL loss-Hessian sharpness λmax(∇²L): predicted (blue), predicted+PSD (green), sharpness (red dashed)
   const tvH=lab=>[{x:[],y:[],mode:'lines',name:'predicted',line:{color:'#2563eb',width:1.9}},
                   {x:[],y:[],mode:'lines',name:'predicted + PSD',line:{color:'#16a34a',width:1.7}},
@@ -644,8 +644,8 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_predh1',tvH(),baseLayout('single-sample Eq.13 vs full-Hessian sharpness','σ₁',false));
   newP('p_predh2',tvH(),baseLayout('multi Eq.21 vs full-Hessian sharpness','σ₁',false));
   newP('p_predh3',tvH(),baseLayout('multi Eq.22 vs full-Hessian sharpness','σ₁',false));
-  newP('p_predh4',tvH(),baseLayout('multi Eq.29 vs full-Hessian sharpness','σ₁',false));
-  newP('p_predh5',tvH(),baseLayout('multi Eq.23 (exact bilinear) vs full-Hessian sharpness','σ₁',false));
+  newP('p_predh4',tvH(),baseLayout('multi Eq.23 (exact bilinear) vs full-Hessian sharpness','σ₁',false));
+  newP('p_predh5',tvH(),baseLayout('multi Eq.29 vs full-Hessian sharpness','σ₁',false));
   attachHover();
   resizeAllPlots();
 }
@@ -1080,7 +1080,7 @@ async function loop(){                                   // drives ST forward; r
             thP[1]=clmp(S.thBase+S.thAcc2);
             // §9b: same predictions + the dropped 2nd-order PSD term Σ‖ΔJᵀu₁‖² (always ≥0 — a sharpening floor)
             thPpsd[1]=clmp(S.thBase+S.thAcc2+S.thAccPSD);
-            thPpsd[2]=clmp(S.thBase*S.thProd3+S.thAccPSD);thPpsd[3]=clmp(S.thBase*S.thProd4+S.thAccPSD);thPpsd[4]=clmp(S.thBase*S.thProd5+S.thAccPSD);
+            thPpsd[2]=clmp(S.thBase*S.thProd3+S.thAccPSD);thPpsd[3]=clmp(S.thBase*S.thProd5+S.thAccPSD);thPpsd[4]=clmp(S.thBase*S.thProd4+S.thAccPSD);   // col-4=Eq-23, col-5=Eq-29 (swapped)
             // Q[u₁]v₁ via a frozen-Q HVP ⇒ the EXACT bilinear v₁ᵀQ[u₁]v_k = qv1·v_k (used by Eq-22 col-3 and Eq-23 col-5).
             const QV1=jacHVP(S.thTh0,spec,X,N,inDim,p,v1,eps);   // {∇²f_a|θ₀·v₁}
             const qv1=new Float64Array(p);for(let a=0;a<M;a++){const c=u1[a],qa=QV1[a];for(let q=0;q<p;q++)qv1[q]+=c*qa[q];}   // Q[u₁]v₁
@@ -1090,8 +1090,8 @@ async function loop(){                                   // drives ST forward; r
             S.thProd3*=Math.pow(1+2*etaN*pproj*dot(qv1,v1),reps_);   // exact bilinear
             // col-4 (Eq-29): bilinear v₁ᵀQ[u₁]v_k via the γτz eigendecomposition of Q (approx).  col-5 (Eq-23): the SAME bilinear
             // computed directly (exact) from the HVP above — the two differ only by that Q-decomposition approximation.
-            thP[3]=clmp(S.thBase*S.thProd4);
-            thP[4]=clmp(S.thBase*S.thProd5);
+            thP[3]=clmp(S.thBase*S.thProd5);   // col-4 = Eq-23 (swapped)
+            thP[4]=clmp(S.thBase*S.thProd4);   // col-5 = Eq-29 (swapped)
             let S4=0,S5=0;const NV=Math.min(Math.max(S.tset,1),NV0);
             for(let vk=0;vk<NV;vk++){const sgv=Math.sqrt(Math.max(ek.vals[vk],1e-30)),rho=dot(r,ek.vecs[vk]),gk=gnv(vk);S4+=(sgv/sgT)*fhBil(gk)*rho;S5+=(sgv/sgT)*dot(qv1,gk)*rho;}
             S.thProd4*=Math.pow(1+2*etaN*S4,reps_);     // Eq-29 (γτz-decomposed bilinear)
@@ -1462,16 +1462,16 @@ function cmpInit(pre, n, kind) {
   newP(pre + '_pred1', tvT(), baseLayout('single-sample: predicted vs surrogate σ₁ (Eq.13)', 'σ₁', false));
   newP(pre + '_pred2', tvT(), baseLayout('multi: Eq.21 σ₁', 'σ₁', false));
   newP(pre + '_pred3', tvT(), baseLayout('multi: Eq.22 σ₁', 'σ₁', false));
-  newP(pre + '_pred4', tvT(), baseLayout('multi: Eq.29 σ₁', 'σ₁', false));
-  newP(pre + '_pred5', tvT(), baseLayout('multi: Eq.23 σ₁ (exact bilinear)', 'σ₁', false));
+  newP(pre + '_pred4', tvT(), baseLayout('multi: Eq.23 σ₁ (exact bilinear)', 'σ₁', false));
+  newP(pre + '_pred5', tvT(), baseLayout('multi: Eq.29 σ₁', 'σ₁', false));
   // §9b — same predictions + the 2nd-order PSD term ‖ΔJᵀu₁‖² vs surrogate σ₁
   const tvP = () => [{ x:[], y:[], mode:'lines', name:'predicted + PSD', line:{ color:'#2563eb', width:1.9 } },
     { x:[], y:[], mode:'lines', name:'surrogate σ₁', line:{ color:'#dc2626', width:1.6 } }];
   newP(pre + '_predp1', tvP(), baseLayout('Eq.13 + PSD term ‖ΔJ‖²', 'σ₁', false));
   newP(pre + '_predp2', tvP(), baseLayout('Eq.21 + PSD term ‖ΔJᵀu₁‖²', 'σ₁', false));
   newP(pre + '_predp3', tvP(), baseLayout('Eq.22 + PSD term ‖ΔJᵀu₁‖²', 'σ₁', false));
-  newP(pre + '_predp4', tvP(), baseLayout('Eq.29 + PSD term ‖ΔJᵀu₁‖²', 'σ₁', false));
-  newP(pre + '_predp5', tvP(), baseLayout('Eq.23 + PSD term ‖ΔJᵀu₁‖²', 'σ₁', false));
+  newP(pre + '_predp4', tvP(), baseLayout('Eq.23 + PSD term ‖ΔJᵀu₁‖²', 'σ₁', false));
+  newP(pre + '_predp5', tvP(), baseLayout('Eq.29 + PSD term ‖ΔJᵀu₁‖²', 'σ₁', false));
   // §9c — predicted (blue) & predicted+PSD (green) vs the actual model's full-Hessian sharpness λmax(∇²L) (red dashed)
   const tvH = () => [{ x:[], y:[], mode:'lines', name:'predicted', line:{ color:'#2563eb', width:1.9 } },
     { x:[], y:[], mode:'lines', name:'predicted + PSD', line:{ color:'#16a34a', width:1.7 } },
@@ -1479,8 +1479,8 @@ function cmpInit(pre, n, kind) {
   newP(pre + '_predh1', tvH(), baseLayout('Eq.13 vs full-Hessian sharpness', 'σ₁', false));
   newP(pre + '_predh2', tvH(), baseLayout('Eq.21 vs full-Hessian sharpness', 'σ₁', false));
   newP(pre + '_predh3', tvH(), baseLayout('Eq.22 vs full-Hessian sharpness', 'σ₁', false));
-  newP(pre + '_predh4', tvH(), baseLayout('Eq.29 vs full-Hessian sharpness', 'σ₁', false));
-  newP(pre + '_predh5', tvH(), baseLayout('Eq.23 vs full-Hessian sharpness', 'σ₁', false));
+  newP(pre + '_predh4', tvH(), baseLayout('Eq.23 vs full-Hessian sharpness', 'σ₁', false));
+  newP(pre + '_predh5', tvH(), baseLayout('Eq.29 vs full-Hessian sharpness', 'σ₁', false));
   // §7a NTK alignment (actual model): residual→NTK eigvec; NTK eigvec→FH right-singular vec
   const ntkTr = () => { const a = []; for (let k = 0; k < n; k++) a.push({ x:[], y:[], mode:'lines', name:'k=' + (k+1), line:{ color:PALETTE[k%PALETTE.length], width:1.6 } }); return a; };
   newP(pre + '_ntkR', ntkTr(), baseLayout('§7a · residual onto top-n NTK eigvecs', '⟨r, vₖ⟩', false));
