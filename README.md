@@ -2,9 +2,17 @@
 
 An interactive companion to ***Understanding Progressive Sharpening***: it trains a small network with
 full-batch gradient descent and visualizes **progressive sharpening (PS)** and the **edge of stability
-(EoS)** live, with every panel tied to the paper's equations. Three interchangeable front-ends share one
-matrix-free numerical core (Hessian-vector products + Lanczos — no `p×p` matrix is ever formed, so it
-scales to multi-million-parameter nets):
+(EoS)** live, with every panel tied to the paper's equations.
+
+**The gist.** As a network trains, its loss surface keeps getting *sharper* — the curvature (the top
+eigenvalue of the loss Hessian) climbs. Gradient descent is only stable while that sharpness stays below
+`2/η`, so training drives itself right up to that line and then hovers there, the loss bouncing in a small
+period-2 oscillation. The climb is *progressive sharpening*; the hovering is the *edge of stability*. This
+tool runs that experiment in front of you and overlays the paper's predictions so you can see how well they
+match what the network actually does. (If you just want to watch it, skip the math below and press **Run**.)
+
+Three interchangeable front-ends share one matrix-free numerical core (Hessian-vector products + Lanczos —
+no `p×p` matrix is ever formed, so it scales to multi-million-parameter nets):
 
 | Front-end | What it is | File |
 |---|---|---|
@@ -13,6 +21,9 @@ scales to multi-million-parameter nets):
 | **`eos_lab/`** | headless Python package — same diagnostics for scripted / SLURM runs | `eos_lab/` |
 
 ## The theory
+
+This section collects the symbols and equations each panel is tied to. It's reference material — handy if
+you're following along with the paper, skippable if you just want to drive the tool.
 
 We train $f(x)\in\mathbb{R}^{d_{\text{out}}}$ ($\theta\in\mathbb{R}^p$) with full-batch GD,
 $\theta_{t+1}=\theta_t-\eta\nabla_\theta\mathcal L$. **Sharpness** $\sigma_1=\lambda_{\max}(\nabla^2_\theta\mathcal L)$

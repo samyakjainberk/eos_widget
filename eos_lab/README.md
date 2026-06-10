@@ -1,105 +1,95 @@
-# eos_lab — interpretable Python port of the EoS / Progressive-Sharpening widget
+# eos_lab — the Progressive-Sharpening / EoS lab as a Python package
 
-A **standalone, readable** Python package that does what the webpage (`index.html`) and its GPU
-backend (`server.py`) do — train a small net full-batch with gradient descent and measure
-progressive sharpening (PS) and the edge of stability (EoS) — but as a library you import and a CLI
-you run on the GPU yourself. No browser, no HTTP server.
+`eos_lab` does everything the browser widget (`index.html`) and its GPU backend (`server.py`) do —
+train a small network with full-batch gradient descent and watch **progressive sharpening (PS)** and the
+**edge of stability (EoS)** unfold — but as a plain Python library and command-line tool. No browser, no
+HTTP server: import it, or point it at a GPU and get back arrays and figures.
 
-It is a **mirror**, not a fork: each module maps to a part of the webpage, and the numerics are
-verified to match `server.py` (same `seed` ⇒ **identical GD trajectory**; see *Faithfulness* below).
-So when you ask for a change here, the corresponding spot in `server.py` / `index.html` is obvious.
+It mirrors the widget faithfully: at the same `seed` the gradient-descent trajectory is **bit-identical**
+and every diagnostic is checked against `server.py` (see [Faithfulness](#faithfulness)), so a run here and a
+run in the browser are directly comparable.
 
-## Install / run
+## Running it
 
-Uses the same env as `server.py` (`torch`, `numpy`, `matplotlib`). From the repo root:
+Uses the same environment as `server.py` (`torch`, `numpy`, `matplotlib`).
 
 ```bash
 PY=/nas/ucb/samsj/conda_env/envs/samsenv/bin/python
 
-# CLI: run a preset on a GPU, save arrays + panels to runs/<preset>/
+# Run a preset on a GPU; arrays + panel images land in runs/<preset>/
 $PY -m eos_lab.cli --preset msample --device cuda:0
 $PY -m eos_lab.cli --preset cifar_vgg --device cuda:0 --set chmul=0.5 --cifar-dir <cifar-dir>
 $PY -m eos_lab.cli --list-presets
 
-# library
-$PY -c "from eos_lab import Config, run_job; r=run_job(Config.from_preset('msample'),device='cuda:0',progress=True)"
+# As a library
+$PY -c "from eos_lab import Config, run_job; r = run_job(Config.from_preset('msample'), device='cuda:0', progress=True)"
 
-# many jobs across GPUs (one per array index, one GPU each)
+# A sweep across GPUs (one job per array index)
 sbatch --array=0-3 eos_lab/slurm/submit_array.sh
 ```
 
-`run_job(cfg)` returns `{"meta", "config", "history", "series"}`:
-`history` is the per-step records; `series` is tidy column arrays for plotting/saving.
+`run_job(cfg)` hands back `{"meta", "config", "history", "series"}` — `history` is the per-step records,
+and `series` is the same numbers as tidy column arrays, ready to plot or save.
 
-## Module map — this package ↔ `server.py` ↔ `index.html`
+## What's inside
 
-| module            | what it is                                   | mirrors in `server.py`                          | webpage |
-|-------------------|----------------------------------------------|-------------------------------------------------|---------|
-| `rng.py`          | mulberry32 + Box–Muller gauss                | `u32…mulberry32`, `gauss`                        | `mulberry32`, `gauss` |
-| `models.py`       | MLP/CNN/VGG11/GPT, losses, autograd grads/HVPs | `build_spec`,`fwd`,`*Model`,`MSE/CELoss`,`hvp*` | the architectures |
-| `linalg.py`       | Lanczos, SLQ, principal angles, subspaces    | `_lanczos_core`,`lanczos_extreme*`,`slq_density`,`principal_angles` | §1–§3, §5, §6 |
-| `data.py`         | synthetic / CIFAR-10 / sorting + seeded init | `load_cifar`,`load_sort`,`init_data_theta`      | the datasets |
-| `config.py`       | `Config` dataclass + `PRESETS`               | `_parse_params` defaults                         | control panel + preset dropdown |
-| `diagnostics.py`  | per-step section computations (§1–§9)        | the per-step block of `run_stream`               | all sections |
-| `train.py`        | GD loop + `run_job` (+ test loss, `on_step`) | `run_stream` (loop + meta/step records)          | the **Run** button |
-| `plots.py`        | matplotlib panels (all sections + train/test)| (browser draws these in Plotly)                  | the plot rows |
-| `logging_wandb.py`| run naming + Weights & Biases logging        | (n/a — headless sweeps)                          | (n/a) |
-| `cli.py`          | command-line runner (`--wandb`, auto-naming) | the HTTP `/run` handler                          | pressing Run |
-| `slurm/gen_grid.py`| generate the SBATCH run grid + `submit_all` | (n/a)                                            | (n/a) |
+A handful of small, single-purpose modules:
 
-## Sections — all ported (full widget parity)
+- **`config.py`** — the `Config` dataclass and the named presets.
+- **`models.py`** — the networks (MLP, CNN, VGG11, mini-GPT), the MSE / cross-entropy losses, and exact gradients + Hessian-vector products via autograd.
+- **`data.py`** — the datasets (synthetic, CIFAR-10, sorting, OpenWebText) and seeded initialization.
+- **`linalg.py`** — the matrix-free linear algebra: Lanczos, stochastic Lanczos quadrature, principal angles, subspaces.
+- **`diagnostics.py`** — the per-step measurements behind every panel (§1–§9).
+- **`train.py`** — the gradient-descent loop and `run_job`.
+- **`plots.py`** — renders each panel as a matplotlib figure.
+- **`cli.py`** / **`logging_wandb.py`** — the command-line runner and optional Weights & Biases logging.
+- **`slurm/`** — scripts to fan a sweep out across GPUs.
 
-Every widget toggle is implemented and **on by default**. Section ↔ flag map (see `config.Config`):
+Nothing here ever forms a `p×p` matrix: every curvature measurement is a Hessian-vector product, so memory
+stays `O(p)` and runs scale to multi-million-parameter networks.
 
-- **§1** `s1` loss (train **+ held-out test**) · **sharpness** (= λ_max of the loss Hessian) vs `2/η` · residual · spectral edges of `H`
-- **§2 / §3** `s2`/`s3` top-/bottom-`n` eigenvalues of `H`, the loss Hessian, Gauss–Newton `G`, residual term `S`  (loss Hessian = `G + S`)
-- **§4** `s4` `J = ∇Σf` projected onto top/bottom eigenvectors of `H`  (raw + Frobenius-normalized)
-- **§5** `s5` SLQ spectral density of `H`, loss Hessian, `G`, `S`
-- **§6** `s6` eigenspace rotation of `H` — principal angles of the ±-energy subspaces, step to step
-- **§7** `s7` multi-sample NTK & function-Hessian tensor SVD
-- **§8** `s8` `vec(J)` onto right-singular vectors of the `p×(p·dₙ)` FH reshape
-- **§4b/§4c/§4d** `s9`/`s10`/`s11` `J·r` onto eigvecs of `Q[u₁]` · `Q[u₁]·(J·r)` onto GN eigvecs · per-residual-sign-group projections
-- **§9** `s12` theoretical (Eq-13/21/27/29) vs empirical σ₁ (top NTK / Gauss–Newton eigenvalue) over frozen-Q windows;
-  the record also carries **§9b** `thPpsd` (predictions + the 2nd-order PSD term `‖ΔJᵀu₁‖²`)
-- **§9c** `s14` the same predictions vs the **full loss-Hessian sharpness** `λmax(∇²L)` (`thAH`) instead of the Gauss–Newton edge
+## What each panel shows
 
-The multi-sample sections (§7/§8/§4b–d and the multi branch of §9) form the explicit `M×p` Jacobian, so
-they are **auto-skipped** when `M = N·d_out` or `M·p` is too large (gated by `Diagnostics.multi_ok`,
-`M ≤ 512`, `M·p ≤ 2e8`); the skipped set is recorded in `meta["sections_skipped"]` and logged. The
-matrix-free sections (§1–§6, §9-single) always run, so large-`N` runs still produce the full PS/EoS story.
+Every section from the widget is here, and each is a flag on `config.Config` (all on by default):
 
-## Logging, naming & sweeps
+- **§1** — loss (train **and** held-out test), **sharpness** (the top eigenvalue of the loss Hessian) against the `2/η` threshold, the residual, and the spectral edges of the function Hessian `H`.
+- **§2 / §3** — the top / bottom `n` eigenvalues of `H`, the loss Hessian, the Gauss–Newton matrix `G`, and the residual term `S` (the loss Hessian is `G + S`).
+- **§4** — the Jacobian `J = ∇Σf` projected onto the top/bottom eigenvectors of `H` (raw and normalized).
+- **§5** — the spectral density (via stochastic Lanczos quadrature) of `H`, the loss Hessian, `G`, and `S`.
+- **§6** — how fast the dominant eigenspace of `H` rotates from step to step (principal angles).
+- **§7 / §8** — the multi-sample NTK and function-Hessian SVD, and `vec(J)` onto the FH-reshape singular vectors.
+- **§4b / §4c / §4d** — residual-weighted Jacobian projections (multi-sample only).
+- **§9** — the theory: each σ₁ prediction (Eqs. 13/21/27/29) overlaid on the measured top NTK / Gauss–Newton eigenvalue, over frozen-`Q` windows. The records also carry **§9b** (`thPpsd`: the predictions plus the second-order PSD term `‖ΔJᵀu₁‖²`, an always-positive sharpening floor the first-order recursion drops).
+- **§9c** — the same predictions compared against the **full loss-Hessian sharpness** `λmax(∇²L)` (`thAH`) rather than the Gauss–Newton edge; the gap between them is the residual term `S`.
 
-- **`run_name(cfg)`** (in `logging_wandb.py`) builds a deterministic, filesystem-safe name from the
-  hyperparameters; the CLI uses it for both the local folder (`--out-root/<run_name>/`) and the wandb run.
-- **`--wandb`** streams every per-step metric (all section vectors expanded to `base/i`) to project
-  `eos_lab`, and logs every rendered panel image at the end. Degrades to local-only if wandb is unavailable.
-- **`eos_lab/slurm/gen_grid.py`** writes one SBATCH script per run (datasets × architectures × `nsamp ∈
-  {1,10,100,1000,10000}` × seeds) into `eos_lab/slurm/runs/`, plus `submit_all.sh`. Export `WANDB_API_KEY`
-  (or put it in `~/.wandb_key`) first; `sbatch` propagates it.
+The multi-sample sections build an explicit `M×p` Jacobian (`M = N·d_out`), so they're **skipped
+automatically** when that's too big to form (the budget is `M ≤ 2048` and `M·p ≤ 7e8`; whatever is skipped
+is recorded in `meta["sections_skipped"]`). The matrix-free sections — §1–§6 and single-sample §9 — always
+run, so even large-`N` runs still tell the full PS/EoS story.
+
+## Sweeps & logging
+
+- `--wandb` streams every per-step metric to a Weights & Biases project and uploads the panel images at the end (it falls back to local-only if wandb isn't available). Run folders and run names are derived deterministically from the hyperparameters.
+- `eos_lab/slurm/gen_grid.py` writes one SBATCH script per run (datasets × architectures × `nsamp` × seeds), plus a `submit_all.sh`.
 
 ## Faithfulness
 
-For a synthetic MLP at a fixed `seed`, `eos_lab` reproduces `server.py` exactly, and all ported
-projection/theory sections (§4–§9) match too:
+At a fixed `seed`, `eos_lab` reproduces `server.py` to the bit on the GD trajectory, and every ported
+diagnostic matches:
 
 ```
-max |Δloss|      = 0.00e+00   (GD trajectory bit-identical: same mulberry32 init/data + same gradient)
-max |Δsharpness| ≈ 1e-8       (Lanczos on autograd HVPs vs server's finite-difference HVPs)
-§4–§9 vectors    Δ = 0 (autograd archs) … ≤1e-6 (MLP, FD-vs-autograd)   [verified vs server.run_stream]
+max |Δloss|       = 0          (identical mulberry32 init + data + gradient)
+max |Δsharpness|  ≈ 1e-8       (autograd vs finite-difference curvature probes)
+§4–§9 vectors     Δ = 0 … ≤1e-6
 ```
 
-Two intentional differences from `server.py`, both for clarity:
+There are two deliberate differences, both for readability: `device`/`dtype` are passed explicitly
+everywhere (no thread-locals, so you can always see where a tensor lives), and Hessian-vector products use
+autograd double-backward instead of finite differences (exact, and it doesn't touch the GD trajectory —
+only the curvature *probes* differ).
 
-1. **Explicit `device`/`dtype`** are threaded through every function (no thread-locals). More lines,
-   but you can always see where a tensor lives.
-2. **Autograd HVPs** (`torch.autograd` double-backward) instead of finite differences. Exact and
-   short to read; the GD trajectory is unaffected (only the curvature *probes* differ, and autograd
-   is the more accurate of the two).
+## Good to know
 
-## Notes
-
-- Default dtype: fp64 on CPU, fp32 on GPU (matches `server.py`). Pass `--dtype float64` to match the
-  browser’s double precision exactly.
-- Parameter cap `p ≤ 10,000,000` (matrix-free, so memory is `O(p)`).
-- CIFAR needs the raw pickle batches — pass `--cifar-dir` (same dir `server.py` uses).
+- Default precision is fp64 on CPU, fp32 on GPU (matching `server.py`); pass `--dtype float64` to match the browser exactly.
+- Parameter cap: `p ≤ 10,000,000` (memory is `O(p)`).
+- CIFAR needs the raw pickle batches — point `--cifar-dir` at the same directory `server.py` uses.
