@@ -203,7 +203,7 @@
   <label><input type="checkbox" id="en10"> 4c · Q[u₁]·(J·r) onto GN</label>
   <label><input type="checkbox" id="en11"> 4d · group J / J·r (±residual)</label>
   <label><input type="checkbox" id="en12" checked> 9 · theory vs empirical (Δσ₁)</label>
-  <label><input type="checkbox" id="en14"> 9c · theory vs full-Hessian sharpness</label>
+  <label><input type="checkbox" id="en14" checked> 9c · theory vs full-Hessian sharpness</label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -1324,7 +1324,7 @@ const SEC = {};
 // default-setting presets for the surrogate sections (applied to the prefixed q_*/l_* controls)
 // the surrogate materializes the full M×p Jacobian (M = nsamp·out_dim) for a whole window, so the
 // CIFAR/sorting presets use modest sample counts to stay fast and within GPU memory.
-const CMP_BASE = { c1:1, c2:1, c3:1, c4:1, c5:1, c6:1, c7:0, c8:1, c9:0, eigevery:1, every_iter:20, slqprobes:3,
+const CMP_BASE = { c1:1, c2:1, c3:1, c4:1, c5:1, c6:1, c7:0, c8:1, c9:1, eigevery:1, every_iter:20, slqprobes:3,
   qmode:1, tset:3, seed:0, tgt:1.0, inputstd:1.0, ssign:'off', bias:'0', neig:3, loss:'mse', initscheme:'default',
   chmul:0.25, dmodel:64, nhead:4, nlayer:2, seqlen:16, vocab:50257 };
 // The model + optimisation hyperparameters here are kept IDENTICAL to the matching main-widget PRESETS
@@ -1432,7 +1432,7 @@ function cmpHTML(pre, kind) {
     <label><input type="checkbox" id="${pre}_c6" checked> §4 J·eigvecs(H)</label>
     <label><input type="checkbox" id="${pre}_c7"> §4d group J·eigvecs(H)</label>
     <label><input type="checkbox" id="${pre}_c8" checked> §7a NTK alignment</label>
-    <label><input type="checkbox" id="${pre}_c9"> 9c · vs full-Hessian sharpness</label>
+    <label><input type="checkbox" id="${pre}_c9" checked> 9c · vs full-Hessian sharpness</label>
     <button id="${pre}_run" class="btn-run">Run</button>
     <button id="${pre}_stop" class="btn-stop" disabled>Stop</button>
     <button id="${pre}_resume" class="btn-run" disabled>Resume</button>
@@ -1662,8 +1662,7 @@ function makeCompareSection(pre, kind) {
   const lr0 = parseFloat(document.getElementById(pre + '_lr').value) || 0.3;
   const n0 = Math.max(1, parseInt(document.getElementById(pre + '_neig').value) || 3);
   SEC[pre].thr = 2 / lr0;
-  cmpInit(pre, n0, kind);
-  c9row();   // set initial §9c-row visibility (hidden unless its toggle is on)
+  cmpInit(pre, n0, kind);   // cmpInit already calls cmpVisibility(pre) → initial per-toggle panel visibility
   document.getElementById(pre + '_status').textContent = 'press Run to start this ' + kind + ' comparison (needs the GPU backend — python server.py).';
 }
 
