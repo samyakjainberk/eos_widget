@@ -204,13 +204,13 @@ def plot_section9(series, meta):
     if thP is None and thA is None:
         return None
     t = series["t"]
-    labels = ["Eq-13 (single)", "Eq-21 (col-2)", "Eq-22 (col-3)", "Eq-29 (col-4)"]
+    labels = ["Eq-13 (single)", "Eq-21 (col-2)", "Eq-22 (col-3)", "Eq-29 (col-4)", "Eq-23 (col-5)"]
 
     def col(arr, i):
         return arr[i] if (arr is not None and i < len(arr)) else None
 
     # keep only columns that have at least one finite point in predicted or empirical
-    present = [i for i in range(4)
+    present = [i for i in range(5)
                if any(y == y for y in (col(thP, i) or [])) or any(y == y for y in (col(thA, i) or []))]
     if not present:
         return None
@@ -247,12 +247,12 @@ def plot_section9c(series, meta):
     if thP is None or thAH is None or not any(y == y for y in thAH):
         return None
     t = series["t"]
-    labels = ["Eq-13 (single)", "Eq-21 (col-2)", "Eq-22 (col-3)", "Eq-29 (col-4)"]
+    labels = ["Eq-13 (single)", "Eq-21 (col-2)", "Eq-22 (col-3)", "Eq-29 (col-4)", "Eq-23 (col-5)"]
 
     def col(arr, i):
         return arr[i] if (arr is not None and i < len(arr)) else None
 
-    present = [i for i in range(4) if any(y == y for y in (col(thP, i) or []))]
+    present = [i for i in range(5) if any(y == y for y in (col(thP, i) or []))]
     if not present:
         return None
     fig, axs = plt.subplots(1, len(present), figsize=(4.5 * len(present), 3.3), squeeze=False)

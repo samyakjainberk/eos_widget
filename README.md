@@ -66,9 +66,15 @@ keeps its sign" gives Eq. 29 (the col-4 panel):
 
 $$\sigma_{1,t+s}=\sigma_{1,t}\prod_{k=0}^{s-1}\Big[1+2\eta\sum_{v\in T}\tfrac{\sqrt{\sigma_v}}{\sqrt{\sigma_1}}\sum_{ij}\gamma_i\tau_{ij}(v_{1,t+k}^\top z_{ij})(v_{v,t+k}^\top z_{ij})(y_i^\top u_{1,t+k})p_{t+k}\Big]$$
 
+A third multi-sample form, **Eq. 23** (the col-5 panel), is Eq. 22 generalised — it keeps Eq. 22's bilinear
+$v_1^\top Q[u_1]v_1$ but sums the residual projections over the same top-$|T|$ NTK modes (so it reduces to Eq. 22 at
+$|T|=1$, and unlike Eq. 29 the bilinear is *not* taken across modes):
+
+$$\sigma_{1,t+1}=\sigma_{1,t}\Big[1+2\eta\,v_1^\top Q[u_1]v_1\sum_{k\in T}\tfrac{\sqrt{\sigma_k}}{\sqrt{\sigma_1}}\,(r\!\cdot\!u_k)\Big]$$
+
 Progressive sharpening is predicted when the bracketed sum is $>0$ on average; when the (projected) residuals
 oscillate and flip sign the growth turns to decay — the cyclic **self-stabilization** at the edge of stability.
-Panel §9 overlays each prediction (Eqs. 13 / 21 / 22 / 29) on the measured $\sigma_1$ (the top
+Panel §9 overlays each prediction (Eqs. 13 / 21 / 22 / 29 / 23) on the measured $\sigma_1$ (the top
 Gauss–Newton / NTK eigenvalue). Two companion panels reuse the same predictions:
 **§9b** adds the dropped second-order term $\lVert\Delta J^\top u_1\rVert^2=(\eta/N)^2\lVert q_u\rVert^2\ge 0$
 (single-sample $\lVert\Delta J\rVert^2$) — an always-non-negative sharpening floor the first-order recursion omits;
@@ -87,7 +93,7 @@ instead of the Gauss–Newton edge, so the gap is exactly the residual term $S$.
 | **7a / 7 / 8** | NTK alignment; multi-sample NTK + function-Hessian SVD; `vec(J)` onto FH-reshape singular vecs | multi-sample · MSE or CE |
 | **4b / 4c** | `J·r` onto `Q[u₁]` eigvecs; `Q[u₁]·(J·r)` onto Gauss–Newton | multi-sample · MSE or CE |
 | **4d** | per-residual-sign-group projections | multi-sample · MSE |
-| **9** | predicted vs actual sharpness `σ₁` (Eq. 13 single-sample; Eq. 21/22/29 multi-sample) | MSE · single or multi |
+| **9** | predicted vs actual sharpness `σ₁` (Eq. 13 single-sample; Eq. 21/22/29/23 multi-sample) | MSE · single or multi |
 | **9b** | the same predictions **+ the 2nd-order PSD term** `‖ΔJᵀu₁‖²` vs actual `σ₁` | MSE · single or multi |
 | **9c** | the same predictions vs the **full-Hessian sharpness** `λmax(∇²L)` (own toggle) | MSE · single or multi |
 

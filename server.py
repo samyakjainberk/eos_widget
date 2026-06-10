@@ -1177,7 +1177,7 @@ def run_stream(P):
     prevQ9b = [None] * n
     qapprox = max(1, P["qapprox"]); qmode = P["qmode"]; tset = P["tset"]   # §9 window + (legacy qmode) + Eq-29 |T|
     thT0 = -1; thTh0 = None; thBase = 0.0; thJp = None; thJ = None; thFroz = None
-    thAcc1 = 0.0; thAcc2 = 0.0; thProd3 = 1.0; thProd4 = 1.0
+    thAcc1 = 0.0; thAcc2 = 0.0; thProd3 = 1.0; thProd4 = 1.0; thProd5 = 1.0
     thAccPSD = 0.0; thAccPSD1 = 0.0     # §9b: accumulated 2nd-order PSD term ‖ΔJᵀu₁‖² (≥0), single/multi
 
     for t in range(steps + 1):
@@ -1396,7 +1396,7 @@ def run_stream(P):
             if s12 or s14:
                 etaN = lr / max(N, 1); reps_ = max(1, ee)
                 if thT0 < 0 or (t - thT0) >= qapprox:               # window start: freeze θ₀, J₀, FH; reset accumulators
-                    thT0 = t; thTh0 = th.clone(); thAcc1 = 0.0; thAcc2 = 0.0; thProd3 = 1.0; thProd4 = 1.0
+                    thT0 = t; thTh0 = th.clone(); thAcc1 = 0.0; thAcc2 = 0.0; thProd3 = 1.0; thProd4 = 1.0; thProd5 = 1.0
                     thAccPSD = 0.0; thAccPSD1 = 0.0
                     if multi_ok:
                         thJ, _ = jac_cols(th, X)                  # predicted Jacobian J₀ (M, p)
@@ -1404,8 +1404,8 @@ def run_stream(P):
                         thBase = float(torch.linalg.eigvalsh(thJ @ thJ.t())[-1])
                     elif not multi:
                         Jc0, _ = gradF(th, X); thJp = Jc0.clone(); thBase = float(Jc0 @ Jc0)
-                thP = [None, None, None, None]; thA = [None, None, None, None]
-                thPpsd = [None, None, None, None]   # §9b: prediction + accumulated 2nd-order PSD term ‖ΔJᵀu₁‖²
+                thP = [None]*5; thA = [None]*5      # col 1-5: Eq-13, Eq-21, Eq-22, Eq-29, Eq-23
+                thPpsd = [None]*5   # §9b: prediction + accumulated 2nd-order PSD term ‖ΔJᵀu₁‖²
                 if multi_ok and thJ is not None and thFroz is not None and bEk_vals is not None:
                     Jt = thJ; F = thFroz
                     Kw, Vw = sym_eig_desc(Jt @ Jt.t())                  # propagated NTK eigen
@@ -1414,7 +1414,7 @@ def run_stream(P):
                         Vw[:, k] = pin_sign(Vw[:, k])
                     sig1 = max(float(Kw[0]), 1e-30); sgT = math.sqrt(sig1); u1 = Vw[:, 0]
                     v1 = Jt.t() @ u1; v1 = v1 / max(float(v1.norm()), 1e-30)
-                    sigAct = float(bEk_vals[0]); thA[1] = thA[2] = thA[3] = sigAct
+                    sigAct = float(bEk_vals[0]); thA[1] = thA[2] = thA[3] = thA[4] = sigAct
                     cap = 10*max(sigAct, 1e-30); clmp = lambda x: min(max(x, 0.0), cap)
                     def gnv(k):
                         g = Jt.t() @ Vw[:, k]; return g / max(float(g.norm()), 1e-30)
@@ -1426,17 +1426,20 @@ def run_stream(P):
                             s += F["gamma"][i]*sj*yu
                         return s
                     thP[1] = clmp(thBase + thAcc2)                      # col-2 (Eq-21): additive first-order Δσ (flips with residual sign)
-                    thP[2] = clmp(thBase*thProd3); thP[3] = clmp(thBase*thProd4)
+                    thP[2] = clmp(thBase*thProd3); thP[3] = clmp(thBase*thProd4); thP[4] = clmp(thBase*thProd5)
                     # §9b: same predictions + the dropped 2nd-order PSD term Σ‖ΔJᵀu₁‖² (always ≥0 — a sharpening floor)
                     thPpsd[1] = clmp(thBase + thAcc2 + thAccPSD)
                     thPpsd[2] = clmp(thBase*thProd3 + thAccPSD); thPpsd[3] = clmp(thBase*thProd4 + thAccPSD)
+                    thPpsd[4] = clmp(thBase*thProd5 + thAccPSD)
                     pproj = float(rr @ u1)                              # col-3 (Eq-22): p_t = r·u₁ (residual onto
                     thProd3 *= (1 + 2 * etaN * pproj * fhBil(v1)) ** reps_  #   NTK mode u₁ = the v₁-coeff of Jᵀr),
-                    S4 = 0.0; NV = min(max(tset, 1), NV0)              # col-4 (Eq-29): sum over top-|T| modes  σ_{t+1}=σ_t[1+2η p·v₁ᵀQ[u₁]v₁]
-                    for vk in range(NV):
+                    S4 = 0.0; pSum5 = 0.0; NV = min(max(tset, 1), NV0)   # col-4 (Eq-29): cross bilinear over top-|T|; col-5 (Eq-23): Eq-22's
+                    for vk in range(NV):                                #   bilinear v₁ᵀQ[u₁]v₁ with the residual projections summed over top-|T|
                         sgv = math.sqrt(max(float(Kw[vk]), 1e-30)); rho = float(rr @ Vw[:, vk])
-                        S4 += (sgv/sgT) * fhBil(gnv(vk)) * rho
+                        S4 += (sgv/sgT) * fhBil(gnv(vk)) * rho           # Eq-29: Σ_v (√σ_v/√σ₁) v₁ᵀQ[u₁]v_v (r·u_v)
+                        pSum5 += (sgv/sgT) * rho                         # Eq-23: Σ_k (√σ_k/√σ₁) (r·u_k)
                     thProd4 *= (1 + 2 * etaN * S4) ** reps_
+                    thProd5 *= (1 + 2 * etaN * fhBil(v1) * pSum5) ** reps_   # col-5 (Eq-23): σ_{t+1}=σ_t[1+2η v₁ᵀQ[u₁]v₁ Σ_k(√σ_k/√σ₁)(r·u_k)]
                     for _ in range(reps_):                             # advance Eq-15: J += (η/N) Q[Jᵀr], Q frozen at θ₀
                         QW = jac_hvp(thTh0, X, thJ.t() @ rr)      # {∇²f_a·(Jᵀr)} at θ₀
                         qu = (u1.unsqueeze(1) * QW).sum(0)              # Q[u₁](Jᵀr) = Σ_a u₁_a QW[a]
@@ -1595,7 +1598,7 @@ def run_surrogate_compare(P):
     thBase = 0.0
     thJ = thFroz = thJp = None
     thAcc1 = thAcc2 = 0.0
-    thProd3 = thProd4 = 1.0
+    thProd3 = thProd4 = thProd5 = 1.0
     thAccPSD = thAccPSD1 = 0.0      # §9b: accumulated 2nd-order PSD term ‖ΔJᵀu₁‖² (≥0), multi / single
 
     for t in range(steps + 1):
@@ -1613,7 +1616,7 @@ def run_surrogate_compare(P):
                 feTV0 = [pin_sign(x) for x in feTV0]
                 feBV0 = [pin_sign(x) for x in feBV0]
             thAcc1 = thAcc2 = 0.0
-            thProd3 = thProd4 = 1.0
+            thProd3 = thProd4 = thProd5 = 1.0
             thAccPSD = thAccPSD1 = 0.0
             if cT or c9c:
                 if multi:
@@ -1724,9 +1727,9 @@ def run_surrogate_compare(P):
             if cT or c9c:
                 etaN = lr / max(N, 1)
                 reps_ = max(1, ee)
-                thP = [None, None, None, None]
-                thA = [None, None, None, None]
-                thPpsd = [None, None, None, None]
+                thP = [None]*5      # col 1-5: Eq-13, Eq-21, Eq-22, Eq-29, Eq-23
+                thA = [None]*5
+                thPpsd = [None]*5
                 if multi and thJ is not None and thFroz is not None:
                     rr = rA
                     Jt = thJ
@@ -1741,7 +1744,7 @@ def run_surrogate_compare(P):
                     v1 = Jt.t() @ u1
                     v1 = v1 / max(float(v1.norm()), 1e-30)
                     sigSur = float(torch.linalg.eigvalsh(Jq @ Jq.t())[-1])   # surrogate σ₁ (measured)
-                    thA[1] = thA[2] = thA[3] = sigSur
+                    thA[1] = thA[2] = thA[3] = thA[4] = sigSur
                     cap = 10 * max(sigSur, 1e-30)
                     clmp = lambda x: min(max(x, 0.0), cap)
 
@@ -1760,18 +1763,23 @@ def run_surrogate_compare(P):
                     thP[1] = clmp(thBase + thAcc2)
                     thP[2] = clmp(thBase * thProd3)
                     thP[3] = clmp(thBase * thProd4)
+                    thP[4] = clmp(thBase * thProd5)
                     thPpsd[1] = clmp(thBase + thAcc2 + thAccPSD)          # §9b: + 2nd-order PSD term Σ‖ΔJᵀu₁‖²
                     thPpsd[2] = clmp(thBase * thProd3 + thAccPSD)
                     thPpsd[3] = clmp(thBase * thProd4 + thAccPSD)
+                    thPpsd[4] = clmp(thBase * thProd5 + thAccPSD)
                     pproj = float(rr @ u1)                            # col-3 (Eq-22): p_t = r·u₁ (the v₁-coeff of Jᵀr),
                     thProd3 *= (1 + 2 * etaN * pproj * fhBil(v1)) ** reps_   # σ_{t+1}=σ_t[1+2η p·v₁ᵀQ[u₁]v₁]
                     S4 = 0.0
+                    pSum5 = 0.0
                     NV = min(max(tset, 1), NV0)
                     for vk in range(NV):
                         sgv = math.sqrt(max(float(Kw[vk]), 1e-30))
                         rho = float(rr @ Vw[:, vk])
-                        S4 += (sgv / sgT) * fhBil(gnv(vk)) * rho
+                        S4 += (sgv / sgT) * fhBil(gnv(vk)) * rho        # Eq-29: cross bilinear v₁ᵀQ[u₁]v_v
+                        pSum5 += (sgv / sgT) * rho                      # Eq-23: residual projections Σ_k(√σ_k/√σ₁)(r·u_k)
                     thProd4 *= (1 + 2 * etaN * S4) ** reps_
+                    thProd5 *= (1 + 2 * etaN * fhBil(v1) * pSum5) ** reps_   # col-5 (Eq-23): Eq-22's bilinear, projections summed over top-|T|
                     for _ in range(reps_):
                         QW = jac_hvp(th0, X, thJ.t() @ rr)
                         qu = (u1.unsqueeze(1) * QW).sum(0)

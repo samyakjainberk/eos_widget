@@ -67,10 +67,10 @@
   .toggles label{display:flex;align-items:center;gap:6px;color:#374151;cursor:pointer}
   .toggles input{width:auto;accent-color:var(--accent)}
   .plotrow{display:grid;gap:16px;margin-top:6px}
-  .row4{grid-template-columns:repeat(4,1fr)} .row2{grid-template-columns:repeat(2,1fr)}
+  .row4{grid-template-columns:repeat(4,1fr)} .row2{grid-template-columns:repeat(2,1fr)} .row5{grid-template-columns:repeat(5,1fr)}
   .plot{width:100%;height:320px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 3px rgba(16,24,40,.05)}
-  @media(max-width:1320px){.row4{grid-template-columns:repeat(2,1fr)}}
-  @media(max-width:1000px){.row4,.row2{grid-template-columns:1fr}}
+  @media(max-width:1320px){.row4{grid-template-columns:repeat(2,1fr)} .row5{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:1000px){.row4,.row2,.row5{grid-template-columns:1fr}}
   code{font-family:var(--mono);background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:.9em}
   .footnote{font-family:var(--sans);font-size:12.5px;color:var(--muted);margin-top:8px}
   a{color:var(--accent)}
@@ -256,15 +256,15 @@
 <div id="sec_12">
 <h2>9 · Predicted vs actual sharpness $\sigma_1$</h2>
 <p class="cap">Each window freezes $Q$ at $\theta_0$ and forward-predicts the top NTK eigenvalue $\sigma_1$ (reset to the measured value at every window start). <b>Predicted</b> (blue) vs <b>actual</b> (red). <b>Col 1</b> — single sample, Eq.&nbsp;13: $J_{t+1}=(I+\eta r_tQ)J_t,\ \sigma_1=\lVert J\rVert^2$. <b>Col 2</b> — multi-sample, Eq.&nbsp;21: iterate $J_{t+1}=J_t+\tfrac{\eta}{N}Q[J^\top r]$, read $\sigma_1=\lambda_{\max}(JJ^\top)$. <b>Col 3</b> — multi-sample, Eq.&nbsp;22: $\sigma_{1,t+1}=\sigma_{1,t}\big[1+2\eta\,(r\!\cdot\!u_1)\,v_1^\top Q[u_1]v_1\big]$, with $p_t=r\!\cdot\!u_1$ (the residual's projection onto the top NTK eigenvector — the $v_1$-coefficient of $J^\top r$) — the compact form. <b>Col 4</b> — Eq.&nbsp;29, the top-$|T|$-mode recursion $\sigma_{1,t+1}=\sigma_{1,t}\big[1+2\eta\sum_{v\in T}\tfrac{\sqrt{\sigma_v}}{\sqrt{\sigma_1}}\sum_{ij}\gamma_i\tau_{ij}(v_1^\top z_{ij})(v_v^\top z_{ij})(y_i^\top u_1)\,p_t\big]$; $v_1^\top z_{ij}$, $y_i^\top u_1$ are GN/NTK alignments with the function-Hessian tensor (§7a/§7). Sharpening when the bracket $>0$; sign-flipping residuals turn growth to decay — <i>self-stabilization</i>.</p>
-<div class="plotrow row4"><div id="p_pred1" class="plot"></div><div id="p_pred2" class="plot"></div><div id="p_pred3" class="plot"></div><div id="p_pred4" class="plot"></div></div>
+<div class="plotrow row5"><div id="p_pred1" class="plot"></div><div id="p_pred2" class="plot"></div><div id="p_pred3" class="plot"></div><div id="p_pred4" class="plot"></div><div id="p_pred5" class="plot"></div></div>
 <p class="cap"><b>With the second-order PSD term.</b> The recursions above keep only the first-order $\Delta\sigma_1$, which flips sign with the residual. Expanding $\sigma_1=u_1^\top(J+\Delta J)(J+\Delta J)^\top u_1$ leaves a dropped second-order term $\lVert\Delta J^\top u_1\rVert^2=(\eta/N)^2\lVert q_u\rVert^2\ge 0$ (single-sample: $\lVert\Delta J\rVert^2=(\eta r)^2\lVert QJ\rVert^2$) — always non-negative, a sharpening floor independent of residual sign. These panels add its running sum to each prediction: <b>predicted + PSD</b> (blue) vs <b>actual</b> (red).</p>
-<div class="plotrow row4"><div id="p_predp1" class="plot"></div><div id="p_predp2" class="plot"></div><div id="p_predp3" class="plot"></div><div id="p_predp4" class="plot"></div></div>
+<div class="plotrow row5"><div id="p_predp1" class="plot"></div><div id="p_predp2" class="plot"></div><div id="p_predp3" class="plot"></div><div id="p_predp4" class="plot"></div><div id="p_predp5" class="plot"></div></div>
 </div>
 
 <div id="sec_9c">
 <h2>9c · Predicted $\sigma_1$ vs the full-Hessian sharpness</h2>
-<p class="cap">Same four predictions as §9, but the <b>experimental</b> curve is now the sharpness $\lambda_{\max}(\nabla^2 L)$ of the <b>full loss Hessian</b> $G+S$ (red dashed) — the quantity the EoS threshold $2/\eta$ acts on — instead of the Gauss–Newton edge $\lambda_{\max}(G)$ used in §9. Each panel shows <b>predicted</b> (blue) and <b>predicted + PSD</b> (green) against it; the gap is the contribution of the residual term $S$ that the NTK/Gauss–Newton prediction omits. Col 1 — single sample (Eq. 13); cols 2–4 — multi-sample (Eq. 21 / 27 / 29).</p>
-<div class="plotrow row4"><div id="p_predh1" class="plot"></div><div id="p_predh2" class="plot"></div><div id="p_predh3" class="plot"></div><div id="p_predh4" class="plot"></div></div>
+<p class="cap">Same five predictions as §9, but the <b>experimental</b> curve is now the sharpness $\lambda_{\max}(\nabla^2 L)$ of the <b>full loss Hessian</b> $G+S$ (red dashed) — the quantity the EoS threshold $2/\eta$ acts on — instead of the Gauss–Newton edge $\lambda_{\max}(G)$ used in §9. Each panel shows <b>predicted</b> (blue) and <b>predicted + PSD</b> (green) against it; the gap is the contribution of the residual term $S$ that the NTK/Gauss–Newton prediction omits. Col 1 — single sample (Eq. 13); cols 2–5 — multi-sample (Eq. 21 / 22 / 29 / 23).</p>
+<div class="plotrow row5"><div id="p_predh1" class="plot"></div><div id="p_predh2" class="plot"></div><div id="p_predh3" class="plot"></div><div id="p_predh4" class="plot"></div><div id="p_predh5" class="plot"></div></div>
 </div>
 
 <div id="sec_5">
@@ -534,7 +534,7 @@ function withThr(L,thr){
 }
 const emptyN=(cnt,namer,dash)=>Array.from({length:cnt},(_,i)=>({x:[],y:[],mode:'lines',name:namer(i),line:{width:1.6,color:PALETTE[i%PALETTE.length],dash:dash||'solid'}}));
 const SLQ_PLOTS=['p_sH','p_sG','p_sS','p_sHL'];
-const TIME_PLOTS=['p_loss','p_sharp','p_resid','p_eHfX','p_eHfT','p_eHLT','p_eGNT','p_eSRT','p_eHfB','p_eHLB','p_eGNB','p_eSRB','p_Jtop','p_Jbot','p_Jtopn','p_Jbotn','p_paPos','p_paNeg','p_ntkR','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb','p_pred1','p_pred2','p_pred3','p_pred4','p_predp1','p_predp2','p_predp3','p_predp4','p_predh1','p_predh2','p_predh3','p_predh4'];
+const TIME_PLOTS=['p_loss','p_sharp','p_resid','p_eHfX','p_eHfT','p_eHLT','p_eGNT','p_eSRT','p_eHfB','p_eHLB','p_eGNB','p_eSRB','p_Jtop','p_Jbot','p_Jtopn','p_Jbotn','p_paPos','p_paNeg','p_ntkR','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb','p_pred1','p_pred2','p_pred3','p_pred4','p_pred5','p_predp1','p_predp2','p_predp3','p_predp4','p_predp5','p_predh1','p_predh2','p_predh3','p_predh4','p_predh5'];
 const PLOT_IDS=TIME_PLOTS.concat(SLQ_PLOTS);
 function newP(id,traces,layout){Plotly.newPlot(id,traces,layout,CFG);const gd=document.getElementById(id);gd._baseShapes=layout.shapes?JSON.parse(JSON.stringify(layout.shapes)):[];}
 function slqLayout(title){const L=baseLayout(title,'density (log)',false);L.xaxis.title.text='eigenvalue';L.yaxis.type='log';L.showlegend=false;return L;}
@@ -629,12 +629,14 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_pred2',tvT(),baseLayout('multi: Eq.21 — σ₁ from Eq-15-propagated J (residuals only)','σ₁',false));
   newP('p_pred3',tvT(),baseLayout('multi: Eq.22 (p·v₁ᵀQ[u₁]v₁)','σ₁',false));
   newP('p_pred4',tvT(),baseLayout('multi: Eq.29 (sum over top-|T| NTK modes)','σ₁',false));
-  // §9b — same four predictions with the 2nd-order PSD term ‖ΔJᵀu₁‖² added: predicted+PSD (blue) vs actual (red)
+  newP('p_pred5',tvT(),baseLayout('multi: Eq.23 (Eq.22 bilinear, projections summed over top-|T|)','σ₁',false));
+  // §9b — same five predictions with the 2nd-order PSD term ‖ΔJᵀu₁‖² added: predicted+PSD (blue) vs actual (red)
   const tvP=lab=>[{x:[],y:[],mode:'lines',name:'predicted + PSD',line:{color:'#2563eb',width:1.9}},{x:[],y:[],mode:'lines',name:'actual',line:{color:'#dc2626',width:1.6}}];
   newP('p_predp1',tvP(),baseLayout('single-sample Eq.13 + PSD term ‖ΔJ‖²','σ₁',false));
   newP('p_predp2',tvP(),baseLayout('multi Eq.21 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
   newP('p_predp3',tvP(),baseLayout('multi Eq.22 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
   newP('p_predp4',tvP(),baseLayout('multi Eq.29 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
+  newP('p_predp5',tvP(),baseLayout('multi Eq.23 + PSD term ‖ΔJᵀu₁‖²','σ₁',false));
   // §9c — same predictions vs the FULL loss-Hessian sharpness λmax(∇²L): predicted (blue), predicted+PSD (green), sharpness (red dashed)
   const tvH=lab=>[{x:[],y:[],mode:'lines',name:'predicted',line:{color:'#2563eb',width:1.9}},
                   {x:[],y:[],mode:'lines',name:'predicted + PSD',line:{color:'#16a34a',width:1.7}},
@@ -643,6 +645,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_predh2',tvH(),baseLayout('multi Eq.21 vs full-Hessian sharpness','σ₁',false));
   newP('p_predh3',tvH(),baseLayout('multi Eq.22 vs full-Hessian sharpness','σ₁',false));
   newP('p_predh4',tvH(),baseLayout('multi Eq.29 vs full-Hessian sharpness','σ₁',false));
+  newP('p_predh5',tvH(),baseLayout('multi Eq.23 vs full-Hessian sharpness','σ₁',false));
   attachHover();
   resizeAllPlots();
 }
@@ -665,7 +668,7 @@ const ids=(cnt)=>Array.from({length:cnt},(_,i)=>i);
 const NA_NTK=['p_ntkR','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N'];
 const NA_4D=['p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb'];
 const NA_THEORY1=['p_pred1','p_predp1','p_predh1'];                          // §9/§9b/§9c col 1 — single-sample (Eq 13)
-const NA_THEORY_M=['p_pred2','p_pred3','p_pred4','p_predp2','p_predp3','p_predp4','p_predh2','p_predh3','p_predh4'];  // §9/§9b/§9c cols 2-4 — multi (Eq 21/27/29)
+const NA_THEORY_M=['p_pred2','p_pred3','p_pred4','p_pred5','p_predp2','p_predp3','p_predp4','p_predp5','p_predh2','p_predh3','p_predh4','p_predh5'];  // §9/§9b/§9c cols 2-5 — multi (Eq 21/22/29/23)
 function _na(ids,msg){ids.forEach(id=>{const gd=document.getElementById(id);if(gd&&gd.offsetParent!==null)try{Plotly.relayout(id,{annotations:[{text:msg,xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:11,color:'#94a3b8'},align:'center'}]});}catch(e){}});}
 function markUnavailable(multi,multiOk,ce){
   if(!multiOk) _na(NA_NTK, multi?'n/a — too large for this run<br>(NTK Jacobian M×p)':'n/a for a single sample<br>(needs ≥2 samples)');
@@ -686,9 +689,9 @@ function markUnavailable(multi,multiOk,ce){
 function clearNAonData(D){
   const C=(cond,...ids)=>{if(!cond)return;ids.forEach(id=>{const gd=document.getElementById(id);
     if(gd&&gd.layout&&gd.layout.annotations&&gd.layout.annotations.length)try{Plotly.relayout(id,{annotations:[]});}catch(e){}});};
-  if(D.thP)for(let c=0;c<4;c++)C(D.thP[c]!=null||D.thA&&D.thA[c]!=null,'p_pred'+(c+1));   // §9 per column
-  if(D.thPpsd)for(let c=0;c<4;c++)C(D.thPpsd[c]!=null||D.thA&&D.thA[c]!=null,'p_predp'+(c+1));   // §9b per column
-  if(D.thP)for(let c=0;c<4;c++)C(D.thP[c]!=null||D.thAH!=null,'p_predh'+(c+1));   // §9c per column
+  if(D.thP)for(let c=0;c<5;c++)C(D.thP[c]!=null||D.thA&&D.thA[c]!=null,'p_pred'+(c+1));   // §9 per column
+  if(D.thPpsd)for(let c=0;c<5;c++)C(D.thPpsd[c]!=null||D.thA&&D.thA[c]!=null,'p_predp'+(c+1));   // §9b per column
+  if(D.thP)for(let c=0;c<5;c++)C(D.thP[c]!=null||D.thAH!=null,'p_predh'+(c+1));   // §9c per column
   C(D.ntkR,'p_ntkR'); C(D.ntkH,'p_ntkH');                                                  // §7a
   C(D.fhEvT,'p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b'); // §7
   C(D.g2J,'p_g2J','p_g2Jn');                                                               // §8
@@ -768,16 +771,16 @@ function pushPoint(t,D,n,kth,nResid){
     Plotly.extendTraces('p_d4Qb',{x:reps(m,t),y:colsOf(m,D.d4Qb)},ids(m));
   }
   if(OPT.s12&&D.thP){   // theory vs empirical — 4 panels, each [predicted, actual]
-    for(let c=0;c<4;c++){const pv=D.thP[c],av=D.thA[c];if(pv==null&&av==null)continue;
+    for(let c=0;c<5;c++){const pv=D.thP[c],av=D.thA[c];if(pv==null&&av==null)continue;
       Plotly.extendTraces('p_pred'+(c+1),{x:[[t],[t]],y:[[pv],[av]]},[0,1]);}
   }
   if(OPT.s12&&D.thPpsd){   // §9b — predicted + PSD term vs actual
-    for(let c=0;c<4;c++){const pv=D.thPpsd[c],av=D.thA&&D.thA[c];if(pv==null&&av==null)continue;
+    for(let c=0;c<5;c++){const pv=D.thPpsd[c],av=D.thA&&D.thA[c];if(pv==null&&av==null)continue;
       Plotly.extendTraces('p_predp'+(c+1),{x:[[t],[t]],y:[[pv],[av]]},[0,1]);}
   }
   if(OPT.s14&&D.thP){   // §9c — predicted & predicted+PSD vs the FULL loss-Hessian sharpness (thAH)
     const sh=(D.thAH==null?null:D.thAH);
-    for(let c=0;c<4;c++){const pv=D.thP[c],pp=D.thPpsd?D.thPpsd[c]:null;if(pv==null&&pp==null&&sh==null)continue;
+    for(let c=0;c<5;c++){const pv=D.thP[c],pp=D.thPpsd?D.thPpsd[c]:null;if(pv==null&&pp==null&&sh==null)continue;
       Plotly.extendTraces('p_predh'+(c+1),{x:[[t],[t],[t]],y:[[pv],[pp],[sh]]},[0,1,2]);}
   }
 }
@@ -897,7 +900,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
       needVecs,needVals,prevTop:Array(nSub).fill(null),prevBot:Array(nSub).fill(null),prevPos:null,prevNeg:null,
       pNtk:Array(n).fill(null),pVH:Array(n).fill(null),pUJ:Array(n).fill(null),pM1:[null,null,null,null],pM2:[null,null,null,null],pG2:Array(n).fill(null),
       pU1k:Array(n).fill(null),pQ9t:Array(n).fill(null),pQ9b:Array(n).fill(null),
-      qapprox,qmode,tset,thT0:-1,thTh0:null,thBase:0,thJp:null,thJ:null,thFroz:null,thAcc1:0,thAcc2:0,thProd3:1,thProd4:1,thAccPSD:0,thAccPSD1:0,
+      qapprox,qmode,tset,thT0:-1,thTh0:null,thBase:0,thJp:null,thJ:null,thFroz:null,thAcc1:0,thAcc2:0,thProd3:1,thProd4:1,thProd5:1,thAccPSD:0,thAccPSD1:0,
       t:0,eigTick:0,done:0};
   loop();
 }
@@ -1057,19 +1060,19 @@ async function loop(){                                   // drives ST forward; r
         if(O.s12||O.s14){
           const W=Math.max(1,S.qapprox), etaN=S.lr/Math.max(N,1), reps_=Math.max(1,S.eigEvery);
           if(S.thT0<0||(t-S.thT0)>=W){            // window start: freeze θ₀, J₀, FH-SVD; reset col-3/4 products
-            S.thT0=t;S.thTh0=S.th.slice();S.thAcc1=0;S.thAcc2=0;S.thProd3=1;S.thProd4=1;S.thAccPSD=0;S.thAccPSD1=0;
+            S.thT0=t;S.thTh0=S.th.slice();S.thAcc1=0;S.thAcc2=0;S.thProd3=1;S.thProd4=1;S.thProd5=1;S.thAccPSD=0;S.thAccPSD1=0;
             if(M>1){S.thJ=jacCols(S.th,spec,X,N,inDim,p).cols;S.thFroz=computeFHfrozen(S.th,spec,X,N,inDim,p,eps,S.nProbe,Math.min(S.n,M),2,S.mV,M);
               const K0=new Float64Array(M*M);for(let a=0;a<M;a++)for(let b=a;b<M;b++){const v=dot(S.thJ[a],S.thJ[b]);K0[a*M+b]=v;K0[b*M+a]=v;}S.thBase=symEigDesc(K0,M).vals[0];}
             else{S.thJp=fr.grad.slice();S.thBase=dot(fr.grad,fr.grad);}
           }
-          thP=[null,null,null,null];thA=[null,null,null,null];thPpsd=[null,null,null,null];
+          thP=[null,null,null,null,null];thA=[null,null,null,null,null];thPpsd=[null,null,null,null,null];   // col 1-5: Eq-13/21/22/29/23
           if(M>1&&S.thJ&&S.thFroz&&bEk){
             const Jt=S.thJ,F=S.thFroz;
             const Km=new Float64Array(M*M);for(let a=0;a<M;a++)for(let b=a;b<M;b++){const v=dot(Jt[a],Jt[b]);Km[a*M+b]=v;Km[b*M+a]=v;}
             const ek=symEigDesc(Km,M),NV0=Math.min(S.n,M);for(let k=0;k<NV0;k++)pinSign(ek.vecs[k]);   // propagated NTK eigen
             const sig1=Math.max(ek.vals[0],1e-30),sgT=Math.sqrt(sig1),u1=ek.vecs[0];
             const v1=new Float64Array(p);for(let a=0;a<M;a++){const c=u1[a],ja=Jt[a];for(let q=0;q<p;q++)v1[q]+=c*ja[q];}{const nn=Math.max(norm(v1),1e-30);for(let q=0;q<p;q++)v1[q]/=nn;}
-            const sigAct=bEk.vals[0];thA[1]=sigAct;thA[2]=sigAct;thA[3]=sigAct;
+            const sigAct=bEk.vals[0];thA[1]=sigAct;thA[2]=sigAct;thA[3]=sigAct;thA[4]=sigAct;
             const CAP=10*Math.max(sigAct,1e-30),clmp=x=>Math.min(Math.max(x,0),CAP);
             const gnv=k=>{const uk=ek.vecs[k],g=new Float64Array(p);for(let a=0;a<M;a++){const c=uk[a],ja=Jt[a];for(let q=0;q<p;q++)g[q]+=c*ja[q];}const nn=Math.max(norm(g),1e-30);for(let q=0;q<p;q++)g[q]/=nn;return g;};
             const fhBil=vk=>{let s=0;for(let i=0;i<F.gamma.length;i++){const yu=dot(F.yv[i],u1),zs=F.zz[i],ts=F.tt[i];let sj=0;for(let j=0;j<zs.length;j++)sj+=ts[j]*dot(v1,zs[j])*dot(vk,zs[j]);s+=F.gamma[i]*sj*yu;}return s;};
@@ -1077,17 +1080,20 @@ async function loop(){                                   // drives ST forward; r
             thP[1]=clmp(S.thBase+S.thAcc2);
             // §9b: same predictions + the dropped 2nd-order PSD term Σ‖ΔJᵀu₁‖² (always ≥0 — a sharpening floor)
             thPpsd[1]=clmp(S.thBase+S.thAcc2+S.thAccPSD);
-            thPpsd[2]=clmp(S.thBase*S.thProd3+S.thAccPSD);thPpsd[3]=clmp(S.thBase*S.thProd4+S.thAccPSD);
+            thPpsd[2]=clmp(S.thBase*S.thProd3+S.thAccPSD);thPpsd[3]=clmp(S.thBase*S.thProd4+S.thAccPSD);thPpsd[4]=clmp(S.thBase*S.thProd5+S.thAccPSD);
             // col-3 (Eq-22): σ_{t+1}=σ_t[1+2η p·v₁ᵀQ[u₁]v₁] with p_t = r·u₁ (the v₁-coefficient of Jᵀr — the
             // residual's projection onto the top NTK eigenvector u₁), the compact form of the col-4 recursion
             thP[2]=clmp(S.thBase*S.thProd3);
             const pproj=dot(r,ek.vecs[0]);
             S.thProd3*=Math.pow(1+2*etaN*pproj*fhBil(v1),reps_);
-            // col-4 (Eq-29): sum over the top-|T| NTK modes
+            // col-4 (Eq-29): cross bilinear v₁ᵀQ[u₁]v_v summed over top-|T| modes.  col-5 (Eq-23): Eq-22's bilinear
+            // v₁ᵀQ[u₁]v₁ with the residual projections (r·u_k) summed over the same top-|T| modes.
             thP[3]=clmp(S.thBase*S.thProd4);
-            let S4=0;const NV=Math.min(Math.max(S.tset,1),NV0);
-            for(let vk=0;vk<NV;vk++){const sgv=Math.sqrt(Math.max(ek.vals[vk],1e-30)),rho=dot(r,ek.vecs[vk]);S4+=(sgv/sgT)*fhBil(gnv(vk))*rho;}
+            thP[4]=clmp(S.thBase*S.thProd5);
+            let S4=0,pSum5=0;const NV=Math.min(Math.max(S.tset,1),NV0);
+            for(let vk=0;vk<NV;vk++){const sgv=Math.sqrt(Math.max(ek.vals[vk],1e-30)),rho=dot(r,ek.vecs[vk]);S4+=(sgv/sgT)*fhBil(gnv(vk))*rho;pSum5+=(sgv/sgT)*rho;}
             S.thProd4*=Math.pow(1+2*etaN*S4,reps_);
+            S.thProd5*=Math.pow(1+2*etaN*fhBil(v1)*pSum5,reps_);   // Eq-23: σ_{t+1}=σ_t[1+2η v₁ᵀQ[u₁]v₁ Σ_k(√σ_k/√σ₁)(r·u_k)]
             // advance the predicted Jacobian by Eq-15: J += (η/N) Q[Jᵀr], Q frozen at θ₀, r = ACTUAL residual.
             // Reuse QW={∇²f_a·(Jᵀr)} for col-2's first-order Δσ = 2(η/N)√σ₁ v₁ᵀQ[u₁](Jᵀr) = 2(η/N)√σ₁ v₁ᵀΣ_a u₁_a QW[a].
             for(let s=0;s<reps_;s++){
@@ -1404,9 +1410,9 @@ function cmpHTML(pre, kind) {
   </div>
   <div id="${pre}_status" style="font-family:var(--sans);color:var(--muted);font-size:13px;margin:4px 0 8px;min-height:18px"></div>
   <div class="plotrow row4"><div id="${pre}_lossfig" class="plot"></div><div id="${pre}_resid" class="plot"></div><div id="${pre}_eig" class="plot"></div><div id="${pre}_hist" class="plot"></div></div>
-  <div id="${pre}_theoryrow" class="plotrow row4"><div id="${pre}_pred1" class="plot"></div><div id="${pre}_pred2" class="plot"></div><div id="${pre}_pred3" class="plot"></div><div id="${pre}_pred4" class="plot"></div></div>
-  <div id="${pre}_theoryrowB" class="plotrow row4"><div id="${pre}_predp1" class="plot"></div><div id="${pre}_predp2" class="plot"></div><div id="${pre}_predp3" class="plot"></div><div id="${pre}_predp4" class="plot"></div></div>
-  <div id="${pre}_theoryrowH" class="plotrow row4"><div id="${pre}_predh1" class="plot"></div><div id="${pre}_predh2" class="plot"></div><div id="${pre}_predh3" class="plot"></div><div id="${pre}_predh4" class="plot"></div></div>
+  <div id="${pre}_theoryrow" class="plotrow row5"><div id="${pre}_pred1" class="plot"></div><div id="${pre}_pred2" class="plot"></div><div id="${pre}_pred3" class="plot"></div><div id="${pre}_pred4" class="plot"></div><div id="${pre}_pred5" class="plot"></div></div>
+  <div id="${pre}_theoryrowB" class="plotrow row5"><div id="${pre}_predp1" class="plot"></div><div id="${pre}_predp2" class="plot"></div><div id="${pre}_predp3" class="plot"></div><div id="${pre}_predp4" class="plot"></div><div id="${pre}_predp5" class="plot"></div></div>
+  <div id="${pre}_theoryrowH" class="plotrow row5"><div id="${pre}_predh1" class="plot"></div><div id="${pre}_predh2" class="plot"></div><div id="${pre}_predh3" class="plot"></div><div id="${pre}_predh4" class="plot"></div><div id="${pre}_predh5" class="plot"></div></div>
   <div class="plotrow row2"><div id="${pre}_ntkR" class="plot"></div><div id="${pre}_ntkH" class="plot"></div></div>
   <div class="plotrow row4"><div id="${pre}_j4tA" class="plot"></div><div id="${pre}_j4tS" class="plot"></div><div id="${pre}_j4bA" class="plot"></div><div id="${pre}_j4bS" class="plot"></div></div>
   <div class="plotrow row4"><div id="${pre}_d4tp" class="plot"></div><div id="${pre}_d4tn" class="plot"></div><div id="${pre}_d4bp" class="plot"></div><div id="${pre}_d4bn" class="plot"></div></div>`;
@@ -1455,6 +1461,7 @@ function cmpInit(pre, n, kind) {
   newP(pre + '_pred2', tvT(), baseLayout('multi: Eq.21 σ₁', 'σ₁', false));
   newP(pre + '_pred3', tvT(), baseLayout('multi: Eq.22 σ₁', 'σ₁', false));
   newP(pre + '_pred4', tvT(), baseLayout('multi: Eq.29 σ₁', 'σ₁', false));
+  newP(pre + '_pred5', tvT(), baseLayout('multi: Eq.23 σ₁', 'σ₁', false));
   // §9b — same predictions + the 2nd-order PSD term ‖ΔJᵀu₁‖² vs surrogate σ₁
   const tvP = () => [{ x:[], y:[], mode:'lines', name:'predicted + PSD', line:{ color:'#2563eb', width:1.9 } },
     { x:[], y:[], mode:'lines', name:'surrogate σ₁', line:{ color:'#dc2626', width:1.6 } }];
@@ -1462,6 +1469,7 @@ function cmpInit(pre, n, kind) {
   newP(pre + '_predp2', tvP(), baseLayout('Eq.21 + PSD term ‖ΔJᵀu₁‖²', 'σ₁', false));
   newP(pre + '_predp3', tvP(), baseLayout('Eq.22 + PSD term ‖ΔJᵀu₁‖²', 'σ₁', false));
   newP(pre + '_predp4', tvP(), baseLayout('Eq.29 + PSD term ‖ΔJᵀu₁‖²', 'σ₁', false));
+  newP(pre + '_predp5', tvP(), baseLayout('Eq.23 + PSD term ‖ΔJᵀu₁‖²', 'σ₁', false));
   // §9c — predicted (blue) & predicted+PSD (green) vs the actual model's full-Hessian sharpness λmax(∇²L) (red dashed)
   const tvH = () => [{ x:[], y:[], mode:'lines', name:'predicted', line:{ color:'#2563eb', width:1.9 } },
     { x:[], y:[], mode:'lines', name:'predicted + PSD', line:{ color:'#16a34a', width:1.7 } },
@@ -1470,6 +1478,7 @@ function cmpInit(pre, n, kind) {
   newP(pre + '_predh2', tvH(), baseLayout('Eq.21 vs full-Hessian sharpness', 'σ₁', false));
   newP(pre + '_predh3', tvH(), baseLayout('Eq.22 vs full-Hessian sharpness', 'σ₁', false));
   newP(pre + '_predh4', tvH(), baseLayout('Eq.29 vs full-Hessian sharpness', 'σ₁', false));
+  newP(pre + '_predh5', tvH(), baseLayout('Eq.23 vs full-Hessian sharpness', 'σ₁', false));
   // §7a NTK alignment (actual model): residual→NTK eigvec; NTK eigvec→FH right-singular vec
   const ntkTr = () => { const a = []; for (let k = 0; k < n; k++) a.push({ x:[], y:[], mode:'lines', name:'k=' + (k+1), line:{ color:PALETTE[k%PALETTE.length], width:1.6 } }); return a; };
   newP(pre + '_ntkR', ntkTr(), baseLayout('§7a · residual onto top-n NTK eigvecs', '⟨r, vₖ⟩', false));
@@ -1524,11 +1533,11 @@ function cmpPush(pre, m) {
     Plotly.extendTraces(id, { x:xs, y:ys }, idx); };
   grp(pre + '_d4tp', m.d4tA, m.d4tS, 0); grp(pre + '_d4tn', m.d4tA, m.d4tS, n);
   grp(pre + '_d4bp', m.d4bA, m.d4bS, 0); grp(pre + '_d4bn', m.d4bA, m.d4bS, n);
-  if (m.thP) for (let c=0;c<4;c++){ const pv=m.thP[c], av=m.thA[c]; if (pv==null && av==null) continue;
+  if (m.thP) for (let c=0;c<5;c++){ const pv=m.thP[c], av=m.thA[c]; if (pv==null && av==null) continue;
     Plotly.extendTraces(pre + '_pred' + (c+1), { x:[[t],[t]], y:[[pv],[av]] }, [0,1]); }
-  if (m.thPpsd) for (let c=0;c<4;c++){ const pv=m.thPpsd[c], av=m.thA && m.thA[c]; if (pv==null && av==null) continue;
+  if (m.thPpsd) for (let c=0;c<5;c++){ const pv=m.thPpsd[c], av=m.thA && m.thA[c]; if (pv==null && av==null) continue;
     Plotly.extendTraces(pre + '_predp' + (c+1), { x:[[t],[t]], y:[[pv],[av]] }, [0,1]); }       // §9b
-  if (m.thAH != null && m.thP) for (let c=0;c<4;c++){ const pv=m.thP[c], pp=m.thPpsd?m.thPpsd[c]:null;
+  if (m.thAH != null && m.thP) for (let c=0;c<5;c++){ const pv=m.thP[c], pp=m.thPpsd?m.thPpsd[c]:null;
     if (pv==null && pp==null) continue;
     Plotly.extendTraces(pre + '_predh' + (c+1), { x:[[t],[t],[t]], y:[[pv],[pp],[m.thAH]] }, [0,1,2]); }  // §9c
 }

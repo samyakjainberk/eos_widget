@@ -126,6 +126,7 @@ class Diagnostics:
         self._thAcc2 = 0.0
         self._thProd3 = 1.0
         self._thProd4 = 1.0
+        self._thProd5 = 1.0
         self._thAccPSD = 0.0     # §9b: accumulated 2nd-order PSD term ‖ΔJᵀu₁‖² (≥0), multi
         self._thAccPSD1 = 0.0    # §9b: accumulated PSD term ‖ΔJ‖² (≥0), single-sample
 
@@ -402,7 +403,7 @@ class Diagnostics:
             self._thT0 = t
             self._thTh0 = th.clone()
             self._thAcc1 = self._thAcc2 = 0.0
-            self._thProd3 = self._thProd4 = 1.0
+            self._thProd3 = self._thProd4 = self._thProd5 = 1.0
             self._thAccPSD = self._thAccPSD1 = 0.0
             if multi:
                 self._thJ, _ = jac_cols(self.model, th, X)
@@ -414,9 +415,9 @@ class Diagnostics:
                 self._thJp = Jc0.clone()
                 self._thBase = float(Jc0 @ Jc0)
 
-        thP = [None, None, None, None]
-        thA = [None, None, None, None]
-        thPpsd = [None, None, None, None]   # §9b: prediction + accumulated 2nd-order PSD term ‖ΔJᵀu₁‖²
+        thP = [None]*5      # col 1-5: Eq-13, Eq-21, Eq-22, Eq-29, Eq-23
+        thA = [None]*5
+        thPpsd = [None]*5   # §9b: prediction + accumulated 2nd-order PSD term ‖ΔJᵀu₁‖²
         if multi and self._thJ is not None and self._thFroz is not None and bEk_vals is not None:
             Jt, Fz = self._thJ, self._thFroz
             Kw, Vw = sym_eig_desc(Jt @ Jt.t())
@@ -425,7 +426,7 @@ class Diagnostics:
                 Vw[:, k] = pin_sign(Vw[:, k])
             sig1 = max(float(Kw[0]), 1e-30); sgT = math.sqrt(sig1); u1 = Vw[:, 0]
             v1 = Jt.t() @ u1; v1 = v1 / max(float(v1.norm()), 1e-30)
-            sigAct = float(bEk_vals[0]); thA[1] = thA[2] = thA[3] = sigAct
+            sigAct = float(bEk_vals[0]); thA[1] = thA[2] = thA[3] = thA[4] = sigAct
             cap = 10 * max(sigAct, 1e-30)
             clmp = lambda x: min(max(x, 0.0), cap)
 
@@ -445,17 +446,21 @@ class Diagnostics:
             thP[1] = clmp(self._thBase + self._thAcc2)
             thP[2] = clmp(self._thBase * self._thProd3)
             thP[3] = clmp(self._thBase * self._thProd4)
+            thP[4] = clmp(self._thBase * self._thProd5)
             # §9b: same predictions + the dropped 2nd-order PSD term Σ‖ΔJᵀu₁‖² (always ≥0 — a sharpening floor)
             thPpsd[1] = clmp(self._thBase + self._thAcc2 + self._thAccPSD)
             thPpsd[2] = clmp(self._thBase * self._thProd3 + self._thAccPSD)
             thPpsd[3] = clmp(self._thBase * self._thProd4 + self._thAccPSD)
+            thPpsd[4] = clmp(self._thBase * self._thProd5 + self._thAccPSD)
             pproj = float(rr @ u1)                         # col-3 (Eq-22): p_t = r·u₁ (the v₁-coeff of Jᵀr),
             self._thProd3 *= (1 + 2 * etaN * pproj * fhBil(v1)) ** reps_   # σ_{t+1}=σ_t[1+2η p·v₁ᵀQ[u₁]v₁]
-            S4 = 0.0; NV = min(max(tset, 1), NV0)
+            S4 = 0.0; pSum5 = 0.0; NV = min(max(tset, 1), NV0)
             for vk in range(NV):
                 sgv = math.sqrt(max(float(Kw[vk]), 1e-30)); rho = float(rr @ Vw[:, vk])
-                S4 += (sgv / sgT) * fhBil(gnv(vk)) * rho
+                S4 += (sgv / sgT) * fhBil(gnv(vk)) * rho   # Eq-29: cross bilinear v₁ᵀQ[u₁]v_v
+                pSum5 += (sgv / sgT) * rho                 # Eq-23: residual projections Σ_k(√σ_k/√σ₁)(r·u_k)
             self._thProd4 *= (1 + 2 * etaN * S4) ** reps_
+            self._thProd5 *= (1 + 2 * etaN * fhBil(v1) * pSum5) ** reps_   # col-5 (Eq-23): Eq-22's bilinear, projections summed over top-|T|
             for _ in range(reps_):                            # advance Eq-15: J += (η/N) Q[Jᵀr]
                 QW = jac_hvp(self.model, self._thTh0, X, self._thJ.t() @ rr)
                 qu = (u1.unsqueeze(1) * QW).sum(0)
