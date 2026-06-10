@@ -101,7 +101,10 @@ Set from the dropdowns (real-data / conv / transformer runs use the GPU backend)
 
 - **Datasets** — `synthetic` (in-browser MLP), **CIFAR-10**, **sorting** (sort a sequence; MSE),
   **OpenWebText** (GPT-2-BPE next-token LM; cross-entropy *or* MSE, minibatched — under MSE the
-  logits are regressed toward the one-hot next token, normalised per token).
+  logits are regressed toward the one-hot next token, normalised per token), and **Chebyshev**
+  (Cohen et al. EoS toy task: `nsamp` points evenly spaced on [-1,1] labeled by the Chebyshev
+  polynomial `T_degree`; MSE on the canonical 1-hidden-layer tanh net `Linear(1,100)→tanh→Linear(100,1)`.
+  `degree` is set in the hyperparameter panel; the preset sharpens to the `2/η` edge of stability).
 - **Architectures** — `MLP`, `CNN`, **VGG11** (`chmul` scales channels, up to ~9.4M params),
   **mini-GPT** (sorting regressor, or a tied-embedding token-LM for OpenWebText).
 - **Loss** — `MSE` (all panels) or `cross-entropy` (keeps §4/§6; residual-NTK & theory panels n/a).

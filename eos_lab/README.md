@@ -37,7 +37,7 @@ A handful of small, single-purpose modules:
 
 - **`config.py`** — the `Config` dataclass and the named presets.
 - **`models.py`** — the networks (MLP, CNN, VGG11, mini-GPT), the MSE / cross-entropy losses, and exact gradients + Hessian-vector products via autograd.
-- **`data.py`** — the datasets (synthetic, CIFAR-10, sorting, OpenWebText) and seeded initialization.
+- **`data.py`** — the datasets (synthetic, CIFAR-10, sorting, OpenWebText, Chebyshev) and seeded initialization.
 - **`linalg.py`** — the matrix-free linear algebra: Lanczos, stochastic Lanczos quadrature, principal angles, subspaces.
 - **`diagnostics.py`** — the per-step measurements behind every panel (§1–§9).
 - **`train.py`** — the gradient-descent loop and `run_job`.

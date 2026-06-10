@@ -13,7 +13,7 @@ from dataclasses import dataclass, asdict, field
 @dataclass
 class Config:
     # ---- dataset & architecture (mirror index.html 'Dataset & architecture' panel) ----
-    dataset: str = "synthetic"      # synthetic | cifar10 | sorting | owt
+    dataset: str = "synthetic"      # synthetic | cifar10 | sorting | owt | chebyshev
     arch: str = "mlp"               # mlp | cnn | vgg11 | gpt
     loss: str = "mse"               # mse | ce
     chmul: float = 0.25             # CNN/VGG channel multiplier
@@ -22,6 +22,7 @@ class Config:
     nlayer: int = 2                 # GPT blocks
     seqlen: int = 16                # sorting sequence length / owt block size (tokens per sequence)
     vocab: int = 50257              # owt vocabulary (GPT-2 BPE) — token-embedding/head size
+    degree: int = 3                 # chebyshev: degree of the target Chebyshev polynomial T_k
 
     # ---- model (mirror 'Model' panel) ----
     depth: int = 4
@@ -133,4 +134,9 @@ PRESETS = {
     "owt_gpt":   dict(dataset="owt", arch="gpt", loss="ce", nsamp=64, batch=16, lr=0.0006, init=0.1,
                       steps=2000, eigevery=5, slqprobes=3, dmodel=64, nhead=4, nlayer=2, seqlen=128,
                       vocab=50257, s1=1, s2=1, s3=1, s5=0, s6=0),
+    # Chebyshev regression (Cohen et al. EoS): nsamp points on [-1,1] labeled by T_degree; the canonical
+    # 1-hidden-layer tanh net (Linear(1,100)→tanh→Linear(100,1)). Sharpens to the 2/η edge of stability.
+    "chebyshev": dict(dataset="chebyshev", arch="mlp", loss="mse", act="tanh", depth=1, width=100, bias=1,
+                      fixedx=0, indim=1, outdim=1, nsamp=20, degree=3, lr=0.2, init=0.5, steps=500,
+                      s1=1, s2=1, s3=1, s5=0, s6=0),
 }

@@ -954,6 +954,21 @@ def load_sort(n, L, drng):
     return X, Y
 
 
+def load_chebyshev(n, k):
+    """Chebyshev regression (Cohen et al. EoS toy task): `n` points evenly spaced on [-1,1] (input, n×1),
+    labeled noiselessly by the Chebyshev polynomial T_k of degree `k` (output, n×1). MSE regression.
+    T_k via the recurrence T₀=1, T₁=x, Tₘ=2x·Tₘ₋₁−Tₘ₋₂. MIRRORS eos_lab.data.load_chebyshev."""
+    x = torch.linspace(-1.0, 1.0, max(int(n), 1), dtype=DTYPE, device=_dev())
+    if int(k) <= 0:
+        y = torch.ones_like(x)
+    else:
+        tm2, tm1 = torch.ones_like(x), x.clone()
+        for _ in range(2, int(k) + 1):
+            tm2, tm1 = tm1, 2 * x * tm1 - tm2
+        y = tm1
+    return x.unsqueeze(1), y.unsqueeze(1)
+
+
 _OWT_CACHE = {}
 
 
@@ -1023,6 +1038,8 @@ def init_data_theta(P, dataset, N, inD, outD):
         X, Y = load_cifar(N, P["seed"])
     elif dataset == "sorting":
         X, Y = load_sort(N, inD, drng)
+    elif dataset == "chebyshev":
+        X, Y = load_chebyshev(N, P.get("degree", 3))
     elif fixedx:
         X = torch.ones(N, inD, dtype=DTYPE, device=_dev())
         if ssign == "off":
@@ -1082,6 +1099,8 @@ def run_stream(P):
         inDimE = outDimE = int(P["seqlen"])
     elif dataset == "owt":
         inDimE, outDimE = int(P["seqlen"]), int(P["vocab"])   # block size, vocab
+    elif dataset == "chebyshev":
+        inDimE = outDimE = 1                                  # scalar x → scalar T_k(x)
     else:
         inDimE, outDimE = P["indim"], P["outdim"]
     _TL.model = build_model(arch, inDimE, outDimE, P)
@@ -1527,6 +1546,8 @@ def run_surrogate_compare(P):
         inDimE, outDimE = 3072, 10
     elif dataset == "sorting":
         inDimE = outDimE = int(P["seqlen"])
+    elif dataset == "chebyshev":
+        inDimE = outDimE = 1                              # scalar x → scalar T_k(x)
     else:
         inDimE, outDimE = P["indim"], P["outdim"]
     _TL.model = build_model(arch, inDimE, outDimE, P)
@@ -1838,6 +1859,7 @@ def _parse_params(q):
         "dataset": g("dataset", "synthetic"), "arch": g("arch", "mlp"), "loss": g("loss", "mse"),
         "chmul": ff("chmul", 0.25), "nlayer": fi("nlayer", 2), "nhead": fi("nhead", 4),
         "dmodel": fi("dmodel", 64), "seqlen": fi("seqlen", 16), "vocab": fi("vocab", 50257),
+        "degree": fi("degree", 3),       # Chebyshev polynomial degree (chebyshev dataset)
         "initscheme": g("initscheme", "default"),
         "surrogate": g("surrogate", "quad"), "mode": g("mode", "run"),
         "s1": g("s1", "1") == "1", "s2": g("s2", "1") == "1", "s3": g("s3", "1") == "1",

@@ -48,6 +48,8 @@ def effective_dims(cfg):
         return cfg.seqlen, cfg.seqlen
     if cfg.dataset == "owt":
         return cfg.seqlen, cfg.vocab       # in_dim = block size (tokens/seq), out_dim = vocab
+    if cfg.dataset == "chebyshev":
+        return 1, 1                        # scalar x → scalar T_k(x)
     return cfg.indim, cfg.outdim
 
 

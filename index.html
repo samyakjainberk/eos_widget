@@ -107,6 +107,7 @@
     <option value="cifar_vgg">CIFAR-10 · VGG11 (GPU backend, ~0.6M; chmul=1 → ~9.4M)</option>
     <option value="sort_gpt">sorting · mini-GPT transformer (GPU backend)</option>
     <option value="owt_gpt">OpenWebText · mini-GPT LM, minibatch SGD (GPU backend)</option>
+    <option value="chebyshev">Chebyshev · T₃ regression on [-1,1] (GPU backend)</option>
     <option value="custom">— custom (manual) —</option>
   </select>
   <span class="hint">picking a preset auto-runs it · edit any control and press <b>Run</b> · hover any plot for a shared cursor</span>
@@ -116,7 +117,7 @@
   <div class="panel">
     <div class="panel-title">Dataset &amp; architecture <span style="color:#94a3b8;font-weight:400;text-transform:none">· GPU backend only</span></div>
     <div class="grid">
-      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="cifar10">CIFAR-10</option><option value="sorting">sorting</option><option value="owt">OpenWebText</option></select></div>
+      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="cifar10">CIFAR-10</option><option value="sorting">sorting</option><option value="owt">OpenWebText</option><option value="chebyshev">Chebyshev</option></select></div>
       <div class="ctl"><label>architecture</label><select id="arch"><option value="mlp" selected>MLP</option><option value="cnn">CNN</option><option value="vgg11">VGG11</option><option value="gpt">mini-GPT</option></select></div>
       <div class="ctl"><label>loss</label><select id="loss"><option value="mse" selected>MSE</option><option value="ce">cross-entropy</option></select></div>
       <div class="ctl"><label>CNN/VGG channel mult</label><input id="chmul" type="number" value="0.25" min="0.05" max="2" step="0.05"></div>
@@ -125,6 +126,7 @@
       <div class="ctl"><label>GPT n_layer</label><input id="nlayer" type="number" value="2" min="1" max="12" step="1"></div>
       <div class="ctl"><label>seq len (sorting / owt block)</label><input id="seqlen" type="number" value="16" min="2" max="512" step="1"></div>
       <div class="ctl"><label>vocab (owt)</label><input id="vocab" type="number" value="50257" min="2" max="50257" step="1"></div>
+      <div class="ctl"><label>cheby degree</label><input id="degree" type="number" value="3" min="1" max="12" step="1"></div>
     </div>
   </div>
   <div class="panel">
@@ -1150,7 +1152,7 @@ function _zip(files){const enc=new TextEncoder(),parts=[],cd=[];let off=0;
   const eo=new Uint8Array([].concat(u32(0x06054b50),u16(0),u16(0),u16(cd.length),u16(cd.length),u32(cs),u32(off),u16(0)));
   return new Blob([...parts,...cp,eo],{type:'application/zip'});}
 function _b64bytes(durl){const s=atob(durl.split(',')[1]),a=new Uint8Array(s.length);for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return a;}
-function _cfgText(){const ids=['preset','compute','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','depth','width','act','bias','fixedx','inputstd','ssign','indim','outdim','nsamp','batch','tgt','lr','init','initscheme','steps','seed','neig','kth','eigevery','slqprobes','energyp','gson'];
+function _cfgText(){const ids=['preset','compute','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','depth','width','act','bias','fixedx','inputstd','ssign','indim','outdim','nsamp','batch','tgt','lr','init','initscheme','steps','seed','neig','kth','eigevery','slqprobes','energyp','gson'];
   const L=ids.map(id=>{const e=document.getElementById(id);return e?(id+' = '+e.value):null;}).filter(Boolean);
   L.push('panels: '+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11'].map(id=>id+'='+(chk(id)?1:0)).join(' '));
   const stt=document.getElementById('status');if(stt&&stt.textContent)L.push('status: '+stt.textContent);
@@ -1179,7 +1181,7 @@ function backendURL(start){
   const ps=new URLSearchParams();
   ['depth','width','act','bias','fixedx','inputstd','ssign','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
    'neig','kth','steps','eigevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset',
-   'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab'].forEach(id=>ps.set(id,val(id)));
+   'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree'].forEach(id=>ps.set(id,val(id)));
   [['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
    ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
   ps.set('start',String(start||0));
@@ -1243,10 +1245,13 @@ const PRESETS={
   // OpenWebText next-token LM — GPT-2 BPE, cross-entropy. nsamp sequences form the pool; each step
   // samples a `batch` minibatch used for BOTH the GD step and that step's diagnostics. CE keeps §1/§2/§3.
   owt_gpt:{dataset:'owt',arch:'gpt',loss:'ce',depth:2,width:128,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.0006,init:0.1,nsamp:64,batch:16,indim:16,outdim:16,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:5,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:128,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
+  // Chebyshev regression (Cohen et al. EoS): nsamp points on [-1,1] labeled by T_degree; the canonical
+  // 1-hidden-layer tanh net (Linear(1,100)→tanh→Linear(100,1)). Sharpness climbs to the 2/η edge of stability.
+  chebyshev:{dataset:'chebyshev',arch:'mlp',loss:'mse',depth:1,width:100,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.2,init:0.5,nsamp:20,batch:0,indim:1,outdim:1,degree:3,tgt:1.0,neig:3,kth:1,steps:500,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
 };
 function setVal(id,v){document.getElementById(id).value=String(v);}
 function applyPreset(name){const P=PRESETS[name];if(!P)return;for(const k in P){const el=document.getElementById(k);if(!el)continue;if(el.type==='checkbox')el.checked=!!P[k];else el.value=String(P[k]);}syncLossPanels();updateParamBadge();}
-['depth','width','act','bias','fixedx','inputstd','ssign','lr','init','initscheme','nsamp','batch','indim','outdim','tgt','neig','kth','steps','eigevery','slqprobes','energyp','gson','seed','qapprox','qmode','tset','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab']
+['depth','width','act','bias','fixedx','inputstd','ssign','lr','init','initscheme','nsamp','batch','indim','outdim','tgt','neig','kth','steps','eigevery','slqprobes','energyp','gson','seed','qapprox','qmode','tset','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree']
   .forEach(id=>document.getElementById(id).addEventListener('input',()=>{document.getElementById('preset').value='custom';}));
 ['dataset','arch','loss'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';}));
 // keep the live parameter-count badge + §1/§2/§3 annotations in sync with the architecture controls
@@ -1302,6 +1307,7 @@ const CMP_PRESETS = {
   cifar_vgg:{ ...CMP_BASE, dataset:'cifar10', arch:'vgg11', fixedx:'0', act:'tanh', depth:2, width:128, indim:10, outdim:1, nsamp:64, lr:0.05, init:0.5, steps:300, eigevery:2, chmul:0.25 },
   sort_gpt: { ...CMP_BASE, dataset:'sorting', arch:'gpt', fixedx:'0', act:'tanh', depth:2, width:60, indim:16, outdim:16, nsamp:128, lr:0.002, init:0.1, steps:400, eigevery:2 },
   owt_gpt:  { ...CMP_BASE, dataset:'owt', arch:'gpt', loss:'ce', fixedx:'0', act:'tanh', depth:2, width:128, indim:16, outdim:16, nsamp:64, lr:0.0006, init:0.1, steps:2000, seqlen:128, vocab:50257 },
+  chebyshev:{ ...CMP_BASE, dataset:'chebyshev', arch:'mlp', loss:'mse', fixedx:'0', act:'tanh', depth:1, width:100, bias:'1', indim:1, outdim:1, nsamp:20, degree:3, lr:0.2, init:0.5, steps:500 },
 };
 function cmpApplyPreset(pre, name) {
   const P = CMP_PRESETS[name]; if (!P) return;
@@ -1335,13 +1341,14 @@ function cmpHTML(pre, kind) {
       <option value="cifar_vgg">CIFAR-10 · VGG11</option>
       <option value="sort_gpt">sorting · mini-GPT</option>
       <option value="owt_gpt">OpenWebText · mini-GPT LM</option>
+      <option value="chebyshev">Chebyshev · T₃ regression</option>
       <option value="custom">— custom (manual) —</option>
     </select>
     <span class="hint">picking a preset applies its defaults and runs (needs the GPU backend) · sample-sign toggle sets the §4d groups</span>
   </div>
   <div class="controls">
     <div class="panel"><div class="panel-title">Dataset &amp; architecture</div><div class="grid">
-      ${C('dataset', 'dataset', '', '', [['synthetic', 'synthetic', 1], ['cifar10', 'CIFAR-10', 0], ['sorting', 'sorting', 0], ['owt', 'OpenWebText', 0]])}
+      ${C('dataset', 'dataset', '', '', [['synthetic', 'synthetic', 1], ['cifar10', 'CIFAR-10', 0], ['sorting', 'sorting', 0], ['owt', 'OpenWebText', 0], ['chebyshev', 'Chebyshev', 0]])}
       ${C('arch', 'architecture', '', '', [['mlp', 'MLP', 1], ['cnn', 'CNN', 0], ['vgg11', 'VGG11', 0], ['gpt', 'mini-GPT', 0]])}
       ${C('loss', 'loss', '', '', [['mse', 'MSE', 1], ['ce', 'cross-entropy', 0]])}
       ${C('chmul', 'CNN/VGG chan mult', 0.25, 0.05)}
@@ -1349,6 +1356,7 @@ function cmpHTML(pre, kind) {
       ${C('nhead', 'GPT n_head', 4, 1)}
       ${C('nlayer', 'GPT n_layer', 2, 1)}
       ${C('seqlen', 'seq len (sorting)', 16, 1)}
+      ${C('degree', 'cheby degree', 3, 1)}
     </div></div>
     <div class="panel"><div class="panel-title">Model</div><div class="grid">
       ${C('depth', 'depth', 4, 1)}
@@ -1410,7 +1418,7 @@ function cmpURL(pre, kind, start) {
     ssign:'ssign', lr:'lr', init:'init', initscheme:'initscheme', nsamp:'nsamp', indim:'indim', outdim:'outdim', tgt:'tgt', neig:'neig',
     steps:'steps', eigevery:'eigevery', slqprobes:'slqprobes', seed:'seed', qmode:'qmode', tset:'tset',
     dataset:'dataset', arch:'arch', loss:'loss', chmul:'chmul', nlayer:'nlayer', nhead:'nhead', dmodel:'dmodel',
-    seqlen:'seqlen', vocab:'vocab', every_iter:'qapprox' };
+    seqlen:'seqlen', vocab:'vocab', degree:'degree', every_iter:'qapprox' };
   for (const k in map) ps.set(map[k], v(k));
   for (const c of ['c1','c2','c3','c4','c5','c6','c7','c8','c9']) ps.set(c, document.getElementById(pre + '_' + c).checked ? '1' : '0');
   ps.set('start', String(start || 0));
@@ -1567,7 +1575,7 @@ function makeCompareSection(pre, kind) {
     document.getElementById(pre + '_status').textContent = 'preset applied — press Run to start.';
   } });
   // editing any control switches this section's preset to "custom"
-  ['dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','depth','width','act','bias','fixedx','inputstd','ssign','indim','outdim','nsamp','tgt','lr','init','initscheme','steps','seed','neig','eigevery','every_iter','slqprobes','qmode','tset','c1','c2','c3','c4','c5','c6','c7','c8','c9']
+  ['dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','depth','width','act','bias','fixedx','inputstd','ssign','indim','outdim','nsamp','tgt','lr','init','initscheme','steps','seed','neig','eigevery','every_iter','slqprobes','qmode','tset','c1','c2','c3','c4','c5','c6','c7','c8','c9']
     .forEach(id => { const el = document.getElementById(pre + '_' + id); if (el) el.addEventListener(el.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input', () => { document.getElementById(pre + '_preset').value = 'custom'; }); });
   cmpApplyPreset(pre, 'eos_demo');   // default the surrogate sections to a config whose loss visibly evolves (and reaches EoS)
   // draw empty, labeled plots right away (like the main widget) so the section isn't blank before Run

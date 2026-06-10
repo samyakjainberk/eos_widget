@@ -107,6 +107,8 @@ def make_test_set(model, P, dataset, n_test, in_dim, out_dim, device, dtype, cif
         Yt = torch.zeros(len(idx), 10, dtype=dtype, device=device)
         Yt[torch.arange(len(idx)), torch.tensor(Ya[idx], dtype=torch.long, device=device)] = 1.0
         return Xt, Yt
+    if dataset == "chebyshev":
+        return None                                      # fixed deterministic dataset — no held-out split
     trng = mulberry32(u32(P["seed"] * 7919 + 99991))     # separate stream ⇒ disjoint from train
     tgt, in_std = float(P["tgt"]), float(P["inputstd"])
     if dataset == "sorting":
@@ -126,6 +128,21 @@ def load_sort(n, L, drng, device, dtype):
     X = torch.tensor(Xl, dtype=dtype, device=device)
     Y, _ = torch.sort(X, dim=1)
     return X, Y
+
+
+def load_chebyshev(n, k, device, dtype):
+    """Chebyshev regression (Cohen et al. EoS toy task): n points evenly spaced on [-1,1] (input, n×1),
+    labeled by the Chebyshev polynomial T_k of degree k (output, n×1). MSE. T_k via the recurrence
+    T₀=1, T₁=x, Tₘ=2x·Tₘ₋₁−Tₘ₋₂. MIRRORS server.load_chebyshev."""
+    x = torch.linspace(-1.0, 1.0, max(int(n), 1), dtype=dtype, device=device)
+    if int(k) <= 0:
+        y = torch.ones_like(x)
+    else:
+        tm2, tm1 = torch.ones_like(x), x.clone()
+        for _ in range(2, int(k) + 1):
+            tm2, tm1 = tm1, 2 * x * tm1 - tm2
+        y = tm1
+    return x.unsqueeze(1), y.unsqueeze(1)
 
 
 _OWT_CACHE = {}
@@ -192,6 +209,8 @@ def init_data_theta(model, P, dataset, N, in_dim, out_dim, device, dtype, cifar_
         X, Y = load_cifar(N, P["seed"], device, dtype, cifar_dir)
     elif dataset == "sorting":
         X, Y = load_sort(N, in_dim, drng, device, dtype)
+    elif dataset == "chebyshev":
+        X, Y = load_chebyshev(N, P.get("degree", 3), device, dtype)
     elif fixedx:
         X = torch.ones(N, in_dim, dtype=dtype, device=device)
         if ssign == "off":
