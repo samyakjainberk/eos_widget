@@ -142,10 +142,37 @@ def plot_section4(series):
 
 
 def plot_section7a(series):
-    """§7a — NTK alignment (always-on panel): residual onto top-n NTK eigenvectors, and the top NTK
-    eigenvector onto the right-singular vectors of the function-Hessian tensor."""
-    return _tracks_panel(series, [("ntkR", "residual·NTK eigvec"), ("ntkH", "NTK u₁·FH y_k")],
-                         "§7a — NTK alignment (residual→NTK, NTK→FH-SVD)")
+    """§7a — NTK alignment + the change-product diagnostics. Up to 4 subplots, matching the widget:
+    (1) residual onto top-n NTK eigvecs; (2) the per-step product Δλ·Δ⟨r,vₖ⟩ (solid) with its running
+    time-average (dashed); (3) the 1-step-lagged product Δλ(t)·Δ⟨r,vₖ⟩(t-1) likewise; (4) NTK u₁→FH-SVD.
+    Δx(t)=x(t)-x(t-1); λ = sharpness, rₖ = residual·NTK-eigvecₖ."""
+    panels = []
+    if "ntkR" in series: panels.append("ntkR")
+    if "ntkGs" in series: panels.append("g7s")
+    if "ntkGl" in series: panels.append("g7l")
+    if "ntkH" in series: panels.append("ntkH")
+    if not panels:
+        return None
+    titles = {"ntkR": "residual·NTK eigvec", "g7s": "Δλ·Δ⟨r,vₖ⟩  (dashed = run-avg)",
+              "g7l": "Δλ(t)·Δ⟨r,vₖ⟩(t-1)  (dashed = run-avg)", "ntkH": "NTK u₁·FH y_k"}
+    t = series["t"]
+    fig, axs = plt.subplots(1, len(panels), figsize=(4.4 * len(panels), 3.3), squeeze=False)
+    for ax, key in zip(axs[0], panels):
+        if key in ("ntkR", "ntkH"):
+            for j, track in enumerate(series[key]):
+                ax.plot(*_finite(t, track), label=f"{j+1}")
+        else:
+            prod = "ntkGs" if key == "g7s" else "ntkGl"
+            avg = prod + "A"
+            for j, track in enumerate(series[prod]):
+                line, = ax.plot(*_finite(t, track), label=f"{j+1}")
+                if avg in series and j < len(series[avg]):
+                    ax.plot(*_finite(t, series[avg][j]), ls=":", lw=1.0, c=line.get_color())
+        ax.axhline(0, c="k", lw=0.6); ax.set_title(titles[key]); ax.set_xlabel("step")
+        ax.legend(fontsize=7)
+    fig.suptitle("§7a — NTK alignment + Δsharpness·Δ(residual·NTK) products", fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    return fig
 
 
 def plot_section7(series):

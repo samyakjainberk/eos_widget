@@ -281,8 +281,8 @@
 
 <div id="sec_7a">
 <h2>7a · NTK alignment</h2>
-<p class="cap">Multiple samples only. Two always-on NTK diagnostics: the residual projected onto the top-$n$ eigenvectors of the NTK $K=J^{\top}J$, and the top NTK eigenvector projected onto the right-singular vectors of the function-Hessian tensor. (Split out of §7 so it stays on without the heavier FH-SVD projections.)</p>
-<div class="plotrow row2"><div id="p_ntkR" class="plot"></div><div id="p_ntkH" class="plot"></div></div>
+<p class="cap">Multiple samples only. Four NTK diagnostics: (1) the residual projected onto the top-$n$ eigenvectors $v_k$ of the NTK $K=J^{\top}J$; (2) the per-step product of the sharpness change and that projection's change, $\Delta\lambda(t)\cdot\Delta\langle r,v_k\rangle(t)$, one trace per $k$, with its running time-average (dashed); (3) the same with the residual-projection change lagged one step, $\Delta\lambda(t)\cdot\Delta\langle r,v_k\rangle(t{-}1)$; (4) the top NTK eigenvector projected onto the right-singular vectors of the function-Hessian tensor. Here $\Delta x(t)=x(t)-x(t-1)$ and $\lambda$ is the sharpness $\lambda_{\max}(\nabla^2 L)$. (Split out of §7 so it stays on without the heavier FH-SVD projections.)</p>
+<div class="plotrow row4"><div id="p_ntkR" class="plot"></div><div id="p_ntkGs" class="plot"></div><div id="p_ntkGl" class="plot"></div><div id="p_ntkH" class="plot"></div></div>
 </div>
 
 <div id="sec_7">
@@ -536,7 +536,7 @@ function withThr(L,thr){
 }
 const emptyN=(cnt,namer,dash)=>Array.from({length:cnt},(_,i)=>({x:[],y:[],mode:'lines',name:namer(i),line:{width:1.6,color:PALETTE[i%PALETTE.length],dash:dash||'solid'}}));
 const SLQ_PLOTS=['p_sH','p_sG','p_sS','p_sHL'];
-const TIME_PLOTS=['p_loss','p_sharp','p_resid','p_eHfX','p_eHfT','p_eHLT','p_eGNT','p_eSRT','p_eHfB','p_eHLB','p_eGNB','p_eSRB','p_Jtop','p_Jbot','p_Jtopn','p_Jbotn','p_paPos','p_paNeg','p_ntkR','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb','p_pred1','p_pred2','p_pred3','p_pred4','p_pred5','p_predp1','p_predp2','p_predp3','p_predp4','p_predp5','p_predh1','p_predh2','p_predh3','p_predh4','p_predh5'];
+const TIME_PLOTS=['p_loss','p_sharp','p_resid','p_eHfX','p_eHfT','p_eHLT','p_eGNT','p_eSRT','p_eHfB','p_eHLB','p_eGNB','p_eSRB','p_Jtop','p_Jbot','p_Jtopn','p_Jbotn','p_paPos','p_paNeg','p_ntkR','p_ntkGs','p_ntkGl','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb','p_pred1','p_pred2','p_pred3','p_pred4','p_pred5','p_predp1','p_predp2','p_predp3','p_predp4','p_predp5','p_predh1','p_predh2','p_predh3','p_predh4','p_predh5'];
 const PLOT_IDS=TIME_PLOTS.concat(SLQ_PLOTS);
 function newP(id,traces,layout){Plotly.newPlot(id,traces,layout,CFG);const gd=document.getElementById(id);gd._baseShapes=layout.shapes?JSON.parse(JSON.stringify(layout.shapes)):[];}
 // Live-plot DECIMATION — fixes the progressive hang. Without it, every diagnostic tick re-renders the full,
@@ -618,6 +618,8 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   // §7 multi-sample NTK / function-Hessian SVD (3 rows)
   const m7=Math.max(1,n7||1);
   newP('p_ntkR',emptyN(m7,i=>`k=${i+1}`),baseLayout('residual onto top-n NTK eigvecs','⟨r, vₖ⟩',false));
+  newP('p_ntkGs',emptyN(m7,i=>`k=${i+1}`).concat(emptyN(m7,i=>`avg k=${i+1}`,'dot')),withZero(baseLayout('Δsharpness × Δ⟨r,vₖ⟩ per step  ·  dashed = running avg','Δλ · Δ⟨r,vₖ⟩',false)));
+  newP('p_ntkGl',emptyN(m7,i=>`k=${i+1}`).concat(emptyN(m7,i=>`avg k=${i+1}`,'dot')),withZero(baseLayout('lagged: Δλ(t) × Δ⟨r,vₖ⟩(t−1)  ·  dashed = running avg','Δλ(t) · Δ⟨r,vₖ⟩(t−1)',false)));
   newP('p_ntkH',emptyN(m7,i=>`k=${i+1}`),baseLayout('top NTK eigvec onto right-singular vecs of FH','⟨u₁, Vₖ⟩',false));
   const evTr=names=>names.map((nm,i)=>({x:[],y:[],mode:'lines',name:nm,line:{width:1.6,color:PALETTE[i%PALETTE.length]}}));
   newP('p_fhEvT',evTr(['M₁ λ1','M₁ λ2','M₂ λ1','M₂ λ2']),withZero(baseLayout('reshaped FH M₁,M₂ — top-2 eigenvalues','eigenvalue',false)));
@@ -695,7 +697,7 @@ const ids=(cnt)=>Array.from({length:cnt},(_,i)=>i);
 // so they work for cross-entropy too — they only need a feasible multi-sample Jacobian (M = N·d_out, gated
 // by multi_ok). §4d needs a scalar residual sign (MSE), and §9's σ₁ recursion is squared-loss; both off for
 // CE. §1–§4/§6 always compute.
-const NA_NTK=['p_ntkR','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N'];
+const NA_NTK=['p_ntkR','p_ntkGs','p_ntkGl','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N'];
 const NA_4D=['p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb'];
 const NA_THEORY1=['p_pred1','p_predp1','p_predh1'];                          // §9/§9b/§9c col 1 — single-sample (Eq 13)
 const NA_THEORY_M=['p_pred2','p_pred3','p_pred4','p_pred5','p_predp2','p_predp3','p_predp4','p_predp5','p_predh2','p_predh3','p_predh4','p_predh5'];  // §9/§9b/§9c cols 2-5 — multi (Eq 21/22/23/29)
@@ -722,7 +724,7 @@ function clearNAonData(D){
   if(D.thP)for(let c=0;c<5;c++)C(D.thP[c]!=null||D.thA&&D.thA[c]!=null,'p_pred'+(c+1));   // §9 per column
   if(D.thPpsd)for(let c=0;c<5;c++)C(D.thPpsd[c]!=null||D.thA&&D.thA[c]!=null,'p_predp'+(c+1));   // §9b per column
   if(D.thP)for(let c=0;c<5;c++)C(D.thP[c]!=null||D.thAH!=null,'p_predh'+(c+1));   // §9c per column
-  C(D.ntkR,'p_ntkR'); C(D.ntkH,'p_ntkH');                                                  // §7a
+  C(D.ntkR,'p_ntkR'); C(D.ntkH,'p_ntkH'); C(D.ntkGs,'p_ntkGs'); C(D.ntkGl,'p_ntkGl');      // §7a
   C(D.fhEvT,'p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b'); // §7
   C(D.g2J,'p_g2J','p_g2Jn');                                                               // §8
   C(D.q9t,'p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb');           // §4b
@@ -762,6 +764,9 @@ function pushPoint(t,D,n,kth,nResid){
     const m7a=D.ntkR.length;
     extP('p_ntkR',{x:reps(m7a,t),y:colsOf(m7a,D.ntkR)},ids(m7a));
     extP('p_ntkH',{x:reps(m7a,t),y:colsOf(m7a,D.ntkH)},ids(m7a));
+    // §7a products: traces 0..m-1 = per-step product (solid), m..2m-1 = running average (dashed)
+    if(D.ntkGs)extP('p_ntkGs',{x:reps(2*D.ntkGs.length,t),y:colsOf(D.ntkGs.length,D.ntkGs).concat(colsOf(D.ntkGsA.length,D.ntkGsA))},ids(2*D.ntkGs.length));
+    if(D.ntkGl)extP('p_ntkGl',{x:reps(2*D.ntkGl.length,t),y:colsOf(D.ntkGl.length,D.ntkGl).concat(colsOf(D.ntkGlA.length,D.ntkGlA))},ids(2*D.ntkGl.length));
   }
   if(OPT.s7&&D.jhe1){                  // §7 heavy multi-sample NTK/FH-SVD projections
     const m7=D.jhe1.length;
@@ -930,6 +935,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   ST={opt,spec,p,X,Y,N,inDim,outDim,M,nResid,th,lr,eps,thr,n,kth,nSub,mF,mV,mSLQ,nProbe,efrac,eigEvery,slqStride,steps,posIdx,negIdx,
       needVecs,needVals,prevTop:Array(nSub).fill(null),prevBot:Array(nSub).fill(null),prevPos:null,prevNeg:null,
       pNtk:Array(n).fill(null),pVH:Array(n).fill(null),pUJ:Array(n).fill(null),pM1:[null,null,null,null],pM2:[null,null,null,null],pG2:Array(n).fill(null),
+      prevSharp7a:null,prevNtkR7a:null,prevPrevNtkR7a:null,sumGsync:null,sumGlag:null,cntGs:0,cntGl:0,   // §7a Δλ·Δr running products
       pU1k:Array(n).fill(null),pQ9t:Array(n).fill(null),pQ9b:Array(n).fill(null),
       qapprox,qmode,tset,thT0:-1,thTh0:null,thBase:0,thJp:null,thJ:null,thFroz:null,thAcc1:0,thAcc2:0,thProd3:1,thProd4:1,thProd5:1,thAccPSD:0,thAccPSD1:0,
       t:0,eigTick:0,done:0};
@@ -973,7 +979,7 @@ async function loop(){                                   // drives ST forward; r
           S.prevPos=posS;S.prevNeg=negS;
         }
         // §7 multi-sample NTK & function-Hessian-tensor SVD diagnostics
-        let ntkR=null,ntkH=null,fhEvT=null,fhEvB=null,jhe1=null,jhe2=null,jhe1b=null,jhe2b=null,jh2e1=null,jh2e2=null,jh2e1b=null,jh2e2b=null;
+        let ntkR=null,ntkH=null,ntkGs=null,ntkGsA=null,ntkGl=null,ntkGlA=null,fhEvT=null,fhEvB=null,jhe1=null,jhe2=null,jhe1b=null,jhe2b=null,jh2e1=null,jh2e2=null,jh2e1b=null,jh2e2b=null;
         if((O.s7||O.s13)&&M>1){     // §7a (s13) needs only the NTK + FH-right-singular eigen; §7 (s7) adds the heavier projections
           const dn=M, n7=Math.min(S.n,dn);
           const jc=jacCols(S.th,spec,X,N,inDim,p), Jc=jc.cols;       // Jacobian columns ∇f_a
@@ -990,6 +996,15 @@ async function loop(){                                   // drives ST forward; r
           for(let k=0;k<n7;k++){eh.vecs[k]=signTo(eh.vecs[k],S.pVH[k]);S.pVH[k]=eh.vecs[k];}
           ntkR=[];ntkH=[];                                           // §7a (s13): residual→NTK eigvec; NTK eigvec→FH right-sing vec
           for(let k=0;k<n7;k++){ntkR.push(dot(rr,ek.vecs[k]));ntkH.push(dot(ek.vecs[0],eh.vecs[k]));}
+          // §7a products: Δsharp(t)·Δ⟨r,vₖ⟩ — synchronous and 1-step lagged — each with a running time-avg.
+          // Δx(t)=x(t)−x(t−1). gₖ=Δλ(t)·Δrₖ(t);  g'ₖ=Δλ(t)·Δrₖ(t−1)  (residual change offset back one step).
+          if(S.sumGsync===null){S.sumGsync=new Float64Array(n7);S.sumGlag=new Float64Array(n7);S.cntGs=0;S.cntGl=0;}
+          const dSh=(S.prevSharp7a!=null&&isFinite(sharp))?(sharp-S.prevSharp7a):null;
+          if(dSh!=null&&S.prevNtkR7a){ntkGs=[];ntkGsA=[];S.cntGs++;
+            for(let k=0;k<n7;k++){const g=dSh*(ntkR[k]-S.prevNtkR7a[k]);S.sumGsync[k]+=g;ntkGs.push(g);ntkGsA.push(S.sumGsync[k]/S.cntGs);}}
+          if(dSh!=null&&S.prevPrevNtkR7a){ntkGl=[];ntkGlA=[];S.cntGl++;
+            for(let k=0;k<n7;k++){const g=dSh*(S.prevNtkR7a[k]-S.prevPrevNtkR7a[k]);S.sumGlag[k]+=g;ntkGl.push(g);ntkGlA.push(S.sumGlag[k]/S.cntGl);}}
+          S.prevPrevNtkR7a=S.prevNtkR7a;S.prevNtkR7a=ntkR.slice();S.prevSharp7a=sharp;
           if(O.s7){                                                  // §7 only: heavier FH-SVD projections (UJ onto the M_j eigvecs)
             const UJ=[];                                             // left singular vecs of J (param space)
             for(let k=0;k<n7;k++){const u=new Float64Array(p),vk=ek.vecs[k];
@@ -1152,7 +1167,7 @@ async function loop(){                                   // drives ST forward; r
         }
         pushPoint(t,{loss,sharp,r,jt,jb,jtN,jbN,hfMax:feTop[0]/N,hfMin:feBot[0]/N,hfTop:feTop.map(v=>v/N),hfBot:feBot.map(v=>v/N),d4Ht,d4Hb,d4Qt,d4Qb,thP,thA,thPpsd,thAH,   // H eigs ÷N (∇²Σf summed over N samples → per-sample, matches G/S)
           hlTop:hl?hl.top:null,hlBot:hl?hl.bot:null,gnTop:gn?gn.top:null,gnBot:gn?gn.bot:null,srTop:sr?sr.top:null,srBot:sr?sr.bot:null,
-          paPos,paNeg,ntkR,ntkH,fhEvT,fhEvB,jhe1,jhe2,jhe1b,jhe2b,jh2e1,jh2e2,jh2e1b,jh2e2b,g2J,g2Jn,
+          paPos,paNeg,ntkR,ntkH,ntkGs,ntkGsA,ntkGl,ntkGlA,fhEvT,fhEvB,jhe1,jhe2,jhe1b,jhe2b,jh2e1,jh2e2,jh2e1b,jh2e2b,g2J,g2Jn,
           q9t,q9b,q9tN,q9bN,q9tR,q9bR,q9gt,q9gb,q10,q10N},S.n,S.kth,S.nResid);
         if(O.s5&&S.eigTick%S.slqStride===0){
           refreshSLQ('p_sH',slqDensity(v=>hvpF(S.th,spec,X,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x11));
@@ -1446,7 +1461,7 @@ function cmpHTML(pre, kind) {
   </div>
   <div id="${pre}_status" style="font-family:var(--sans);color:var(--muted);font-size:13px;margin:4px 0 8px;min-height:18px"></div>
   <div id="${pre}_row_basic" class="plotrow row4"><div id="${pre}_lossfig" class="plot"></div><div id="${pre}_resid" class="plot"></div><div id="${pre}_eig" class="plot"></div><div id="${pre}_hist" class="plot"></div></div>
-  <div id="${pre}_row_ntk" class="plotrow row2"><div id="${pre}_ntkR" class="plot"></div><div id="${pre}_ntkH" class="plot"></div></div>
+  <div id="${pre}_row_ntk" class="plotrow row4"><div id="${pre}_ntkR" class="plot"></div><div id="${pre}_g7s" class="plot"></div><div id="${pre}_g7l" class="plot"></div><div id="${pre}_ntkH" class="plot"></div></div>
   <div id="${pre}_row_j4" class="plotrow row2"><div id="${pre}_j4t" class="plot"></div><div id="${pre}_j4b" class="plot"></div></div>
   <div id="${pre}_row_d4" class="plotrow row4"><div id="${pre}_d4tp" class="plot"></div><div id="${pre}_d4tn" class="plot"></div><div id="${pre}_d4bp" class="plot"></div><div id="${pre}_d4bn" class="plot"></div></div>
   <div id="${pre}_theoryrow" class="plotrow row5"><div id="${pre}_pred1" class="plot"></div><div id="${pre}_pred2" class="plot"></div><div id="${pre}_pred3" class="plot"></div><div id="${pre}_pred4" class="plot"></div><div id="${pre}_pred5" class="plot"></div></div>
@@ -1521,6 +1536,11 @@ function cmpInit(pre, n, kind) {
   // §7a NTK alignment (actual model): residual→NTK eigvec; NTK eigvec→FH right-singular vec
   const ntkTr = () => { const a = []; for (let k = 0; k < n; k++) a.push({ x:[], y:[], mode:'lines', name:'k=' + (k+1), line:{ color:PALETTE[k%PALETTE.length], width:1.6 } }); return a; };
   newP(pre + '_ntkR', ntkTr(), baseLayout('§7a · residual onto top-n NTK eigvecs', '⟨r, vₖ⟩', false));
+  // §7a products: n solid (per-step product) + n dashed (running time-average), per NTK eigvec k
+  const g7Tr = () => { const a = []; for (let k = 0; k < n; k++) a.push({ x:[], y:[], mode:'lines', name:'k=' + (k+1), line:{ color:PALETTE[k%PALETTE.length], width:1.6 } });
+    for (let k = 0; k < n; k++) a.push({ x:[], y:[], mode:'lines', name:'avg ' + (k+1), line:{ color:PALETTE[k%PALETTE.length], width:1.3, dash:'dot' } }); return a; };
+  newP(pre + '_g7s', g7Tr(), withZero(baseLayout('§7a · Δsharpness × Δ⟨r,vₖ⟩ per step  ·  dashed = running avg', 'Δλ · Δ⟨r,vₖ⟩', false)));
+  newP(pre + '_g7l', g7Tr(), withZero(baseLayout('§7a · lagged Δλ(t) × Δ⟨r,vₖ⟩(t−1)  ·  dashed = running avg', 'Δλ(t) · Δ⟨r,vₖ⟩(t−1)', false)));
   newP(pre + '_ntkH', ntkTr(), baseLayout('§7a · top NTK eigvec onto FH right-sing vecs', '⟨u₁, Vₖ⟩', false));
   // §4 overlaid: top-n and bottom-n each in ONE panel — actual (solid) over surrogate (dashed), 2n traces.
   const j4pair = () => { const a = []; for (let k = 0; k < n; k++) a.push({ x:[], y:[], mode:'lines', name:'act ' + (k+1), line:{ color:PALETTE[k%PALETTE.length], width:1.8 } });
@@ -1552,7 +1572,7 @@ function cmpVisibility(pre) {
 // re-measure this section's plots against their grid cells (rAF + a delayed pass for the layout reflow);
 // only visible plots (offsetParent!=null) so a hidden theory row doesn't get mis-sized.
 function cmpResize(pre) {
-  const go = () => ['lossfig','resid','eig','hist','pred1','pred2','pred3','pred4','pred5','predp1','predp2','predp3','predp4','predp5','predh1','predh2','predh3','predh4','predh5','ntkR','ntkH','j4t','j4b','d4tp','d4tn','d4bp','d4bn']
+  const go = () => ['lossfig','resid','eig','hist','pred1','pred2','pred3','pred4','pred5','predp1','predp2','predp3','predp4','predp5','predh1','predh2','predh3','predh4','predh5','ntkR','g7s','g7l','ntkH','j4t','j4b','d4tp','d4tn','d4bp','d4bn']
     .forEach(s => { const gd = document.getElementById(pre + '_' + s);
       if (gd && gd._fullLayout && gd.offsetParent !== null) { try { Plotly.Plots.resize(gd); } catch (e) {} } });
   requestAnimationFrame(go); setTimeout(go, 80);
@@ -1574,6 +1594,8 @@ function cmpPush(pre, m) {
   pair(pre + '_j4t', m.j4tA, m.j4tS);   // §4 top-n: actual (traces 0..n-1) over surrogate (n..2n-1)
   pair(pre + '_j4b', m.j4bA, m.j4bS);   // §4 bottom-n
   one(pre + '_ntkR', m.ntkR); one(pre + '_ntkH', m.ntkH);
+  pair(pre + '_g7s', m.ntkGs, m.ntkGsA);   // §7a product: solid 0..n-1, dashed running-avg n..2n-1
+  pair(pre + '_g7l', m.ntkGl, m.ntkGlA);   // §7a lagged product
   // d4tA/d4bA (+ surrogate S) are length-2n: +group = [0..n-1], −group = [n..2n-1]. Route each group to
   // its own split plot (act traces 0..n-1, surrogate traces n..2n-1) — matches d4g's trace order above.
   const grp = (id, A, B, off) => { if (!A) return; const idx=[], xs=[], ys=[];
@@ -1626,7 +1648,7 @@ function cmpResume(pre, kind) { const S = SEC[pre]; const steps = +document.getE
   if (S.meta && !S.running && S.lastT >= 0 && S.lastT < steps) cmpStream(pre, kind, S.lastT + 1, true); }
 async function cmpDownloadPlots(pre) {
   const st = document.getElementById(pre + '_status'), prev = st ? st.textContent : '';
-  const ids = ['lossfig','resid','eig','hist','ntkR','ntkH','j4t','j4b','d4tp','d4tn','d4bp','d4bn',
+  const ids = ['lossfig','resid','eig','hist','ntkR','g7s','g7l','ntkH','j4t','j4b','d4tp','d4tn','d4bp','d4bn',
     'pred1','pred2','pred3','pred4','pred5','predp1','predp2','predp3','predp4','predp5','predh1','predh2','predh3','predh4','predh5'];
   const files = []; let i = 1;
   for (const s of ids) { const gd = document.getElementById(pre + '_' + s);

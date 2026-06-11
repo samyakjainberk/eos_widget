@@ -110,6 +110,10 @@ class Diagnostics:
         self._prev_ntk = [None] * self.n7
         self._prev_uj = [None] * self.n7
         self._prev_vh = [None] * self.n7
+        # §7a Δλ·Δr running products (synchronous + 1-step lagged), with running time-averages
+        self._prev_sharp7a = None; self._prev_ntkR7a = None; self._prev_prev_ntkR7a = None
+        self._sumGsync7a = [0.0] * self.n7; self._sumGlag7a = [0.0] * self.n7
+        self._cntGs7a = 0; self._cntGl7a = 0
         self._prev_m1 = [None] * 4
         self._prev_m2 = [None] * 4
         self._prev_g2 = [None] * self.n8
@@ -251,6 +255,24 @@ class Diagnostics:
             # §7a: residual onto top-n NTK eigvecs; top NTK eigvec onto FH right-singular vecs
             rec["ntkR"] = [float(rr @ Vk[:, k]) for k in range(n7)]
             rec["ntkH"] = [float(Vk[:, 0] @ Vh[:, k]) for k in range(n7)]
+            # §7a products: Δsharp(t)·Δ⟨r,vₖ⟩ — synchronous and 1-step lagged — each with a running time-avg.
+            # Δx(t)=x(t)-x(t-1).  gₖ=Δλ(t)·Δrₖ(t);  g'ₖ=Δλ(t)·Δrₖ(t-1) (residual change offset back one step).
+            sh = rec.get("sharpness")
+            dSh = (sh - self._prev_sharp7a) if (self._prev_sharp7a is not None and sh is not None) else None
+            if dSh is not None and self._prev_ntkR7a is not None:
+                self._cntGs7a += 1; gs = []; gsA = []
+                for k in range(n7):
+                    g = dSh * (rec["ntkR"][k] - self._prev_ntkR7a[k]); self._sumGsync7a[k] += g
+                    gs.append(g); gsA.append(self._sumGsync7a[k] / self._cntGs7a)
+                rec["ntkGs"] = gs; rec["ntkGsA"] = gsA
+            if dSh is not None and self._prev_prev_ntkR7a is not None:
+                self._cntGl7a += 1; gl = []; glA = []
+                for k in range(n7):
+                    g = dSh * (self._prev_ntkR7a[k] - self._prev_prev_ntkR7a[k]); self._sumGlag7a[k] += g
+                    gl.append(g); glA.append(self._sumGlag7a[k] / self._cntGl7a)
+                rec["ntkGl"] = gl; rec["ntkGlA"] = glA
+            self._prev_prev_ntkR7a = self._prev_ntkR7a
+            self._prev_ntkR7a = list(rec["ntkR"]); self._prev_sharp7a = sh
 
             if self.s7:                     # heavy §7 projections (FH eigenvalues + J onto FH eigvecs)
                 UJ = []

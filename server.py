@@ -1170,6 +1170,8 @@ def run_stream(P):
     prevNtk = [None] * n7
     prevUJ = [None] * n7
     prevVH = [None] * n7
+    prevSharp7a = None; prevNtkR7a = None; prevPrevNtkR7a = None   # §7a Δλ·Δr running products
+    sumGsync = [0.0] * n7; sumGlag = [0.0] * n7; cntGs7a = 0; cntGl7a = 0
     prevM1 = [None] * 4
     prevM2 = [None] * 4
     prevG2 = [None] * n8
@@ -1261,6 +1263,7 @@ def run_stream(P):
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None
+            ntkGs = ntkGsA = ntkGl = ntkGlA = None      # §7a Δλ·Δr products (sync + lagged) and running avgs
             jhe1 = jhe2 = jhe1b = jhe2b = jh2e1 = jh2e2 = jh2e1b = jh2e2b = None
             if (s7 or s13) and multi_ok:
                 Kv, Vk = sym_eig_desc(Jc @ Jc.t())                 # NTK eigen
@@ -1277,6 +1280,20 @@ def run_stream(P):
                 # §7a NTK alignment (always-on panel): residual→NTK eigvec; NTK eigvec→FH right-sing vec
                 ntkR = [float(rr @ Vk[:, k]) for k in range(n7)]
                 ntkH = [float(Vk[:, 0] @ Vh[:, k]) for k in range(n7)]
+                # §7a products: Δsharp(t)·Δ⟨r,vₖ⟩ — synchronous and 1-step lagged — each with a running time-avg.
+                # Δx(t)=x(t)-x(t-1).  gₖ=Δλ(t)·Δrₖ(t);  g'ₖ=Δλ(t)·Δrₖ(t-1) (residual change offset back one step).
+                dSh = (sharp - prevSharp7a) if (prevSharp7a is not None and sharp is not None) else None
+                if dSh is not None and prevNtkR7a is not None:
+                    cntGs7a += 1; ntkGs = []; ntkGsA = []
+                    for k in range(n7):
+                        g = dSh * (ntkR[k] - prevNtkR7a[k]); sumGsync[k] += g
+                        ntkGs.append(g); ntkGsA.append(sumGsync[k] / cntGs7a)
+                if dSh is not None and prevPrevNtkR7a is not None:
+                    cntGl7a += 1; ntkGl = []; ntkGlA = []
+                    for k in range(n7):
+                        g = dSh * (prevNtkR7a[k] - prevPrevNtkR7a[k]); sumGlag[k] += g
+                        ntkGl.append(g); ntkGlA.append(sumGlag[k] / cntGl7a)
+                prevPrevNtkR7a = prevNtkR7a; prevNtkR7a = list(ntkR); prevSharp7a = sharp
                 if s7:                                            # heavy §7 FH-eigenvector projections
                     UJ = []                                        # left singular vecs of J (param space)
                     for k in range(n7):
@@ -1477,7 +1494,8 @@ def run_stream(P):
                 "gnTop": gnt, "gnBot": gnb, "srTop": srt, "srBot": srb,
                 "jt": jt, "jb": jb, "jtN": jtN, "jbN": jbN,
                 "paPos": paPos, "paNeg": paNeg, "dimPos": dimPos, "dimNeg": dimNeg,
-                "ntkR": ntkR, "ntkH": ntkH, "fhEvT": fhEvT, "fhEvB": fhEvB,
+                "ntkR": ntkR, "ntkH": ntkH, "ntkGs": ntkGs, "ntkGsA": ntkGsA, "ntkGl": ntkGl, "ntkGlA": ntkGlA,
+                "fhEvT": fhEvT, "fhEvB": fhEvB,
                 "jhe1": jhe1, "jhe2": jhe2, "jhe1b": jhe1b, "jhe2b": jhe2b,
                 "jh2e1": jh2e1, "jh2e2": jh2e2, "jh2e1b": jh2e1b, "jh2e2b": jh2e2b,
                 "g2J": g2J, "g2Jn": g2Jn,
@@ -1602,6 +1620,9 @@ def run_surrogate_compare(P):
     thAcc1 = thAcc2 = 0.0
     thProd3 = thProd4 = thProd5 = 1.0
     thAccPSD = thAccPSD1 = 0.0      # §9b: accumulated 2nd-order PSD term ‖ΔJᵀu₁‖² (≥0), multi / single
+    # §7a Δλ·Δr running products (sync + 1-step lagged), of the ACTUAL model
+    prevSharp7a = prevNtkR7a = prevPrevNtkR7a = None
+    sumGsync7a = sumGlag7a = None; cntGs7a = cntGl7a = 0
 
     for t in range(steps + 1):
         if mytok != RUN_TOKEN.get(_devkey, mytok):
@@ -1704,6 +1725,7 @@ def run_surrogate_compare(P):
 
             # ---- §7a NTK alignment (actual model): residual→NTK eigvec; NTK eigvec→FH right-sing vec ----
             ntkR = ntkH = None
+            ntkGs = ntkGsA = ntkGl = ntkGlA = None      # §7a Δλ·Δr products (sync + lagged) and running avgs
             if c7a and multi:
                 Jc_a, _ = jac_cols(th, X)
                 Kv7, Vk7 = sym_eig_desc(Jc_a @ Jc_a.t())
@@ -1720,6 +1742,21 @@ def run_surrogate_compare(P):
                 nntk = min(n, M)
                 ntkR = [float(rA @ Vk7[:, k]) for k in range(nntk)]
                 ntkH = [float(Vk7[:, 0] @ Vh7[:, k]) for k in range(nntk)]
+                # §7a products: Δsharp(t)·Δ⟨r,vₖ⟩ — synchronous and 1-step lagged — each with a running time-avg.
+                if sumGsync7a is None:
+                    sumGsync7a = [0.0] * nntk; sumGlag7a = [0.0] * nntk
+                dSh = (sharpA - prevSharp7a) if (prevSharp7a is not None and sharpA is not None) else None
+                if dSh is not None and prevNtkR7a is not None:
+                    cntGs7a += 1; ntkGs = []; ntkGsA = []
+                    for k in range(nntk):
+                        g = dSh * (ntkR[k] - prevNtkR7a[k]); sumGsync7a[k] += g
+                        ntkGs.append(g); ntkGsA.append(sumGsync7a[k] / cntGs7a)
+                if dSh is not None and prevPrevNtkR7a is not None:
+                    cntGl7a += 1; ntkGl = []; ntkGlA = []
+                    for k in range(nntk):
+                        g = dSh * (prevNtkR7a[k] - prevPrevNtkR7a[k]); sumGlag7a[k] += g
+                        ntkGl.append(g); ntkGlA.append(sumGlag7a[k] / cntGl7a)
+                prevPrevNtkR7a = prevNtkR7a; prevNtkR7a = list(ntkR); prevSharp7a = sharpA
 
             # ---- §9 theory σ₁ (unchanged frozen-Q propagation) vs the SURROGATE's measured σ₁ ----
             # §9b adds the dropped 2nd-order PSD term; §9c compares against the actual model's full
@@ -1817,7 +1854,7 @@ def run_surrogate_compare(P):
                 "thP": thPr, "thA": thAr, "thPpsd": thPpsdR, "thAH": thAH,
                 "j4tA": j4tA, "j4bA": j4bA, "j4tS": j4tS, "j4bS": j4bS,
                 "d4tA": d4tA, "d4bA": d4bA, "d4tS": d4tS, "d4bS": d4bS,
-                "ntkR": ntkR, "ntkH": ntkH,
+                "ntkR": ntkR, "ntkH": ntkH, "ntkGs": ntkGs, "ntkGsA": ntkGsA, "ntkGl": ntkGl, "ntkGlA": ntkGlA,
                 "sps": (t - start + 1) / max(time.time() - t0, 1e-9),
             }
             if cH and eigTick % slqStride == 0:
