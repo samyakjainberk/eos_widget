@@ -451,11 +451,11 @@ class Diagnostics:
                 self._thProd3_d = self._thProd4_d = self._thProd5_d = 1.0
                 self._thAcc2_d = self._thAccPSD_d = 0.0
             else:
-                Jc0, _ = grad_sum_f(self.model, th, X)
+                Jc0, o0 = grad_sum_f(self.model, th, X)
                 self._thJp = Jc0.clone()
                 self._thBase = float(Jc0 @ Jc0)
                 # §9d single-sample: freeze f₀,J₀; reset displacement & accumulators
-                self._thJp0 = Jc0.clone(); self._thF0s = float((Y.reshape(-1) - rr)[0])
+                self._thJp0 = Jc0.clone(); self._thF0s = float(o0.reshape(-1)[0])
                 self._thDth_s = torch.zeros(p, dtype=dt, device=dev); self._thJp_d = Jc0.clone()
                 self._thAcc1_d = self._thAccPSD1_d = 0.0
 

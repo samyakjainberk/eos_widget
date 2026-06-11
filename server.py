@@ -1429,9 +1429,9 @@ def run_stream(P):
                         thDth = torch.zeros(p, dtype=DTYPE, device=_dev()); thJ_d = thJ.clone()
                         thProd3_d = 1.0; thProd4_d = 1.0; thProd5_d = 1.0; thAcc2_d = 0.0; thAccPSD_d = 0.0
                     elif not multi:
-                        Jc0, _ = gradF(th, X); thJp = Jc0.clone(); thBase = float(Jc0 @ Jc0)
+                        Jc0, o0 = gradF(th, X); thJp = Jc0.clone(); thBase = float(Jc0 @ Jc0)
                         # §9d single-sample: freeze f₀,J₀; reset displacement & accumulators
-                        thJp0 = Jc0.clone(); thF0s = float((Y.reshape(-1) - rr)[0]) if rr is not None else 0.0
+                        thJp0 = Jc0.clone(); thF0s = float(o0.reshape(-1)[0])
                         thDth_s = torch.zeros(p, dtype=DTYPE, device=_dev()); thJp_d = Jc0.clone()
                         thAcc1_d = 0.0; thAccPSD1_d = 0.0
                 thP = [None]*5; thA = [None]*5      # display cols 1-5: Eq-13, Eq-21, Eq-22, Eq-23, Eq-29 (col-4=thProd5=Eq-23, col-5=thProd4=Eq-29)
