@@ -65,18 +65,22 @@ class Config:
     #   s13 §7a(NTK alignment: residual→NTK eigvec + NTK eigvec→FH right-singular-vecs)
     # Defaults match the widget's panel checkboxes: §1–§4, §6, §7, §7a, §9 default ON; the expensive
     # §5(SLQ) and §8, and the residual-projection sections §4b/§4c/§4d, default OFF.
+    # Every section is ON by default so a plain run renders every available panel. The expensive ones
+    # (§5 SLQ, §7/§8 and §4b–d which build the M×p Jacobian) still skip themselves automatically when
+    # infeasible (CE loss, single sample, or M·p over budget — see meta["sections_skipped"]); set any
+    # flag to 0 to skip it explicitly and speed up a run / sweep.
     s1: int = 1
     s2: int = 1
     s3: int = 1
-    s4: int = 1     # §4 J→H projections (on by default)
-    s5: int = 0     # §5 SLQ spectra (expensive; off by default)
-    s6: int = 0
-    s7: int = 0     # §7 multi-sample NTK + FH tensor SVD (off by default)
-    s8: int = 0     # §8 vec(J) onto FH-reshape singular vecs (off by default)
-    s9: int = 0     # §4b  (multi-sample only; off by default)
-    s10: int = 0    # §4c  (multi-sample only; off by default)
-    s11: int = 0    # §4d  (multi-sample only; off by default)
-    s12: int = 1    # §9 theory vs empirical sharpness (on by default)
+    s4: int = 1     # §4 J→H projections
+    s5: int = 1     # §5 SLQ spectra (expensive)
+    s6: int = 1     # §6 eigenspace rotation (principal angles)
+    s7: int = 1     # §7 multi-sample NTK + FH tensor SVD (multi-sample only)
+    s8: int = 1     # §8 vec(J) onto FH-reshape singular vecs (multi-sample only)
+    s9: int = 1     # §4b  (multi-sample only)
+    s10: int = 1    # §4c  (multi-sample only)
+    s11: int = 1    # §4d  (multi-sample only)
+    s12: int = 1    # §9 theory vs empirical sharpness
     s13: int = 1    # §7a NTK alignment — residual→NTK eigvec + NTK eigvec→FH-SVD (on by default)
     s14: int = 1    # §9c σ₁ predictions vs the FULL loss-Hessian sharpness λmax(∇²L) (on by default)
     s15: int = 1    # §9d σ₁ predictions with the residual self-computed by the quadratic model (on by default)
@@ -109,36 +113,33 @@ class Config:
         return cls(**cfg)
 
 
-# Mirrors index.html PRESETS. (The GPU presets default s5=0; turn on with s5=1 for SLQ.)
+# Mirrors index.html PRESETS. Section flags are inherited from the all-on Config defaults
+# (every panel renders); set e.g. s5=0 here or via --set to skip SLQ on a heavy preset.
 PRESETS = {
     "linear":    dict(dataset="synthetic", arch="mlp", act="linear", depth=4, width=100, bias=0,
-                      fixedx=1, indim=10, outdim=1, nsamp=1, lr=0.3, init=0.1, steps=400,
-                      s1=1, s2=1, s3=1, s5=0, s6=0),
+                      fixedx=1, indim=10, outdim=1, nsamp=1, lr=0.3, init=0.1, steps=400),
     "msample":   dict(dataset="synthetic", arch="mlp", act="tanh", depth=4, width=100, bias=0,
-                      fixedx=0, indim=10, outdim=1, nsamp=10, lr=0.3, init=0.1, steps=800,
-                      s1=1, s2=1, s3=1, s5=0, s6=0),
+                      fixedx=0, indim=10, outdim=1, nsamp=10, lr=0.3, init=0.1, steps=800),
     "gpu_run":   dict(dataset="synthetic", arch="mlp", act="tanh", depth=4, width=100, bias=0,
-                      fixedx=0, indim=10, outdim=1, nsamp=25, lr=0.5, init=0.1, steps=2000,
-                      s1=1, s2=1, s3=1, s5=0, s6=0),
+                      fixedx=0, indim=10, outdim=1, nsamp=25, lr=0.5, init=0.1, steps=2000),
     "cifar_mlp": dict(dataset="cifar10", arch="mlp", loss="mse", depth=2, width=128, act="tanh",
                       bias=0, fixedx=0, nsamp=128, lr=0.02, init=0.5, steps=300, eigevery=2,
-                      slqprobes=3, s1=1, s2=1, s3=1, s5=0, s6=0),
+                      slqprobes=3),
     "cifar_cnn": dict(dataset="cifar10", arch="cnn", loss="mse", act="tanh", nsamp=128, lr=0.05, init=0.5,
-                      steps=300, eigevery=2, slqprobes=3, chmul=1.0, s1=1, s2=1, s3=1, s5=0, s6=0),
+                      steps=300, eigevery=2, slqprobes=3, chmul=1.0),
     "cifar_vgg": dict(dataset="cifar10", arch="vgg11", loss="mse", act="tanh", nsamp=128, batch=128, lr=0.05, init=0.5,
-                      steps=300, eigevery=2, slqprobes=3, chmul=0.25, gson=0, s1=1, s2=1, s3=1, s5=0, s6=0),
+                      steps=300, eigevery=2, slqprobes=3, chmul=0.25, gson=0),
     "sort_gpt":  dict(dataset="sorting", arch="gpt", loss="mse", nsamp=128, batch=128, lr=0.0002, init=0.1,
                       steps=4000, eigevery=2, slqprobes=3, dmodel=64, nhead=4, nlayer=2, seqlen=16,
-                      indim=16, outdim=16, s1=1, s2=1, s3=1, s5=0, s6=0),
+                      indim=16, outdim=16),
     # OpenWebText next-token LM (GPT-2 BPE, cross-entropy). `nsamp` length-`seqlen` sequences form the
     # pool; each GD step samples a `batch` minibatch used for BOTH the step and that step's diagnostics.
     # CE disables the residual-geometry sections (§4/§6–§9); §1/§2/§3/§5 (loss/sharpness/eigs/SLQ) apply.
     "owt_gpt":   dict(dataset="owt", arch="gpt", loss="ce", nsamp=64, batch=16, lr=0.0006, init=0.1,
                       steps=2000, eigevery=5, slqprobes=3, dmodel=64, nhead=4, nlayer=2, seqlen=128,
-                      vocab=50257, s1=1, s2=1, s3=1, s5=0, s6=0),
+                      vocab=50257),
     # Chebyshev regression (Cohen et al. EoS): nsamp points on [-1,1] labeled by T_degree; the canonical
     # 1-hidden-layer tanh net (Linear(1,100)→tanh→Linear(100,1)). Sharpens to the 2/η edge of stability.
     "chebyshev": dict(dataset="chebyshev", arch="mlp", loss="mse", act="tanh", depth=6, width=50, bias=1,
-                      fixedx=0, indim=1, outdim=1, nsamp=20, degree=3, lr=0.1, init=0.5, steps=5000,
-                      s1=1, s2=1, s3=1, s5=0, s6=0),
+                      fixedx=0, indim=1, outdim=1, nsamp=20, degree=3, lr=0.1, init=0.5, steps=5000),
 }
