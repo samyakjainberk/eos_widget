@@ -1117,8 +1117,9 @@ def run_stream(P):
     s15 = P.get("s15", 0)                # §9d: predictions with the residual self-computed by the quadratic model
     s16 = P.get("s16", 0)                # §9d-c: §9d predictions vs the full loss-Hessian sharpness
     if _TL.loss.name == "ce":            # CE: §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) and the generic
-        s11 = s12 = False                #   residual r=−∂L/∂z (= softmax−onehot), so they're valid. Off for CE:
-                                         #   §4d (sign-groups need a scalar residual) and §9 (squared-loss σ₁).
+        s11 = s12 = s14 = s15 = s16 = False   # residual r=−∂L/∂z (= softmax−onehot), so they're valid. Off for CE:
+                                         #   §4d (sign-groups need a scalar residual) and the whole §9 family
+                                         #   (§9/§9b/§9c/§9d/§9d-c — the σ₁ recursion is derived for squared loss only).
     nSub = min(max(n, kth, (10 if s6 else 1)), half)
     # minibatch-for-everything: each step samples `bs` of the `Nfull`-sequence pool and uses that sample
     # for BOTH the GD step and that step's diagnostics. bs==Nfull ⇒ deterministic full batch (default).
@@ -1675,6 +1676,7 @@ def run_surrogate_compare(P):
     cT = cT and not ceLoss          # the Eq-13/21/22/23/29 σ₁ theory (§9) is derived for squared loss only
     c7a = c7a and not ceLoss        # NTK alignment uses the MSE residual r → MSE only (multi-class CE: off)
     c9c = c9c and not ceLoss        # §9c is the same squared-loss σ₁ recursion → MSE only
+    c9d = c9d and not ceLoss; c9dc = c9dc and not ceLoss   # §9d/§9d-c likewise squared-loss only (unreachable: surrogate is always MSE)
 
     if p > PMAX:
         yield {"type": "meta", "error": f"p={p} parameters exceeds the cap ({PMAX}). Reduce the model size."}
@@ -1782,7 +1784,7 @@ def run_surrogate_compare(P):
                                    + hvpS(th0, X, v, csur))
                 eigS, _ = lanczos_extreme_vals(surHL, p, n, mV, 0x5EED2)
                 sharpS = eigS[0]
-            if c9c and sharpA is None:        # §9c needs the actual model's λmax(∇²L) even if §eig (cE) is off
+            if (c9c or c9dc) and sharpA is None:   # §9c/§9d-c need the actual model's λmax(∇²L) even if §eig (cE) is off
                 sharpA = float(lanczos_extreme_vals(lambda v: hvpL(th, X, Y, v), p, 1, mV, 0x5EED1)[0][0])
 
             # ---- §4 projections: J onto top/bottom-n eigvecs of H (actual own H, surrogate frozen H₀) ----

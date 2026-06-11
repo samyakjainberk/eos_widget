@@ -75,8 +75,9 @@ class Diagnostics:
             # (J→H) and §6 (rotation) are model-only; §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) plus
             # this residual, so they're all valid for CE — and gated by the same `multi_ok` size budget
             # (feasible for e.g. CIFAR-CE, M=N·classes; skipped at LM vocab sizes). Off for CE: §4d (its
-            # sign-groups need a scalar residual) and §9 (the Eq-13/21/22/23/29 σ₁ recursion is squared-loss).
-            self.s11 = self.s12 = False
+            # sign-groups need a scalar residual) and the whole §9 family (§9/§9b/§9c/§9d/§9d-c — the
+            # Eq-13/21/22/23/29 σ₁ recursion is derived for squared loss only).
+            self.s11 = self.s12 = self.s14 = self.s15 = self.s16 = False
         p = model.p
         half = max(1, p // 2)
         self.p = p

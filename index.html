@@ -767,7 +767,7 @@ function pushPoint(t,D,n,kth,nResid){
   if(OPT.s1){
     extP('p_loss',{x:[[t]],y:[[D.loss]]},[0]);
     extP('p_sharp',{x:[[t]],y:[[D.sharp]]},[0]);
-    if(D.r&&D.r.length)extP('p_resid',{x:reps(D.r.length,t),y:colsOf(D.r.length,D.r)},ids(D.r.length));  // CE/LM sends no residual
+    if(D.r&&D.r.length){const nr=Math.min(D.r.length,nResid||D.r.length);extP('p_resid',{x:reps(nr,t),y:colsOf(nr,D.r)},ids(nr));}  // clamp to the nResid=min(M,12) created traces (browser sends full r); CE/LM sends none
     extP('p_eHfX',{x:[[t],[t]],y:[[D.hfMax],[D.hfMin]]},[0,1]);
   }
   if(OPT.s2){
@@ -1300,7 +1300,7 @@ function _zip(files){const enc=new TextEncoder(),parts=[],cd=[];let off=0;
 function _b64bytes(durl){const s=atob(durl.split(',')[1]),a=new Uint8Array(s.length);for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return a;}
 function _cfgText(){const ids=['preset','compute','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','depth','width','act','bias','fixedx','inputstd','ssign','indim','outdim','nsamp','batch','tgt','lr','init','initscheme','steps','seed','neig','kth','eigevery','slqprobes','energyp','gson'];
   const L=ids.map(id=>{const e=document.getElementById(id);return e?(id+' = '+e.value):null;}).filter(Boolean);
-  L.push('panels: '+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11'].map(id=>id+'='+(chk(id)?1:0)).join(' '));
+  L.push('panels: '+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16'].map(id=>id+'='+(chk(id)?1:0)).join(' '));
   const stt=document.getElementById('status');if(stt&&stt.textContent)L.push('status: '+stt.textContent);
   return 'EoS / Progressive-Sharpening — run configuration\n\n'+L.join('\n')+'\n';}
 async function downloadPlots(){
@@ -1797,7 +1797,7 @@ function makeCompareSection(pre, kind) {
     document.getElementById(pre + '_status').textContent = 'preset applied — press Run to start.';
   } });
   // editing any control switches this section's preset to "custom"
-  ['dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','depth','width','act','bias','fixedx','inputstd','ssign','indim','outdim','nsamp','tgt','lr','init','initscheme','steps','seed','neig','eigevery','every_iter','slqprobes','qmode','tset','c1','c2','c3','c4','c5','c6','c7','c8','c9']
+  ['dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','depth','width','act','bias','fixedx','inputstd','ssign','indim','outdim','nsamp','tgt','lr','init','initscheme','steps','seed','neig','eigevery','every_iter','slqprobes','qmode','tset','c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11']
     .forEach(id => { const el = document.getElementById(pre + '_' + id); if (el) el.addEventListener(el.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input', () => { document.getElementById(pre + '_preset').value = 'custom'; }); });
   cmpApplyPreset(pre, 'linear');   // default surrogate preset = §1 default ('linear'), so the sections match exactly
   // draw empty, labeled plots right away (like the main widget) so the section isn't blank before Run
