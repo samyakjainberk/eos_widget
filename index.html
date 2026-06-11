@@ -267,6 +267,18 @@
 <div class="plotrow row5"><div id="p_predh1" class="plot"></div><div id="p_predh2" class="plot"></div><div id="p_predh3" class="plot"></div><div id="p_predh4" class="plot"></div><div id="p_predh5" class="plot"></div></div>
 </div>
 
+<div id="sec_9d">
+<h2>9d · Predicted $\sigma_1$ with a self-computed (quadratic) residual</h2>
+<p class="cap">Identical to §9 (same Eqs. 13/21/22/23/29, <b>predicted</b> blue vs <b>actual</b> NTK $\sigma_1$ red), except the residual driving the recursion is no longer read from the live run. Inside each frozen-$Q$ window the residual is computed <b>by the quadratic model itself</b>: $r_q=Y-f_{\mathrm{quad}}(\theta_0+\Delta\theta)$ with $f_{\mathrm{quad}}=f_0+J_0\Delta\theta+\tfrac12\Delta\theta^\top Q\,\Delta\theta$ and $\Delta\theta$ advanced by the quadratic model's own gradient descent — a fully closed prediction using <b>zero</b> live-run input after the window start. At each window start $\Delta\theta=0$ so §9d coincides with §9; it diverges as the window progresses by exactly the error of the quadratic approximation. Col 1 — single sample (Eq. 13); cols 2–5 — multi (Eq. 21 / 22 / 23 / 29).</p>
+<div class="plotrow row5"><div id="p_predd1" class="plot"></div><div id="p_predd2" class="plot"></div><div id="p_predd3" class="plot"></div><div id="p_predd4" class="plot"></div><div id="p_predd5" class="plot"></div></div>
+</div>
+
+<div id="sec_9dc">
+<h2>9d-c · Self-residual prediction vs the full-Hessian sharpness</h2>
+<p class="cap">The §9d (quadratically self-computed residual) predictions compared against the <b>full loss-Hessian sharpness</b> $\lambda_{\max}(\nabla^2 L)$ (red dashed), as in §9c: <b>predicted</b> (blue) and <b>predicted + PSD</b> (green). This is §9d + §9c — the closed quadratic prediction held up against the true sharpness the EoS threshold acts on. Col 1 — single sample (Eq. 13); cols 2–5 — multi-sample (Eq. 21 / 22 / 23 / 29).</p>
+<div class="plotrow row5"><div id="p_preddh1" class="plot"></div><div id="p_preddh2" class="plot"></div><div id="p_preddh3" class="plot"></div><div id="p_preddh4" class="plot"></div><div id="p_preddh5" class="plot"></div></div>
+</div>
+
 <div id="sec_5">
 <h2>5 · Eigen-spectrum (Stochastic Lanczos Quadrature)</h2>
 <p class="cap">Estimated spectral density at the current step (refreshed live) for the function Hessian $H$, Gauss–Newton $G$, residual term $S$, and the full loss Hessian. (x-axis is eigenvalue — not on the shared step-cursor.)</p>
@@ -536,7 +548,7 @@ function withThr(L,thr){
 }
 const emptyN=(cnt,namer,dash)=>Array.from({length:cnt},(_,i)=>({x:[],y:[],mode:'lines',name:namer(i),line:{width:1.6,color:PALETTE[i%PALETTE.length],dash:dash||'solid'}}));
 const SLQ_PLOTS=['p_sH','p_sG','p_sS','p_sHL'];
-const TIME_PLOTS=['p_loss','p_sharp','p_resid','p_eHfX','p_eHfT','p_eHLT','p_eGNT','p_eSRT','p_eHfB','p_eHLB','p_eGNB','p_eSRB','p_Jtop','p_Jbot','p_Jtopn','p_Jbotn','p_paPos','p_paNeg','p_ntkR','p_ntkGs','p_ntkGl','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb','p_pred1','p_pred2','p_pred3','p_pred4','p_pred5','p_predp1','p_predp2','p_predp3','p_predp4','p_predp5','p_predh1','p_predh2','p_predh3','p_predh4','p_predh5'];
+const TIME_PLOTS=['p_loss','p_sharp','p_resid','p_eHfX','p_eHfT','p_eHLT','p_eGNT','p_eSRT','p_eHfB','p_eHLB','p_eGNB','p_eSRB','p_Jtop','p_Jbot','p_Jtopn','p_Jbotn','p_paPos','p_paNeg','p_ntkR','p_ntkGs','p_ntkGl','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb','p_pred1','p_pred2','p_pred3','p_pred4','p_pred5','p_predp1','p_predp2','p_predp3','p_predp4','p_predp5','p_predh1','p_predh2','p_predh3','p_predh4','p_predh5','p_predd1','p_predd2','p_predd3','p_predd4','p_predd5','p_preddh1','p_preddh2','p_preddh3','p_preddh4','p_preddh5'];
 const PLOT_IDS=TIME_PLOTS.concat(SLQ_PLOTS);
 function newP(id,traces,layout){Plotly.newPlot(id,traces,layout,CFG);const gd=document.getElementById(id);gd._baseShapes=layout.shapes?JSON.parse(JSON.stringify(layout.shapes)):[];}
 // Live-plot DECIMATION — fixes the progressive hang. Without it, every diagnostic tick re-renders the full,
@@ -575,6 +587,8 @@ function syncSectionVis(multi){
   for(let i=1;i<=12;i++){const el=document.getElementById('sec_'+i);if(el)el.style.display=(chk('en'+i)&&(i<7||multi||i===12))?'':'none';}
   {const el=document.getElementById('sec_7a');if(el)el.style.display=(chk('en13')&&multi)?'':'none';}   // §7a NTK alignment (s13, multi-only)
   {const el=document.getElementById('sec_9c');if(el)el.style.display=chk('en14')?'':'none';}            // §9c vs full-Hessian sharpness
+  {const el=document.getElementById('sec_9d');if(el)el.style.display=chk('en12')?'':'none';}            // §9d quad-self residual (rides on §9 toggle)
+  {const el=document.getElementById('sec_9dc');if(el)el.style.display=chk('en14')?'':'none';}           // §9d-c quad-self residual vs full-H (rides on §9c toggle)
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
 }
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
@@ -678,6 +692,18 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_predh3',tvH(),baseLayout('multi Eq.22 vs full-Hessian sharpness','σ₁',false));
   newP('p_predh4',tvH(),baseLayout('multi Eq.23 (exact bilinear) vs full-Hessian sharpness','σ₁',false));
   newP('p_predh5',tvH(),baseLayout('multi Eq.29 vs full-Hessian sharpness','σ₁',false));
+  // §9d — same five predictions but with the residual SELF-COMPUTED by the frozen quadratic model: predicted (blue) vs actual NTK σ₁ (red)
+  newP('p_predd1',tvT(),baseLayout('§9d single Eq.13 · quad-self residual · vs actual σ₁','σ₁',false));
+  newP('p_predd2',tvT(),baseLayout('§9d multi Eq.21 · quad-self residual · vs actual σ₁','σ₁',false));
+  newP('p_predd3',tvT(),baseLayout('§9d multi Eq.22 · quad-self residual · vs actual σ₁','σ₁',false));
+  newP('p_predd4',tvT(),baseLayout('§9d multi Eq.23 · quad-self residual · vs actual σ₁','σ₁',false));
+  newP('p_predd5',tvT(),baseLayout('§9d multi Eq.29 · quad-self residual · vs actual σ₁','σ₁',false));
+  // §9d-c — the §9d (quad-self-residual) predictions vs the FULL loss-Hessian sharpness λmax(∇²L)
+  newP('p_preddh1',tvH(),baseLayout('§9d-c single Eq.13 · quad-self residual · vs full-H sharpness','σ₁',false));
+  newP('p_preddh2',tvH(),baseLayout('§9d-c multi Eq.21 · quad-self residual · vs full-H sharpness','σ₁',false));
+  newP('p_preddh3',tvH(),baseLayout('§9d-c multi Eq.22 · quad-self residual · vs full-H sharpness','σ₁',false));
+  newP('p_preddh4',tvH(),baseLayout('§9d-c multi Eq.23 · quad-self residual · vs full-H sharpness','σ₁',false));
+  newP('p_preddh5',tvH(),baseLayout('§9d-c multi Eq.29 · quad-self residual · vs full-H sharpness','σ₁',false));
   attachHover();
   resizeAllPlots();
 }
@@ -699,8 +725,8 @@ const ids=(cnt)=>Array.from({length:cnt},(_,i)=>i);
 // CE. §1–§4/§6 always compute.
 const NA_NTK=['p_ntkR','p_ntkGs','p_ntkGl','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N'];
 const NA_4D=['p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb'];
-const NA_THEORY1=['p_pred1','p_predp1','p_predh1'];                          // §9/§9b/§9c col 1 — single-sample (Eq 13)
-const NA_THEORY_M=['p_pred2','p_pred3','p_pred4','p_pred5','p_predp2','p_predp3','p_predp4','p_predp5','p_predh2','p_predh3','p_predh4','p_predh5'];  // §9/§9b/§9c cols 2-5 — multi (Eq 21/22/23/29)
+const NA_THEORY1=['p_pred1','p_predp1','p_predh1','p_predd1','p_preddh1'];                          // §9/§9b/§9c/§9d/§9d-c col 1 — single-sample (Eq 13)
+const NA_THEORY_M=['p_pred2','p_pred3','p_pred4','p_pred5','p_predp2','p_predp3','p_predp4','p_predp5','p_predh2','p_predh3','p_predh4','p_predh5','p_predd2','p_predd3','p_predd4','p_predd5','p_preddh2','p_preddh3','p_preddh4','p_preddh5'];  // §9/§9b/§9c/§9d/§9d-c cols 2-5 — multi (Eq 21/22/23/29)
 function _na(ids,msg){ids.forEach(id=>{const gd=document.getElementById(id);if(gd&&gd.offsetParent!==null)try{Plotly.relayout(id,{annotations:[{text:msg,xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:11,color:'#94a3b8'},align:'center'}]});}catch(e){}});}
 function markUnavailable(multi,multiOk,ce){
   if(!multiOk) _na(NA_NTK, multi?'n/a — too large for this run<br>(NTK Jacobian M×p)':'n/a for a single sample<br>(needs ≥2 samples)');
@@ -724,6 +750,8 @@ function clearNAonData(D){
   if(D.thP)for(let c=0;c<5;c++)C(D.thP[c]!=null||D.thA&&D.thA[c]!=null,'p_pred'+(c+1));   // §9 per column
   if(D.thPpsd)for(let c=0;c<5;c++)C(D.thPpsd[c]!=null||D.thA&&D.thA[c]!=null,'p_predp'+(c+1));   // §9b per column
   if(D.thP)for(let c=0;c<5;c++)C(D.thP[c]!=null||D.thAH!=null,'p_predh'+(c+1));   // §9c per column
+  if(D.thP_d)for(let c=0;c<5;c++)C(D.thP_d[c]!=null||D.thA&&D.thA[c]!=null,'p_predd'+(c+1));   // §9d per column
+  if(D.thP_d)for(let c=0;c<5;c++)C(D.thP_d[c]!=null||D.thAH!=null,'p_preddh'+(c+1));   // §9d-c per column
   C(D.ntkR,'p_ntkR'); C(D.ntkH,'p_ntkH'); C(D.ntkGs,'p_ntkGs'); C(D.ntkGl,'p_ntkGl');      // §7a
   C(D.fhEvT,'p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b'); // §7
   C(D.g2J,'p_g2J','p_g2Jn');                                                               // §8
@@ -818,6 +846,15 @@ function pushPoint(t,D,n,kth,nResid){
     const sh=(D.thAH==null?null:D.thAH);
     for(let c=0;c<5;c++){const pv=D.thP[c],pp=D.thPpsd?D.thPpsd[c]:null;if(pv==null&&pp==null&&sh==null)continue;
       extP('p_predh'+(c+1),{x:[[t],[t],[t]],y:[[pv],[pp],[sh]]},[0,1,2]);}
+  }
+  if(OPT.s12&&D.thP_d){   // §9d — quad-self-residual prediction vs actual NTK σ₁
+    for(let c=0;c<5;c++){const pv=D.thP_d[c],av=D.thA&&D.thA[c];if(pv==null&&av==null)continue;
+      extP('p_predd'+(c+1),{x:[[t],[t]],y:[[pv],[av]]},[0,1]);}
+  }
+  if(OPT.s14&&D.thP_d){   // §9d-c — quad-self-residual prediction & +PSD vs the full loss-Hessian sharpness
+    const sh=(D.thAH==null?null:D.thAH);
+    for(let c=0;c<5;c++){const pv=D.thP_d[c],pp=D.thPpsd_d?D.thPpsd_d[c]:null;if(pv==null&&pp==null&&sh==null)continue;
+      extP('p_preddh'+(c+1),{x:[[t],[t],[t]],y:[[pv],[pp],[sh]]},[0,1,2]);}
   }
 }
 
@@ -938,6 +975,8 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
       prevSharp7a:null,prevNtkR7a:null,prevPrevNtkR7a:null,sumGsync:null,sumGlag:null,cntGs:0,cntGl:0,   // §7a Δλ·Δr running products
       pU1k:Array(n).fill(null),pQ9t:Array(n).fill(null),pQ9b:Array(n).fill(null),
       qapprox,qmode,tset,thT0:-1,thTh0:null,thBase:0,thJp:null,thJ:null,thFroz:null,thAcc1:0,thAcc2:0,thProd3:1,thProd4:1,thProd5:1,thAccPSD:0,thAccPSD1:0,
+      thJ0:null,thF0:null,thDth:null,thJ_d:null,thProd3_d:1,thProd4_d:1,thProd5_d:1,thAcc2_d:0,thAccPSD_d:0,   // §9d: quad-self-residual predictions
+      thJp0:null,thF0s:0,thDth_s:null,thJp_d:null,thAcc1_d:0,thAccPSD1_d:0,
       t:0,eigTick:0,done:0};
   loop();
 }
@@ -1102,7 +1141,7 @@ async function loop(){                                   // drives ST forward; r
         // §9 (sec_12): theory vs empirical σ₁. At each window start freeze θ₀, the function Hessian Q, and the
         // Jacobian J₀; then iterate Eq-15  J_{t+1}=J_t+(η/N)Q[Jᵀr]  using ONLY the actual residuals r_t, and read
         // σ₁,u₁,v₁ from the propagated J. col-2 = σ₁=λmax(JJᵀ); col-3/4 = Eq-22/29 analytic forms on that geometry.
-        let thP=null,thA=null,thPpsd=null;
+        let thP=null,thA=null,thPpsd=null,thP_d=null,thPpsd_d=null;
         // §9c actual: full loss-Hessian sharpness λmax(∇²L). Browser thP/thA are RAW (un-÷N), so scale by N
         // to match (server divides thP/thA by N and sends sharp per-sample, so it's consistent there too).
         const thAH=(O.s14&&isFinite(sharp))?sharp*N:null;
@@ -1110,9 +1149,12 @@ async function loop(){                                   // drives ST forward; r
           const W=Math.max(1,S.qapprox), etaN=S.lr/Math.max(N,1), reps_=Math.max(1,S.eigEvery);
           if(S.thT0<0||(t-S.thT0)>=W){            // window start: freeze θ₀, J₀, FH-SVD; reset col-3/4 products
             S.thT0=t;S.thTh0=S.th.slice();S.thAcc1=0;S.thAcc2=0;S.thProd3=1;S.thProd4=1;S.thProd5=1;S.thAccPSD=0;S.thAccPSD1=0;
+            S.thProd3_d=1;S.thProd4_d=1;S.thProd5_d=1;S.thAcc2_d=0;S.thAccPSD_d=0;S.thAcc1_d=0;S.thAccPSD1_d=0;S.thDth=new Float64Array(p);S.thDth_s=new Float64Array(p);   // §9d resets
             if(M>1){S.thJ=jacCols(S.th,spec,X,N,inDim,p).cols;S.thFroz=computeFHfrozen(S.th,spec,X,N,inDim,p,eps,S.nProbe,Math.min(S.n,M),2,S.mV,M);
-              const K0=new Float64Array(M*M);for(let a=0;a<M;a++)for(let b=a;b<M;b++){const v=dot(S.thJ[a],S.thJ[b]);K0[a*M+b]=v;K0[b*M+a]=v;}S.thBase=symEigDesc(K0,M).vals[0];}
-            else{S.thJp=fr.grad.slice();S.thBase=dot(fr.grad,fr.grad);}
+              const K0=new Float64Array(M*M);for(let a=0;a<M;a++)for(let b=a;b<M;b++){const v=dot(S.thJ[a],S.thJ[b]);K0[a*M+b]=v;K0[b*M+a]=v;}S.thBase=symEigDesc(K0,M).vals[0];
+              S.thJ0=S.thJ.map(a=>a.slice());S.thJ_d=S.thJ.map(a=>a.slice());S.thF0=fr.out.slice();}   // §9d: freeze f₀,J₀; separate propagated J_d
+            else{S.thJp=fr.grad.slice();S.thBase=dot(fr.grad,fr.grad);
+              S.thJp0=fr.grad.slice();S.thJp_d=fr.grad.slice();S.thF0s=fr.out[0];}   // §9d single-sample freeze
           }
           thP=[null,null,null,null,null];thA=[null,null,null,null,null];thPpsd=[null,null,null,null,null];   // display cols 1-5: Eq-13/21/22/23/29 (col-4 reads thProd5=Eq-23, col-5 reads thProd4=Eq-29)
           if(M>1&&S.thJ&&S.thFroz&&bEk){
@@ -1164,8 +1206,49 @@ async function loop(){                                   // drives ST forward; r
             thPpsd[0]=Math.min(Math.max(S.thBase+S.thAcc1+S.thAccPSD1,0),CAP0);   // §9b: + Σ‖ΔJ‖² (≥0)
             const rsc=r[0];for(let s=0;s<reps_;s++){const QJ=hvpF(S.thTh0,spec,X,N,inDim,p,S.thJp,eps);S.thAcc1+=2*S.lr*rsc*dot(S.thJp,QJ);S.thAccPSD1+=(S.lr*rsc)*(S.lr*rsc)*dot(QJ,QJ);for(let q=0;q<p;q++)S.thJp[q]+=S.lr*rsc*QJ[q];}
           }
+          // ---- §9d: SAME predictions, residual SELF-COMPUTED by the frozen quadratic model (closed loop) ----
+          thP_d=[null,null,null,null,null];thPpsd_d=[null,null,null,null,null];
+          if(M>1&&S.thJ_d&&S.thFroz&&bEk&&S.thF0){
+            const Jd=S.thJ_d,F=S.thFroz,dth=S.thDth;
+            const HzD=jacHVP(S.thTh0,spec,X,N,inDim,p,dth,eps);   // Q[Δθ] = {∇²f_a·Δθ}
+            const r_q=new Float64Array(M);for(let a=0;a<M;a++)r_q[a]=Y[a]-(S.thF0[a]+dot(S.thJ0[a],dth)+0.5*dot(HzD[a],dth));   // quad-model residual
+            const Km=new Float64Array(M*M);for(let a=0;a<M;a++)for(let b=a;b<M;b++){const v=dot(Jd[a],Jd[b]);Km[a*M+b]=v;Km[b*M+a]=v;}
+            const ek=symEigDesc(Km,M),NV0=Math.min(S.n,M);for(let k=0;k<NV0;k++)pinSign(ek.vecs[k]);
+            const sig1=Math.max(ek.vals[0],1e-30),sgT=Math.sqrt(sig1),u1=ek.vecs[0];
+            const v1=new Float64Array(p);for(let a=0;a<M;a++){const c=u1[a],ja=Jd[a];for(let q=0;q<p;q++)v1[q]+=c*ja[q];}{const nn=Math.max(norm(v1),1e-30);for(let q=0;q<p;q++)v1[q]/=nn;}
+            const CAP=10*Math.max(bEk.vals[0],1e-30),clmp=x=>Math.min(Math.max(x,0),CAP);
+            const gnv=k=>{const uk=ek.vecs[k],g=new Float64Array(p);for(let a=0;a<M;a++){const c=uk[a],ja=Jd[a];for(let q=0;q<p;q++)g[q]+=c*ja[q];}const nn=Math.max(norm(g),1e-30);for(let q=0;q<p;q++)g[q]/=nn;return g;};
+            const fhBil=vk=>{let s=0;for(let i=0;i<F.gamma.length;i++){const yu=dot(F.yv[i],u1),zs=F.zz[i],ts=F.tt[i];let sj=0;for(let j=0;j<zs.length;j++)sj+=ts[j]*dot(v1,zs[j])*dot(vk,zs[j]);s+=F.gamma[i]*sj*yu;}return s;};
+            thP_d[1]=clmp(S.thBase+S.thAcc2_d);
+            thP_d[2]=clmp(S.thBase*S.thProd3_d);thP_d[3]=clmp(S.thBase*S.thProd5_d);thP_d[4]=clmp(S.thBase*S.thProd4_d);   // col-4=Eq-23, col-5=Eq-29
+            thPpsd_d[1]=clmp(S.thBase+S.thAcc2_d+S.thAccPSD_d);
+            thPpsd_d[2]=clmp(S.thBase*S.thProd3_d+S.thAccPSD_d);thPpsd_d[3]=clmp(S.thBase*S.thProd5_d+S.thAccPSD_d);thPpsd_d[4]=clmp(S.thBase*S.thProd4_d+S.thAccPSD_d);
+            const gqp=gradWeighted(thAdd(S.thTh0,v1,eps),spec,X,N,inDim,p,u1).grad;
+            const gqm=gradWeighted(thAdd(S.thTh0,v1,-eps),spec,X,N,inDim,p,u1).grad;
+            const qv1=new Float64Array(p);for(let q=0;q<p;q++)qv1[q]=(gqp[q]-gqm[q])/(2*eps);
+            const pproj=dot(r_q,u1);
+            S.thProd3_d*=Math.pow(1+2*etaN*pproj*dot(qv1,v1),reps_);
+            let S4=0,S5=0;const NV=Math.min(Math.max(S.tset,1),NV0);
+            for(let vk=0;vk<NV;vk++){const sgv=Math.sqrt(Math.max(ek.vals[vk],1e-30)),rho=dot(r_q,ek.vecs[vk]),gk=gnv(vk);S4+=(sgv/sgT)*fhBil(gk)*rho;S5+=(sgv/sgT)*dot(qv1,gk)*rho;}
+            S.thProd4_d*=Math.pow(1+2*etaN*S4,reps_);S.thProd5_d*=Math.pow(1+2*etaN*S5,reps_);
+            for(let s=0;s<reps_;s++){
+              const w=new Float64Array(p);for(let a=0;a<M;a++){const c=r_q[a],ja=S.thJ_d[a];for(let q=0;q<p;q++)w[q]+=c*ja[q];}   // Jᵀr_q
+              const QW=jacHVP(S.thTh0,spec,X,N,inDim,p,w,eps);
+              const qu=new Float64Array(p);for(let a=0;a<M;a++){const c=u1[a],qa=QW[a];for(let q=0;q<p;q++)qu[q]+=c*qa[q];}
+              S.thAcc2_d+=2*etaN*sgT*dot(v1,qu);S.thAccPSD_d+=etaN*etaN*dot(qu,qu);
+              for(let a=0;a<M;a++){const ja=S.thJ_d[a],qa=QW[a];for(let q=0;q<p;q++)ja[q]+=etaN*qa[q];}   // advance J_d
+              for(let q=0;q<p;q++)S.thDth[q]+=etaN*w[q];   // advance Δθ
+            }
+          } else if(M===1&&S.thJp_d){
+            const Qd=hvpF(S.thTh0,spec,X,N,inDim,p,S.thDth_s,eps);let qt=0;for(let q=0;q<p;q++)qt+=S.thDth_s[q]*Qd[q];
+            const r_qs=Y[0]-(S.thF0s+dot(S.thJp0,S.thDth_s)+0.5*qt);
+            const CAP0=10*Math.max(dot(fr.grad,fr.grad),1e-30);
+            thP_d[0]=Math.min(Math.max(S.thBase+S.thAcc1_d,0),CAP0);
+            thPpsd_d[0]=Math.min(Math.max(S.thBase+S.thAcc1_d+S.thAccPSD1_d,0),CAP0);
+            for(let s=0;s<reps_;s++){const QJ=hvpF(S.thTh0,spec,X,N,inDim,p,S.thJp_d,eps);S.thAcc1_d+=2*S.lr*r_qs*dot(S.thJp_d,QJ);S.thAccPSD1_d+=(S.lr*r_qs)*(S.lr*r_qs)*dot(QJ,QJ);for(let q=0;q<p;q++)S.thJp_d[q]+=S.lr*r_qs*QJ[q];for(let q=0;q<p;q++)S.thDth_s[q]+=S.lr*r_qs*S.thJp_d[q];}
+          }
         }
-        pushPoint(t,{loss,sharp,r,jt,jb,jtN,jbN,hfMax:feTop[0]/N,hfMin:feBot[0]/N,hfTop:feTop.map(v=>v/N),hfBot:feBot.map(v=>v/N),d4Ht,d4Hb,d4Qt,d4Qb,thP,thA,thPpsd,thAH,   // H eigs ÷N (∇²Σf summed over N samples → per-sample, matches G/S)
+        pushPoint(t,{loss,sharp,r,jt,jb,jtN,jbN,hfMax:feTop[0]/N,hfMin:feBot[0]/N,hfTop:feTop.map(v=>v/N),hfBot:feBot.map(v=>v/N),d4Ht,d4Hb,d4Qt,d4Qb,thP,thA,thPpsd,thP_d,thPpsd_d,thAH,   // H eigs ÷N (∇²Σf summed over N samples → per-sample, matches G/S)
           hlTop:hl?hl.top:null,hlBot:hl?hl.bot:null,gnTop:gn?gn.top:null,gnBot:gn?gn.bot:null,srTop:sr?sr.top:null,srBot:sr?sr.bot:null,
           paPos,paNeg,ntkR,ntkH,ntkGs,ntkGsA,ntkGl,ntkGlA,fhEvT,fhEvB,jhe1,jhe2,jhe1b,jhe2b,jh2e1,jh2e2,jh2e1b,jh2e2b,g2J,g2Jn,
           q9t,q9b,q9tN,q9bN,q9tR,q9bR,q9gt,q9gb,q10,q10N},S.n,S.kth,S.nResid);
@@ -1466,7 +1549,11 @@ function cmpHTML(pre, kind) {
   <div id="${pre}_row_d4" class="plotrow row4"><div id="${pre}_d4tp" class="plot"></div><div id="${pre}_d4tn" class="plot"></div><div id="${pre}_d4bp" class="plot"></div><div id="${pre}_d4bn" class="plot"></div></div>
   <div id="${pre}_theoryrow" class="plotrow row5"><div id="${pre}_pred1" class="plot"></div><div id="${pre}_pred2" class="plot"></div><div id="${pre}_pred3" class="plot"></div><div id="${pre}_pred4" class="plot"></div><div id="${pre}_pred5" class="plot"></div></div>
   <div id="${pre}_theoryrowB" class="plotrow row5"><div id="${pre}_predp1" class="plot"></div><div id="${pre}_predp2" class="plot"></div><div id="${pre}_predp3" class="plot"></div><div id="${pre}_predp4" class="plot"></div><div id="${pre}_predp5" class="plot"></div></div>
-  <div id="${pre}_theoryrowH" class="plotrow row5"><div id="${pre}_predh1" class="plot"></div><div id="${pre}_predh2" class="plot"></div><div id="${pre}_predh3" class="plot"></div><div id="${pre}_predh4" class="plot"></div><div id="${pre}_predh5" class="plot"></div></div>`;
+  <div id="${pre}_theoryrowH" class="plotrow row5"><div id="${pre}_predh1" class="plot"></div><div id="${pre}_predh2" class="plot"></div><div id="${pre}_predh3" class="plot"></div><div id="${pre}_predh4" class="plot"></div><div id="${pre}_predh5" class="plot"></div></div>
+  <h3 style="margin:.6em 0 .2em;font-size:13px">§9d · predicted σ₁ with a self-computed (quadratic) residual — vs surrogate σ₁</h3>
+  <div id="${pre}_theoryrowD" class="plotrow row5"><div id="${pre}_predd1" class="plot"></div><div id="${pre}_predd2" class="plot"></div><div id="${pre}_predd3" class="plot"></div><div id="${pre}_predd4" class="plot"></div><div id="${pre}_predd5" class="plot"></div></div>
+  <h3 style="margin:.6em 0 .2em;font-size:13px">§9d-c · self-residual prediction vs the full-Hessian sharpness λmax(∇²L)</h3>
+  <div id="${pre}_theoryrowDH" class="plotrow row5"><div id="${pre}_preddh1" class="plot"></div><div id="${pre}_preddh2" class="plot"></div><div id="${pre}_preddh3" class="plot"></div><div id="${pre}_preddh4" class="plot"></div><div id="${pre}_preddh5" class="plot"></div></div>`;
 }
 function cmpURL(pre, kind, start) {
   const v = id => { const e = document.getElementById(pre + '_' + id); return e ? e.value : ''; };
@@ -1533,6 +1620,18 @@ function cmpInit(pre, n, kind) {
   newP(pre + '_predh3', tvH(), baseLayout('Eq.22 vs full-Hessian sharpness', 'σ₁', false));
   newP(pre + '_predh4', tvH(), baseLayout('Eq.23 vs full-Hessian sharpness', 'σ₁', false));
   newP(pre + '_predh5', tvH(), baseLayout('Eq.29 vs full-Hessian sharpness', 'σ₁', false));
+  // §9d — quad-self-residual predictions vs surrogate σ₁
+  newP(pre + '_predd1', tvT(), baseLayout('§9d Eq.13 · quad-self residual', 'σ₁', false));
+  newP(pre + '_predd2', tvT(), baseLayout('§9d Eq.21 · quad-self residual', 'σ₁', false));
+  newP(pre + '_predd3', tvT(), baseLayout('§9d Eq.22 · quad-self residual', 'σ₁', false));
+  newP(pre + '_predd4', tvT(), baseLayout('§9d Eq.23 · quad-self residual', 'σ₁', false));
+  newP(pre + '_predd5', tvT(), baseLayout('§9d Eq.29 · quad-self residual', 'σ₁', false));
+  // §9d-c — quad-self-residual predictions vs the full-Hessian sharpness
+  newP(pre + '_preddh1', tvH(), baseLayout('§9d-c Eq.13 · quad-self · vs full-H', 'σ₁', false));
+  newP(pre + '_preddh2', tvH(), baseLayout('§9d-c Eq.21 · quad-self · vs full-H', 'σ₁', false));
+  newP(pre + '_preddh3', tvH(), baseLayout('§9d-c Eq.22 · quad-self · vs full-H', 'σ₁', false));
+  newP(pre + '_preddh4', tvH(), baseLayout('§9d-c Eq.23 · quad-self · vs full-H', 'σ₁', false));
+  newP(pre + '_preddh5', tvH(), baseLayout('§9d-c Eq.29 · quad-self · vs full-H', 'σ₁', false));
   // §7a NTK alignment (actual model): residual→NTK eigvec; NTK eigvec→FH right-singular vec
   const ntkTr = () => { const a = []; for (let k = 0; k < n; k++) a.push({ x:[], y:[], mode:'lines', name:'k=' + (k+1), line:{ color:PALETTE[k%PALETTE.length], width:1.6 } }); return a; };
   newP(pre + '_ntkR', ntkTr(), baseLayout('§7a · residual onto top-n NTK eigvecs', '⟨r, vₖ⟩', false));
@@ -1567,12 +1666,13 @@ function cmpVisibility(pre) {
   const set = (id, on) => { const e = document.getElementById(pre + '_' + id); if (e) e.style.display = on ? '' : 'none'; };
   set('lossfig', ck('c1')); set('resid', ck('c2')); set('eig', ck('c3')); set('hist', ck('c4'));
   set('theoryrow', ck('c5')); set('theoryrowB', ck('c5')); set('theoryrowH', ck('c9'));
+  set('theoryrowD', ck('c5')); set('theoryrowDH', ck('c9'));   // §9d rides on §9 toggle, §9d-c on §9c toggle
   set('row_j4', ck('c6')); set('row_d4', ck('c7')); set('row_ntk', ck('c8'));
 }
 // re-measure this section's plots against their grid cells (rAF + a delayed pass for the layout reflow);
 // only visible plots (offsetParent!=null) so a hidden theory row doesn't get mis-sized.
 function cmpResize(pre) {
-  const go = () => ['lossfig','resid','eig','hist','pred1','pred2','pred3','pred4','pred5','predp1','predp2','predp3','predp4','predp5','predh1','predh2','predh3','predh4','predh5','ntkR','g7s','g7l','ntkH','j4t','j4b','d4tp','d4tn','d4bp','d4bn']
+  const go = () => ['lossfig','resid','eig','hist','pred1','pred2','pred3','pred4','pred5','predp1','predp2','predp3','predp4','predp5','predh1','predh2','predh3','predh4','predh5','predd1','predd2','predd3','predd4','predd5','preddh1','preddh2','preddh3','preddh4','preddh5','ntkR','g7s','g7l','ntkH','j4t','j4b','d4tp','d4tn','d4bp','d4bn']
     .forEach(s => { const gd = document.getElementById(pre + '_' + s);
       if (gd && gd._fullLayout && gd.offsetParent !== null) { try { Plotly.Plots.resize(gd); } catch (e) {} } });
   requestAnimationFrame(go); setTimeout(go, 80);
@@ -1611,6 +1711,11 @@ function cmpPush(pre, m) {
   if (m.thAH != null && m.thP) for (let c=0;c<5;c++){ const pv=m.thP[c], pp=m.thPpsd?m.thPpsd[c]:null;
     if (pv==null && pp==null) continue;
     extP(pre + '_predh' + (c+1), { x:[[t],[t],[t]], y:[[pv],[pp],[m.thAH]] }, [0,1,2]); }  // §9c
+  if (m.thP_d) for (let c=0;c<5;c++){ const pv=m.thP_d[c], av=m.thA && m.thA[c]; if (pv==null && av==null) continue;
+    extP(pre + '_predd' + (c+1), { x:[[t],[t]], y:[[pv],[av]] }, [0,1]); }                 // §9d
+  if (m.thAH != null && m.thP_d) for (let c=0;c<5;c++){ const pv=m.thP_d[c], pp=m.thPpsd_d?m.thPpsd_d[c]:null;
+    if (pv==null && pp==null) continue;
+    extP(pre + '_preddh' + (c+1), { x:[[t],[t],[t]], y:[[pv],[pp],[m.thAH]] }, [0,1,2]); }  // §9d-c
 }
 function cmpButtons(pre) { const S = SEC[pre];
   document.getElementById(pre + '_run').disabled = S.running;
@@ -1649,7 +1754,7 @@ function cmpResume(pre, kind) { const S = SEC[pre]; const steps = +document.getE
 async function cmpDownloadPlots(pre) {
   const st = document.getElementById(pre + '_status'), prev = st ? st.textContent : '';
   const ids = ['lossfig','resid','eig','hist','ntkR','g7s','g7l','ntkH','j4t','j4b','d4tp','d4tn','d4bp','d4bn',
-    'pred1','pred2','pred3','pred4','pred5','predp1','predp2','predp3','predp4','predp5','predh1','predh2','predh3','predh4','predh5'];
+    'pred1','pred2','pred3','pred4','pred5','predp1','predp2','predp3','predp4','predp5','predh1','predh2','predh3','predh4','predh5','predd1','predd2','predd3','predd4','predd5','preddh1','preddh2','preddh3','preddh4','preddh5'];
   const files = []; let i = 1;
   for (const s of ids) { const gd = document.getElementById(pre + '_' + s);
     if (!gd || !gd._fullLayout || gd.offsetParent === null) continue;             // visible + initialized only

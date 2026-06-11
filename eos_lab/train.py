@@ -149,6 +149,7 @@ _VECTOR_KEYS = [
     "q10", "q10N",                                                    # §4c
     "d4Ht", "d4Hb", "d4Qt", "d4Qb",                                   # §4d
     "thP", "thA", "thPpsd",                                           # §9 / §9b (length-5, may contain None)
+    "thP_d", "thPpsd_d",                                              # §9d / §9d-c (quad-self-residual predictions)
 ]
 
 

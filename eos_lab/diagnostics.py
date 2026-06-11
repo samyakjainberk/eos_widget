@@ -133,6 +133,16 @@ class Diagnostics:
         self._thProd5 = 1.0
         self._thAccPSD = 0.0     # §9b: accumulated 2nd-order PSD term ‖ΔJᵀu₁‖² (≥0), multi
         self._thAccPSD1 = 0.0    # §9b: accumulated PSD term ‖ΔJ‖² (≥0), single-sample
+        # §9d: identical predictions, but the residual is SELF-COMPUTED by the frozen quadratic model
+        # (closed loop). f₀,J₀ frozen at window start; Δθ is the quad-GD displacement θ_quad−θ₀ from θ₀.
+        self._thJ0 = None        # frozen J₀ (M,p) — linear term of f_quad
+        self._thF0 = None        # frozen f₀ = Y−r (M,) — constant term of f_quad
+        self._thDth = None        # Δθ (p,) — quad-GD displacement within the window (multi)
+        self._thJ_d = None        # propagated quad Jacobian J₀+Q[Δθ]
+        self._thProd3_d = self._thProd4_d = self._thProd5_d = 1.0
+        self._thAcc2_d = 0.0; self._thAccPSD_d = 0.0
+        self._thJp0 = None; self._thF0s = 0.0; self._thDth_s = None   # single-sample §9d
+        self._thJp_d = None; self._thAcc1_d = 0.0; self._thAccPSD1_d = 0.0
 
     def sections_skipped(self):
         """Names of enabled sections that are auto-skipped because the M×p Jacobian is too large."""
@@ -385,10 +395,13 @@ class Diagnostics:
 
         # ---- §9 theory vs empirical σ₁ over frozen-Q windows ----
         if self.s12 or self.s14:
-            thP, thA, thPpsd = self._theory_step(th, X, Y, t, J, out, rr, bEk_vals)
+            thP, thA, thPpsd, thP_d, thPpsd_d = self._theory_step(th, X, Y, t, J, out, rr, bEk_vals)
             rec["thP"] = [(x / N if x is not None else None) for x in thP] if thP else None
             rec["thA"] = [(x / N if x is not None else None) for x in thA] if thA else None
             rec["thPpsd"] = [(x / N if x is not None else None) for x in thPpsd] if thPpsd else None
+            # §9d: same predictions with the quadratically-self-computed residual (vs §9's NTK σ₁ = thA, §9d-c's thAH)
+            rec["thP_d"] = [(x / N if x is not None else None) for x in thP_d] if thP_d else None
+            rec["thPpsd_d"] = [(x / N if x is not None else None) for x in thPpsd_d] if thPpsd_d else None
             if self.s14:   # §9c actual: full loss-Hessian sharpness λmax(∇²L) (per-sample; reuse §1's if present)
                 sh = rec.get("sharpness")
                 if sh is None:
@@ -432,10 +445,19 @@ class Diagnostics:
                 self._thFroz = fh_frozen(self.model, th, X, self.nprobe, min(self.n, self.M),
                                          2, self.mV, self.M, dev, dt)
                 self._thBase = float(torch.linalg.eigvalsh(self._thJ @ self._thJ.t())[-1])
+                # §9d: freeze f₀,J₀; reset the quad-GD displacement & parallel accumulators
+                self._thJ0 = self._thJ.clone(); self._thF0 = (Y.reshape(-1) - rr).clone()
+                self._thDth = torch.zeros(p, dtype=dt, device=dev); self._thJ_d = self._thJ.clone()
+                self._thProd3_d = self._thProd4_d = self._thProd5_d = 1.0
+                self._thAcc2_d = self._thAccPSD_d = 0.0
             else:
                 Jc0, _ = grad_sum_f(self.model, th, X)
                 self._thJp = Jc0.clone()
                 self._thBase = float(Jc0 @ Jc0)
+                # §9d single-sample: freeze f₀,J₀; reset displacement & accumulators
+                self._thJp0 = Jc0.clone(); self._thF0s = float((Y.reshape(-1) - rr)[0])
+                self._thDth_s = torch.zeros(p, dtype=dt, device=dev); self._thJp_d = Jc0.clone()
+                self._thAcc1_d = self._thAccPSD1_d = 0.0
 
         thP = [None]*5      # display cols 1-5: Eq-13, Eq-21, Eq-22, Eq-23, Eq-29 (col-4 reads thProd5=Eq-23, col-5 reads thProd4=Eq-29)
         thA = [None]*5
@@ -502,4 +524,75 @@ class Diagnostics:
                 self._thAcc1 += 2 * lr * rsc * float(self._thJp @ QJ)
                 self._thAccPSD1 += ((lr * rsc) ** 2) * float(QJ @ QJ)    # §9b: ‖ΔJ‖² = (η r)²‖QJ‖²
                 self._thJp = self._thJp + lr * rsc * QJ
-        return thP, thA, thPpsd
+
+        # ---- §9d: SAME predictions as §9/§9b, but the residual is computed BY the frozen quadratic model ----
+        # (self-contained: inside the window r is the quadratic-GD residual r_q = Y−f_quad(θ₀+Δθ), not the live r)
+        thP_d = [None] * 5; thPpsd_d = [None] * 5
+        if multi and self._thJ_d is not None and self._thFroz is not None and bEk_vals is not None:
+            Jd, Fz = self._thJ_d, self._thFroz
+            dth = self._thDth
+            HzD = jac_hvp(self.model, self._thTh0, X, dth)               # Q[Δθ] = {∇²f_a(θ₀)·Δθ}, (M,p)
+            r_q = Y.reshape(-1) - (self._thF0 + self._thJ0 @ dth + 0.5 * (HzD @ dth))   # quad-model residual
+            Kw, Vw = sym_eig_desc(Jd @ Jd.t())
+            NV0 = min(self.n, self.M)
+            for k in range(NV0):
+                Vw[:, k] = pin_sign(Vw[:, k])
+            sgT = math.sqrt(max(float(Kw[0]), 1e-30)); u1 = Vw[:, 0]
+            v1 = Jd.t() @ u1; v1 = v1 / max(float(v1.norm()), 1e-30)
+            cap = 10 * max(float(bEk_vals[0]), 1e-30)
+            clmpd = lambda x: min(max(x, 0.0), cap)
+
+            def gnv_d(k):
+                g = Jd.t() @ Vw[:, k]
+                return g / max(float(g.norm()), 1e-30)
+
+            def fhBil_d(vk):
+                s = 0.0
+                for i in range(len(Fz["gamma"])):
+                    yu = float(Fz["y"][i] @ u1)
+                    sj = sum(Fz["tau"][i][j] * float(v1 @ Fz["z"][i][j]) * float(vk @ Fz["z"][i][j])
+                             for j in range(len(Fz["z"][i])))
+                    s += Fz["gamma"][i] * sj * yu
+                return s
+
+            thP_d[1] = clmpd(self._thBase + self._thAcc2_d)
+            thP_d[2] = clmpd(self._thBase * self._thProd3_d)
+            thP_d[3] = clmpd(self._thBase * self._thProd5_d)   # col-4 = Eq-23
+            thP_d[4] = clmpd(self._thBase * self._thProd4_d)   # col-5 = Eq-29
+            thPpsd_d[1] = clmpd(self._thBase + self._thAcc2_d + self._thAccPSD_d)
+            thPpsd_d[2] = clmpd(self._thBase * self._thProd3_d + self._thAccPSD_d)
+            thPpsd_d[3] = clmpd(self._thBase * self._thProd5_d + self._thAccPSD_d)
+            thPpsd_d[4] = clmpd(self._thBase * self._thProd4_d + self._thAccPSD_d)
+            qv1 = hvp_S(self.model, self._thTh0, X, u1.reshape(N, outD), v1)
+            pproj = float(r_q @ u1)
+            self._thProd3_d *= (1 + 2 * etaN * pproj * float(qv1 @ v1)) ** reps_
+            S4 = 0.0; S5 = 0.0; NV = min(max(tset, 1), NV0)
+            for vk in range(NV):
+                sgv = math.sqrt(max(float(Kw[vk]), 1e-30)); rho = float(r_q @ Vw[:, vk]); gk = gnv_d(vk)
+                S4 += (sgv / sgT) * fhBil_d(gk) * rho
+                S5 += (sgv / sgT) * float(qv1 @ gk) * rho
+            self._thProd4_d *= (1 + 2 * etaN * S4) ** reps_
+            self._thProd5_d *= (1 + 2 * etaN * S5) ** reps_
+            for _ in range(reps_):                                # advance the quad GD (Eq-15 with r_q) + Δθ
+                g = self._thJ_d.t() @ r_q
+                QW = jac_hvp(self.model, self._thTh0, X, g)
+                qu = (u1.unsqueeze(1) * QW).sum(0)
+                self._thAcc2_d += 2 * etaN * sgT * float(v1 @ qu)
+                self._thAccPSD_d += (etaN ** 2) * float(qu @ qu)
+                self._thJ_d = self._thJ_d + etaN * QW
+                self._thDth = self._thDth + etaN * g
+        elif (not multi) and self._thJp_d is not None:
+            dth = self._thDth_s
+            Qd = hvp_F(self.model, self._thTh0, X, dth)            # ∇²f(θ₀)·Δθ
+            f_q = self._thF0s + float(self._thJp0 @ dth) + 0.5 * float(dth @ Qd)
+            r_qs = float(Y.reshape(-1)[0] - f_q)
+            cap0 = 10 * max(float(self._thJp_d @ self._thJp_d), 1e-30)
+            thP_d[0] = min(max(self._thBase + self._thAcc1_d, 0.0), cap0)
+            thPpsd_d[0] = min(max(self._thBase + self._thAcc1_d + self._thAccPSD1_d, 0.0), cap0)
+            for _ in range(reps_):
+                QJ = hvp_F(self.model, self._thTh0, X, self._thJp_d)
+                self._thAcc1_d += 2 * lr * r_qs * float(self._thJp_d @ QJ)
+                self._thAccPSD1_d += ((lr * r_qs) ** 2) * float(QJ @ QJ)
+                self._thJp_d = self._thJp_d + lr * r_qs * QJ
+                self._thDth_s = self._thDth_s + lr * r_qs * self._thJp_d
+        return thP, thA, thPpsd, thP_d, thPpsd_d

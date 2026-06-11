@@ -1181,6 +1181,10 @@ def run_stream(P):
     thT0 = -1; thTh0 = None; thBase = 0.0; thJp = None; thJ = None; thFroz = None
     thAcc1 = 0.0; thAcc2 = 0.0; thProd3 = 1.0; thProd4 = 1.0; thProd5 = 1.0
     thAccPSD = 0.0; thAccPSD1 = 0.0     # §9b: accumulated 2nd-order PSD term ‖ΔJᵀu₁‖² (≥0), single/multi
+    # §9d: identical predictions, residual SELF-COMPUTED by the frozen quadratic model (closed loop)
+    thJ0 = None; thF0 = None; thDth = None; thJ_d = None
+    thProd3_d = 1.0; thProd4_d = 1.0; thProd5_d = 1.0; thAcc2_d = 0.0; thAccPSD_d = 0.0
+    thJp0 = None; thF0s = 0.0; thDth_s = None; thJp_d = None; thAcc1_d = 0.0; thAccPSD1_d = 0.0
 
     for t in range(steps + 1):
         if mytok != RUN_TOKEN.get(_devkey, mytok):
@@ -1406,6 +1410,7 @@ def run_stream(P):
             # thAH = the FULL loss-Hessian sharpness λmax(∇²L)=λmax(G+S) — §9c compares the predictions
             # against it instead of the Gauss-Newton edge thA (=λmax(G)); the gap is the residual term S.
             thP = thA = thPpsd = None
+            thP_d = thPpsd_d = None       # §9d / §9d-c: predictions with the quad-self-computed residual
             thAH = None
             if s14:                       # §9c actual: full loss-Hessian sharpness λmax(∇²L) (reuse §1's if present)
                 thAH = sharp if sharp is not None else float(lanczos_extreme_vals(
@@ -1419,8 +1424,16 @@ def run_stream(P):
                         thJ, _ = jac_cols(th, X)                  # predicted Jacobian J₀ (M, p)
                         thFroz = fh_frozen(th, X, nProbe, min(n, M), 2, mV, M)
                         thBase = float(torch.linalg.eigvalsh(thJ @ thJ.t())[-1])
+                        # §9d: freeze f₀,J₀; reset quad-GD displacement & parallel accumulators
+                        thJ0 = thJ.clone(); thF0 = (Y.reshape(-1) - rr).clone() if rr is not None else None
+                        thDth = torch.zeros(p, dtype=DTYPE, device=_dev()); thJ_d = thJ.clone()
+                        thProd3_d = 1.0; thProd4_d = 1.0; thProd5_d = 1.0; thAcc2_d = 0.0; thAccPSD_d = 0.0
                     elif not multi:
                         Jc0, _ = gradF(th, X); thJp = Jc0.clone(); thBase = float(Jc0 @ Jc0)
+                        # §9d single-sample: freeze f₀,J₀; reset displacement & accumulators
+                        thJp0 = Jc0.clone(); thF0s = float((Y.reshape(-1) - rr)[0]) if rr is not None else 0.0
+                        thDth_s = torch.zeros(p, dtype=DTYPE, device=_dev()); thJp_d = Jc0.clone()
+                        thAcc1_d = 0.0; thAccPSD1_d = 0.0
                 thP = [None]*5; thA = [None]*5      # display cols 1-5: Eq-13, Eq-21, Eq-22, Eq-23, Eq-29 (col-4=thProd5=Eq-23, col-5=thProd4=Eq-29)
                 thPpsd = [None]*5   # §9b: prediction + accumulated 2nd-order PSD term ‖ΔJᵀu₁‖²
                 if multi_ok and thJ is not None and thFroz is not None and bEk_vals is not None:
@@ -1477,15 +1490,77 @@ def run_stream(P):
                         thAccPSD1 += ((lr * rsc) ** 2) * float(QJ @ QJ)   # §9b: ‖ΔJ‖² = (η r)²‖QJ‖²
                         thJp = thJp + lr * rsc * QJ
 
+                # ---- §9d: SAME predictions, residual SELF-COMPUTED by the frozen quadratic model (closed loop) ----
+                # inside the window r is the quad-GD residual r_q = Y − f_quad(θ₀+Δθ), not the live residual.
+                thP_d = [None]*5; thPpsd_d = [None]*5
+                if multi_ok and thJ_d is not None and thFroz is not None and bEk_vals is not None and thF0 is not None:
+                    Jd = thJ_d; Fz = thFroz; dth = thDth
+                    HzD = jac_hvp(thTh0, X, dth)                          # Q[Δθ] = {∇²f_a(θ₀)·Δθ}, (M,p)
+                    r_q = Y.reshape(-1) - (thF0 + thJ0 @ dth + 0.5 * (HzD @ dth))   # quad-model residual
+                    Kw, Vw = sym_eig_desc(Jd @ Jd.t())
+                    NV0 = min(n, M)
+                    for k in range(NV0):
+                        Vw[:, k] = pin_sign(Vw[:, k])
+                    sgT = math.sqrt(max(float(Kw[0]), 1e-30)); u1 = Vw[:, 0]
+                    v1 = Jd.t() @ u1; v1 = v1 / max(float(v1.norm()), 1e-30)
+                    cap = 10 * max(float(bEk_vals[0]), 1e-30); clmpd = lambda x: min(max(x, 0.0), cap)
+                    def gnv_d(k):
+                        g = Jd.t() @ Vw[:, k]; return g / max(float(g.norm()), 1e-30)
+                    def fhBil_d(vk):
+                        s = 0.0
+                        for i in range(len(Fz["gamma"])):
+                            yu = float(Fz["y"][i] @ u1)
+                            sj = sum(Fz["tau"][i][j]*float(v1 @ Fz["z"][i][j])*float(vk @ Fz["z"][i][j]) for j in range(len(Fz["z"][i])))
+                            s += Fz["gamma"][i]*sj*yu
+                        return s
+                    thP_d[1] = clmpd(thBase + thAcc2_d)
+                    thP_d[2] = clmpd(thBase * thProd3_d); thP_d[3] = clmpd(thBase * thProd5_d); thP_d[4] = clmpd(thBase * thProd4_d)
+                    thPpsd_d[1] = clmpd(thBase + thAcc2_d + thAccPSD_d)
+                    thPpsd_d[2] = clmpd(thBase * thProd3_d + thAccPSD_d); thPpsd_d[3] = clmpd(thBase * thProd5_d + thAccPSD_d)
+                    thPpsd_d[4] = clmpd(thBase * thProd4_d + thAccPSD_d)
+                    qv1 = hvpS(thTh0, X, v1, u1.reshape(N, outD))
+                    pproj = float(r_q @ u1)
+                    thProd3_d *= (1 + 2 * etaN * pproj * float(qv1 @ v1)) ** reps_
+                    S4 = 0.0; S5 = 0.0; NV = min(max(tset, 1), NV0)
+                    for vk in range(NV):
+                        sgv = math.sqrt(max(float(Kw[vk]), 1e-30)); rho = float(r_q @ Vw[:, vk]); gk = gnv_d(vk)
+                        S4 += (sgv/sgT) * fhBil_d(gk) * rho
+                        S5 += (sgv/sgT) * float(qv1 @ gk) * rho
+                    thProd4_d *= (1 + 2 * etaN * S4) ** reps_
+                    thProd5_d *= (1 + 2 * etaN * S5) ** reps_
+                    for _ in range(reps_):                                # advance quad GD (Eq-15 with r_q) + Δθ
+                        g = thJ_d.t() @ r_q
+                        QW = jac_hvp(thTh0, X, g)
+                        qu = (u1.unsqueeze(1) * QW).sum(0)
+                        thAcc2_d += 2 * etaN * sgT * float(v1 @ qu)
+                        thAccPSD_d += (etaN ** 2) * float(qu @ qu)
+                        thJ_d = thJ_d + etaN * QW
+                        thDth = thDth + etaN * g
+                elif (not multi) and thJp_d is not None:
+                    Qd = hvpF(thTh0, X, thDth_s)                          # ∇²f(θ₀)·Δθ
+                    r_qs = float(Y.reshape(-1)[0] - (thF0s + float(thJp0 @ thDth_s) + 0.5 * float(thDth_s @ Qd)))
+                    cap0 = 10 * max(float(thJp_d @ thJp_d), 1e-30)
+                    thP_d[0] = min(max(thBase + thAcc1_d, 0.0), cap0)
+                    thPpsd_d[0] = min(max(thBase + thAcc1_d + thAccPSD1_d, 0.0), cap0)
+                    for _ in range(reps_):
+                        QJ = hvpF(thTh0, X, thJp_d)
+                        thAcc1_d += 2 * lr * r_qs * float(thJp_d @ QJ)
+                        thAccPSD1_d += ((lr * r_qs) ** 2) * float(QJ @ QJ)
+                        thJp_d = thJp_d + lr * r_qs * QJ
+                        thDth_s = thDth_s + lr * r_qs * thJp_d
+
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness λmax(∇²L) ≈ λmax(GN) = σ₁/N
             thPr = [(x / N if x is not None else None) for x in thP] if thP else None
             thAr = [(x / N if x is not None else None) for x in thA] if thA else None
             thPpsdR = [(x / N if x is not None else None) for x in thPpsd] if thPpsd else None
+            thPdR = [(x / N if x is not None else None) for x in thP_d] if thP_d else None
+            thPpsddR = [(x / N if x is not None else None) for x in thPpsd_d] if thPpsd_d else None
 
             yield {
                 "type": "step", "t": t, "steps": steps, "p": p,
                 "loss": loss, "sharp": sharp,
                 "thP": thPr, "thA": thAr, "thPpsd": thPpsdR, "thAH": thAH,
+                "thP_d": thPdR, "thPpsd_d": thPpsddR,
                 "r": ([] if r is None else r[:nResid].detach().cpu().tolist()),
                 "hfMax": (feTop[0] / N if feTop else None),         # ÷N: function-Hessian H=∇²Σf is summed over the
                 "hfMin": (feBot[0] / N if feBot else None),         #   N samples → divide to match the per-sample loss
@@ -1620,6 +1695,9 @@ def run_surrogate_compare(P):
     thAcc1 = thAcc2 = 0.0
     thProd3 = thProd4 = thProd5 = 1.0
     thAccPSD = thAccPSD1 = 0.0      # §9b: accumulated 2nd-order PSD term ‖ΔJᵀu₁‖² (≥0), multi / single
+    # §9d: identical predictions, residual SELF-COMPUTED by the frozen quadratic model (reuses J0/f0flat)
+    thDth = None; thJ_d = None; thProd3_d = 1.0; thProd4_d = 1.0; thProd5_d = 1.0; thAcc2_d = 0.0; thAccPSD_d = 0.0
+    thDth_s = None; thJp_d = None; thAcc1_d = 0.0; thAccPSD1_d = 0.0
     # §7a Δλ·Δr running products (sync + 1-step lagged), of the ACTUAL model
     prevSharp7a = prevNtkR7a = prevPrevNtkR7a = None
     sumGsync7a = sumGlag7a = None; cntGs7a = cntGl7a = 0
@@ -1646,9 +1724,14 @@ def run_surrogate_compare(P):
                     thJ = J0.clone()
                     thFroz = fh_frozen(th0, X, nProbe, min(n, M), 2, mV, M)
                     thBase = float(torch.linalg.eigvalsh(thJ @ thJ.t())[-1])
+                    # §9d: reset quad-GD displacement & parallel accumulators (J0/f0flat already frozen above)
+                    thDth = torch.zeros(p, dtype=DTYPE, device=_dev()); thJ_d = J0.clone()
+                    thProd3_d = 1.0; thProd4_d = 1.0; thProd5_d = 1.0; thAcc2_d = 0.0; thAccPSD_d = 0.0
                 else:
                     thJp = gF0.clone()
                     thBase = float(gF0 @ gF0)
+                    thDth_s = torch.zeros(p, dtype=DTYPE, device=_dev()); thJp_d = gF0.clone()
+                    thAcc1_d = 0.0; thAccPSD1_d = 0.0
 
         if t >= start and t % ee == 0:
             # ---- actual model ----
@@ -1762,6 +1845,7 @@ def run_surrogate_compare(P):
             # §9b adds the dropped 2nd-order PSD term; §9c compares against the actual model's full
             # loss-Hessian sharpness λmax(∇²L) (=sharpA) instead of the surrogate's Gauss-Newton edge.
             thP = thA = thPpsd = None
+            thP_d = thPpsd_d = None       # §9d / §9d-c: predictions with the quad-self-computed residual
             thAH = sharpA if c9c else None
             if cT or c9c:
                 etaN = lr / max(N, 1)
@@ -1840,10 +1924,70 @@ def run_surrogate_compare(P):
                         thAccPSD1 += ((lr * rsc) ** 2) * float(QJ @ QJ)   # §9b: ‖ΔJ‖² = (η r)²‖QJ‖²
                         thJp = thJp + lr * rsc * QJ
 
+                # ---- §9d: SAME predictions, residual SELF-COMPUTED by the frozen quadratic model (closed loop) ----
+                thP_d = [None]*5; thPpsd_d = [None]*5
+                if multi and thJ_d is not None and thFroz is not None and J0 is not None:
+                    Jd = thJ_d; Fz = thFroz; dth = thDth
+                    HzD = jac_hvp(th0, X, dth)                            # Q[Δθ] = {∇²f_a(θ₀)·Δθ}, (M,p)
+                    r_q = Yf - (f0flat.reshape(-1) + J0 @ dth + 0.5 * (HzD @ dth))   # quad-model residual
+                    Kw, Vw = sym_eig_desc(Jd @ Jd.t())
+                    NV0 = min(n, M)
+                    for k in range(NV0):
+                        Vw[:, k] = pin_sign(Vw[:, k])
+                    sgT = math.sqrt(max(float(Kw[0]), 1e-30)); u1 = Vw[:, 0]
+                    v1 = Jd.t() @ u1; v1 = v1 / max(float(v1.norm()), 1e-30)
+                    cap = 10 * max(float(sigSur), 1e-30); clmpd = lambda x: min(max(x, 0.0), cap)
+                    def gnv_d(k):
+                        g = Jd.t() @ Vw[:, k]; return g / max(float(g.norm()), 1e-30)
+                    def fhBil_d(vk):
+                        s = 0.0
+                        for i in range(len(Fz["gamma"])):
+                            yu = float(Fz["y"][i] @ u1)
+                            sj = sum(Fz["tau"][i][j]*float(v1 @ Fz["z"][i][j])*float(vk @ Fz["z"][i][j]) for j in range(len(Fz["z"][i])))
+                            s += Fz["gamma"][i]*sj*yu
+                        return s
+                    thP_d[1] = clmpd(thBase + thAcc2_d)
+                    thP_d[2] = clmpd(thBase * thProd3_d); thP_d[3] = clmpd(thBase * thProd5_d); thP_d[4] = clmpd(thBase * thProd4_d)
+                    thPpsd_d[1] = clmpd(thBase + thAcc2_d + thAccPSD_d)
+                    thPpsd_d[2] = clmpd(thBase * thProd3_d + thAccPSD_d); thPpsd_d[3] = clmpd(thBase * thProd5_d + thAccPSD_d)
+                    thPpsd_d[4] = clmpd(thBase * thProd4_d + thAccPSD_d)
+                    qv1 = hvpS(th0, X, v1, u1.reshape(N, outD))
+                    pproj = float(r_q @ u1)
+                    thProd3_d *= (1 + 2 * etaN * pproj * float(qv1 @ v1)) ** reps_
+                    S4 = 0.0; S5 = 0.0; NV = min(max(tset, 1), NV0)
+                    for vk in range(NV):
+                        sgv = math.sqrt(max(float(Kw[vk]), 1e-30)); rho = float(r_q @ Vw[:, vk]); gk = gnv_d(vk)
+                        S4 += (sgv/sgT) * fhBil_d(gk) * rho
+                        S5 += (sgv/sgT) * float(qv1 @ gk) * rho
+                    thProd4_d *= (1 + 2 * etaN * S4) ** reps_
+                    thProd5_d *= (1 + 2 * etaN * S5) ** reps_
+                    for _ in range(reps_):                                # advance quad GD (Eq-15 with r_q) + Δθ
+                        g = thJ_d.t() @ r_q
+                        QW = jac_hvp(th0, X, g)
+                        qu = (u1.unsqueeze(1) * QW).sum(0)
+                        thAcc2_d += 2 * etaN * sgT * float(v1 @ qu)
+                        thAccPSD_d += (etaN ** 2) * float(qu @ qu)
+                        thJ_d = thJ_d + etaN * QW
+                        thDth = thDth + etaN * g
+                elif (not multi) and thJp_d is not None:
+                    Qd = hvpF(th0, X, thDth_s)                            # ∇²f(θ₀)·Δθ
+                    r_qs = float(Yf[0] - (float(f0flat.reshape(-1)[0]) + float(gF0 @ thDth_s) + 0.5 * float(thDth_s @ Qd)))
+                    cap0 = 10 * max(float(thJp_d @ thJp_d), 1e-30)
+                    thP_d[0] = min(max(thBase + thAcc1_d, 0.0), cap0)
+                    thPpsd_d[0] = min(max(thBase + thAcc1_d + thAccPSD1_d, 0.0), cap0)
+                    for _ in range(reps_):
+                        QJ = hvpF(th0, X, thJp_d)
+                        thAcc1_d += 2 * lr * r_qs * float(thJp_d @ QJ)
+                        thAccPSD1_d += ((lr * r_qs) ** 2) * float(QJ @ QJ)
+                        thJp_d = thJp_d + lr * r_qs * QJ
+                        thDth_s = thDth_s + lr * r_qs * thJp_d
+
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness scale (σ₁/N)
             thPr = [(x / N if x is not None else None) for x in thP] if thP else None
             thAr = [(x / N if x is not None else None) for x in thA] if thA else None
             thPpsdR = [(x / N if x is not None else None) for x in thPpsd] if thPpsd else None
+            thPdR = [(x / N if x is not None else None) for x in thP_d] if thP_d else None
+            thPpsddR = [(x / N if x is not None else None) for x in thPpsd_d] if thPpsd_d else None
 
             yield {
                 "type": "step", "t": t, "steps": steps, "p": p, "kind": kind,
@@ -1852,6 +1996,7 @@ def run_surrogate_compare(P):
                 "rmeanS": rmeanS if cR else None, "rstdS": rstdS if cR else None,
                 "eigA": eigA, "eigS": eigS, "sharpA": sharpA, "sharpS": sharpS,
                 "thP": thPr, "thA": thAr, "thPpsd": thPpsdR, "thAH": thAH,
+                "thP_d": thPdR, "thPpsd_d": thPpsddR,
                 "j4tA": j4tA, "j4bA": j4bA, "j4tS": j4tS, "j4bS": j4bS,
                 "d4tA": d4tA, "d4bA": d4bA, "d4tS": d4tS, "d4bS": d4bS,
                 "ntkR": ntkR, "ntkH": ntkH, "ntkGs": ntkGs, "ntkGsA": ntkGsA, "ntkGl": ntkGl, "ntkGlA": ntkGlA,

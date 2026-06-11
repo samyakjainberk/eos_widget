@@ -223,11 +223,12 @@ def plot_section4d(series):
     return fig
 
 
-def plot_section9(series, meta):
+def plot_section9(series, meta, pkey="thP", ppsdkey="thPpsd", suptitle="§9 — theoretical vs empirical sharpness"):
     """§9 — theory (Eq-13/21/22/23/29) vs empirical σ₁. Only the columns with data are drawn:
     Eq-13 is single-sample (M==1) so it is empty for multi-output datasets, and the whole panel
-    is skipped when neither theory nor empirical produced any finite point (e.g. multi_ok=False)."""
-    thP = series.get("thP"); thA = series.get("thA"); thPpsd = series.get("thPpsd")
+    is skipped when neither theory nor empirical produced any finite point (e.g. multi_ok=False).
+    §9d reuses this with pkey='thP_d' (the quadratically self-computed-residual predictions)."""
+    thP = series.get(pkey); thA = series.get("thA"); thPpsd = series.get(ppsdkey)
     if thP is None and thA is None:
         return None
     t = series["t"]
@@ -261,16 +262,18 @@ def plot_section9(series, meta):
             pad = 0.3 * (hi - lo) + 1e-9
             ax.set_ylim(min(lo - pad, 0.0) if lo >= 0 else lo - pad, hi + pad)
         ax.set_title(labels[i]); ax.set_xlabel("step"); ax.legend(fontsize=8)
-    fig.suptitle("§9 — theoretical vs empirical sharpness", fontsize=11)
+    fig.suptitle(suptitle, fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     return fig
 
 
-def plot_section9c(series, meta):
+def plot_section9c(series, meta, pkey="thP", ppsdkey="thPpsd",
+                   suptitle="§9c — σ₁ predictions vs the full-Hessian sharpness"):
     """§9c — the same Eq-13/21/22/23/29 σ₁ predictions, but compared against the FULL loss-Hessian
     sharpness λmax(∇²L)=λmax(G+S) (the EoS quantity) instead of the Gauss-Newton edge λmax(G).
-    Each column: predicted, predicted+PSD, and the full-Hessian sharpness; the gap is the residual S."""
-    thP = series.get("thP"); thPpsd = series.get("thPpsd"); thAH = series.get("thAH")
+    Each column: predicted, predicted+PSD, and the full-Hessian sharpness; the gap is the residual S.
+    §9d-c reuses this with pkey='thP_d' (the quadratically self-computed-residual predictions)."""
+    thP = series.get(pkey); thPpsd = series.get(ppsdkey); thAH = series.get("thAH")
     if thP is None or thAH is None or not any(y == y for y in thAH):
         return None
     t = series["t"]
@@ -294,9 +297,21 @@ def plot_section9c(series, meta):
             pad = 0.3 * (hi - lo) + 1e-9
             ax.set_ylim(min(lo - pad, 0.0) if lo >= 0 else lo - pad, hi + pad)
         ax.set_title(labels[i]); ax.set_xlabel("step"); ax.legend(fontsize=8)
-    fig.suptitle("§9c — σ₁ predictions vs the full-Hessian sharpness", fontsize=11)
+    fig.suptitle(suptitle, fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     return fig
+
+
+def plot_section9d(series, meta):
+    """§9d — §9 predictions but with the residual SELF-COMPUTED by the frozen quadratic model."""
+    return plot_section9(series, meta, pkey="thP_d", ppsdkey="thPpsd_d",
+                         suptitle="§9d — predicted σ₁ (quadratic self-residual) vs empirical")
+
+
+def plot_section9dc(series, meta):
+    """§9d-c — the §9d (quadratic self-residual) predictions vs the full loss-Hessian sharpness."""
+    return plot_section9c(series, meta, pkey="thP_d", ppsdkey="thPpsd_d",
+                          suptitle="§9d-c — quad-self-residual σ₁ predictions vs the full-Hessian sharpness")
 
 
 def save_panels(results, outdir):
@@ -316,7 +331,9 @@ def save_panels(results, outdir):
             "section4c_QJr_onto_GN": plot_section4c(series),
             "section4d_sign_groups": plot_section4d(series),
             "section9_theory_vs_empirical": plot_section9(series, meta),
-            "section9c_theory_vs_full_hessian": plot_section9c(series, meta)}
+            "section9c_theory_vs_full_hessian": plot_section9c(series, meta),
+            "section9d_selfresidual_vs_empirical": plot_section9d(series, meta),
+            "section9dc_selfresidual_vs_full_hessian": plot_section9dc(series, meta)}
     written = []
     for name, fig in figs.items():
         if fig is None:
