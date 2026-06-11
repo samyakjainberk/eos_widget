@@ -68,6 +68,8 @@ class Diagnostics:
             P["s7"], P["s8"], P["s9"], P["s10"], P["s11"], P["s12"])
         self.s13 = P.get("s13", 0)          # §7a NTK alignment (residual→NTK, NTK→FH-SVD)
         self.s14 = P.get("s14", 0)          # §9c: σ₁ predictions vs the FULL loss-Hessian sharpness λmax(∇²L)
+        self.s15 = P.get("s15", 0)          # §9d: predictions with the residual self-computed by the quadratic model
+        self.s16 = P.get("s16", 0)          # §9d-c: §9d predictions vs the full loss-Hessian sharpness
         if loss.name == "ce":
             # CE uses the generic residual r = −∂L/∂z = softmax(z)−onehot (the loss-output cotangent). §4
             # (J→H) and §6 (rotation) are model-only; §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) plus
@@ -334,7 +336,7 @@ class Diagnostics:
         # ---- §4b/§4c/§4d base: NTK top eigvec u₁ (deterministic sign), J·r ----
         u1s = Jrs = bEk_vecs = bEk_vals = None
         Jrns = Rn = 1.0
-        if self.multi_ok and (self.s9 or self.s10 or self.s11 or self.s12):
+        if self.multi_ok and (self.s9 or self.s10 or self.s11 or self.s12 or self.s15 or self.s16):
             Kb, Vb = sym_eig_desc(Jc @ Jc.t())
             for k in range(n):
                 Vb[:, k] = pin_sign(Vb[:, k])
@@ -394,7 +396,7 @@ class Diagnostics:
             rec["d4Qb"] = [float(Jrp @ qeB[k]) for k in range(n)] + [float(Jrn @ qeB[k]) for k in range(n)]
 
         # ---- §9 theory vs empirical σ₁ over frozen-Q windows ----
-        if self.s12 or self.s14:
+        if self.s12 or self.s14 or self.s15 or self.s16:
             thP, thA, thPpsd, thP_d, thPpsd_d = self._theory_step(th, X, Y, t, J, out, rr, bEk_vals)
             rec["thP"] = [(x / N if x is not None else None) for x in thP] if thP else None
             rec["thA"] = [(x / N if x is not None else None) for x in thA] if thA else None
@@ -402,7 +404,7 @@ class Diagnostics:
             # §9d: same predictions with the quadratically-self-computed residual (vs §9's NTK σ₁ = thA, §9d-c's thAH)
             rec["thP_d"] = [(x / N if x is not None else None) for x in thP_d] if thP_d else None
             rec["thPpsd_d"] = [(x / N if x is not None else None) for x in thPpsd_d] if thPpsd_d else None
-            if self.s14:   # §9c actual: full loss-Hessian sharpness λmax(∇²L) (per-sample; reuse §1's if present)
+            if self.s14 or self.s16:   # §9c/§9d-c actual: full loss-Hessian sharpness λmax(∇²L) (reuse §1's if present)
                 sh = rec.get("sharpness")
                 if sh is None:
                     sh = float(lanczos_extreme_vals(self._hL(th, X, Y), self.p, 1, self.mV, SEED_L,
@@ -445,19 +447,23 @@ class Diagnostics:
                 self._thFroz = fh_frozen(self.model, th, X, self.nprobe, min(self.n, self.M),
                                          2, self.mV, self.M, dev, dt)
                 self._thBase = float(torch.linalg.eigvalsh(self._thJ @ self._thJ.t())[-1])
-                # §9d: freeze f₀,J₀; reset the quad-GD displacement & parallel accumulators
-                self._thJ0 = self._thJ.clone(); self._thF0 = (Y.reshape(-1) - rr).clone()
-                self._thDth = torch.zeros(p, dtype=dt, device=dev); self._thJ_d = self._thJ.clone()
-                self._thProd3_d = self._thProd4_d = self._thProd5_d = 1.0
-                self._thAcc2_d = self._thAccPSD_d = 0.0
+                if self.s15 or self.s16:   # §9d: freeze f₀,J₀; reset the quad-GD displacement & parallel accumulators
+                    self._thJ0 = self._thJ.clone(); self._thF0 = (Y.reshape(-1) - rr).clone() if rr is not None else None
+                    self._thDth = torch.zeros(p, dtype=dt, device=dev); self._thJ_d = self._thJ.clone()
+                    self._thProd3_d = self._thProd4_d = self._thProd5_d = 1.0
+                    self._thAcc2_d = self._thAccPSD_d = 0.0
+                else:
+                    self._thJ_d = None
             else:
                 Jc0, o0 = grad_sum_f(self.model, th, X)
                 self._thJp = Jc0.clone()
                 self._thBase = float(Jc0 @ Jc0)
-                # §9d single-sample: freeze f₀,J₀; reset displacement & accumulators
-                self._thJp0 = Jc0.clone(); self._thF0s = float(o0.reshape(-1)[0])
-                self._thDth_s = torch.zeros(p, dtype=dt, device=dev); self._thJp_d = Jc0.clone()
-                self._thAcc1_d = self._thAccPSD1_d = 0.0
+                if self.s15 or self.s16:   # §9d single-sample: freeze f₀,J₀; reset displacement & accumulators
+                    self._thJp0 = Jc0.clone(); self._thF0s = float(o0.reshape(-1)[0])
+                    self._thDth_s = torch.zeros(p, dtype=dt, device=dev); self._thJp_d = Jc0.clone()
+                    self._thAcc1_d = self._thAccPSD1_d = 0.0
+                else:
+                    self._thJp_d = None
 
         thP = [None]*5      # display cols 1-5: Eq-13, Eq-21, Eq-22, Eq-23, Eq-29 (col-4 reads thProd5=Eq-23, col-5 reads thProd4=Eq-29)
         thA = [None]*5

@@ -79,6 +79,8 @@ class Config:
     s12: int = 1    # §9 theory vs empirical sharpness (on by default)
     s13: int = 1    # §7a NTK alignment — residual→NTK eigvec + NTK eigvec→FH-SVD (on by default)
     s14: int = 1    # §9c σ₁ predictions vs the FULL loss-Hessian sharpness λmax(∇²L) (on by default)
+    s15: int = 1    # §9d σ₁ predictions with the residual self-computed by the quadratic model (on by default)
+    s16: int = 1    # §9d-c §9d predictions vs the full loss-Hessian sharpness (on by default)
 
     # ---- test set (held-out) ----
     n_test: int = 0                # held-out test points (0 ⇒ default: max(nsamp, 256), capped per dataset)

@@ -204,6 +204,8 @@
   <label><input type="checkbox" id="en11"> 4d · group J / J·r (±residual)</label>
   <label><input type="checkbox" id="en12" checked> 9 · theory vs empirical (Δσ₁)</label>
   <label><input type="checkbox" id="en14" checked> 9c · theory vs full-Hessian sharpness</label>
+  <label><input type="checkbox" id="en15" checked> 9d · theory (self-computed quad residual)</label>
+  <label><input type="checkbox" id="en16" checked> 9d-c · self-residual vs full-Hessian sharpness</label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -587,8 +589,8 @@ function syncSectionVis(multi){
   for(let i=1;i<=12;i++){const el=document.getElementById('sec_'+i);if(el)el.style.display=(chk('en'+i)&&(i<7||multi||i===12))?'':'none';}
   {const el=document.getElementById('sec_7a');if(el)el.style.display=(chk('en13')&&multi)?'':'none';}   // §7a NTK alignment (s13, multi-only)
   {const el=document.getElementById('sec_9c');if(el)el.style.display=chk('en14')?'':'none';}            // §9c vs full-Hessian sharpness
-  {const el=document.getElementById('sec_9d');if(el)el.style.display=chk('en12')?'':'none';}            // §9d quad-self residual (rides on §9 toggle)
-  {const el=document.getElementById('sec_9dc');if(el)el.style.display=chk('en14')?'':'none';}           // §9d-c quad-self residual vs full-H (rides on §9c toggle)
+  {const el=document.getElementById('sec_9d');if(el)el.style.display=chk('en15')?'':'none';}            // §9d quad-self residual
+  {const el=document.getElementById('sec_9dc');if(el)el.style.display=chk('en16')?'':'none';}           // §9d-c quad-self residual vs full-H
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
 }
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
@@ -847,11 +849,11 @@ function pushPoint(t,D,n,kth,nResid){
     for(let c=0;c<5;c++){const pv=D.thP[c],pp=D.thPpsd?D.thPpsd[c]:null;if(pv==null&&pp==null&&sh==null)continue;
       extP('p_predh'+(c+1),{x:[[t],[t],[t]],y:[[pv],[pp],[sh]]},[0,1,2]);}
   }
-  if(OPT.s12&&D.thP_d){   // §9d — quad-self-residual prediction vs actual NTK σ₁
+  if(OPT.s15&&D.thP_d){   // §9d — quad-self-residual prediction vs actual NTK σ₁
     for(let c=0;c<5;c++){const pv=D.thP_d[c],av=D.thA&&D.thA[c];if(pv==null&&av==null)continue;
       extP('p_predd'+(c+1),{x:[[t],[t]],y:[[pv],[av]]},[0,1]);}
   }
-  if(OPT.s14&&D.thP_d){   // §9d-c — quad-self-residual prediction & +PSD vs the full loss-Hessian sharpness
+  if(OPT.s16&&D.thP_d){   // §9d-c — quad-self-residual prediction & +PSD vs the full loss-Hessian sharpness
     const sh=(D.thAH==null?null:D.thAH);
     for(let c=0;c<5;c++){const pv=D.thP_d[c],pp=D.thPpsd_d?D.thPpsd_d[c]:null;if(pv==null&&pp==null&&sh==null)continue;
       extP('p_preddh'+(c+1),{x:[[t],[t],[t]],y:[[pv],[pp],[sh]]},[0,1,2]);}
@@ -927,7 +929,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
   const qmode=Math.max(1,+val('qmode')||1), tset=Math.max(1,+val('tset')||1);   // qmode (legacy, unused by Eq-22); Eq-29 set-T size
   const nProbe=Math.max(1,+val('slqprobes')), efrac=Math.min(1,Math.max(0.5,(+val('energyp'))/100));
-  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),gs:val('gson')==='1'};
+  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),gs:val('gson')==='1'};
   OPT=opt;
   const {spec,p}=buildSpec(inDim,width,depth,act,useBias,outDim);
   if(p>100000){st.textContent=`p=${p} parameters exceeds the cap (100000). Reduce width/depth.`;ST=null;updateButtons();return;}
@@ -1081,7 +1083,7 @@ async function loop(){                                   // drives ST forward; r
         }
         // §4b/§4c shared base: top-n NTK eigenvectors v_k (sign-tracked) and J·r = Σ_a r_a ∇f_a, r=y−f
         let u1s=null,Jrs=null,Jrns=0,Rn=0,bJc=null,bEk=null;
-        if((O.s9||O.s10||O.s11||O.s12)&&M>1){
+        if((O.s9||O.s10||O.s11||O.s12||O.s15||O.s16)&&M>1){
           const dn=M;const jc=jacCols(S.th,spec,X,N,inDim,p);bJc=jc.cols;
           const Km=new Float64Array(dn*dn);for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(bJc[a],bJc[b]);Km[a*dn+b]=v;Km[b*dn+a]=v;}
           bEk=symEigDesc(Km,dn);
@@ -1144,17 +1146,18 @@ async function loop(){                                   // drives ST forward; r
         let thP=null,thA=null,thPpsd=null,thP_d=null,thPpsd_d=null;
         // §9c actual: full loss-Hessian sharpness λmax(∇²L). Browser thP/thA are RAW (un-÷N), so scale by N
         // to match (server divides thP/thA by N and sends sharp per-sample, so it's consistent there too).
-        const thAH=(O.s14&&isFinite(sharp))?sharp*N:null;
-        if(O.s12||O.s14){
+        const thAH=((O.s14||O.s16)&&isFinite(sharp))?sharp*N:null;
+        if(O.s12||O.s14||O.s15||O.s16){
           const W=Math.max(1,S.qapprox), etaN=S.lr/Math.max(N,1), reps_=Math.max(1,S.eigEvery);
           if(S.thT0<0||(t-S.thT0)>=W){            // window start: freeze θ₀, J₀, FH-SVD; reset col-3/4 products
             S.thT0=t;S.thTh0=S.th.slice();S.thAcc1=0;S.thAcc2=0;S.thProd3=1;S.thProd4=1;S.thProd5=1;S.thAccPSD=0;S.thAccPSD1=0;
             S.thProd3_d=1;S.thProd4_d=1;S.thProd5_d=1;S.thAcc2_d=0;S.thAccPSD_d=0;S.thAcc1_d=0;S.thAccPSD1_d=0;S.thDth=new Float64Array(p);S.thDth_s=new Float64Array(p);   // §9d resets
+            const en9d=(O.s15||O.s16);   // §9d freeze only when its toggle is on (else skip the parallel propagation)
             if(M>1){S.thJ=jacCols(S.th,spec,X,N,inDim,p).cols;S.thFroz=computeFHfrozen(S.th,spec,X,N,inDim,p,eps,S.nProbe,Math.min(S.n,M),2,S.mV,M);
               const K0=new Float64Array(M*M);for(let a=0;a<M;a++)for(let b=a;b<M;b++){const v=dot(S.thJ[a],S.thJ[b]);K0[a*M+b]=v;K0[b*M+a]=v;}S.thBase=symEigDesc(K0,M).vals[0];
-              S.thJ0=S.thJ.map(a=>a.slice());S.thJ_d=S.thJ.map(a=>a.slice());S.thF0=fr.out.slice();}   // §9d: freeze f₀,J₀; separate propagated J_d
+              if(en9d){S.thJ0=S.thJ.map(a=>a.slice());S.thJ_d=S.thJ.map(a=>a.slice());S.thF0=fr.out.slice();}else{S.thJ_d=null;}}   // §9d: freeze f₀,J₀; separate propagated J_d
             else{S.thJp=fr.grad.slice();S.thBase=dot(fr.grad,fr.grad);
-              S.thJp0=fr.grad.slice();S.thJp_d=fr.grad.slice();S.thF0s=fr.out[0];}   // §9d single-sample freeze
+              if(en9d){S.thJp0=fr.grad.slice();S.thJp_d=fr.grad.slice();S.thF0s=fr.out[0];}else{S.thJp_d=null;}}   // §9d single-sample freeze
           }
           thP=[null,null,null,null,null];thA=[null,null,null,null,null];thPpsd=[null,null,null,null,null];   // display cols 1-5: Eq-13/21/22/23/29 (col-4 reads thProd5=Eq-23, col-5 reads thProd4=Eq-29)
           if(M>1&&S.thJ&&S.thFroz&&bEk){
@@ -1326,7 +1329,7 @@ function backendURL(start){
    'neig','kth','steps','eigevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree'].forEach(id=>ps.set(id,val(id)));
   [['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
-   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
+   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
   ps.set('start',String(start||0));
   return 'run?'+ps.toString();
 }
@@ -1355,7 +1358,7 @@ function openStream(start,resuming){
   es.onerror=()=>{if(RUNNING&&!PAUSED)st.textContent='backend connection lost — start it with “python server.py”, then press Run (or switch compute to browser).';finish();};
 }
 function runGPU(){
-  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),gs:val('gson')==='1'};
+  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),gs:val('gson')==='1'};
   lastT=-1;META=null;cursorX=null;openStream(0,false);
 }
 function stopGPU(){ if(RUNNING){PAUSED=true;if(ES){ES.close();ES=null;}RUNNING=false;document.getElementById('status').textContent=`stopped at step ${lastT} — press Resume to continue.`;updateButtons();} }
@@ -1414,7 +1417,7 @@ function syncLossPanels(){
 function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic' && val('arch')==='mlp'){ runLocal(true); } }
 document.getElementById('loss').addEventListener('change',syncLossPanels);
 document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
-['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
 document.getElementById('run').addEventListener('click',run);
 document.getElementById('stop').addEventListener('click',stopRun);
 document.getElementById('resume').addEventListener('click',resumeRun);
@@ -1535,6 +1538,8 @@ function cmpHTML(pre, kind) {
     <label><input type="checkbox" id="${pre}_c7"> §4d group J·eigvecs(H)</label>
     <label><input type="checkbox" id="${pre}_c8" checked> §7a NTK alignment</label>
     <label><input type="checkbox" id="${pre}_c9" checked> 9c · vs full-Hessian sharpness</label>
+    <label><input type="checkbox" id="${pre}_c10" checked> 9d · self-computed quad residual</label>
+    <label><input type="checkbox" id="${pre}_c11" checked> 9d-c · self-residual vs full-Hessian</label>
     <button id="${pre}_run" class="btn-run">Run</button>
     <button id="${pre}_stop" class="btn-stop" disabled>Stop</button>
     <button id="${pre}_resume" class="btn-run" disabled>Resume</button>
@@ -1565,7 +1570,7 @@ function cmpURL(pre, kind, start) {
     dataset:'dataset', arch:'arch', loss:'loss', chmul:'chmul', nlayer:'nlayer', nhead:'nhead', dmodel:'dmodel',
     seqlen:'seqlen', vocab:'vocab', degree:'degree', every_iter:'qapprox' };
   for (const k in map) ps.set(map[k], v(k));
-  for (const c of ['c1','c2','c3','c4','c5','c6','c7','c8','c9']) ps.set(c, document.getElementById(pre + '_' + c).checked ? '1' : '0');
+  for (const c of ['c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11']) ps.set(c, document.getElementById(pre + '_' + c).checked ? '1' : '0');
   ps.set('start', String(start || 0));
   return 'run?' + ps.toString();
 }
@@ -1666,7 +1671,7 @@ function cmpVisibility(pre) {
   const set = (id, on) => { const e = document.getElementById(pre + '_' + id); if (e) e.style.display = on ? '' : 'none'; };
   set('lossfig', ck('c1')); set('resid', ck('c2')); set('eig', ck('c3')); set('hist', ck('c4'));
   set('theoryrow', ck('c5')); set('theoryrowB', ck('c5')); set('theoryrowH', ck('c9'));
-  set('theoryrowD', ck('c5')); set('theoryrowDH', ck('c9'));   // §9d rides on §9 toggle, §9d-c on §9c toggle
+  set('theoryrowD', ck('c10')); set('theoryrowDH', ck('c11'));   // §9d / §9d-c independent toggles
   set('row_j4', ck('c6')); set('row_d4', ck('c7')); set('row_ntk', ck('c8'));
 }
 // re-measure this section's plots against their grid cells (rAF + a delayed pass for the layout reflow);
@@ -1780,7 +1785,7 @@ function makeCompareSection(pre, kind) {
   document.getElementById(pre + '_dlzip').addEventListener('click', () => cmpDownloadPlots(pre));
   // every panel toggle (c1 loss · c2 resid · c3 eigs · c4 hist · c5 theory σ₁ · c6 §4 · c7 §4d · c8 §7a · c9 §9c)
   // shows/hides its panel(s) immediately (once the plots exist) — matches the §1 behaviour
-  for (const c of ['c1','c2','c3','c4','c5','c6','c7','c8','c9'])
+  for (const c of ['c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11'])
     document.getElementById(pre + '_' + c).addEventListener('change', () => { cmpVisibility(pre); cmpResize(pre); });
   // preset dropdown: applying a preset sets the controls and runs (like section-1)
   // selecting a preset applies its defaults and redraws EMPTY plots for the new config; it does NOT run

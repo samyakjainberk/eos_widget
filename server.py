@@ -1114,6 +1114,8 @@ def run_stream(P):
     s7, s8, s9, s10, s11, s12 = P["s7"], P["s8"], P["s9"], P["s10"], P["s11"], P["s12"]
     s13 = P.get("s13", 0)                # §7a NTK alignment (residual→NTK, NTK→FH-SVD)
     s14 = P.get("s14", 0)                # §9c: σ₁ predictions vs the FULL loss-Hessian sharpness λmax(∇²L)
+    s15 = P.get("s15", 0)                # §9d: predictions with the residual self-computed by the quadratic model
+    s16 = P.get("s16", 0)                # §9d-c: §9d predictions vs the full loss-Hessian sharpness
     if _TL.loss.name == "ce":            # CE: §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) and the generic
         s11 = s12 = False                #   residual r=−∂L/∂z (= softmax−onehot), so they're valid. Off for CE:
                                          #   §4d (sign-groups need a scalar residual) and §9 (squared-loss σ₁).
@@ -1261,7 +1263,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if multi_ok and (s7 or s8 or s9 or s10 or s11 or s12 or s13):
+            if multi_ok and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16):
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -1345,7 +1347,7 @@ def run_stream(P):
             # ---- §4b/§4c/§4d base: NTK top eigvec u₁ (deterministic sign), J·r ----
             u1s = Jrs = bEk_vecs = bEk_vals = None
             Jrns = Rn = 1.0
-            if multi_ok and (s9 or s10 or s11 or s12):
+            if multi_ok and (s9 or s10 or s11 or s12 or s15 or s16):
                 Kb, Vb = sym_eig_desc(Jc @ Jc.t())
                 for k in range(n):
                     Vb[:, k] = pin_sign(Vb[:, k])
@@ -1412,10 +1414,10 @@ def run_stream(P):
             thP = thA = thPpsd = None
             thP_d = thPpsd_d = None       # §9d / §9d-c: predictions with the quad-self-computed residual
             thAH = None
-            if s14:                       # §9c actual: full loss-Hessian sharpness λmax(∇²L) (reuse §1's if present)
+            if s14 or s16:                # §9c/§9d-c actual: full loss-Hessian sharpness λmax(∇²L) (reuse §1's if present)
                 thAH = sharp if sharp is not None else float(lanczos_extreme_vals(
                     lambda v: hvpL(th, X, Y, v), p, 1, mV, 0x5EED1)[0][0])
-            if s12 or s14:
+            if s12 or s14 or s15 or s16:
                 etaN = lr / max(N, 1); reps_ = max(1, ee)
                 if thT0 < 0 or (t - thT0) >= qapprox:               # window start: freeze θ₀, J₀, FH; reset accumulators
                     thT0 = t; thTh0 = th.clone(); thAcc1 = 0.0; thAcc2 = 0.0; thProd3 = 1.0; thProd4 = 1.0; thProd5 = 1.0
@@ -1424,16 +1426,16 @@ def run_stream(P):
                         thJ, _ = jac_cols(th, X)                  # predicted Jacobian J₀ (M, p)
                         thFroz = fh_frozen(th, X, nProbe, min(n, M), 2, mV, M)
                         thBase = float(torch.linalg.eigvalsh(thJ @ thJ.t())[-1])
-                        # §9d: freeze f₀,J₀; reset quad-GD displacement & parallel accumulators
-                        thJ0 = thJ.clone(); thF0 = (Y.reshape(-1) - rr).clone() if rr is not None else None
-                        thDth = torch.zeros(p, dtype=DTYPE, device=_dev()); thJ_d = thJ.clone()
-                        thProd3_d = 1.0; thProd4_d = 1.0; thProd5_d = 1.0; thAcc2_d = 0.0; thAccPSD_d = 0.0
+                        if s15 or s16:    # §9d: freeze f₀,J₀; reset quad-GD displacement & parallel accumulators
+                            thJ0 = thJ.clone(); thF0 = (Y.reshape(-1) - rr).clone() if rr is not None else None
+                            thDth = torch.zeros(p, dtype=DTYPE, device=_dev()); thJ_d = thJ.clone()
+                            thProd3_d = 1.0; thProd4_d = 1.0; thProd5_d = 1.0; thAcc2_d = 0.0; thAccPSD_d = 0.0
                     elif not multi:
                         Jc0, o0 = gradF(th, X); thJp = Jc0.clone(); thBase = float(Jc0 @ Jc0)
-                        # §9d single-sample: freeze f₀,J₀; reset displacement & accumulators
-                        thJp0 = Jc0.clone(); thF0s = float(o0.reshape(-1)[0])
-                        thDth_s = torch.zeros(p, dtype=DTYPE, device=_dev()); thJp_d = Jc0.clone()
-                        thAcc1_d = 0.0; thAccPSD1_d = 0.0
+                        if s15 or s16:    # §9d single-sample: freeze f₀,J₀; reset displacement & accumulators
+                            thJp0 = Jc0.clone(); thF0s = float(o0.reshape(-1)[0])
+                            thDth_s = torch.zeros(p, dtype=DTYPE, device=_dev()); thJp_d = Jc0.clone()
+                            thAcc1_d = 0.0; thAccPSD1_d = 0.0
                 thP = [None]*5; thA = [None]*5      # display cols 1-5: Eq-13, Eq-21, Eq-22, Eq-23, Eq-29 (col-4=thProd5=Eq-23, col-5=thProd4=Eq-29)
                 thPpsd = [None]*5   # §9b: prediction + accumulated 2nd-order PSD term ‖ΔJᵀu₁‖²
                 if multi_ok and thJ is not None and thFroz is not None and bEk_vals is not None:
@@ -1668,6 +1670,8 @@ def run_surrogate_compare(P):
     cL, cR, cE, cH, cT, c4, c4d = (P["c1"], P["c2"], P["c3"], P["c4"], P["c5"], P["c6"], P["c7"])
     c7a = P.get("c8", True)         # §7a NTK alignment panel (actual model)
     c9c = P.get("c9", False)        # §9c: σ₁ predictions vs the full loss-Hessian sharpness λmax(∇²L)
+    c9d = P.get("c10", False)       # §9d: predictions with the residual self-computed by the quadratic model
+    c9dc = P.get("c11", False)      # §9d-c: §9d predictions vs the full loss-Hessian sharpness
     cT = cT and not ceLoss          # the Eq-13/21/22/23/29 σ₁ theory (§9) is derived for squared loss only
     c7a = c7a and not ceLoss        # NTK alignment uses the MSE residual r → MSE only (multi-class CE: off)
     c9c = c9c and not ceLoss        # §9c is the same squared-loss σ₁ recursion → MSE only
@@ -1719,18 +1723,23 @@ def run_surrogate_compare(P):
             thAcc1 = thAcc2 = 0.0
             thProd3 = thProd4 = thProd5 = 1.0
             thAccPSD = thAccPSD1 = 0.0
-            if cT or c9c:
+            if cT or c9c or c9d or c9dc:
                 if multi:
                     thJ = J0.clone()
                     thFroz = fh_frozen(th0, X, nProbe, min(n, M), 2, mV, M)
                     thBase = float(torch.linalg.eigvalsh(thJ @ thJ.t())[-1])
-                    # §9d: reset quad-GD displacement & parallel accumulators (J0/f0flat already frozen above)
-                    thDth = torch.zeros(p, dtype=DTYPE, device=_dev()); thJ_d = J0.clone()
-                    thProd3_d = 1.0; thProd4_d = 1.0; thProd5_d = 1.0; thAcc2_d = 0.0; thAccPSD_d = 0.0
+                    if c9d or c9dc:   # §9d: reset quad-GD displacement & parallel accumulators (J0/f0flat already frozen above)
+                        thDth = torch.zeros(p, dtype=DTYPE, device=_dev()); thJ_d = J0.clone()
+                        thProd3_d = 1.0; thProd4_d = 1.0; thProd5_d = 1.0; thAcc2_d = 0.0; thAccPSD_d = 0.0
+                    else:
+                        thJ_d = None
                 else:
                     thJp = gF0.clone()
                     thBase = float(gF0 @ gF0)
-                    thDth_s = torch.zeros(p, dtype=DTYPE, device=_dev()); thJp_d = gF0.clone()
+                    if c9d or c9dc:
+                        thDth_s = torch.zeros(p, dtype=DTYPE, device=_dev()); thJp_d = gF0.clone()
+                    else:
+                        thJp_d = None
                     thAcc1_d = 0.0; thAccPSD1_d = 0.0
 
         if t >= start and t % ee == 0:
@@ -1846,8 +1855,8 @@ def run_surrogate_compare(P):
             # loss-Hessian sharpness λmax(∇²L) (=sharpA) instead of the surrogate's Gauss-Newton edge.
             thP = thA = thPpsd = None
             thP_d = thPpsd_d = None       # §9d / §9d-c: predictions with the quad-self-computed residual
-            thAH = sharpA if c9c else None
-            if cT or c9c:
+            thAH = sharpA if (c9c or c9dc) else None
+            if cT or c9c or c9d or c9dc:
                 etaN = lr / max(N, 1)
                 reps_ = max(1, ee)
                 thP = [None]*5      # display cols 1-5: Eq-13, Eq-21, Eq-22, Eq-23, Eq-29 (col-4=thProd5=Eq-23, col-5=thProd4=Eq-29)
