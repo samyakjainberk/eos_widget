@@ -545,17 +545,16 @@ function newP(id,traces,layout){Plotly.newPlot(id,traces,layout,CFG);const gd=do
 // spanning the whole run — once a trace would exceed the budget we halve every panel's points (drop every 2nd)
 // and from then on plot only every _plotStride-th incoming point. So render cost plateaus and the full
 // trajectory stays visible (just coarser over time). extP() keeps a high hard backstop too.
-let PLOT_DECIM=600;
-let _plotStride=1,_plotCall=0,_plotN=0;
-function resetPlotDecim(){_plotStride=1;_plotCall=0;_plotN=0;}
-// Halve the plotted points (drop every 2nd) of every panel whose id starts with `prefix` ('p_' = main widget,
-// 'q_'/'l_' = the quad/linear surrogate sections), then redraw. Called when a section hits its point budget.
-function downsamplePlots(prefix){
-  document.querySelectorAll('.js-plotly-plot').forEach(gd=>{ if(!gd.id||gd.id.indexOf(prefix)!==0||!gd.data||SLQ_PLOTS.includes(gd.id))return; let ch=false;   // skip SLQ density panels (eigenvalue axis, restyled in full each tick — not growing step-axis traces)
-    gd.data.forEach(tr=>{ if(tr.x&&tr.x.length>2){const nx=[],ny=[];for(let i=0;i<tr.x.length;i+=2){nx.push(tr.x[i]);ny.push(tr.y[i]);}tr.x=nx;tr.y=ny;ch=true;} });
-    if(ch)Plotly.redraw(gd); });
-}
-function extP(id,u,idx){Plotly.extendTraces(id,u,idx,4096);}   // hard backstop; decimation keeps it well under this
+let PLOT_DECIM=800;   // target max plotted points per trace — a long run is sampled down to this, evenly spaced
+let _plotStride=1,_plotCall=0;
+// FIXED-stride decimation: pick the stride ONCE per run from the known tick count (steps/eigevery), so every
+// trace keeps the SAME resolution from first point to last — no mid-run halving that makes the curve jump or
+// suddenly coarsen. A run with ≤ PLOT_DECIM diagnostic ticks plots every point; a longer one plots every
+// ⌈ticks/PLOT_DECIM⌉-th tick. Render cost is bounded (≤ PLOT_DECIM pts × panels) so long runs stay responsive.
+function resetPlotDecim(){ _plotCall=0;
+  const ticks=Math.ceil((+val('steps')||0)/Math.max(1,+val('eigevery')||1));
+  _plotStride=Math.max(1,Math.ceil(ticks/PLOT_DECIM)); }
+function extP(id,u,idx){Plotly.extendTraces(id,u,idx,PLOT_DECIM+64);}   // hard backstop just above the target
 function slqLayout(title){const L=baseLayout(title,'density (log)',false);L.xaxis.title.text='eigenvalue';L.yaxis.type='log';L.showlegend=false;return L;}
 function oneTrace(name,color){return [{x:[],y:[],mode:'lines',name,line:{color,width:1.9}}];}
 // LOG density: Hessian spectra are a tall bulk near 0 + outlier clusters ~10³–10⁴× smaller, invisible
@@ -813,7 +812,6 @@ function pushPoint(t,D,n,kth,nResid){
     for(let c=0;c<5;c++){const pv=D.thP[c],pp=D.thPpsd?D.thPpsd[c]:null;if(pv==null&&pp==null&&sh==null)continue;
       extP('p_predh'+(c+1),{x:[[t],[t],[t]],y:[[pv],[pp],[sh]]},[0,1,2]);}
   }
-  if(++_plotN>PLOT_DECIM){downsamplePlots('p_');_plotStride*=2;_plotN>>=1;}   // over budget → halve every panel's points & coarsen
 }
 
 // ---- synchronized dotted cursor across visible step-axis plots ----
@@ -1469,7 +1467,9 @@ function cmpURL(pre, kind, start) {
 }
 function cmpInit(pre, n, kind) {
   const S = SEC[pre]; S.n = n;
-  S.plotStride = 1; S.plotN = 0; S.plotCall = 0;   // fresh decimation state for this surrogate run
+  // fixed-stride decimation for this surrogate run (computed once from steps/eigevery → constant resolution, no mid-run coarsening)
+  { const ticks = Math.ceil((+document.getElementById(pre+'_steps').value||0)/Math.max(1,+document.getElementById(pre+'_eigevery').value||1));
+    S.plotStride = Math.max(1, Math.ceil(ticks/PLOT_DECIM)); S.plotCall = 0; }
   // All panels are created visible (so Plotly sizes them against their grid cell), then cmpVisibility() below
   // hides the ones whose toggle is off. Panel order: loss/resid/eig/hist, §7a, §4, §4d, then the σ₁-theory rows.
   const sl = kind === 'quad' ? 'quad' : 'linear';
@@ -1587,8 +1587,6 @@ function cmpPush(pre, m) {
   if (m.thAH != null && m.thP) for (let c=0;c<5;c++){ const pv=m.thP[c], pp=m.thPpsd?m.thPpsd[c]:null;
     if (pv==null && pp==null) continue;
     extP(pre + '_predh' + (c+1), { x:[[t],[t],[t]], y:[[pv],[pp],[m.thAH]] }, [0,1,2]); }  // §9c
-  S.plotN = (S.plotN || 0) + 1;
-  if (S.plotN > PLOT_DECIM) { downsamplePlots(pre + '_'); S.plotStride = (S.plotStride || 1) * 2; S.plotN >>= 1; }   // over budget → coarsen
 }
 function cmpButtons(pre) { const S = SEC[pre];
   document.getElementById(pre + '_run').disabled = S.running;
