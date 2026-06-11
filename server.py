@@ -2068,11 +2068,14 @@ def _parse_params(q):
         "s10": g("s10", "1") == "1", "s11": g("s11", "1") == "1", "s12": g("s12", "0") == "1",
         "s13": g("s13", "1") == "1",
         "s14": g("s14", "0") == "1",     # §9c: σ₁ predictions vs full loss-Hessian sharpness
+        "s15": g("s15", "1") == "1",     # §9d: predictions with the residual self-computed by the quadratic model
+        "s16": g("s16", "1") == "1",     # §9d-c: §9d predictions vs full loss-Hessian sharpness
         "gs": g("gson", "1") == "1",
         # surrogate-section panel toggles (loss · resid mean/std · top-n eig · histogram · theory · §4 · §4d)
         "c1": g("c1", "1") == "1", "c2": g("c2", "1") == "1", "c3": g("c3", "1") == "1",
         "c4": g("c4", "1") == "1", "c5": g("c5", "0") == "1", "c6": g("c6", "1") == "1",
         "c7": g("c7", "1") == "1", "c8": g("c8", "1") == "1", "c9": g("c9", "0") == "1",
+        "c10": g("c10", "1") == "1", "c11": g("c11", "1") == "1",   # §9d / §9d-c (surrogate)
     }
 
 
