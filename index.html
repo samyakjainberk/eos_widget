@@ -545,7 +545,9 @@ function newP(id,traces,layout){Plotly.newPlot(id,traces,layout,CFG);const gd=do
 // spanning the whole run — once a trace would exceed the budget we halve every panel's points (drop every 2nd)
 // and from then on plot only every _plotStride-th incoming point. So render cost plateaus and the full
 // trajectory stays visible (just coarser over time). extP() keeps a high hard backstop too.
-let PLOT_DECIM=800;   // target max plotted points per trace — a long run is sampled down to this, evenly spaced
+let PLOT_DECIM=6000;   // target max plotted points per trace — runs up to this many ticks plot EVERY point (exact
+                       // curve, stride=1); only longer custom runs get evenly-spaced sampling. (Line traces are one
+                       // SVG path each, so even a few-thousand-point curve renders fine at typical GPU step rates.)
 let _plotStride=1,_plotCall=0;
 // FIXED-stride decimation: pick the stride ONCE per run from the known tick count (steps/eigevery), so every
 // trace keeps the SAME resolution from first point to last — no mid-run halving that makes the curve jump or
@@ -1290,7 +1292,7 @@ const PRESETS={
   owt_gpt:{dataset:'owt',arch:'gpt',loss:'ce',depth:2,width:128,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.0006,init:0.1,nsamp:64,batch:16,indim:16,outdim:16,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:5,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:128,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // Chebyshev regression (Cohen et al. EoS): nsamp points on [-1,1] labeled by T_degree; the canonical
   // 1-hidden-layer tanh net (Linear(1,100)→tanh→Linear(100,1)). Sharpness climbs to the 2/η edge of stability.
-  chebyshev:{dataset:'chebyshev',arch:'mlp',loss:'mse',depth:1,width:100,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:20,batch:0,indim:1,outdim:1,degree:3,tgt:1.0,neig:3,kth:1,steps:5000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
+  chebyshev:{dataset:'chebyshev',arch:'mlp',loss:'mse',depth:6,width:50,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.1,init:0.5,nsamp:20,batch:0,indim:1,outdim:1,degree:3,tgt:1.0,neig:3,kth:1,steps:5000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
 };
 function setVal(id,v){document.getElementById(id).value=String(v);}
 function applyPreset(name){const P=PRESETS[name];if(!P)return;for(const k in P){const el=document.getElementById(k);if(!el)continue;if(el.type==='checkbox')el.checked=!!P[k];else el.value=String(P[k]);}syncLossPanels();updateParamBadge();}
@@ -1347,7 +1349,7 @@ const CMP_PRESETS = {
   cifar_vgg:{ ...CMP_BASE, dataset:'cifar10', arch:'vgg11', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.05, init:0.5, steps:300, eigevery:2, chmul:0.25 },
   sort_gpt: { ...CMP_BASE, dataset:'sorting', arch:'gpt', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:16, outdim:16, nsamp:128, lr:0.0002, init:0.1, steps:4000, eigevery:2, seqlen:16 },
   owt_gpt:  { ...CMP_BASE, dataset:'owt', arch:'gpt', loss:'ce', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:16, outdim:16, nsamp:64, lr:0.0006, init:0.1, steps:2000, eigevery:5, seqlen:128, vocab:50257 },
-  chebyshev:{ ...CMP_BASE, dataset:'chebyshev', arch:'mlp', loss:'mse', depth:1, width:100, act:'tanh', bias:'1', fixedx:'0', indim:1, outdim:1, nsamp:20, degree:3, lr:0.02, init:0.5, steps:5000, slqprobes:4 },
+  chebyshev:{ ...CMP_BASE, dataset:'chebyshev', arch:'mlp', loss:'mse', depth:6, width:50, act:'tanh', bias:'1', fixedx:'0', indim:1, outdim:1, nsamp:20, degree:3, lr:0.1, init:0.5, steps:5000, slqprobes:4 },
 };
 function cmpApplyPreset(pre, name) {
   const P = CMP_PRESETS[name]; if (!P) return;
