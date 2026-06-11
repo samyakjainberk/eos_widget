@@ -39,39 +39,69 @@ def run_name(cfg):
     return "_".join(str(p) for p in parts)
 
 
-# ----------------------------------------------------------------------------- per-step flattening
-_SCALARS = ["loss", "test_loss", "sharpness", "thr", "resid_mean", "resid_rms",
-            "H_edge_max", "H_edge_min", "dim_pos", "dim_neg", "thAH"]
-_VECTORS = ["H_top", "H_bot", "lossH_top", "lossH_bot", "G_top", "G_bot", "S_top", "S_bot",
-            "jt", "jb", "jtN", "jbN", "ntkR", "ntkH", "fhEvT", "fhEvB",
-            "jhe1", "jhe2", "jhe1b", "jhe2b", "jh2e1", "jh2e2", "jh2e1b", "jh2e2b",
-            "g2J", "g2Jn", "q9t", "q9b", "q9tN", "q9bN", "q9tR", "q9bR", "q9gt", "q9gb",
-            "q10", "q10N", "d4Ht", "d4Hb", "d4Qt", "d4Qb", "thP", "thA", "thPpsd"]
-
-
-def flatten_rec(rec):
-    """Per-step record → flat {metric: float} dict for wandb.log (vectors expand to base/i)."""
-    out = {}
-    for k in _SCALARS:
-        if k in rec and rec[k] is not None and _isnum(rec[k]):
-            out[k] = float(rec[k])
-    for base in _VECTORS:
-        v = rec.get(base)
-        if not v:
-            continue
-        for i, x in enumerate(v):
-            if x is not None and _isnum(x) and not (isinstance(x, float) and math.isnan(x)):
-                out[f"{base}/{i}"] = float(x)
-    for base in ("rot_pos", "rot_neg"):
-        d = rec.get(base)
-        if d:
-            out[base + "_max"] = float(d["mx"])
-            out[base + "_mean"] = float(d["mn"])
-    return out
-
+# ----------------------------------------------------------------------------- per-step → wandb metrics
+# A small, curated, GROUPED set of human-readable time-series — NOT the ~120 cryptic per-index series the
+# raw diagnostics expand to (H_top/0, jt/0, q9t/0, ntkR/0, …). wandb groups charts by the text before the
+# first "/", so the names below land in a handful of tidy sections (loss · sharpness · top_eigenvalue · …).
+# The full top-/bottom-n spectra, NTK alignments, FH-SVD and §4b–§4d projections are deliberately NOT
+# streamed here — that detail lives in the rendered panel images logged once at finish().
 
 def _isnum(x):
     return isinstance(x, (int, float)) and not (isinstance(x, float) and math.isnan(x))
+
+
+# clean wandb metric name  <-  (record key, vector index or None for a scalar)
+_METRICS = [
+    ("loss/train",                         "loss",       None),
+    ("loss/test",                          "test_loss",  None),
+    ("sharpness/sharpness",                "sharpness",  None),
+    ("sharpness/edge_2_over_lr",           "thr",        None),
+    ("residual/mean",                      "resid_mean", None),
+    ("residual/rms",                       "resid_rms",  None),
+    ("top_eigenvalue/loss_Hessian",        "lossH_top",  0),
+    ("top_eigenvalue/function_Hessian",    "H_top",      0),
+    ("top_eigenvalue/Gauss_Newton",        "G_top",      0),
+    ("top_eigenvalue/residual_term",       "S_top",      0),
+    ("bottom_eigenvalue/loss_Hessian",     "lossH_bot",  0),
+    ("bottom_eigenvalue/function_Hessian", "H_bot",      0),
+    ("H_spectral_edge/max",                "H_edge_max", None),
+    ("H_spectral_edge/min",                "H_edge_min", None),
+    ("J_projection/onto_top_H_eigvec",     "jtN",        0),
+    ("J_projection/onto_bottom_H_eigvec",  "jbN",        0),
+]
+_THEORY_EQS = ["Eq13_single_sample", "Eq21_multi_sample", "Eq27_multi_sample", "Eq29_multi_sample"]
+
+
+def flatten_rec(rec):
+    """Per-step record → a small dict of grouped, readable {metric: float} for wandb.log."""
+    out = {}
+    for name, key, idx in _METRICS:
+        v = rec.get(key)
+        if v is None:
+            continue
+        if idx is not None:
+            if not isinstance(v, (list, tuple)) or len(v) <= idx:
+                continue
+            v = v[idx]
+        if _isnum(v):
+            out[name] = float(v)
+    # §6 eigenspace rotation — max principal angle (degrees) of the ± subspaces
+    for key, nm in (("rot_pos", "positive"), ("rot_neg", "negative")):
+        d = rec.get(key)
+        if d and _isnum(d.get("mx")):
+            out["eigenspace_rotation/" + nm + "_deg"] = float(d["mx"])
+    # §9 theory vs empirical sharpness σ₁ — predicted per equation + the single measured actual
+    thP, thA = rec.get("thP"), rec.get("thA")
+    if thP:
+        for i, eq in enumerate(_THEORY_EQS):
+            if i < len(thP) and _isnum(thP[i]):
+                out["theory_sigma1/predicted_" + eq] = float(thP[i])
+    if thA:
+        for x in thA:
+            if _isnum(x):
+                out["theory_sigma1/actual"] = float(x)
+                break
+    return out
 
 
 class RunLogger:
