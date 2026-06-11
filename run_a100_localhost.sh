@@ -17,6 +17,8 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=40:00:00
+#SBATCH --requeue                 # auto-requeue on node failure / preemption (don't lose the server)
+#SBATCH --open-mode=append        # keep the same log across a requeue
 #SBATCH --output=slurm-%j.out
 
 set -u
@@ -38,22 +40,14 @@ echo "================================================================"
 
 cd "$DIR"
 
-# 1) Start the GPU backend in the background.
-"$PY" -u server.py --devices all --port "$PORT" --host 0.0.0.0 --cifar-dir "$CIFAR" &
-SERVER_PID=$!
+SERVER_PID=""; SSH_PID=""
 
-cleanup() { echo "[launcher] cleaning up"; kill "$SERVER_PID" 2>/dev/null; kill "$SSH_PID" 2>/dev/null; }
-trap cleanup EXIT TERM INT
-
-# Wait for the server to bind before opening the tunnel.
-for i in $(seq 1 60); do
-  if curl -s -o /dev/null "http://127.0.0.1:$PORT/"; then echo "[launcher] server up"; break; fi
-  if ! kill -0 "$SERVER_PID" 2>/dev/null; then echo "[launcher] server died early"; exit 1; fi
-  sleep 1
-done
-
-# 2) Keep a reverse tunnel to rnn alive for as long as the server runs.
-while kill -0 "$SERVER_PID" 2>/dev/null; do
+start_server() {
+  "$PY" -u server.py --devices all --port "$PORT" --host 0.0.0.0 --cifar-dir "$CIFAR" &
+  SERVER_PID=$!
+  echo "[launcher] server started (pid $SERVER_PID)"
+}
+start_tunnel() {
   ssh -i "$KEY" -N -T \
       -o UserKnownHostsFile="$KH" \
       -o StrictHostKeyChecking=yes \
@@ -62,9 +56,35 @@ while kill -0 "$SERVER_PID" 2>/dev/null; do
       -R 127.0.0.1:$PORT:localhost:$PORT \
       samsj@"$LOGIN" &
   SSH_PID=$!
-  wait "$SSH_PID"
-  echo "[launcher] tunnel dropped (rc=$?); retrying in 5s"
-  sleep 5
-done
+  echo "[launcher] tunnel started (pid $SSH_PID)"
+}
+wait_bind() {   # block until the server answers on $PORT (or it dies → restart and keep waiting)
+  for _ in $(seq 1 120); do
+    curl -s -o /dev/null "http://127.0.0.1:$PORT/" && { echo "[launcher] server up"; return 0; }
+    kill -0 "$SERVER_PID" 2>/dev/null || { echo "[launcher] server died during startup — restarting"; sleep 3; start_server; }
+    sleep 1
+  done
+}
 
-echo "[launcher] server exited; shutting down"
+cleanup() { echo "[launcher] cleaning up"; kill "$SERVER_PID" "$SSH_PID" 2>/dev/null; }
+trap cleanup EXIT TERM INT
+
+# 1) Start the GPU backend, wait for it to bind, then 2) open the reverse tunnel.
+start_server
+wait_bind
+start_tunnel
+
+# 3) SUPERVISOR: keep BOTH alive for the whole allocation. If the server crashes (bad config, transient
+#    CUDA error, OOM) or the SSH tunnel drops, restart just that one — the job/connection never goes down
+#    on its own. Only a SLURM time-limit / scancel / node-failure ends it, and --requeue brings it back.
+while true; do
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    echo "[launcher] server process gone — restarting in 3s"
+    sleep 3; start_server; wait_bind
+  fi
+  if ! kill -0 "$SSH_PID" 2>/dev/null; then
+    echo "[launcher] tunnel down — reconnecting"
+    start_tunnel
+  fi
+  sleep 10
+done
