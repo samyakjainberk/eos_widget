@@ -69,7 +69,8 @@ _METRICS = [
     ("J_projection/onto_top_H_eigvec",     "jtN",        0),
     ("J_projection/onto_bottom_H_eigvec",  "jbN",        0),
 ]
-_THEORY_EQS = ["Eq13_single_sample", "Eq21_multi_sample", "Eq27_multi_sample", "Eq29_multi_sample"]
+_THEORY_EQS = ["Eq13_single_sample", "Eq21_multi_sample", "Eq22_multi_sample",
+               "Eq23_multi_sample", "Eq29_multi_sample"]   # thP cols 0-4 (Eq-27 was replaced by Eq-22; Eq-23 added)
 
 
 def flatten_rec(rec):
