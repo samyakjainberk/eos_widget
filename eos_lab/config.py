@@ -138,8 +138,8 @@ PRESETS = {
     "owt_gpt":   dict(dataset="owt", arch="gpt", loss="ce", nsamp=64, batch=16, lr=0.0006, init=0.1,
                       steps=2000, eigevery=5, slqprobes=3, dmodel=64, nhead=4, nlayer=2, seqlen=128,
                       vocab=50257),
-    # Chebyshev regression (Cohen et al. EoS): nsamp points on [-1,1] labeled by T_degree; the canonical
-    # 1-hidden-layer tanh net (Linear(1,100)→tanh→Linear(100,1)). Sharpens to the 2/η edge of stability.
+    # Chebyshev regression (Cohen et al. EoS): nsamp points on [-1,1] labeled by T_degree; a 6-hidden-layer
+    # width-50 tanh MLP (≈12.9k params). Sharpens to the 2/η edge of stability.
     "chebyshev": dict(dataset="chebyshev", arch="mlp", loss="mse", act="tanh", depth=6, width=50, bias=1,
                       fixedx=0, indim=1, outdim=1, nsamp=20, degree=3, lr=0.1, init=0.5, steps=5000),
 }

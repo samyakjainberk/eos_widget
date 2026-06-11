@@ -1391,8 +1391,8 @@ const PRESETS={
   // OpenWebText next-token LM — GPT-2 BPE, cross-entropy. nsamp sequences form the pool; each step
   // samples a `batch` minibatch used for BOTH the GD step and that step's diagnostics. CE keeps §1/§2/§3.
   owt_gpt:{dataset:'owt',arch:'gpt',loss:'ce',depth:2,width:128,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.0006,init:0.1,nsamp:64,batch:16,indim:16,outdim:16,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:5,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:128,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
-  // Chebyshev regression (Cohen et al. EoS): nsamp points on [-1,1] labeled by T_degree; the canonical
-  // 1-hidden-layer tanh net (Linear(1,100)→tanh→Linear(100,1)). Sharpness climbs to the 2/η edge of stability.
+  // Chebyshev regression (Cohen et al. EoS): nsamp points on [-1,1] labeled by T_degree; a 6-hidden-layer
+  // width-50 tanh MLP (≈12.9k params). Sharpness climbs to the 2/η edge of stability.
   chebyshev:{dataset:'chebyshev',arch:'mlp',loss:'mse',depth:6,width:50,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.1,init:0.5,nsamp:20,batch:0,indim:1,outdim:1,degree:3,tgt:1.0,neig:3,kth:1,steps:5000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
 };
 function setVal(id,v){document.getElementById(id).value=String(v);}
