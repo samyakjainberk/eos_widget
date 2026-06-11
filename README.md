@@ -91,6 +91,10 @@ Gauss–Newton / NTK eigenvalue). Two companion panels reuse the same prediction
 (single-sample $\lVert\Delta J\rVert^2$) — an always-non-negative sharpening floor the first-order recursion omits;
 **§9c** compares the predictions against the **full loss-Hessian sharpness** $\lambda_{\max}(\nabla^2\mathcal L)=\lambda_{\max}(G+S)$
 instead of the Gauss–Newton edge, so the gap is exactly the residual term $S$.
+**§9d / §9d-c** repeat §9 and §9c but compute the residual *from scratch* with the frozen quadratic model —
+$r_q=Y-f_{\text{quad}}(\theta_0+\Delta\theta)$, $f_{\text{quad}}=f_0+J_0\Delta\theta+\tfrac12\Delta\theta^\top Q\Delta\theta$, with
+$\Delta\theta$ advanced by the quadratic model's own gradient descent — a fully closed prediction that uses no live-run
+input inside a window; it coincides with §9 at each window start ($\Delta\theta=0$) and diverges by exactly the quadratic-approximation error.
 
 ## Panels
 
@@ -101,12 +105,13 @@ instead of the Gauss–Newton edge, so the gap is exactly the residual term $S$.
 | **4** | `J` projected onto eigenvectors of `H` | always |
 | **5** | SLQ spectral density (log) of `H`, `G`, `S`, loss Hessian | always |
 | **6** | eigenspace rotation of `H` (principal angles of the ± subspaces) | always |
-| **7a / 7 / 8** | NTK alignment; multi-sample NTK + function-Hessian SVD; `vec(J)` onto FH-reshape singular vecs | multi-sample · MSE or CE |
+| **7a / 7 / 8** | NTK alignment (+ the per-step products `Δλ·Δ⟨r,vₖ⟩`, synchronous & 1-step-lagged, with running averages); multi-sample NTK + function-Hessian SVD; `vec(J)` onto FH-reshape singular vecs | multi-sample · MSE or CE |
 | **4b / 4c** | `J·r` onto `Q[u₁]` eigvecs; `Q[u₁]·(J·r)` onto Gauss–Newton | multi-sample · MSE or CE |
 | **4d** | per-residual-sign-group projections | multi-sample · MSE |
 | **9** | predicted vs actual sharpness `σ₁` (Eq. 13 single-sample; Eq. 21/22/23/29 multi-sample) | MSE · single or multi |
 | **9b** | the same predictions **+ the 2nd-order PSD term** `‖ΔJᵀu₁‖²` vs actual `σ₁` | MSE · single or multi |
 | **9c** | the same predictions vs the **full-Hessian sharpness** `λmax(∇²L)` (own toggle) | MSE · single or multi |
+| **9d / 9d-c** | §9 / §9c but with the residual **self-computed by the quadratic model** (closed loop), vs actual `σ₁` / the full-Hessian sharpness (own toggles) | MSE · single or multi |
 
 A checkbox per section toggles its computation. §7a/§7/§8/§4b/§4c use the *function* NTK `Jᵤ·Jᵤᵀ` and the
 generic residual `r = −∂L/∂z` (MSE: `y−f`, CE: `softmax(z)−onehot`), so they work for **cross-entropy** too;
