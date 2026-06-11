@@ -57,10 +57,12 @@ Every section from the widget is here, and each is a flag on `config.Config` (al
 - **§4** — the Jacobian `J = ∇Σf` projected onto the top/bottom eigenvectors of `H` (raw and normalized).
 - **§5** — the spectral density (via stochastic Lanczos quadrature) of `H`, the loss Hessian, `G`, and `S`.
 - **§6** — how fast the dominant eigenspace of `H` rotates from step to step (principal angles).
+- **§7a** — NTK alignment: the residual projected onto the top-`n` NTK eigenvectors `vₖ` (`ntkR`) and the top NTK eigenvector onto the FH right-singular vectors (`ntkH`), plus two change-product diagnostics — the per-step product of the sharpness change and the projection change `Δλ(t)·Δ⟨r,vₖ⟩(t)` (`ntkGs`, with running average `ntkGsA`) and its one-step-lagged form `Δλ(t)·Δ⟨r,vₖ⟩(t−1)` (`ntkGl`/`ntkGlA`).
 - **§7 / §8** — the multi-sample NTK and function-Hessian SVD, and `vec(J)` onto the FH-reshape singular vectors.
 - **§4b / §4c / §4d** — residual-weighted Jacobian projections (multi-sample only).
 - **§9** — the theory: each σ₁ prediction (Eqs. 13/21/22/23/29) overlaid on the measured top NTK / Gauss–Newton eigenvalue, over frozen-`Q` windows. The records also carry **§9b** (`thPpsd`: the predictions plus the second-order PSD term `‖ΔJᵀu₁‖²`, an always-positive sharpening floor the first-order recursion drops).
 - **§9c** — the same predictions compared against the **full loss-Hessian sharpness** `λmax(∇²L)` (`thAH`) rather than the Gauss–Newton edge; the gap between them is the residual term `S`.
+- **§9d / §9d-c** — the *same* Eq. 13/21/22/23/29 predictions (`thP_d`/`thPpsd_d`), but the residual driving the recursion is **self-computed by the frozen quadratic model** rather than read from the live run: inside each window `r_q = Y − f_quad(θ₀+Δθ)` with `f_quad = f₀ + J₀Δθ + ½ΔθᵀQΔθ` and `Δθ` advanced by the quadratic model's own gradient descent — a fully closed prediction. §9d overlays them on the measured NTK σ₁ (like §9); §9d-c on the full-Hessian sharpness (like §9c). They coincide with §9 at each window start (`Δθ=0`) and diverge by exactly the quadratic-approximation error.
 
 The multi-sample sections build an explicit `M×p` Jacobian (`M = N·d_out`), so they're **skipped
 automatically** when that's too big to form (the budget is `M ≤ 2048` and `M·p ≤ 7e8`; whatever is skipped
