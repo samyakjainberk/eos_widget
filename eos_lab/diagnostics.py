@@ -244,7 +244,7 @@ class Diagnostics:
         # ---- shared multi-sample Jacobian columns Jc (M,p) + residual rr (M,) ----
         Jc = rr = None
         want_multi = self.multi_ok and (self.s7 or self.s8 or self.s9 or self.s10 or self.s11
-                                         or self.s12 or self.s13)
+                                         or self.s12 or self.s13 or self.s15 or self.s16)
         if want_multi:
             Jc, out_flat = jac_cols(self.model, th, X)
             rr = (-N * cS).reshape(-1)        # generic residual −N·∂L/∂out: Y−f (MSE), onehot−softmax (CE)
