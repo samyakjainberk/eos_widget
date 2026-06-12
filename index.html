@@ -163,6 +163,7 @@
       <div class="ctl"><label>k (which single eigvec)</label><input id="kth" type="number" value="1" min="1" max="8" step="1"></div>
       <div class="ctl"><label>eig every (steps)</label><input id="eigevery" type="number" value="1" min="1" max="20" step="1"></div>
       <div class="ctl"><label title="The heaviest panels (§7 FH-eigvec projections, §8 FH-reshape SVD) compute every N-th diagnostic tick instead of every step, so runs stay responsive. The cheap core (loss/sharpness/eigenvalues/§9 theory/§7a) updates every step. Set 1 to compute everything every step.">heavy every (ticks)</label><input id="heavyevery" type="number" value="4" min="1" max="50" step="1"></div>
+      <div class="ctl"><label title="§10 cubic-approximation window: every N steps freeze θ₀, J₀, Q₀ and the 3rd-derivative tensor T, then propagate J & Q over the window to predict the NTK-σ₁ change. Smaller = more frequent re-anchoring and cheaper (cost is O(window²) HVPs).">cubic window</label><input id="cubicapprox" type="number" value="10" min="2" max="50" step="1"></div>
       <div class="ctl"><label>SLQ probes</label><input id="slqprobes" type="number" value="4" min="1" max="12" step="1"></div>
       <div class="ctl"><label>subspace energy %</label><input id="energyp" type="number" value="99" min="50" max="100" step="1"></div>
       <div class="ctl"><label>G &amp; S spectra</label><select id="gson"><option value="1" selected>on</option><option value="0">off</option></select></div>
@@ -207,6 +208,7 @@
   <label><input type="checkbox" id="en14" checked> 9c · theory vs full-Hessian sharpness</label>
   <label><input type="checkbox" id="en15" checked> 9d · theory (self-computed quad residual)</label>
   <label><input type="checkbox" id="en16" checked> 9d-c · self-residual vs full-Hessian sharpness</label>
+  <label title="CUBIC approximation (paper §6): Eq-47 (single) / Eq-51 (multi) σ₁ predictions with exact J & Q propagation (3rd-derivative tensor T frozen per window). Two panels: vs the NTK σ₁ and vs the full-Hessian λmax. OFF by default — by far the heaviest section (O(window²) HVPs)."><input type="checkbox" id="en17"> 10 · cubic approximation (Eq-47/51)</label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -280,6 +282,15 @@
 <h2>9d-c · Self-residual prediction vs the full-Hessian sharpness</h2>
 <p class="cap">The §9d (quadratically self-computed residual) predictions compared against the <b>full loss-Hessian sharpness</b> $\lambda_{\max}(\nabla^2 L)$ (red dashed), as in §9c: <b>predicted</b> (blue) and <b>predicted + PSD</b> (green). This is §9d + §9c — the closed quadratic prediction held up against the true sharpness the EoS threshold acts on. Col 1 — single sample (Eq. 13); cols 2–5 — multi-sample (Eq. 21 / 22 / 23 / 29).</p>
 <div class="plotrow row5"><div id="p_preddh1" class="plot"></div><div id="p_preddh2" class="plot"></div><div id="p_preddh3" class="plot"></div><div id="p_preddh4" class="plot"></div><div id="p_preddh5" class="plot"></div></div>
+</div>
+
+<div id="sec_10">
+<h2>10 · Cubic approximation (Eq. 47 / 51)</h2>
+<p class="cap">The <b>cubic</b> model of the function (paper §6): over each <i>cubic-window</i> we freeze $\theta_0$, $J_0$, $Q_0$ and the third-derivative tensor $T$, then propagate <b>both</b> $J$ and $Q$ exactly (Eqs. 44/45 single, 49/50 multi) and predict the change in the top NTK eigenvalue — <b>Eq. 47</b> (single sample) and <b>Eq. 51</b> (multi sample) — each computed <b>with</b> and <b>without</b> the PSD term $\lVert\Delta J^\top u_1\rVert^2$. The residual is read from the live run; everything else comes from the frozen quantities. Plot 3 is Eq. 51 <b>without the $\eta^2$ term</b> (the cubic interaction) — i.e. the quadratic recursion — for contrast. <b>OFF by default</b>: $Q$ is propagated exactly, so a window costs $O(\text{window}^2)$ Hessian-vector products (the heaviest section).</p>
+<h3 style="margin:6px 0 2px;font-size:14px;color:#475569">Panel 1 — vs the empirical NTK $\sigma_1$ &nbsp;·&nbsp; plot 4: $\lVert\Delta Q\rVert/\lVert Q_0\rVert\times100$</h3>
+<div class="plotrow row4"><div id="p_c10_47" class="plot"></div><div id="p_c10_51" class="plot"></div><div id="p_c10_51n" class="plot"></div><div id="p_c10_dQ" class="plot"></div></div>
+<h3 style="margin:8px 0 2px;font-size:14px;color:#475569">Panel 2 — vs the full loss-Hessian sharpness $\lambda_{\max}(\nabla^2 L)$ &nbsp;·&nbsp; plot 4: $\lVert\Delta J\rVert/\lVert J_0\rVert\times100$</h3>
+<div class="plotrow row4"><div id="p_c10h_47" class="plot"></div><div id="p_c10h_51" class="plot"></div><div id="p_c10h_51n" class="plot"></div><div id="p_c10h_dJ" class="plot"></div></div>
 </div>
 
 <div id="sec_5">
@@ -551,7 +562,7 @@ function withThr(L,thr){
 }
 const emptyN=(cnt,namer,dash)=>Array.from({length:cnt},(_,i)=>({x:[],y:[],mode:'lines',name:namer(i),line:{width:1.6,color:PALETTE[i%PALETTE.length],dash:dash||'solid'}}));
 const SLQ_PLOTS=['p_sH','p_sG','p_sS','p_sHL'];
-const TIME_PLOTS=['p_loss','p_sharp','p_resid','p_eHfX','p_eHfT','p_eHLT','p_eGNT','p_eSRT','p_eHfB','p_eHLB','p_eGNB','p_eSRB','p_Jtop','p_Jbot','p_Jtopn','p_Jbotn','p_paPos','p_paNeg','p_ntkR','p_ntkGs','p_ntkGl','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb','p_pred1','p_pred2','p_pred3','p_pred4','p_pred5','p_predp1','p_predp2','p_predp3','p_predp4','p_predp5','p_predh1','p_predh2','p_predh3','p_predh4','p_predh5','p_predd1','p_predd2','p_predd3','p_predd4','p_predd5','p_preddh1','p_preddh2','p_preddh3','p_preddh4','p_preddh5'];
+const TIME_PLOTS=['p_loss','p_sharp','p_resid','p_eHfX','p_eHfT','p_eHLT','p_eGNT','p_eSRT','p_eHfB','p_eHLB','p_eGNB','p_eSRB','p_Jtop','p_Jbot','p_Jtopn','p_Jbotn','p_paPos','p_paNeg','p_ntkR','p_ntkGs','p_ntkGl','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb','p_pred1','p_pred2','p_pred3','p_pred4','p_pred5','p_predp1','p_predp2','p_predp3','p_predp4','p_predp5','p_predh1','p_predh2','p_predh3','p_predh4','p_predh5','p_predd1','p_predd2','p_predd3','p_predd4','p_predd5','p_preddh1','p_preddh2','p_preddh3','p_preddh4','p_preddh5','p_c10_47','p_c10_51','p_c10_51n','p_c10_dQ','p_c10h_47','p_c10h_51','p_c10h_51n','p_c10h_dJ'];
 const PLOT_IDS=TIME_PLOTS.concat(SLQ_PLOTS);
 function newP(id,traces,layout){Plotly.newPlot(id,traces,layout,CFG);const gd=document.getElementById(id);gd._baseShapes=layout.shapes?JSON.parse(JSON.stringify(layout.shapes)):[];}
 // Live-plot DECIMATION — fixes the progressive hang. Without it, every diagnostic tick re-renders the full,
@@ -592,6 +603,7 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_9c');if(el)el.style.display=chk('en14')?'':'none';}            // §9c vs full-Hessian sharpness
   {const el=document.getElementById('sec_9d');if(el)el.style.display=chk('en15')?'':'none';}            // §9d quad-self residual
   {const el=document.getElementById('sec_9dc');if(el)el.style.display=chk('en16')?'':'none';}           // §9d-c quad-self residual vs full-H
+  {const el=document.getElementById('sec_10');if(el)el.style.display=chk('en17')?'':'none';}            // §10 cubic approximation (Eq-47/51)
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
 }
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
@@ -707,6 +719,20 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_preddh3',tvH(),baseLayout('§9d-c multi Eq.22 · quad-self residual · vs full-H sharpness','σ₁',false));
   newP('p_preddh4',tvH(),baseLayout('§9d-c multi Eq.23 · quad-self residual · vs full-H sharpness','σ₁',false));
   newP('p_preddh5',tvH(),baseLayout('§9d-c multi Eq.29 · quad-self residual · vs full-H sharpness','σ₁',false));
+  // §10 cubic approximation — cubic (no-PSD, blue) and +PSD (green) predictions vs the empirical reference
+  // (red dashed); panel 1 = vs NTK σ₁ (+ ‖ΔQ‖ drift), panel 2 = vs full-Hessian λmax (+ ‖ΔJ‖ drift)
+  const tvC=(nm,ref)=>[{x:[],y:[],mode:'lines',name:nm,line:{color:'#2563eb',width:1.9}},
+                       {x:[],y:[],mode:'lines',name:nm+' + PSD',line:{color:'#16a34a',width:1.7}},
+                       {x:[],y:[],mode:'lines',name:ref,line:{color:'#dc2626',width:1.6,dash:'dash'}}];
+  const tvD=()=>[{x:[],y:[],mode:'lines',name:'% drift',line:{color:'#059669',width:1.7}}];
+  newP('p_c10_47',tvC('cubic','NTK σ₁'),baseLayout('Eq.47 (single-sample) vs NTK σ₁','σ₁',false));
+  newP('p_c10_51',tvC('cubic','NTK σ₁'),baseLayout('Eq.51 (multi-sample) vs NTK σ₁','σ₁',false));
+  newP('p_c10_51n',tvC('quadratic','NTK σ₁'),baseLayout('Eq.51 without η² (quadratic) vs NTK σ₁','σ₁',false));
+  newP('p_c10_dQ',tvD(),baseLayout('‖ΔQ₍t₊ₛ₎−Q_t‖ / ‖Q_t‖ × 100','% over window',false));
+  newP('p_c10h_47',tvC('cubic','λmax(∇²L)'),baseLayout('Eq.47 (single-sample) vs full-Hessian λmax','σ₁',false));
+  newP('p_c10h_51',tvC('cubic','λmax(∇²L)'),baseLayout('Eq.51 (multi-sample) vs full-Hessian λmax','σ₁',false));
+  newP('p_c10h_51n',tvC('quadratic','λmax(∇²L)'),baseLayout('Eq.51 without η² (quadratic) vs full-Hessian λmax','σ₁',false));
+  newP('p_c10h_dJ',tvD(),baseLayout('‖ΔJ₍t₊ₛ₎−J_t‖ / ‖J_t‖ × 100','% over window',false));
   attachHover();
   resizeAllPlots();
 }
@@ -730,6 +756,9 @@ const NA_NTK=['p_ntkR','p_ntkGs','p_ntkGl','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1'
 const NA_4D=['p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb'];
 const NA_THEORY1=['p_pred1','p_predp1','p_predh1','p_predd1','p_preddh1'];                          // §9/§9b/§9c/§9d/§9d-c col 1 — single-sample (Eq 13)
 const NA_THEORY_M=['p_pred2','p_pred3','p_pred4','p_pred5','p_predp2','p_predp3','p_predp4','p_predp5','p_predh2','p_predh3','p_predh4','p_predh5','p_predd2','p_predd3','p_predd4','p_predd5','p_preddh2','p_preddh3','p_preddh4','p_preddh5'];  // §9/§9b/§9c/§9d/§9d-c cols 2-5 — multi (Eq 21/22/23/29)
+const NA_CUBIC_1=['p_c10_47','p_c10h_47'];                                            // §10 Eq-47 — single-sample only
+const NA_CUBIC_M=['p_c10_51','p_c10_51n','p_c10h_51','p_c10h_51n'];                   // §10 Eq-51 — multi-sample only
+const NA_CUBIC_ALL=['p_c10_47','p_c10_51','p_c10_51n','p_c10_dQ','p_c10h_47','p_c10h_51','p_c10h_51n','p_c10h_dJ'];  // §10 — all panels
 function _na(ids,msg){ids.forEach(id=>{const gd=document.getElementById(id);if(gd&&gd.offsetParent!==null)try{Plotly.relayout(id,{annotations:[{text:msg,xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:11,color:'#94a3b8'},align:'center'}]});}catch(e){}});}
 function markUnavailable(multi,multiOk,ce){
   if(!multiOk) _na(NA_NTK, multi?'n/a — too large for this run<br>(NTK Jacobian M×p)':'n/a for a single sample<br>(needs ≥2 samples)');
@@ -741,6 +770,12 @@ function markUnavailable(multi,multiOk,ce){
   else{
     if(multi) _na(NA_THEORY1,'n/a — single-sample column<br>(this run is multi-sample)');
     if(!multiOk) _na(NA_THEORY_M, multi?'n/a — too large for this run<br>(NTK Jacobian M×p)':'n/a — multi-sample only<br>(needs ≥2 samples)');
+  }
+  // §10 cubic — Eq-47 single-sample only, Eq-51 multi-sample only; squared-loss only
+  if(ce) _na(NA_CUBIC_ALL,'n/a for cross-entropy<br>(squared-loss σ₁)');
+  else{
+    if(multi) _na(NA_CUBIC_1,'n/a — single-sample only<br>(Eq-47)');
+    if(!multiOk) _na(NA_CUBIC_M, multi?'n/a — too large for this run':'n/a — multi-sample only<br>(Eq-51, needs ≥2 samples)');
   }
 }
 // Invariant: a watermark must never sit on a panel that is actually plotting. So the instant a panel
@@ -755,6 +790,9 @@ function clearNAonData(D){
   if(D.thP)for(let c=0;c<5;c++)C(D.thP[c]!=null||D.thAH!=null,'p_predh'+(c+1));   // §9c per column
   if(D.thP_d)for(let c=0;c<5;c++)C(D.thP_d[c]!=null||D.thA&&D.thA[c]!=null,'p_predd'+(c+1));   // §9d per column
   if(D.thP_d)for(let c=0;c<5;c++)C(D.thP_d[c]!=null||D.thAH!=null,'p_preddh'+(c+1));   // §9d-c per column
+  // §10 cubic — clear stamps the instant the relevant prediction arrives
+  C(D.c47!=null||D.c47p!=null,'p_c10_47','p_c10h_47'); C(D.c51!=null||D.c51p!=null,'p_c10_51','p_c10h_51');
+  C(D.c51n!=null||D.c51np!=null,'p_c10_51n','p_c10h_51n'); C(D.cdQ!=null,'p_c10_dQ'); C(D.cdJ!=null,'p_c10h_dJ');
   C(D.ntkR,'p_ntkR'); C(D.ntkH,'p_ntkH'); C(D.ntkGs,'p_ntkGs'); C(D.ntkGl,'p_ntkGl');      // §7a
   C(D.fhEvT,'p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b'); // §7
   C(D.g2J,'p_g2J','p_g2Jn');                                                               // §8
@@ -859,6 +897,14 @@ function pushPoint(t,D,n,kth,nResid){
     for(let c=0;c<5;c++){const pv=D.thP_d[c],pp=D.thPpsd_d?D.thPpsd_d[c]:null;if(pv==null&&pp==null&&sh==null)continue;
       extP('p_preddh'+(c+1),{x:[[t],[t],[t]],y:[[pv],[pp],[sh]]},[0,1,2]);}
   }
+  if(OPT.s17&&(D.cActN!=null||D.cActH!=null)){   // §10 cubic — each pred plot: [cubic, cubic+PSD, empirical]; drift plots single trace
+    const aN=(D.cActN==null?null:D.cActN), aH=(D.cActH==null?null:D.cActH);
+    const tri=(id,pv,pp,ref)=>{if(pv==null&&pp==null)return;extP(id,{x:[[t],[t],[t]],y:[[pv],[pp],[ref]]},[0,1,2]);};   // skip the panel that doesn't apply (Eq-47 single / Eq-51 multi)
+    tri('p_c10_47', D.c47, D.c47p, aN);   tri('p_c10_51', D.c51, D.c51p, aN);   tri('p_c10_51n', D.c51n, D.c51np, aN);
+    tri('p_c10h_47',D.c47, D.c47p, aH);   tri('p_c10h_51',D.c51, D.c51p, aH);   tri('p_c10h_51n',D.c51n, D.c51np, aH);
+    if(D.cdQ!=null)extP('p_c10_dQ',{x:[[t]],y:[[D.cdQ]]},[0]);
+    if(D.cdJ!=null)extP('p_c10h_dJ',{x:[[t]],y:[[D.cdJ]]},[0]);
+  }
 }
 
 // ---- synchronized dotted cursor across visible step-axis plots ----
@@ -930,7 +976,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
   const qmode=Math.max(1,+val('qmode')||1), tset=Math.max(1,+val('tset')||1);   // qmode (legacy, unused by Eq-22); Eq-29 set-T size
   const nProbe=Math.max(1,+val('slqprobes')), efrac=Math.min(1,Math.max(0.5,(+val('energyp'))/100));
-  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),gs:val('gson')==='1'};
+  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),gs:val('gson')==='1'};
   OPT=opt;
   const {spec,p}=buildSpec(inDim,width,depth,act,useBias,outDim);
   if(p>100000){st.textContent=`p=${p} parameters exceeds the cap (100000). Reduce width/depth.`;ST=null;updateButtons();return;}
@@ -966,6 +1012,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const multi=M>1, n7=Math.min(n,Math.max(M,1)), n8=Math.min(n,Math.max(1,Math.floor(p/2)));
   initLivePlots(n,kth,nResid,thr,n7,n8,multi);
   markUnavailable(multi,multi,false);   // browser path = MSE synthetic MLP; feasible whenever multi-sample
+  if(opt.s17) _na(NA_CUBIC_ALL,'computed on the GPU backend<br>(switch Compute → “GPU backend”)');   // §10 cubic: exact Q-propagation is too heavy for in-browser JS — GPU backend only
   if(preview){ST=null;RUNNING=false;document.getElementById('status').textContent='ready — press Run to start.';updateButtons();return;}  // draw empty plots only
   // §4d: fix the two sample groups by the sign of the summed initial residual r=y−f(x,θ₀) (sum over outputs if d_out>1)
   const posIdx=[],negIdx=[];{const f0=forward(th,spec,X,N,inDim).out;for(let i=0;i<N;i++){let s=0;for(let c=0;c<outDim;c++)s+=Y[i*outDim+c]-f0[i*outDim+c];(s>=0?posIdx:negIdx).push(i);}}
@@ -1328,10 +1375,10 @@ async function downloadPlots(){
 function backendURL(start){
   const ps=new URLSearchParams();
   ['depth','width','act','bias','fixedx','inputstd','ssign','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
-   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset',
+   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree'].forEach(id=>ps.set(id,val(id)));
   [['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
-   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
+   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
   ps.set('start',String(start||0));
   return 'run?'+ps.toString();
 }
@@ -1360,7 +1407,7 @@ function openStream(start,resuming){
   es.onerror=()=>{if(RUNNING&&!PAUSED)st.textContent='backend connection lost — start it with “python server.py”, then press Run (or switch compute to browser).';finish();};
 }
 function runGPU(){
-  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),gs:val('gson')==='1'};
+  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),gs:val('gson')==='1'};
   lastT=-1;META=null;cursorX=null;openStream(0,false);
 }
 function stopGPU(){ if(RUNNING){PAUSED=true;if(ES){ES.close();ES=null;}RUNNING=false;document.getElementById('status').textContent=`stopped at step ${lastT} — press Resume to continue.`;updateButtons();} }
@@ -1419,7 +1466,7 @@ function syncLossPanels(){
 function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic' && val('arch')==='mlp'){ runLocal(true); } }
 document.getElementById('loss').addEventListener('change',syncLossPanels);
 document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
-['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
 document.getElementById('run').addEventListener('click',run);
 document.getElementById('stop').addEventListener('click',stopRun);
 document.getElementById('resume').addEventListener('click',resumeRun);
