@@ -161,7 +161,9 @@ def _to_series(history):
     steps = [r["t"] for r in history]
     s = {"t": steps}
     scalar_keys = ["loss", "test_loss", "sharpness", "thr", "resid_mean", "resid_rms",
-                   "H_edge_max", "H_edge_min", "dim_pos", "dim_neg", "thAH"]
+                   "H_edge_max", "H_edge_min", "dim_pos", "dim_neg", "thAH",
+                   "c47", "c47p", "c51", "c51p", "c51n", "c51np",   # §10 cubic predictions
+                   "cActN", "cActH", "cdQ", "cdJ"]                  # §10 cubic actuals + ‖ΔQ‖/‖ΔJ‖ drift
     for k in scalar_keys:
         if any(k in r for r in history):
             s[k] = [r.get(k, math.nan) for r in history]

@@ -91,6 +91,13 @@ def flatten_rec(rec):
         for i, nm in _THEORY_COLS:
             if i < len(thP) and _isnum(thP[i]):
                 out["5_theory_sigma1/predicted_" + nm] = float(thP[i])
+    # §10 cubic approximation (only when s17 on): measured NTK σ₁ + cubic (Eq-47 single / Eq-51 multi, +PSD)
+    # and the quadratic (Eq-51 without the η² term) prediction. The full ±PSD/drift detail is in the panel images.
+    for nm, key in (("measured_NTK", "cActN"), ("cubic_Eq47_single", "c47p"),
+                    ("cubic_Eq51_multi", "c51p"), ("quadratic_Eq51_no_eta2", "c51np")):
+        v = rec.get(key)
+        if _isnum(v):
+            out["6_cubic_sigma1/" + nm] = float(v)
     return out
 
 

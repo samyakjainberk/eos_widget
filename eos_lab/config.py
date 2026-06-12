@@ -63,6 +63,11 @@ class Config:
     qapprox: int = 25              # §9 frozen-Q window length (steps)
     qmode: int = 1                 # §9 col-3 mode index — legacy (Eq-22 uses no mode)
     tset: int = 3                  # §9 Eq-29 number of top modes |T|
+    cubicapprox: int = 10          # §10 cubic-approximation window: every `cubicapprox` steps freeze θ₀, J₀, Q₀
+                                   #   and the 3rd-derivative tensor T, then propagate BOTH J and Q over the window
+                                   #   (Eqs 44/45 single, 49/50 multi) and predict the NTK-σ₁ change (Eq-47 single /
+                                   #   Eq-51 multi). Smaller = more frequent re-anchoring (and cheaper: cost is
+                                   #   O(window²) Jacobian-HVPs because Q is propagated exactly).
 
     # ---- which sections to compute ----
     # Section ↔ widget toggle map:  s1 §1 · s2 §2(top) · s3 §3(bottom) · s4 §4(J→H eigvecs) ·
@@ -91,6 +96,10 @@ class Config:
     s14: int = 1    # §9c σ₁ predictions vs the FULL loss-Hessian sharpness λmax(∇²L) (on by default)
     s15: int = 1    # §9d σ₁ predictions with the residual self-computed by the quadratic model (on by default)
     s16: int = 1    # §9d-c §9d predictions vs the full loss-Hessian sharpness (on by default)
+    s17: int = 0    # §10 CUBIC approximation: Eq-47 (single) / Eq-51 (multi) σ₁ predictions ±PSD, Eq-51 without
+                    #   the η² term, and ‖ΔQ‖/‖ΔJ‖ over the window — vs both the NTK σ₁ (panel 1) and the full
+                    #   loss-Hessian λmax (panel 2). OFF by default: it propagates Q exactly (O(window²) HVPs/window)
+                    #   so it is by far the heaviest section; enable per-run when you want the cubic comparison.
 
     # ---- test set (held-out) ----
     n_test: int = 0                # held-out test points (0 ⇒ default: max(nsamp, 256), capped per dataset)

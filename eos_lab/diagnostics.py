@@ -70,6 +70,7 @@ class Diagnostics:
         self.s14 = P.get("s14", 0)          # §9c: σ₁ predictions vs the FULL loss-Hessian sharpness λmax(∇²L)
         self.s15 = P.get("s15", 0)          # §9d: predictions with the residual self-computed by the quadratic model
         self.s16 = P.get("s16", 0)          # §9d-c: §9d predictions vs the full loss-Hessian sharpness
+        self.s17 = P.get("s17", 0)          # §10: CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation)
         if loss.name == "ce":
             # CE uses the generic residual r = −∂L/∂z = softmax(z)−onehot (the loss-output cotangent). §4
             # (J→H) and §6 (rotation) are model-only; §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) plus
@@ -77,7 +78,7 @@ class Diagnostics:
             # (feasible for e.g. CIFAR-CE, M=N·classes; skipped at LM vocab sizes). Off for CE: §4d (its
             # sign-groups need a scalar residual) and the whole §9 family (§9/§9b/§9c/§9d/§9d-c — the
             # Eq-13/21/22/23/29 σ₁ recursion is derived for squared loss only).
-            self.s11 = self.s12 = self.s14 = self.s15 = self.s16 = False
+            self.s11 = self.s12 = self.s14 = self.s15 = self.s16 = self.s17 = False
         p = model.p
         half = max(1, p // 2)
         self.p = p
@@ -106,6 +107,7 @@ class Diagnostics:
         self.heavyevery = max(1, getattr(cfg, "heavyevery", 4))
         self.slqStride = max(1, math.ceil((cfg.steps // self.eigevery + 1) / 50))
         self.qapprox = max(1, cfg.qapprox)
+        self.cubicapprox = max(1, getattr(cfg, "cubicapprox", 10))   # §10 cubic-window length
         self.qmode = cfg.qmode
         self.tset = cfg.tset
         # Krylov depths (match server.run_stream)
@@ -153,6 +155,24 @@ class Diagnostics:
         self._thAcc2_d = 0.0; self._thAccPSD_d = 0.0
         self._thJp0 = None; self._thF0s = 0.0; self._thDth_s = None   # single-sample §9d
         self._thJp_d = None; self._thAcc1_d = 0.0; self._thAccPSD1_d = 0.0
+        # §10 cubic-approximation window state. T (3rd derivative) is frozen at θ₀ and accessed matrix-free as
+        # finite differences of the HVPs; BOTH J and Q are propagated (Q via the (r_k, J_k/g_k) history, so a
+        # window costs O(window²) HVPs). `_cn` = number of probe vectors for the Hutchinson ‖ΔQ‖/‖Q₀‖ estimate.
+        self._cT0 = -1; self._cTh0 = None; self._cBase = 0.0
+        self._cJ0 = None             # frozen J at window start (single: (p,); multi: (M,p)) — for ‖ΔJ‖/‖J₀‖
+        self._cn = max(1, min(self.nprobe, 4))
+        self._cZ = None              # fixed Hutchinson probes z_i (list of (p,)) for ‖Q‖_F; reused across window
+        self._cQ0z = None            # Q₀·z_i (list; single (p,), multi (M,p)) — denominator ‖Q₀‖_F
+        self._cdQz = None            # running ΔQ·z_i over the window (same shapes)  — numerator ‖ΔQ‖_F
+        # single-sample (Eq-47): propagated J (p,), Q-history (r_k, J_k), Eq-47 accumulators (±PSD)
+        self._cJp = None; self._cHistR = None; self._cHistJ = None
+        self._cAcc47 = 0.0; self._cAccPSD47 = 0.0
+        # multi-sample (Eq-51): cubic-propagated J (M,p) + its g-history; quad-propagated J (M,p) for the no-η²
+        # variant; accumulators for Eq-51 (±PSD) and Eq-51-without-η² (= quadratic recursion, ±PSD)
+        self._cJ = None; self._cHistG = None
+        self._cJq = None
+        self._cAcc51 = 0.0; self._cAccPSD51 = 0.0
+        self._cAcc51n = 0.0; self._cAccPSD51n = 0.0
 
     def sections_skipped(self):
         """Names of enabled sections that are auto-skipped because the M×p Jacobian is too large."""
@@ -256,7 +276,7 @@ class Diagnostics:
         # ---- shared multi-sample Jacobian columns Jc (M,p) + residual rr (M,) ----
         Jc = rr = None
         want_multi = self.multi_ok and (self.s7 or self.s8 or self.s9 or self.s10 or self.s11
-                                         or self.s12 or self.s13 or self.s15 or self.s16)
+                                         or self.s12 or self.s13 or self.s15 or self.s16 or self.s17)
         if want_multi:
             Jc, out_flat = jac_cols(self.model, th, X)
             rr = (-N * cS).reshape(-1)        # generic residual −N·∂L/∂out: Y−f (MSE), onehot−softmax (CE)
@@ -348,7 +368,7 @@ class Diagnostics:
         # ---- §4b/§4c/§4d base: NTK top eigvec u₁ (deterministic sign), J·r ----
         u1s = Jrs = bEk_vecs = bEk_vals = None
         Jrns = Rn = 1.0
-        if self.multi_ok and (self.s9 or self.s10 or self.s11 or self.s12 or self.s15 or self.s16):
+        if self.multi_ok and (self.s9 or self.s10 or self.s11 or self.s12 or self.s15 or self.s16 or self.s17):
             Kb, Vb = sym_eig_desc(Jc @ Jc.t())
             for k in range(n):
                 Vb[:, k] = pin_sign(Vb[:, k])
@@ -422,6 +442,14 @@ class Diagnostics:
                     sh = float(lanczos_extreme_vals(self._hL(th, X, Y), self.p, 1, self.mV, SEED_L,
                                                     self.device, self.dtype)[0][0])
                 rec["thAH"] = sh
+
+        # ---- §10 CUBIC approximation: Eq-47 (single) / Eq-51 (multi) σ₁ predictions, exact J&Q propagation ----
+        if self.s17:
+            shH = rec.get("sharpness")     # panel-2 actual: full loss-Hessian λmax(∇²L) (reuse §1's if present)
+            if shH is None:
+                shH = float(lanczos_extreme_vals(self._hL(th, X, Y), self.p, 1, self.mV, SEED_L,
+                                                 self.device, self.dtype)[0][0])
+            self._cubic_step(th, X, Y, t, J, out, rr, bEk_vals, shH, rec)
 
         # ---- §5 SLQ spectral densities (expensive → ~50 snapshots/run via slqStride) ----
         if self.s5 and slq_tick:
@@ -615,3 +643,145 @@ class Diagnostics:
                 self._thJp_d = self._thJp_d + lr * r_qs * QJ
                 self._thDth_s = self._thDth_s + lr * r_qs * self._thJp_d
         return thP, thA, thPpsd, thP_d, thPpsd_d
+
+    # ----------------------------------------------------------------------------------------------------
+    def _cubic_step(self, th, X, Y, t, J, out, rr, bEk_vals, shH, rec):
+        """§10 CUBIC approximation (paper §6). At each `cubicapprox` window start freeze θ₀, J₀ and the
+        3rd-derivative tensor T (accessed matrix-free as central differences of the HVPs); within the window
+        propagate BOTH J and Q exactly — Q via the residual·Jacobian history, so a window costs O(window²)
+        HVPs — and accumulate the per-step NTK-σ₁ change:
+          single sample  Eq-47:  ΔNTK = ‖ΔJ‖²(PSD) + 2ηr[ JᵀQ_tJ + ηr·T(J,J,J) ]
+          multi  sample  Eq-51:  Δσ₁  = ‖ΔJᵀu₁‖²(PSD) + 2η√σ₁ v₁ᵀQ_t[Jᵀr]ᵀu₁ + 2η²√σ₁ v₁ᵀT[u₁](Jᵀr,Jᵀr)
+        with ΔJ from Eq-44 (single) / Eq-49 (multi). Also Eq-51 WITHOUT the η² term (drop the cubic
+        interaction AND freeze Q ⇒ the quadratic σ₁ recursion) and the window drift ‖ΔQ‖/‖Q₀‖, ‖ΔJ‖/‖J₀‖.
+        Writes per-step keys into `rec` (÷N like §9):  c47/c47p, c51/c51p, c51n/c51np, cActN (NTK σ₁/N),
+        cActH (loss-Hessian λmax), cdQ, cdJ.  Residual taken from the live run; everything else from the
+        frozen quantities.  MIRRORS server's s17 block."""
+        N, p, M = self.N, self.p, self.M
+        lr, ee, outD = self.lr, self.eigevery, self.outD
+        dev, dt = self.device, self.dtype
+        etaN = lr / max(N, 1)
+        reps_ = max(1, ee)
+        eps = 1e-2                                  # unit-direction step for the 3rd-derivative finite differences
+        multi = self.multi
+        if multi and not self.multi_ok:
+            return
+
+        th0 = self._cTh0
+        hvpF = lambda thx, v: hvp_F(self.model, thx, X, v)
+        jhvp = lambda thx, v: jac_hvp(self.model, thx, X, v)
+
+        def T2s(a, b):                              # single: T[a,b] = ∇³f(θ₀)[a,b] (p,) via central diff of Q·b
+            an = float(a.norm())
+            if an < 1e-30:
+                return torch.zeros(p, dtype=dt, device=dev)
+            ah = a / an
+            return an * (hvpF(th0 + eps * ah, b) - hvpF(th0 - eps * ah, b)) / (2 * eps)
+
+        def T2m(a, b):                              # multi: T[a,b] = {∇³f_c(θ₀)[a,b]}_c (M,p) via central diff of Q[b]
+            an = float(a.norm())
+            if an < 1e-30:
+                return torch.zeros(M, p, dtype=dt, device=dev)
+            ah = a / an
+            return an * (jhvp(th0 + eps * ah, b) - jhvp(th0 - eps * ah, b)) / (2 * eps)
+
+        # -------- window start: freeze θ₀, J₀, Hutchinson probes; reset propagated J / histories / accumulators
+        if self._cT0 < 0 or (t - self._cT0) >= self.cubicapprox:
+            self._cT0 = t
+            self._cTh0 = th.clone(); th0 = self._cTh0
+            self._cZ = [randn_vec(p, (0xCB1C + i * 0x9E3779B1) & 0xFFFFFFFF, dev, dt) for i in range(self._cn)]
+            if multi:
+                J0, _ = jac_cols(self.model, th0, X)
+                self._cJ0 = J0
+                self._cJ = J0.clone(); self._cJq = J0.clone()
+                self._cHistG = []
+                self._cBase = float(bEk_vals[0]) if bEk_vals is not None else float(
+                    torch.linalg.eigvalsh(J0 @ J0.t())[-1])
+                self._cQ0z = [jhvp(th0, z) for z in self._cZ]              # Q₀·z_i (M,p)
+                self._cdQz = [torch.zeros(M, p, dtype=dt, device=dev) for _ in self._cZ]
+                self._cAcc51 = self._cAccPSD51 = self._cAcc51n = self._cAccPSD51n = 0.0
+            else:
+                J0 = J                                                    # grad_sum_f at θ₀ (this very step)
+                self._cJ0 = J0.clone(); self._cJp = J0.clone()
+                self._cHistR = []; self._cHistJ = []
+                self._cBase = float(J0 @ J0)
+                self._cQ0z = [hvpF(th0, z) for z in self._cZ]             # Q₀·z_i (p,)
+                self._cdQz = [torch.zeros(p, dtype=dt, device=dev) for _ in self._cZ]
+                self._cAcc47 = self._cAccPSD47 = 0.0
+
+        cActH = shH                                                       # panel-2 actual: loss-Hessian λmax
+        # Hutchinson ‖ΔQ‖/‖Q₀‖ (%) — common to both branches
+        q0n = math.sqrt(max(sum(float(z @ z if z.dim() == 1 else (z * z).sum()) for z in self._cQ0z), 1e-30))
+        dqn = math.sqrt(max(sum(float((z * z).sum()) for z in self._cdQz), 0.0))
+        cdQ = 100.0 * dqn / q0n
+
+        if multi and self._cJ is not None:
+            actN = float(bEk_vals[0]); cap = 10.0 * max(actN, 1e-30)
+            clmp = lambda x: min(max(x, 0.0), cap)
+            rec["c51"] = clmp(self._cBase + self._cAcc51) / N
+            rec["c51p"] = clmp(self._cBase + self._cAcc51 + self._cAccPSD51) / N
+            rec["c51n"] = clmp(self._cBase + self._cAcc51n) / N
+            rec["c51np"] = clmp(self._cBase + self._cAcc51n + self._cAccPSD51n) / N
+            rec["cActN"] = actN / N
+            rec["cActH"] = cActH
+            rec["cdJ"] = 100.0 * float((self._cJ - self._cJ0).norm()) / max(float(self._cJ0.norm()), 1e-30)
+            rec["cdQ"] = cdQ
+            for _ in range(reps_):
+                # ---- cubic recursion (Eq-49 / Eq-51): J & Q both propagated, T frozen ----
+                Jc = self._cJ
+                Kc, Vc = sym_eig_desc(Jc @ Jc.t())
+                u1 = pin_sign(Vc[:, 0]); sg = math.sqrt(max(float(Kc[0]), 1e-30))
+                v1 = Jc.t() @ u1; v1 = v1 / max(float(v1.norm()), 1e-30)
+                g = Jc.t() @ rr                                            # (p,) GD direction Jᵀr
+                Qg = jhvp(th0, g)                                          # Q₀[g]
+                for gk in self._cHistG:                                    # + η Σ_k T[g_k, g]  (Q propagated, Eq-50)
+                    Qg = Qg + etaN * T2m(gk, g)
+                Tgg = T2m(g, g)                                            # T[g,g]  (M,p)
+                dJ = etaN * Qg + (etaN ** 2) * Tgg                         # ΔJ  (Eq-49)
+                dJu = dJ.t() @ u1                                          # ΔJᵀu₁  (p,)
+                Qgu = (u1.unsqueeze(1) * Qg).sum(0)                        # Q_t[g]ᵀu₁  (p,)
+                Tggu = (u1.unsqueeze(1) * Tgg).sum(0)                      # T[u₁](g,g)  (p,)
+                self._cAccPSD51 += float(dJu @ dJu)                        # PSD term ‖ΔJᵀu₁‖²
+                self._cAcc51 += 2 * etaN * sg * float(v1 @ Qgu)            # quadratic σ₁ term
+                self._cAcc51 += 2 * (etaN ** 2) * sg * float(v1 @ Tggu)   # cubic interaction term
+                for i, z in enumerate(self._cZ):                          # ΔQ drift (Eq-50): ΔQ·z += η T[g,z]
+                    self._cdQz[i] = self._cdQz[i] + etaN * T2m(g, z)
+                self._cHistG.append(g)
+                self._cJ = Jc + dJ
+                # ---- Eq-51 WITHOUT the η² term: drop the cubic term AND freeze Q ⇒ the quadratic recursion ----
+                Jq = self._cJq
+                Kq, Vq = sym_eig_desc(Jq @ Jq.t())
+                u1q = pin_sign(Vq[:, 0]); sgq = math.sqrt(max(float(Kq[0]), 1e-30))
+                v1q = Jq.t() @ u1q; v1q = v1q / max(float(v1q.norm()), 1e-30)
+                gq = Jq.t() @ rr
+                Qgq = jhvp(th0, gq)                                        # Q₀[gq]  (frozen Q)
+                dJq = etaN * Qgq
+                dJqu = dJq.t() @ u1q
+                Qgqu = (u1q.unsqueeze(1) * Qgq).sum(0)
+                self._cAccPSD51n += float(dJqu @ dJqu)
+                self._cAcc51n += 2 * etaN * sgq * float(v1q @ Qgqu)
+                self._cJq = Jq + dJq
+        elif (not multi) and self._cJp is not None:
+            actN = float(J @ J); cap = 10.0 * max(actN, 1e-30)            # NTK σ₁ = ‖J‖² (single sample)
+            clmp = lambda x: min(max(x, 0.0), cap)
+            rec["c47"] = clmp(self._cBase + self._cAcc47)
+            rec["c47p"] = clmp(self._cBase + self._cAcc47 + self._cAccPSD47)
+            rec["cActN"] = actN
+            rec["cActH"] = cActH
+            rec["cdJ"] = 100.0 * float((self._cJp - self._cJ0).norm()) / max(float(self._cJ0.norm()), 1e-30)
+            rec["cdQ"] = cdQ
+            rsc = float((Y.reshape(-1) - out.reshape(-1))[0])             # live scalar residual y − f
+            for _ in range(reps_):
+                Jc = self._cJp
+                QJ = hvpF(th0, Jc)                                        # Q₀·J
+                for rk, Jk in zip(self._cHistR, self._cHistJ):            # + η Σ_k r_k T[J_k, J]  (Q propagated, Eq-45)
+                    QJ = QJ + lr * rk * T2s(Jk, Jc)
+                TJJ = T2s(Jc, Jc)                                         # T[J,J]
+                dJ = lr * rsc * QJ + (lr ** 2) * (rsc ** 2) * TJJ         # ΔJ  (Eq-44/40)
+                self._cAcc47 += 2 * lr * rsc * float(Jc @ QJ)            # 2ηr·JᵀQJ
+                self._cAcc47 += 2 * (lr ** 2) * (rsc ** 2) * float(Jc @ TJJ)   # 2η²r²·T(J,J,J)
+                self._cAccPSD47 += float(dJ @ dJ)                         # PSD ‖ΔJ‖²
+                for i, z in enumerate(self._cZ):                          # ΔQ drift (Eq-45): ΔQ·z += η r T[J,z]
+                    self._cdQz[i] = self._cdQz[i] + lr * rsc * T2s(Jc, z)
+                self._cHistR.append(rsc); self._cHistJ.append(Jc.clone())
+                self._cJp = Jc + dJ

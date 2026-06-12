@@ -373,6 +373,70 @@ def plot_section9dc(series, meta):
                           suptitle="§9d-c — quad-self-residual σ₁ predictions vs the full-Hessian sharpness")
 
 
+def _cubic_pred_ax(ax, t, series, key, keyP, act, title, name):
+    """One §10 prediction subplot: the cubic-approximation prediction (no-PSD and +PSD) vs the actual `act`."""
+    pred = series.get(key); predP = series.get(keyP)
+    has = ((pred is not None and any(y == y for y in pred))
+           or (predP is not None and any(y == y for y in predP)))
+    if not has:                                  # Eq-47 is single-sample-only, Eq-51 multi-only → blank the other
+        ax.text(0.5, 0.5, "n/a\n(other sample regime)", ha="center", va="center",
+                fontsize=9, color="#94a3b8")
+        ax.set_title(title, fontsize=9); ax.set_xticks([]); ax.set_yticks([])
+        return
+    if pred is not None:
+        ax.plot(*_finite(t, pred), label=name)
+    if predP is not None:
+        ax.plot(*_finite(t, predP), label=name + " + PSD")
+    ax.plot(*_finite(t, act), ls="--", color="tab:red", label="empirical")
+    ref = [y for y in act if y == y]             # clamp y to the empirical band (frozen-window spikes stay off-screen)
+    if ref:
+        lo, hi = min(ref), max(ref); pad = 0.3 * (hi - lo) + 1e-9
+        ax.set_ylim(min(lo - pad, 0.0) if lo >= 0 else lo - pad, hi + pad)
+    ax.set_title(title, fontsize=9); ax.set_xlabel("step"); ax.legend(fontsize=7)
+
+
+def _plot_cubic(series, vs, suptitle):
+    """§10 cubic-approximation panel (4 plots). `vs`='ntk' → compare predictions to the NTK σ₁ and show
+    ‖ΔQ‖% as plot 4; `vs`='hess' → compare to the loss-Hessian λmax and show ‖ΔJ‖% as plot 4. Plots 1-3 are
+    Eq-47 (single), Eq-51 (multi), and Eq-51 without the η² term (= the quadratic recursion)."""
+    actkey = "cActN" if vs == "ntk" else "cActH"
+    driftkey = "cdQ" if vs == "ntk" else "cdJ"
+    act = series.get(actkey)
+    if act is None or not any(y == y for y in act):
+        return None
+    t = series["t"]
+    fig, axs = plt.subplots(1, 4, figsize=(18, 3.3), squeeze=False)
+    a = axs[0]
+    _cubic_pred_ax(a[0], t, series, "c47", "c47p", act, "Eq-47 (single-sample)", "cubic")
+    _cubic_pred_ax(a[1], t, series, "c51", "c51p", act, "Eq-51 (multi-sample)", "cubic")
+    _cubic_pred_ax(a[2], t, series, "c51n", "c51np", act, "Eq-51 without η² (quadratic)", "quadratic")
+    drift = series.get(driftkey)
+    if drift is not None and any(y == y for y in drift):
+        a[3].plot(*_finite(t, drift), color="tab:green")
+        a[3].set_title("‖ΔQ₍t₊ₛ₎−Q_t‖/‖Q_t‖ × 100" if vs == "ntk" else "‖ΔJ₍t₊ₛ₎−J_t‖/‖J_t‖ × 100",
+                       fontsize=9)
+        a[3].set_xlabel("step"); a[3].set_ylabel("% over the cubic window")
+    else:
+        a[3].axis("off")
+    fig.suptitle(suptitle, fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    return fig
+
+
+def plot_section10_ntk(series, meta):
+    """§10 panel 1 — cubic-approximation σ₁ predictions (Eq-47/51 ±PSD, Eq-51 w/o η²) vs the empirical
+    NTK σ₁, plus the window drift of Q (‖ΔQ‖/‖Q₀‖ %)."""
+    return _plot_cubic(series, "ntk",
+                       "§10 — cubic-approximation σ₁ predictions vs the empirical NTK σ₁  (plot 4: ‖ΔQ‖ %)")
+
+
+def plot_section10_hess(series, meta):
+    """§10 panel 2 — the same cubic-approximation σ₁ predictions vs the full loss-Hessian sharpness
+    λmax(∇²L), plus the window drift of J (‖ΔJ‖/‖J₀‖ %)."""
+    return _plot_cubic(series, "hess",
+                       "§10 — cubic-approximation σ₁ predictions vs the full-Hessian λmax  (plot 4: ‖ΔJ‖ %)")
+
+
 def save_panels(results, outdir):
     """Render every supported section to PNGs in `outdir`. Returns the list of files written."""
     os.makedirs(outdir, exist_ok=True)
@@ -394,7 +458,9 @@ def save_panels(results, outdir):
             "section9b_psd_vs_empirical": plot_section9b(series, meta),
             "section9c_theory_vs_full_hessian": plot_section9c(series, meta),
             "section9d_selfresidual_vs_empirical": plot_section9d(series, meta),
-            "section9dc_selfresidual_vs_full_hessian": plot_section9dc(series, meta)}
+            "section9dc_selfresidual_vs_full_hessian": plot_section9dc(series, meta),
+            "section10_cubic_vs_ntk": plot_section10_ntk(series, meta),
+            "section10_cubic_vs_full_hessian": plot_section10_hess(series, meta)}
     written = []
     for name, fig in figs.items():
         if fig is None:
