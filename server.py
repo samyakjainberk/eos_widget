@@ -855,6 +855,18 @@ def cubic_step(ctx, st, th, X, Y, t, J, out, rr, bEk_vals, shH):
     return rec
 
 
+def sur_T2(th0, X, a, eps=1e-2):
+    """T₀[a,a] = ∇³f(θ₀)[a,a] (M,p) — the frozen 3rd-derivative contracted twice with `a`, via a central
+    difference of jac_hvp in the unit `a` direction. Used by the CUBIC surrogate's forward f₀+J₀Δθ+½ΔθᵀQΔθ
+    +⅙T[Δθ,Δθ,Δθ] and its Jacobian J₀+Q[Δθ]+½T[Δθ,Δθ]. Returns 0 when ‖a‖≈0 (window start, Δθ=0)."""
+    an = float(a.norm())
+    base = jac_hvp(th0, X, a)                 # (M,p); ≈0 when a≈0 (also gives the shape for the zero case)
+    if an < 1e-30:
+        return base * 0.0
+    ah = a / an
+    return an * (jac_hvp(th0 + eps * ah, X, a) - jac_hvp(th0 - eps * ah, X, a)) / (2 * eps)
+
+
 # ===================== Lanczos / SLQ =====================
 def _randn_vec(p, seed):
     g = torch.Generator(device=_dev())
@@ -1891,6 +1903,11 @@ def run_surrogate_compare(P):
                 QD = jac_hvp(th0, X, dth)
                 f_sur = f_sur + 0.5 * (QD @ dth)
                 Jq = J0 + QD
+            elif kind == "cubic":     # f₀+J₀Δθ+½ΔθᵀQΔθ+⅙T[Δθ,Δθ,Δθ];  Jacobian J₀+Q[Δθ]+½T[Δθ,Δθ]
+                QD = jac_hvp(th0, X, dth)
+                TDD = sur_T2(th0, X, dth)
+                f_sur = f_sur + 0.5 * (QD @ dth) + (1.0 / 6.0) * (TDD @ dth)
+                Jq = J0 + QD + 0.5 * TDD
             out_sur = f_sur.reshape(N, outD)
             rS = (-N * _TL.loss.resid_cotangent(out_sur, Y, N)).reshape(-1)
             lossS = float(_TL.loss.value(out_sur, Y, N))
@@ -1927,7 +1944,9 @@ def run_surrogate_compare(P):
                 feTVa = [pin_sign(x) for x in feTVa]
                 feBVa = [pin_sign(x) for x in feBVa]
             if c4 and feTV0 is not None:
-                J_sur = gF0 + (hvpF(th0, X, dth) if kind == "quad" else zero_p)
+                J_sur = gF0 + (hvpF(th0, X, dth) if kind in ("quad", "cubic") else zero_p)
+                if kind == "cubic":
+                    J_sur = J_sur + 0.5 * sur_T2(th0, X, dth).sum(0)   # + ½ Σ_a T₀_a[Δθ,Δθ] (cubic ∇Σf surrogate)
                 j4tA = [float(J_act @ feTVa[k]) for k in range(n)]
                 j4bA = [float(J_act @ feBVa[k]) for k in range(n)]
                 j4tS = [float(J_sur @ feTV0[k]) for k in range(n)]
@@ -2169,6 +2188,11 @@ def run_surrogate_compare(P):
                 QDs = jac_hvp(th0, X, dths)
                 fss = f0flat + (J0 @ dths) + 0.5 * (QDs @ dths)
                 Jqs = J0 + QDs
+            elif kind == "cubic":
+                QDs = jac_hvp(th0, X, dths)
+                TDDs = sur_T2(th0, X, dths)
+                fss = f0flat + (J0 @ dths) + 0.5 * (QDs @ dths) + (1.0 / 6.0) * (TDDs @ dths)
+                Jqs = J0 + QDs + 0.5 * TDDs
             else:
                 fss = f0flat + (J0 @ dths)
                 Jqs = J0

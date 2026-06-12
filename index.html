@@ -336,6 +336,8 @@ The <b>GPU backend</b> (server.py) raises the cap to <b>10,000,000</b> and adds 
 <div id="cmp_q"></div>
 <hr>
 <div id="cmp_l"></div>
+<hr>
+<div id="cmp_c"></div>
 
 <script>
 // ================= numeric core (validated against a PyTorch port) =================
@@ -1513,11 +1515,18 @@ function cmpCtl(pre, id, label, val, step, sel) {
 }
 function cmpHTML(pre, kind) {
   const C = (...a) => cmpCtl(pre, ...a);
-  const fdesc = kind === 'quad' ? 'f₀ + J₀Δθ + ½ΔθᵀQΔθ (2nd-order Taylor)' : 'f₀ + J₀Δθ (linear / NTK)';
+  const fdesc = kind === 'quad' ? 'f₀ + J₀Δθ + ½ΔθᵀQΔθ (2nd-order Taylor)'
+              : kind === 'cubic' ? 'f₀ + J₀Δθ + ½ΔθᵀQΔθ + ⅙T[Δθ,Δθ,Δθ] (3rd-order Taylor)'
+              : 'f₀ + J₀Δθ (linear / NTK)';
+  const kLetter = kind === 'quad' ? 'Q' : kind === 'cubic' ? 'C' : 'L';
+  const kName = kind === 'quad' ? 'Quadratic' : kind === 'cubic' ? 'Cubic' : 'Linear';
+  const kDesc = kind === 'quad' ? ' is the second-order Taylor model of Eq.&nbsp;1'
+              : kind === 'cubic' ? ' is the third-order Taylor model of Eq.&nbsp;1 — it freezes the 3rd-derivative tensor $T$ as well as $Q$ at $\\theta_0$ (the heaviest surrogate)'
+              : ' drops the curvature term of Eq.&nbsp;1 (the linear / NTK limit)';
   return `
-  <h2>${kind === 'quad' ? 'Q' : 'L'} · ${kind === 'quad' ? 'Quadratic' : 'Linear'}-approximation surrogate vs the actual model</h2>
+  <h2>${kLetter} · ${kName}-approximation surrogate vs the actual model</h2>
   <p class="cap">An independent GPU-backend run testing the predictive model (Eq. 1) directly. The surrogate
-  <b>${fdesc}</b>${kind === 'quad' ? ' is the second-order Taylor model of Eq.&nbsp;1' : ' drops the curvature term of Eq.&nbsp;1 (the linear / NTK limit)'};
+  <b>${fdesc}</b>${kDesc};
   it freezes $J_0$ and the function Hessian $Q$ at $\theta_0$ every <b>every_iter_quadric_approx</b> steps
   (the frozen-$Q$ assumption $Q_{\theta_{t+\Delta t}}=Q_{\theta_t}$) and runs GD on its own loss, compared to the real model
   trained in lockstep. Solid = actual, dashed = surrogate. (Needs <code>server.py</code> running.)</p>
@@ -1637,7 +1646,7 @@ function cmpInit(pre, n, kind) {
     S.plotStride = Math.max(1, Math.ceil(ticks/PLOT_DECIM)); S.plotCall = 0; }
   // All panels are created visible (so Plotly sizes them against their grid cell), then cmpVisibility() below
   // hides the ones whose toggle is off. Panel order: loss/resid/eig/hist, §7a, §4, §4d, then the σ₁-theory rows.
-  const sl = kind === 'quad' ? 'quad' : 'linear';
+  const sl = kind === 'quad' ? 'quad' : kind === 'cubic' ? 'cubic' : 'linear';
   newP(pre + '_lossfig', [{ x:[], y:[], mode:'lines', name:'actual', line:{ color:'#2563eb', width:1.9 } },
     { x:[], y:[], mode:'lines', name:'surrogate (' + sl + ')', line:{ color:'#ea580c', width:1.7, dash:'dash' } }],
     baseLayout('loss — actual vs ' + sl + ' surrogate', 'loss', true));
@@ -1887,7 +1896,7 @@ function makeCompareSection(pre, kind) {
   document.getElementById(pre + '_status').textContent = 'press Run to start this ' + kind + ' comparison (needs the GPU backend — python server.py).';
 }
 
-window.addEventListener('load',()=>{makeCompareSection('q','quad');makeCompareSection('l','linear');applyPreset('linear');drawPreview();updateParamBadge();});   // draw empty plots; nothing runs until Run is pressed
+window.addEventListener('load',()=>{makeCompareSection('q','quad');makeCompareSection('l','linear');makeCompareSection('c','cubic');applyPreset('linear');drawPreview();updateParamBadge();});   // draw empty plots; nothing runs until Run is pressed
 </script>
 </div>
 </body>
