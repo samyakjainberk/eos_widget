@@ -98,6 +98,13 @@ class Diagnostics:
         self.lr = cfg.lr
         self.thr = 2.0 / cfg.lr                      # edge-of-stability threshold 2/η
         self.eigevery = max(1, cfg.eigevery)
+        # Throttle the heaviest, slowly-varying panels so a run stays responsive (mirrors server.run_stream):
+        #   §5 SLQ → ~50 density snapshots over the whole run (slqStride);  §7 FH-eigvec projections + §8
+        #   FH-reshape SVD → every `heavyevery`-th tick.  The cheap core (§1/§2/§3/§4/§6 eigenvalues, §7a
+        #   alignment, §9 theory) stays every tick.  Without this eos_lab recomputed §5 (4 SLQ densities)
+        #   and §8 (hvpG2 Lanczos) every step — by far the dominant per-step cost.
+        self.heavyevery = max(1, getattr(cfg, "heavyevery", 4))
+        self.slqStride = max(1, math.ceil((cfg.steps // self.eigevery + 1) / 50))
         self.qapprox = max(1, cfg.qapprox)
         self.qmode = cfg.qmode
         self.tset = cfg.tset
@@ -180,6 +187,10 @@ class Diagnostics:
         loss_val = float(self.loss.value(out, Y, N))
         cS = self.loss.resid_cotangent(out, Y, N)           # ∂L/∂out (feeds the S term + SLQ-S)
         rec = {"t": t, "loss": loss_val, "thr": self.thr}
+        # cadence gates for the heavy panels (see __init__): heavy_tick → §7 projections + §8; slq_tick → §5.
+        tick = t // self.eigevery
+        heavy_tick = (tick % self.heavyevery == 0)
+        slq_tick = (tick % self.slqStride == 0)
         if self.loss.name != "ce" and self.dataset != "owt":  # CE, and the OWT LM under ANY loss, have no
             r = (Y - out).reshape(-1)                          #   scalar residual y−f (Y are token ids, shape ≠ out)
             rec["resid_mean"] = float(r.mean())
@@ -287,7 +298,7 @@ class Diagnostics:
             self._prev_prev_ntkR7a = self._prev_ntkR7a
             self._prev_ntkR7a = list(rec["ntkR"]); self._prev_sharp7a = sh
 
-            if self.s7:                     # heavy §7 projections (FH eigenvalues + J onto FH eigvecs)
+            if self.s7 and heavy_tick:      # heavy §7 projections (FH eigenvalues + J onto FH eigvecs) — throttled
                 UJ = []
                 for k in range(n7):
                     u = (Jc.t() @ Vk[:, k]) / math.sqrt(max(float(Kv[k]), 1e-30))
@@ -318,8 +329,8 @@ class Diagnostics:
                 rec["jh2e1b"] = [float(UJ[k] @ m2[2]) for k in range(n7)]
                 rec["jh2e2b"] = [float(UJ[k] @ m2[3]) for k in range(n7)]
 
-        # ---- §8 vec(J) onto right singular vecs of the p×(p·dₙ) FH reshape ----
-        if self.s8 and self.multi_ok:
+        # ---- §8 vec(J) onto right singular vecs of the p×(p·dₙ) FH reshape (heaviest section → throttled) ----
+        if self.s8 and self.multi_ok and heavy_tick:
             jfn = max(float(Jc.norm()), 1e-30)
             wv = torch.zeros(p, dtype=dt, device=dev)
             eps = 1e-3
@@ -412,8 +423,8 @@ class Diagnostics:
                                                     self.device, self.dtype)[0][0])
                 rec["thAH"] = sh
 
-        # ---- §5 SLQ spectral densities (expensive) ----
-        if self.s5:
+        # ---- §5 SLQ spectral densities (expensive → ~50 snapshots/run via slqStride) ----
+        if self.s5 and slq_tick:
             ng = 160
             rec["slq_H"] = slq_density(self._hF(th, X), p, self.nprobe, self.mSLQ, ng, SEED_SLQ_H, dev, dt)
             rec["slq_lossH"] = slq_density(self._hL(th, X, Y), p, self.nprobe, self.mSLQ, ng, SEED_SLQ_L, dev, dt)

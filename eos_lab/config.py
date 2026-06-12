@@ -51,6 +51,12 @@ class Config:
     neig: int = 3                   # top/bottom-n eigenpairs
     kth: int = 1
     eigevery: int = 1               # compute diagnostics every k GD steps
+    heavyevery: int = 4             # cadence (in diagnostic ticks) for the heaviest slowly-varying multi-sample
+                                    #   panels §7 (FH-eigvec projections) and §8 (FH-reshape SVD) — they are far
+                                    #   costlier per step than the rest, so computing them every `heavyevery`-th
+                                    #   tick (instead of every tick) keeps a run responsive while the cheap core
+                                    #   (loss/sharpness/eigenvalues/§9 theory/§7a alignment) stays every tick.
+                                    #   §5 SLQ uses its own coarser stride (≈50 snapshots/run). Set 1 to disable.
     slqprobes: int = 4
     energyp: float = 99.0           # §6 subspace energy %
     gson: int = 1                   # compute G & S spectra in §2/§3

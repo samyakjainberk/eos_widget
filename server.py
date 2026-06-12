@@ -1158,6 +1158,7 @@ def run_stream(P):
     nProbe = max(1, P["slqprobes"])
     efrac = min(1.0, max(0.5, P["energyp"] / 100.0))
     slqStride = max(1, math.ceil((steps // ee + 1) / 50))
+    heavyevery = max(1, P.get("heavyevery", 4))   # §7-proj + §8 compute every heavyevery-th tick (responsiveness)
     start = max(0, min(int(P.get("start", 0)), steps))  # resume: fast-forward GD to here, then stream
 
     mytok = P.get("_token", 0)                          # per-device token claimed in _sse via acquire_device()
@@ -1301,7 +1302,7 @@ def run_stream(P):
                         g = dSh * (prevNtkR7a[k] - prevPrevNtkR7a[k]); sumGlag[k] += g
                         ntkGl.append(g); ntkGlA.append(sumGlag[k] / cntGl7a)
                 prevPrevNtkR7a = prevNtkR7a; prevNtkR7a = list(ntkR); prevSharp7a = sharp
-                if s7:                                            # heavy §7 FH-eigenvector projections
+                if s7 and eigTick % heavyevery == 0:              # heavy §7 FH-eigenvector projections (throttled)
                     UJ = []                                        # left singular vecs of J (param space)
                     for k in range(n7):
                         u = (Jc.t() @ Vk[:, k]) / math.sqrt(max(float(Kv[k]), 1e-30))
@@ -1330,9 +1331,9 @@ def run_stream(P):
                     jh2e1b = [float(UJ[k] @ m2[2]) for k in range(n7)]
                     jh2e2b = [float(UJ[k] @ m2[3]) for k in range(n7)]
 
-            # §8 vec(J) onto right singular vecs of the p×(p·dₙ) FH reshape
+            # §8 vec(J) onto right singular vecs of the p×(p·dₙ) FH reshape (heaviest section → throttled)
             g2J = g2Jn = None
-            if s8 and multi_ok:
+            if s8 and multi_ok and eigTick % heavyevery == 0:
                 jfn = max(float(Jc.norm()), 1e-30)                 # ‖J‖_F
                 wv = torch.zeros(p, dtype=DTYPE, device=_dev())
                 for a in range(M):
@@ -1692,6 +1693,7 @@ def run_surrogate_compare(P):
     _devkey = str(_dev())
     start = max(0, min(int(P.get("start", 0)), steps))
     slqStride = max(1, math.ceil((steps // ee + 1) / 50))
+    heavyevery = max(1, P.get("heavyevery", 4))   # §7-proj + §8 throttle (mirror run_stream)
     t0 = time.time()
     eigTick = 0
     # frozen-window state
@@ -2054,6 +2056,7 @@ def _parse_params(q):
         "nsamp": fi("nsamp", 1), "batch": fi("batch", 0), "indim": fi("indim", 1), "outdim": fi("outdim", 1),
         "tgt": ff("tgt", 1.0), "neig": fi("neig", 3), "kth": fi("kth", 1),
         "steps": fi("steps", 400), "eigevery": fi("eigevery", 1),
+        "heavyevery": max(1, fi("heavyevery", 4)),   # cadence for the heaviest panels §7-proj/§8 (keeps runs responsive)
         "slqprobes": fi("slqprobes", 4), "energyp": ff("energyp", 99),
         "seed": fi("seed", 0), "start": fi("start", 0), "inputstd": ff("inputstd", 1.0),
         "ssign": g("ssign", "off"), "qapprox": max(1, fi("qapprox", 25)),

@@ -162,6 +162,7 @@
       <div class="ctl"><label>n (top/bottom eigs)</label><input id="neig" type="number" value="3" min="1" max="8" step="1"></div>
       <div class="ctl"><label>k (which single eigvec)</label><input id="kth" type="number" value="1" min="1" max="8" step="1"></div>
       <div class="ctl"><label>eig every (steps)</label><input id="eigevery" type="number" value="1" min="1" max="20" step="1"></div>
+      <div class="ctl"><label title="The heaviest panels (§7 FH-eigvec projections, §8 FH-reshape SVD) compute every N-th diagnostic tick instead of every step, so runs stay responsive. The cheap core (loss/sharpness/eigenvalues/§9 theory/§7a) updates every step. Set 1 to compute everything every step.">heavy every (ticks)</label><input id="heavyevery" type="number" value="4" min="1" max="50" step="1"></div>
       <div class="ctl"><label>SLQ probes</label><input id="slqprobes" type="number" value="4" min="1" max="12" step="1"></div>
       <div class="ctl"><label>subspace energy %</label><input id="energyp" type="number" value="99" min="50" max="100" step="1"></div>
       <div class="ctl"><label>G &amp; S spectra</label><select id="gson"><option value="1" selected>on</option><option value="0">off</option></select></div>
@@ -971,7 +972,8 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const needVecs=opt.s4||opt.s6||opt.s11, needVals=opt.s1||opt.s2||opt.s3||needVecs;
   const mF=Math.min(p,Math.max(2*nSub+24,44)), mV=Math.min(p,Math.max(2*n+16,28)), mSLQ=Math.min(p,40);
   const slqStride=Math.max(1,Math.ceil((Math.floor(steps/eigEvery)+1)/50));
-  ST={opt,spec,p,X,Y,N,inDim,outDim,M,nResid,th,lr,eps,thr,n,kth,nSub,mF,mV,mSLQ,nProbe,efrac,eigEvery,slqStride,steps,posIdx,negIdx,
+  const heavyEvery=Math.max(1,+val('heavyevery')||4);   // §7-proj + §8 throttle (mirror server.run_stream)
+  ST={opt,spec,p,X,Y,N,inDim,outDim,M,nResid,th,lr,eps,thr,n,kth,nSub,mF,mV,mSLQ,nProbe,efrac,eigEvery,slqStride,heavyEvery,steps,posIdx,negIdx,
       needVecs,needVals,prevTop:Array(nSub).fill(null),prevBot:Array(nSub).fill(null),prevPos:null,prevNeg:null,
       pNtk:Array(n).fill(null),pVH:Array(n).fill(null),pUJ:Array(n).fill(null),pM1:[null,null,null,null],pM2:[null,null,null,null],pG2:Array(n).fill(null),
       prevSharp7a:null,prevNtkR7a:null,prevPrevNtkR7a:null,sumGsync:null,sumGlag:null,cntGs:0,cntGl:0,   // §7a Δλ·Δr running products
@@ -1046,7 +1048,7 @@ async function loop(){                                   // drives ST forward; r
           if(dSh!=null&&S.prevPrevNtkR7a){ntkGl=[];ntkGlA=[];S.cntGl++;
             for(let k=0;k<n7;k++){const g=dSh*(S.prevNtkR7a[k]-S.prevPrevNtkR7a[k]);S.sumGlag[k]+=g;ntkGl.push(g);ntkGlA.push(S.sumGlag[k]/S.cntGl);}}
           S.prevPrevNtkR7a=S.prevNtkR7a;S.prevNtkR7a=ntkR.slice();S.prevSharp7a=sharp;
-          if(O.s7){                                                  // §7 only: heavier FH-SVD projections (UJ onto the M_j eigvecs)
+          if(O.s7&&S.eigTick%S.heavyEvery===0){                      // §7 only: heavier FH-SVD projections (UJ onto the M_j eigvecs) — throttled
             const UJ=[];                                             // left singular vecs of J (param space)
             for(let k=0;k<n7;k++){const u=new Float64Array(p),vk=ek.vecs[k];
               for(let a=0;a<dn;a++){const c=vk[a],ja=Jc[a];for(let i=0;i<p;i++)u[i]+=c*ja[i];}
@@ -1069,9 +1071,9 @@ async function loop(){                                   // drives ST forward; r
             }
           }
         }
-        // §8 J onto the right singular vectors of the p×(p·dn) function-Hessian reshape
+        // §8 J onto the right singular vectors of the p×(p·dn) function-Hessian reshape (heaviest → throttled)
         let g2J=null,g2Jn=null;
-        if(O.s8&&M>1){
+        if(O.s8&&M>1&&S.eigTick%S.heavyEvery===0){
           const dn=M, n8=Math.min(S.n,Math.max(1,Math.floor(p/2)));
           const jc8=jacCols(S.th,spec,X,N,inDim,p).cols;
           let jfn=0;for(let a=0;a<dn;a++)jfn+=dot(jc8[a],jc8[a]);jfn=Math.sqrt(Math.max(jfn,1e-30)); // ‖J‖_F
@@ -1326,7 +1328,7 @@ async function downloadPlots(){
 function backendURL(start){
   const ps=new URLSearchParams();
   ['depth','width','act','bias','fixedx','inputstd','ssign','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
-   'neig','kth','steps','eigevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset',
+   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree'].forEach(id=>ps.set(id,val(id)));
   [['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
    ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
