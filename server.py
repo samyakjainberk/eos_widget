@@ -897,8 +897,8 @@ _CIFAR_CACHE = {}
 
 def _find_cifar_dir():
     cands = [CIFAR_DIR,
+             os.path.join(DIR, "data", "cifar-10-batches-py"),   # in-repo copy on shared NAS
              os.path.join(DIR, "cifar-10-batches-py"),
-             "/home/alexandreduplessis/.torch/cifar-10-batches-py",
              os.path.expanduser("~/.torch/cifar-10-batches-py"),
              os.path.expanduser("~/data/cifar-10-batches-py")]
     for c in cands:

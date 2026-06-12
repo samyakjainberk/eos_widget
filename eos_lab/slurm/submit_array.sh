@@ -17,7 +17,7 @@
 set -e
 PY=/nas/ucb/samsj/conda_env/envs/samsenv/bin/python
 DIR=/nas/ucb/samsj/TestingPSTheory/eos_widget
-CIFAR=/home/alexandreduplessis/.torch/cifar-10-batches-py
+CIFAR="$DIR/data/cifar-10-batches-py"   # in-repo copy on shared NAS (readable from compute nodes; /home is node-local)
 
 # Edit this list; one entry per array index. Each is "preset key=val key=val ...".
 RUNS=(

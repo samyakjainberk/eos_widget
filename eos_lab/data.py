@@ -18,7 +18,8 @@ _CIFAR_CACHE = {}
 
 def _find_cifar_dir(cifar_dir=None):
     cands = [cifar_dir,
-             "/home/alexandreduplessis/.torch/cifar-10-batches-py",
+             os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "cifar-10-batches-py"),
+             "/nas/ucb/samsj/TestingPSTheory/eos_widget/data/cifar-10-batches-py",   # in-repo copy on shared NAS
              os.path.expanduser("~/.torch/cifar-10-batches-py"),
              os.path.expanduser("~/data/cifar-10-batches-py")]
     for c in cands:

@@ -13,7 +13,7 @@
 # For an INTERACTIVE session instead of a batch job:
 #   srun --partition=main --gres=gpu:A100-SXM4-80GB:1 --cpus-per-task=8 --mem=64G --time=8:00:00 --pty bash
 #   then on the node: /nas/ucb/samsj/conda_env/envs/samsenv/bin/python server.py \
-#        --device cuda:0 --port 8756 --host 0.0.0.0 --cifar-dir /home/alexandreduplessis/.torch/cifar-10-batches-py
+#        --device cuda:0 --port 8756 --host 0.0.0.0 --cifar-dir "$DIR/data/cifar-10-batches-py"
 #
 #SBATCH --job-name=eos_a100
 #SBATCH --partition=main                       # A100 nodes: airl/sac (SXM4-80GB), cirl/rlhf (PCI-80GB). Use 'scavenger' if main is full (preemptible).
@@ -27,7 +27,7 @@ set -e
 PORT=8756
 PY=/nas/ucb/samsj/conda_env/envs/samsenv/bin/python
 DIR=/nas/ucb/samsj/TestingPSTheory/eos_widget
-CIFAR=/home/alexandreduplessis/.torch/cifar-10-batches-py
+CIFAR="$DIR/data/cifar-10-batches-py"   # in-repo copy on shared NAS (readable from compute nodes; /home is node-local)
 
 echo "================================================================"
 echo " EoS GPU backend on A100 node: $(hostname)"

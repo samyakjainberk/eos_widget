@@ -535,7 +535,8 @@ class Diagnostics:
         # ---- §9d: SAME predictions as §9/§9b, but the residual is computed BY the frozen quadratic model ----
         # (self-contained: inside the window r is the quadratic-GD residual r_q = Y−f_quad(θ₀+Δθ), not the live r)
         thP_d = [None] * 5; thPpsd_d = [None] * 5
-        if multi and self._thJ_d is not None and self._thFroz is not None and bEk_vals is not None:
+        if (multi and self._thJ_d is not None and self._thFroz is not None
+                and bEk_vals is not None and self._thF0 is not None):   # _thF0 guard matches server.py
             Jd, Fz = self._thJ_d, self._thFroz
             dth = self._thDth
             HzD = jac_hvp(self.model, self._thTh0, X, dth)               # Q[Δθ] = {∇²f_a(θ₀)·Δθ}, (M,p)
