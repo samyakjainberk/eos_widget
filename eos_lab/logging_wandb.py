@@ -40,11 +40,12 @@ def run_name(cfg):
 
 
 # ----------------------------------------------------------------------------- per-step → wandb metrics
-# A small, curated, GROUPED set of human-readable time-series — NOT the ~120 cryptic per-index series the
-# raw diagnostics expand to (H_top/0, jt/0, q9t/0, ntkR/0, …). wandb groups charts by the text before the
-# first "/", so the names below land in a handful of tidy sections (loss · sharpness · top_eigenvalue · …).
-# The full top-/bottom-n spectra, NTK alignments, FH-SVD and §4b–§4d projections are deliberately NOT
-# streamed here — that detail lives in the rendered panel images logged once at finish().
+# A SMALL, SYSTEMATIC set of live time-series, grouped into NUMBERED sections that sort in analysis order in
+# the wandb sidebar:  1_loss · 2_sharpness · 3_residual · 4_top_eigenvalues · 5_theory_sigma1.  wandb makes
+# one chart per metric and groups them by the text before the first "/", so this is ~12 charts in 5 tidy
+# sections (down from the old ~24 across 9). Everything else — the full top-/bottom-n spectra, the spectral
+# edges, §4/§4b-d projections, §6 rotation, §7/§7a/§8, and all five theory columns of §9/§9b/§9c/§9d — lives
+# in the rendered panel images logged once at finish() under "panels/" (the static plots show the full detail).
 
 def _isnum(x):
     return isinstance(x, (int, float)) and not (isinstance(x, float) and math.isnan(x))
@@ -52,29 +53,22 @@ def _isnum(x):
 
 # clean wandb metric name  <-  (record key, vector index or None for a scalar)
 _METRICS = [
-    ("loss/train",                         "loss",       None),
-    ("loss/test",                          "test_loss",  None),
-    ("sharpness/sharpness",                "sharpness",  None),
-    ("sharpness/edge_2_over_lr",           "thr",        None),
-    ("residual/mean",                      "resid_mean", None),
-    ("residual/rms",                       "resid_rms",  None),
-    ("top_eigenvalue/loss_Hessian",        "lossH_top",  0),
-    ("top_eigenvalue/function_Hessian",    "H_top",      0),
-    ("top_eigenvalue/Gauss_Newton",        "G_top",      0),
-    ("top_eigenvalue/residual_term",       "S_top",      0),
-    ("bottom_eigenvalue/loss_Hessian",     "lossH_bot",  0),
-    ("bottom_eigenvalue/function_Hessian", "H_bot",      0),
-    ("H_spectral_edge/max",                "H_edge_max", None),
-    ("H_spectral_edge/min",                "H_edge_min", None),
-    ("J_projection/onto_top_H_eigvec",     "jtN",        0),
-    ("J_projection/onto_bottom_H_eigvec",  "jbN",        0),
+    ("1_loss/train",                       "loss",       None),
+    ("1_loss/test",                        "test_loss",  None),
+    ("2_sharpness/lambda_max",             "sharpness",  None),   # the EoS headline: λmax(∇²L) climbing to 2/η
+    ("2_sharpness/edge_2_over_eta",        "thr",        None),
+    ("3_residual/rms",                     "resid_rms",  None),
+    ("4_top_eigenvalues/loss_Hessian",     "lossH_top",  0),      # loss-Hessian = G + S decomposition
+    ("4_top_eigenvalues/Gauss_Newton_G",   "G_top",      0),
+    ("4_top_eigenvalues/residual_term_S",  "S_top",      0),
 ]
-_THEORY_EQS = ["Eq13_single_sample", "Eq21_multi_sample", "Eq22_multi_sample",
-               "Eq23_multi_sample", "Eq29_multi_sample"]   # thP cols 0-4 (Eq-27 was replaced by Eq-22; Eq-23 added)
+# §9 theory: the measured σ₁ + three representative predictions (single-sample Eq-13, compact multi Eq-22,
+# full-γτz-decomposition multi Eq-29). Eq-21/Eq-23 and the §9b/§9c/§9d variants are in the panel images.
+_THEORY_COLS = [(0, "Eq13_single"), (2, "Eq22_multi"), (4, "Eq29_multi")]
 
 
 def flatten_rec(rec):
-    """Per-step record → a small dict of grouped, readable {metric: float} for wandb.log."""
+    """Per-step record → a small, grouped {metric: float} dict for wandb.log (numbered sections)."""
     out = {}
     for name, key, idx in _METRICS:
         v = rec.get(key)
@@ -86,22 +80,17 @@ def flatten_rec(rec):
             v = v[idx]
         if _isnum(v):
             out[name] = float(v)
-    # §6 eigenspace rotation — max principal angle (degrees) of the ± subspaces
-    for key, nm in (("rot_pos", "positive"), ("rot_neg", "negative")):
-        d = rec.get(key)
-        if d and _isnum(d.get("mx")):
-            out["eigenspace_rotation/" + nm + "_deg"] = float(d["mx"])
-    # §9 theory vs empirical sharpness σ₁ — predicted per equation + the single measured actual
+    # §9 theory vs empirical sharpness σ₁ — measured + the representative predicted equations, one section
     thP, thA = rec.get("thP"), rec.get("thA")
-    if thP:
-        for i, eq in enumerate(_THEORY_EQS):
-            if i < len(thP) and _isnum(thP[i]):
-                out["theory_sigma1/predicted_" + eq] = float(thP[i])
     if thA:
-        for x in thA:
+        for x in thA:                       # thA[1..4] (multi) or thA[0] (single) all hold the measured σ₁
             if _isnum(x):
-                out["theory_sigma1/actual"] = float(x)
+                out["5_theory_sigma1/measured"] = float(x)
                 break
+    if thP:
+        for i, nm in _THEORY_COLS:
+            if i < len(thP) and _isnum(thP[i]):
+                out["5_theory_sigma1/predicted_" + nm] = float(thP[i])
     return out
 
 

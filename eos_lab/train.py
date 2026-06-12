@@ -139,6 +139,7 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
 
 # every per-step key that is a list-of-numbers and should become one track-per-index in `series`
 _VECTOR_KEYS = [
+    "resid_head",                                                    # §1 per-sample residual y−f (first nResid)
     "H_top", "H_bot", "lossH_top", "lossH_bot", "G_top", "G_bot", "S_top", "S_bot",
     "jt", "jb", "jtN", "jbN",                                         # §4
     "ntkR", "ntkH", "ntkGs", "ntkGsA", "ntkGl", "ntkGlA",            # §7a (+ Δλ·Δr products & running avgs)
