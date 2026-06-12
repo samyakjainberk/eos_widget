@@ -63,11 +63,17 @@ Every section from the widget is here, and each is a flag on `config.Config` (al
 - **§9** — the theory: each σ₁ prediction (Eqs. 13/21/22/23/29) overlaid on the measured top NTK / Gauss–Newton eigenvalue, over frozen-`Q` windows. The records also carry **§9b** (`thPpsd`: the predictions plus the second-order PSD term `‖ΔJᵀu₁‖²`, an always-positive sharpening floor the first-order recursion drops).
 - **§9c** — the same predictions compared against the **full loss-Hessian sharpness** `λmax(∇²L)` (`thAH`) rather than the Gauss–Newton edge; the gap between them is the residual term `S`.
 - **§9d / §9d-c** — the *same* Eq. 13/21/22/23/29 predictions (`thP_d`/`thPpsd_d`), but the residual driving the recursion is **self-computed by the frozen quadratic model** rather than read from the live run: inside each window `r_q = Y − f_quad(θ₀+Δθ)` with `f_quad = f₀ + J₀Δθ + ½ΔθᵀQΔθ` and `Δθ` advanced by the quadratic model's own gradient descent — a fully closed prediction. §9d overlays them on the measured NTK σ₁ (like §9); §9d-c on the full-Hessian sharpness (like §9c). They coincide with §9 at each window start (`Δθ=0`) and diverge by exactly the quadratic-approximation error.
+- **§10 (cubic approximation, `s17`, OFF by default)** — the **cubic** model (paper §6). Every `cubicapprox` steps it freezes `θ₀`, `J₀`, `Q₀` and the third-derivative tensor `T` (matrix-free, central differences of the HVPs) and propagates **both** `J` and `Q` exactly, predicting the NTK-σ₁ change: **Eq. 47** (single, `c47`/`c47p`) and **Eq. 51** (multi, `c51`/`c51p`) ±the PSD term, plus Eq. 51 *without* the η² cubic term (`c51n`/`c51np` = the quadratic recursion). Two panels overlay them on the measured NTK σ₁ (`cActN`, + `‖ΔQ‖`/`‖Q₀‖` drift `cdQ`) and on the full-Hessian λmax (`cActH`, + `‖ΔJ‖`/`‖J₀‖` drift `cdJ`). It is **off by default** because propagating `Q` exactly costs `O(window²)` HVPs/window (by far the heaviest section); enable with `--set s17=1`.
 
 The multi-sample sections build an explicit `M×p` Jacobian (`M = N·d_out`), so they're **skipped
 automatically** when that's too big to form (the budget is `M ≤ 2048` and `M·p ≤ 7e8`; whatever is skipped
 is recorded in `meta["sections_skipped"]`). The matrix-free sections — §1–§6 and single-sample §9 — always
 run, so even large-`N` runs still tell the full PS/EoS story.
+
+To keep runs fast the heaviest slowly-varying panels are throttled (matching the widget): §5 SLQ runs ~50×
+per run and §7's FH-eigenvector projections + §8 run every `heavyevery` ticks (default 4); the cheap core
+(loss/sharpness/eigenvalues/§9 theory/§7a) runs every tick. Set `--set heavyevery=1` to compute every panel
+every step.
 
 ## Sweeps & logging
 

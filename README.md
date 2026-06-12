@@ -96,6 +96,15 @@ $r_q=Y-f_{\text{quad}}(\theta_0+\Delta\theta)$, $f_{\text{quad}}=f_0+J_0\Delta\t
 $\Delta\theta$ advanced by the quadratic model's own gradient descent — a fully closed prediction that uses no live-run
 input inside a window; it coincides with §9 at each window start ($\Delta\theta=0$) and diverges by exactly the quadratic-approximation error.
 
+**§10 (cubic approximation, off by default)** is the **cubic** model (paper §6): every `cubic window` steps it freezes
+$\theta_0$, $J_0$, $Q_0$ and the third-derivative tensor $T$, then propagates **both** $J$ and $Q$ exactly and predicts the
+NTK-$\sigma_1$ change — **Eq. 47** (single sample) and **Eq. 51** (multi sample), each **with** and **without** the PSD term —
+plus Eq. 51 *without* the $\eta^2$ cubic term (the quadratic recursion). Two panels overlay these on the empirical NTK
+$\sigma_1$ (panel 1, + the window drift $\lVert\Delta Q\rVert/\lVert Q_0\rVert\times100$) and on the full-Hessian
+$\lambda_{\max}$ (panel 2, + $\lVert\Delta J\rVert/\lVert J_0\rVert\times100$). The same two panels appear in every section. It is
+the heaviest panel ($Q$ is propagated exactly, $O(\text{window}^2)$ HVPs/window), hence off by default; a fourth surrogate
+section trains the full cubic Taylor model $f_0+J_0\Delta\theta+\tfrac12\Delta\theta^\top Q\Delta\theta+\tfrac16T[\Delta\theta,\Delta\theta,\Delta\theta]$ against the actual model, exactly like the quadratic/linear surrogate sections.
+
 ## Panels
 
 | § | Panel | Needs |
@@ -112,12 +121,18 @@ input inside a window; it coincides with §9 at each window start ($\Delta\theta
 | **9b** | the same predictions **+ the 2nd-order PSD term** `‖ΔJᵀu₁‖²` vs actual `σ₁` | MSE · single or multi |
 | **9c** | the same predictions vs the **full-Hessian sharpness** `λmax(∇²L)` (own toggle) | MSE · single or multi |
 | **9d / 9d-c** | §9 / §9c but with the residual **self-computed by the quadratic model** (closed loop), vs actual `σ₁` / the full-Hessian sharpness (own toggles) | MSE · single or multi |
+| **10** | **cubic** approximation — Eq. 47/51 σ₁ predictions (±PSD, and Eq. 51 without the η² term) with exact `J`&`Q` propagation, vs the NTK `σ₁` and the full-Hessian `λmax`, + the `‖ΔQ‖`/`‖ΔJ‖` window drift (off by default — heaviest) | MSE · single (Eq. 47) or multi (Eq. 51) |
 
 A checkbox per section toggles its computation. §7a/§7/§8/§4b/§4c use the *function* NTK `Jᵤ·Jᵤᵀ` and the
 generic residual `r = −∂L/∂z` (MSE: `y−f`, CE: `softmax(z)−onehot`), so they work for **cross-entropy** too;
 they only need the explicit `M×p` Jacobian (`M = N·d_out`) to be feasible — skipped (stamped *"too large"*)
 for e.g. OpenWebText, and empty for a single sample. Only **§4d** (its sign-groups need a scalar residual)
 and **§9** (the squared-loss σ₁ recursion) are MSE-only. Any panel a run can't fill is stamped *"n/a"*.
+
+The cheap core (loss/sharpness/eigenvalues/§9 theory/§7a) is computed every diagnostic tick; the heaviest
+slowly-varying panels — §7's FH-eigenvector projections and §8 — are computed every **`heavy every`** ticks
+(default 4) and §5 SLQ ~50×/run, so a run stays responsive even with everything on. Set `heavy every` to 1 to
+compute every panel every step.
 
 ## Datasets · architectures · loss · init
 
