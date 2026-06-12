@@ -284,7 +284,7 @@
 <div class="plotrow row5"><div id="p_preddh1" class="plot"></div><div id="p_preddh2" class="plot"></div><div id="p_preddh3" class="plot"></div><div id="p_preddh4" class="plot"></div><div id="p_preddh5" class="plot"></div></div>
 </div>
 
-<div id="sec_10">
+<div id="sec_cubic" style="display:none">
 <h2>10 · Cubic approximation (Eq. 47 / 51)</h2>
 <p class="cap">The <b>cubic</b> model of the function (paper §6): over each <i>cubic-window</i> we freeze $\theta_0$, $J_0$, $Q_0$ and the third-derivative tensor $T$, then propagate <b>both</b> $J$ and $Q$ exactly (Eqs. 44/45 single, 49/50 multi) and predict the change in the top NTK eigenvalue — <b>Eq. 47</b> (single sample) and <b>Eq. 51</b> (multi sample) — each computed <b>with</b> and <b>without</b> the PSD term $\lVert\Delta J^\top u_1\rVert^2$. The residual is read from the live run; everything else comes from the frozen quantities. Plot 3 is Eq. 51 <b>without the $\eta^2$ term</b> (the cubic interaction) — i.e. the quadratic recursion — for contrast. <b>OFF by default</b>: $Q$ is propagated exactly, so a window costs $O(\text{window}^2)$ Hessian-vector products (the heaviest section).</p>
 <h3 style="margin:6px 0 2px;font-size:14px;color:#475569">Panel 1 — vs the empirical NTK $\sigma_1$ &nbsp;·&nbsp; plot 4: $\lVert\Delta Q\rVert/\lVert Q_0\rVert\times100$</h3>
@@ -605,7 +605,7 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_9c');if(el)el.style.display=chk('en14')?'':'none';}            // §9c vs full-Hessian sharpness
   {const el=document.getElementById('sec_9d');if(el)el.style.display=chk('en15')?'':'none';}            // §9d quad-self residual
   {const el=document.getElementById('sec_9dc');if(el)el.style.display=chk('en16')?'':'none';}           // §9d-c quad-self residual vs full-H
-  {const el=document.getElementById('sec_10');if(el)el.style.display=chk('en17')?'':'none';}            // §10 cubic approximation (Eq-47/51)
+  {const el=document.getElementById('sec_cubic');if(el)el.style.display=chk('en17')?'':'none';}          // §10 cubic approximation (Eq-47/51) — own id (sec_10 is already §4c)
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
 }
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
