@@ -1802,6 +1802,10 @@ def run_surrogate_compare(P):
     c7a = c7a and not ceLoss        # NTK alignment uses the MSE residual r → MSE only (multi-class CE: off)
     c9c = c9c and not ceLoss        # §9c is the same squared-loss σ₁ recursion → MSE only
     c9d = c9d and not ceLoss; c9dc = c9dc and not ceLoss   # §9d/§9d-c likewise squared-loss only (unreachable: surrogate is always MSE)
+    cCub = P.get("c12", False) and not ceLoss   # §10 cubic approximation (actual model) vs the surrogate σ₁ + actual λmax
+    cubCtx = {"N": N, "p": p, "M": M, "lr": lr, "ee": ee, "cubicapprox": max(1, P.get("cubicapprox", 10)),
+              "cn": max(1, min(nProbe, 4)), "multi": multi, "multi_ok": multi}
+    cubSt = cubic_init_state()
 
     if p > PMAX:
         yield {"type": "meta", "error": f"p={p} parameters exceeds the cap ({PMAX}). Reduce the model size."}
@@ -2119,6 +2123,17 @@ def run_surrogate_compare(P):
                         thJp_d = thJp_d + lr * r_qs * QJ
                         thDth_s = thDth_s + lr * r_qs * thJp_d
 
+            # ---- §10 CUBIC approximation (actual model) — predictions vs the SURROGATE's σ₁ + actual λmax ----
+            cub = {}
+            if cCub:
+                shCub = sharpA if sharpA is not None else float(
+                    lanczos_extreme_vals(lambda v: hvpL(th, X, Y, v), p, 1, mV, 0x5EED1)[0][0])
+                sigSurC = (float(torch.linalg.eigvalsh(Jq @ Jq.t())[-1]) if multi
+                           else float(Jq.reshape(-1) @ Jq.reshape(-1)))   # surrogate σ₁ (the §10 reference here)
+                cub = cubic_step(cubCtx, cubSt, th, X, Y, t, J_act, out_act, rA, [sigSurC], shCub)
+                if "cActN" in cub:
+                    cub["cActN"] = sigSurC / N      # compare the cubic prediction to the SURROGATE's σ₁ (per-sample)
+
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness scale (σ₁/N)
             thPr = [(x / N if x is not None else None) for x in thP] if thP else None
             thAr = [(x / N if x is not None else None) for x in thA] if thA else None
@@ -2128,6 +2143,7 @@ def run_surrogate_compare(P):
 
             yield {
                 "type": "step", "t": t, "steps": steps, "p": p, "kind": kind,
+                **cub,    # §10 cubic keys (when c12): c47/c47p, c51/c51p, c51n/c51np, cActN(=surrogate σ₁), cActH, cdQ, cdJ
                 "lossA": lossA if cL else None, "lossS": lossS if cL else None,
                 "rmeanA": rmeanA if cR else None, "rstdA": rstdA if cR else None,
                 "rmeanS": rmeanS if cR else None, "rstdS": rstdS if cR else None,
@@ -2207,6 +2223,7 @@ def _parse_params(q):
         "c4": g("c4", "1") == "1", "c5": g("c5", "0") == "1", "c6": g("c6", "1") == "1",
         "c7": g("c7", "1") == "1", "c8": g("c8", "1") == "1", "c9": g("c9", "0") == "1",
         "c10": g("c10", "1") == "1", "c11": g("c11", "1") == "1",   # §9d / §9d-c (surrogate)
+        "c12": g("c12", "0") == "1",   # §10 cubic approximation (surrogate section; OFF by default — heaviest)
     }
 
 
