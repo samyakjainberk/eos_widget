@@ -175,10 +175,44 @@ def plot_section7a(series):
     return fig
 
 
+def _tracks_grid(series, groups, suptitle, ncol=5):
+    """Like _tracks_panel but WRAPS many tracks into a grid (ncol per row) — for sections the widget
+    shows as a long strip of panels (§7's 10, §4b's 8). Each present key → one subplot; unused cells hidden."""
+    present = [(k, lab) for k, lab in groups if k in series]
+    if not present:
+        return None
+    n = len(present); nrow = (n + ncol - 1) // ncol
+    fig, axs = plt.subplots(nrow, ncol, figsize=(4.3 * ncol, 3.2 * nrow), squeeze=False)
+    t = series["t"]
+    for idx, (k, lab) in enumerate(present):
+        ax = axs[idx // ncol][idx % ncol]
+        for j, track in enumerate(series[k]):
+            ax.plot(*_finite(t, track), label=f"{j+1}")
+        ax.axhline(0, c="k", lw=0.6); ax.set_title(lab, fontsize=8.5); ax.set_xlabel("step")
+        if len(series[k]) <= 6:
+            ax.legend(fontsize=7)
+    for idx in range(n, nrow * ncol):
+        axs[idx // ncol][idx % ncol].axis("off")
+    fig.suptitle(suptitle, fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    return fig
+
+
 def plot_section7(series):
-    return _tracks_panel(series, [("fhEvT", "FH eig (top)"), ("jhe1", "U_J·FH-vec₁"),
-                                  ("jh2e1", "U_J·FH-vec₂")],
-                         "§7 — multi-sample NTK & function-Hessian tensor SVD")
+    """§7 — all 10 widget tracks: reshaped function-Hessian (M₁,M₂) top/bottom-2 eigenvalues, and the
+    left-singular vectors of J projected onto the top-2 / bottom-2 eigvecs of M₁ and M₂."""
+    return _tracks_grid(series, [
+        ("fhEvT", "reshaped FH M₁,M₂ — top-2 eigenvalues"),
+        ("fhEvB", "reshaped FH M₁,M₂ — bottom-2 eigenvalues"),
+        ("jhe1", "J left-sing onto M₁ top eigvec e₁"),
+        ("jhe2", "J left-sing onto M₁ 2nd eigvec e₂"),
+        ("jhe1b", "J left-sing onto M₁ bottom eigvec e₋₁"),
+        ("jhe2b", "J left-sing onto M₁ 2nd-bottom eigvec e₋₂"),
+        ("jh2e1", "J left-sing onto M₂ top eigvec e₁"),
+        ("jh2e2", "J left-sing onto M₂ 2nd eigvec e₂"),
+        ("jh2e1b", "J left-sing onto M₂ bottom eigvec e₋₁"),
+        ("jh2e2b", "J left-sing onto M₂ 2nd-bottom eigvec e₋₂"),
+    ], "§7 — multi-sample NTK & function-Hessian tensor SVD", ncol=5)
 
 
 def plot_section8(series):
@@ -187,9 +221,18 @@ def plot_section8(series):
 
 
 def plot_section4b(series):
-    return _tracks_panel(series, [("q9tN", "J·r→Q[u₁]top /‖Jr‖"), ("q9bN", "J·r→Q[u₁]bot /‖Jr‖"),
-                                  ("q9gt", "g₁·Q[u₁]top")],
-                         "§4b — J·r onto eigenvectors of Q[u₁]")
+    """§4b — all 8 widget tracks: J·r onto the top/bottom-n eigvecs of Q[u₁], raw and normalized by
+    ‖J·r‖ and by ‖r‖, plus the Gauss–Newton top eigvec g₁ onto the same Q[u₁] eigvecs."""
+    return _tracks_grid(series, [
+        ("q9t", "J·r onto top-n eigvecs of Q[u₁]"),
+        ("q9b", "J·r onto bottom-n eigvecs of Q[u₁]"),
+        ("q9tN", "J·r/‖J·r‖ onto top-n eigvecs of Q[u₁]"),
+        ("q9bN", "J·r/‖J·r‖ onto bottom-n eigvecs of Q[u₁]"),
+        ("q9tR", "J·r/‖r‖ onto top-n eigvecs of Q[u₁]"),
+        ("q9bR", "J·r/‖r‖ onto bottom-n eigvecs of Q[u₁]"),
+        ("q9gt", "GN top eigvec g₁ onto top-n eigvecs of Q[u₁]"),
+        ("q9gb", "GN top eigvec g₁ onto bottom-n eigvecs of Q[u₁]"),
+    ], "§4b — J·r onto eigenvectors of Q[u₁]", ncol=4)
 
 
 def plot_section4c(series):
@@ -223,11 +266,13 @@ def plot_section4d(series):
     return fig
 
 
-def plot_section9(series, meta, pkey="thP", ppsdkey="thPpsd", suptitle="§9 — theoretical vs empirical sharpness"):
+def plot_section9(series, meta, pkey="thP", ppsdkey="thPpsd", show_pred=True, show_psd=True,
+                  suptitle="§9 — theoretical vs empirical sharpness"):
     """§9 — theory (Eq-13/21/22/23/29) vs empirical σ₁. Only the columns with data are drawn:
     Eq-13 is single-sample (M==1) so it is empty for multi-output datasets, and the whole panel
     is skipped when neither theory nor empirical produced any finite point (e.g. multi_ok=False).
-    §9d reuses this with pkey='thP_d' (the quadratically self-computed-residual predictions)."""
+    The widget splits this into separate rows: §9 (predicted) and §9b (predicted+PSD) — show_pred/show_psd
+    pick which. §9d reuses this with pkey='thP_d' (the quadratically self-computed-residual predictions)."""
     thP = series.get(pkey); thA = series.get("thA"); thPpsd = series.get(ppsdkey)
     if thP is None and thA is None:
         return None
@@ -237,9 +282,11 @@ def plot_section9(series, meta, pkey="thP", ppsdkey="thPpsd", suptitle="§9 — 
     def col(arr, i):
         return arr[i] if (arr is not None and i < len(arr)) else None
 
-    # keep only columns that have at least one finite point in predicted or empirical
+    # keep only columns with a finite point in whichever curves we're drawing (predicted / +PSD / empirical)
     present = [i for i in range(5)
-               if any(y == y for y in (col(thP, i) or [])) or any(y == y for y in (col(thA, i) or []))]
+               if (show_pred and any(y == y for y in (col(thP, i) or [])))
+               or (show_psd and any(y == y for y in (col(thPpsd, i) or [])))
+               or any(y == y for y in (col(thA, i) or []))]
     if not present:
         return None
 
@@ -248,9 +295,9 @@ def plot_section9(series, meta, pkey="thP", ppsdkey="thPpsd", suptitle="§9 — 
         emp = [y for y in (col(thA, i) or []) if y == y]
         prd = [y for y in (col(thP, i) or []) if y == y]
         prdP = [y for y in (col(thPpsd, i) or []) if y == y]
-        if col(thP, i) is not None:
+        if show_pred and col(thP, i) is not None:
             ax.plot(*_finite(t, col(thP, i)), label="predicted")
-        if col(thPpsd, i) is not None:                       # §9b: prediction + 2nd-order PSD term ‖ΔJᵀu₁‖²
+        if show_psd and col(thPpsd, i) is not None:          # §9b: prediction + 2nd-order PSD term ‖ΔJᵀu₁‖²
             ax.plot(*_finite(t, col(thPpsd, i)), label="predicted + PSD")
         if col(thA, i) is not None:
             ax.plot(*_finite(t, col(thA, i)), ls="--", label="empirical σ₁")
@@ -302,9 +349,16 @@ def plot_section9c(series, meta, pkey="thP", ppsdkey="thPpsd",
     return fig
 
 
+def plot_section9b(series, meta):
+    """§9b — the §9 predictions PLUS the dropped 2nd-order PSD term ‖ΔJᵀu₁‖² (a sharpening floor),
+    vs empirical σ₁ (the widget's separate predicted+PSD row)."""
+    return plot_section9(series, meta, show_pred=False, show_psd=True,
+                         suptitle="§9b — predicted + PSD term ‖ΔJᵀu₁‖² vs empirical σ₁")
+
+
 def plot_section9d(series, meta):
-    """§9d — §9 predictions but with the residual SELF-COMPUTED by the frozen quadratic model."""
-    return plot_section9(series, meta, pkey="thP_d", ppsdkey="thPpsd_d",
+    """§9d — §9 predictions but with the residual SELF-COMPUTED by the frozen quadratic model (vs empirical σ₁)."""
+    return plot_section9(series, meta, pkey="thP_d", ppsdkey="thPpsd_d", show_psd=False,
                          suptitle="§9d — predicted σ₁ (quadratic self-residual) vs empirical")
 
 
@@ -330,7 +384,9 @@ def save_panels(results, outdir):
             "section4b_Jr_onto_Q": plot_section4b(series),
             "section4c_QJr_onto_GN": plot_section4c(series),
             "section4d_sign_groups": plot_section4d(series),
-            "section9_theory_vs_empirical": plot_section9(series, meta),
+            "section9_theory_vs_empirical": plot_section9(series, meta, show_psd=False,
+                                                          suptitle="§9 — predicted σ₁ vs empirical"),
+            "section9b_psd_vs_empirical": plot_section9b(series, meta),
             "section9c_theory_vs_full_hessian": plot_section9c(series, meta),
             "section9d_selfresidual_vs_empirical": plot_section9d(series, meta),
             "section9dc_selfresidual_vs_full_hessian": plot_section9dc(series, meta)}
