@@ -398,7 +398,7 @@ def _cubic_pred_ax(ax, t, series, key, keyP, act, title, name):
 def _plot_cubic(series, vs, suptitle):
     """§10 cubic-approximation panel (4 plots). `vs`='ntk' → compare predictions to the NTK σ₁ and show
     ‖ΔQ‖% as plot 4; `vs`='hess' → compare to the loss-Hessian λmax and show ‖ΔJ‖% as plot 4. Plots 1-3 are
-    Eq-47 (single), Eq-51 (multi), and Eq-51 without the η² term (= the quadratic recursion)."""
+    Eq-47 (single), Eq-51 (multi), and Eq-51 without the η² term (cubic, minus the explicit η² interaction)."""
     actkey = "cActN" if vs == "ntk" else "cActH"
     driftkey = "cdQ" if vs == "ntk" else "cdJ"
     act = series.get(actkey)
@@ -409,7 +409,7 @@ def _plot_cubic(series, vs, suptitle):
     a = axs[0]
     _cubic_pred_ax(a[0], t, series, "c47", "c47p", act, "Eq-47 (single-sample)", "cubic")
     _cubic_pred_ax(a[1], t, series, "c51", "c51p", act, "Eq-51 (multi-sample)", "cubic")
-    _cubic_pred_ax(a[2], t, series, "c51n", "c51np", act, "Eq-51 without η² (quadratic)", "quadratic")
+    _cubic_pred_ax(a[2], t, series, "c51n", "c51np", act, "Eq-51 without the η² term", "cubic (no η²)")
     drift = series.get(driftkey)
     if drift is not None and any(y == y for y in drift):
         a[3].plot(*_finite(t, drift), color="tab:green")

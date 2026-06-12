@@ -96,14 +96,13 @@ $r_q=Y-f_{\text{quad}}(\theta_0+\Delta\theta)$, $f_{\text{quad}}=f_0+J_0\Delta\t
 $\Delta\theta$ advanced by the quadratic model's own gradient descent — a fully closed prediction that uses no live-run
 input inside a window; it coincides with §9 at each window start ($\Delta\theta=0$) and diverges by exactly the quadratic-approximation error.
 
-**§10 (cubic approximation, off by default)** is the **cubic** model (paper §6): every `cubic window` steps it freezes
-$\theta_0$, $J_0$, $Q_0$ and the third-derivative tensor $T$, then propagates **both** $J$ and $Q$ exactly and predicts the
-NTK-$\sigma_1$ change — **Eq. 47** (single sample) and **Eq. 51** (multi sample), each **with** and **without** the PSD term —
-plus Eq. 51 *without* the $\eta^2$ cubic term (the quadratic recursion). Two panels overlay these on the empirical NTK
-$\sigma_1$ (panel 1, + the window drift $\lVert\Delta Q\rVert/\lVert Q_0\rVert\times100$) and on the full-Hessian
-$\lambda_{\max}$ (panel 2, + $\lVert\Delta J\rVert/\lVert J_0\rVert\times100$). The same two panels appear in every section. It is
-the heaviest panel ($Q$ is propagated exactly, $O(\text{window}^2)$ HVPs/window), hence off by default; a fourth surrogate
-section trains the full cubic Taylor model $f_0+J_0\Delta\theta+\tfrac12\Delta\theta^\top Q\Delta\theta+\tfrac16T[\Delta\theta,\Delta\theta,\Delta\theta]$ against the actual model, exactly like the quadratic/linear surrogate sections.
+**§10 — cubic approximation** (off by default; paper §6). Freeze $J=\nabla f,\ Q=\nabla^2 f,\ T=\nabla^3 f$ at $\theta_0$ every `cubic window` steps; with GD step $\Delta\theta=\eta\,J^\top r$ ($\eta\!\to\!\eta/N$ multi-sample), propagate $J,Q$ over the window ($T$ frozen):
+
+$$f_{\theta_0+\Delta\theta}=f_0+J^\top\Delta\theta+\tfrac12\Delta\theta^\top Q\,\Delta\theta+\tfrac16 T[\Delta\theta,\Delta\theta,\Delta\theta],\qquad \Delta J=Q\,\Delta\theta+\tfrac12 T[\Delta\theta,\Delta\theta]$$
+
+$$\text{single (Eq.\,47):}\ \ \Delta\mathrm{NTK}=2J^\top\Delta J+\lVert\Delta J\rVert^2,\qquad\quad \text{multi (Eq.\,51):}\ \ \Delta\sigma_1=2\sqrt{\sigma_1}\,v_1^\top(\Delta J^\top u_1)+\lVert\Delta J^\top u_1\rVert^2$$
+
+$(u_1,v_1,\sigma_1)$ is the top NTK singular triple of the propagated $J$. Three curves: **cubic** (full $\Delta J$), **+ PSD** (keeps the $\lVert\cdot\rVert^2$ term), **without $\eta^2$** (drops $\tfrac12 T[\Delta\theta,\Delta\theta]$ from $\Delta J$). Panel 1 compares to the empirical NTK $\sigma_1$ (+ drift $\lVert\Delta Q\rVert/\lVert Q_0\rVert$); panel 2 to the full-Hessian $\lambda_{\max}$ (+ $\lVert\Delta J\rVert/\lVert J_0\rVert$). Heaviest panel ($Q$ propagated exactly, $O(\text{window}^2)$ HVPs); a fourth surrogate section trains the cubic Taylor model $f_{\theta_0+\Delta\theta}$ above against the actual model.
 
 ## Panels
 

@@ -68,7 +68,8 @@
   .toggles input{width:auto;accent-color:var(--accent)}
   .plotrow{display:grid;gap:16px;margin-top:6px}
   .row4{grid-template-columns:repeat(4,1fr)} .row2{grid-template-columns:repeat(2,1fr)} .row5{grid-template-columns:repeat(5,1fr)}
-  .plot{width:100%;height:320px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 3px rgba(16,24,40,.05)}
+  .plot{width:100%;min-width:0;height:320px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 3px rgba(16,24,40,.05)}
+  .plotrow>*{min-width:0}   /* grid items default to min-width:auto (=min-content); without this a wide Plotly SVG expands the 1fr track and the row spills past the page margin */
   @media(max-width:1320px){.row4{grid-template-columns:repeat(2,1fr)} .row5{grid-template-columns:repeat(3,1fr)}}
   @media(max-width:1000px){.row4,.row2,.row5{grid-template-columns:1fr}}
   code{font-family:var(--mono);background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:.9em}
@@ -729,11 +730,11 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   const tvD=()=>[{x:[],y:[],mode:'lines',name:'% drift',line:{color:'#059669',width:1.7}}];
   newP('p_c10_47',tvC('cubic','NTK σ₁'),baseLayout('Eq.47 (single-sample) vs NTK σ₁','σ₁',false));
   newP('p_c10_51',tvC('cubic','NTK σ₁'),baseLayout('Eq.51 (multi-sample) vs NTK σ₁','σ₁',false));
-  newP('p_c10_51n',tvC('quadratic','NTK σ₁'),baseLayout('Eq.51 without η² (quadratic) vs NTK σ₁','σ₁',false));
+  newP('p_c10_51n',tvC('cubic (no η²)','NTK σ₁'),baseLayout('Eq.51 without the η² term vs NTK σ₁','σ₁',false));
   newP('p_c10_dQ',tvD(),baseLayout('‖ΔQ₍t₊ₛ₎−Q_t‖ / ‖Q_t‖ × 100','% over window',false));
   newP('p_c10h_47',tvC('cubic','λmax(∇²L)'),baseLayout('Eq.47 (single-sample) vs full-Hessian λmax','σ₁',false));
   newP('p_c10h_51',tvC('cubic','λmax(∇²L)'),baseLayout('Eq.51 (multi-sample) vs full-Hessian λmax','σ₁',false));
-  newP('p_c10h_51n',tvC('quadratic','λmax(∇²L)'),baseLayout('Eq.51 without η² (quadratic) vs full-Hessian λmax','σ₁',false));
+  newP('p_c10h_51n',tvC('cubic (no η²)','λmax(∇²L)'),baseLayout('Eq.51 without the η² term vs full-Hessian λmax','σ₁',false));
   newP('p_c10h_dJ',tvD(),baseLayout('‖ΔJ₍t₊ₛ₎−J_t‖ / ‖J_t‖ × 100','% over window',false));
   attachHover();
   resizeAllPlots();
@@ -1614,9 +1615,9 @@ function cmpHTML(pre, kind) {
   <div id="${pre}_theoryrow" class="plotrow row5"><div id="${pre}_pred1" class="plot"></div><div id="${pre}_pred2" class="plot"></div><div id="${pre}_pred3" class="plot"></div><div id="${pre}_pred4" class="plot"></div><div id="${pre}_pred5" class="plot"></div></div>
   <div id="${pre}_theoryrowB" class="plotrow row5"><div id="${pre}_predp1" class="plot"></div><div id="${pre}_predp2" class="plot"></div><div id="${pre}_predp3" class="plot"></div><div id="${pre}_predp4" class="plot"></div><div id="${pre}_predp5" class="plot"></div></div>
   <div id="${pre}_theoryrowH" class="plotrow row5"><div id="${pre}_predh1" class="plot"></div><div id="${pre}_predh2" class="plot"></div><div id="${pre}_predh3" class="plot"></div><div id="${pre}_predh4" class="plot"></div><div id="${pre}_predh5" class="plot"></div></div>
-  <h3 style="margin:.6em 0 .2em;font-size:13px">§9d · predicted σ₁ with a self-computed (quadratic) residual — vs surrogate σ₁</h3>
+  <h3 id="${pre}_hdrD" style="margin:.6em 0 .2em;font-size:13px">§9d · predicted σ₁ with a self-computed (quadratic) residual — vs surrogate σ₁</h3>
   <div id="${pre}_theoryrowD" class="plotrow row5"><div id="${pre}_predd1" class="plot"></div><div id="${pre}_predd2" class="plot"></div><div id="${pre}_predd3" class="plot"></div><div id="${pre}_predd4" class="plot"></div><div id="${pre}_predd5" class="plot"></div></div>
-  <h3 style="margin:.6em 0 .2em;font-size:13px">§9d-c · self-residual prediction vs the full-Hessian sharpness λmax(∇²L)</h3>
+  <h3 id="${pre}_hdrDH" style="margin:.6em 0 .2em;font-size:13px">§9d-c · self-residual prediction vs the full-Hessian sharpness λmax(∇²L)</h3>
   <div id="${pre}_theoryrowDH" class="plotrow row5"><div id="${pre}_preddh1" class="plot"></div><div id="${pre}_preddh2" class="plot"></div><div id="${pre}_preddh3" class="plot"></div><div id="${pre}_preddh4" class="plot"></div><div id="${pre}_preddh5" class="plot"></div></div>
   <div id="${pre}_cubicrow">
    <h3 style="margin:.6em 0 .2em;font-size:13px">§10 · cubic approximation — Eq-47/51 σ₁ predictions (±PSD) vs the surrogate σ₁ (top, + ‖ΔQ‖%) and vs the full-Hessian λmax (bottom, + ‖ΔJ‖%)</h3>
@@ -1710,11 +1711,11 @@ function cmpInit(pre, n, kind) {
   const tvD = () => [{ x:[], y:[], mode:'lines', name:'% drift', line:{ color:'#059669', width:1.7 } }];
   newP(pre + '_c10_47', tvC('cubic','surrogate σ₁'), baseLayout('Eq.47 (single) vs surrogate σ₁', 'σ₁', false));
   newP(pre + '_c10_51', tvC('cubic','surrogate σ₁'), baseLayout('Eq.51 (multi) vs surrogate σ₁', 'σ₁', false));
-  newP(pre + '_c10_51n', tvC('quadratic','surrogate σ₁'), baseLayout('Eq.51 w/o η² (quadratic) vs surrogate σ₁', 'σ₁', false));
+  newP(pre + '_c10_51n', tvC('cubic (no η²)','surrogate σ₁'), baseLayout('Eq.51 without the η² term vs surrogate σ₁', 'σ₁', false));
   newP(pre + '_c10_dQ', tvD(), baseLayout('‖ΔQ‖ / ‖Q₀‖ × 100', '% over window', false));
   newP(pre + '_c10h_47', tvC('cubic','λmax(∇²L)'), baseLayout('Eq.47 (single) vs full-Hessian λmax', 'σ₁', false));
   newP(pre + '_c10h_51', tvC('cubic','λmax(∇²L)'), baseLayout('Eq.51 (multi) vs full-Hessian λmax', 'σ₁', false));
-  newP(pre + '_c10h_51n', tvC('quadratic','λmax(∇²L)'), baseLayout('Eq.51 w/o η² (quadratic) vs full-Hessian λmax', 'σ₁', false));
+  newP(pre + '_c10h_51n', tvC('cubic (no η²)','λmax(∇²L)'), baseLayout('Eq.51 without the η² term vs full-Hessian λmax', 'σ₁', false));
   newP(pre + '_c10h_dJ', tvD(), baseLayout('‖ΔJ‖ / ‖J₀‖ × 100', '% over window', false));
   // §7a NTK alignment (actual model): residual→NTK eigvec; NTK eigvec→FH right-singular vec
   const ntkTr = () => { const a = []; for (let k = 0; k < n; k++) a.push({ x:[], y:[], mode:'lines', name:'k=' + (k+1), line:{ color:PALETTE[k%PALETTE.length], width:1.6 } }); return a; };
@@ -1751,6 +1752,7 @@ function cmpVisibility(pre) {
   set('lossfig', ck('c1')); set('resid', ck('c2')); set('eig', ck('c3')); set('hist', ck('c4'));
   set('theoryrow', ck('c5')); set('theoryrowB', ck('c5')); set('theoryrowH', ck('c9'));
   set('theoryrowD', ck('c10')); set('theoryrowDH', ck('c11'));   // §9d / §9d-c independent toggles
+  set('hdrD', ck('c10')); set('hdrDH', ck('c11'));   // hide the §9d/§9d-c headers too (they are siblings of the rows)
   set('cubicrow', ck('c12'));   // §10 cubic approximation
   set('row_j4', ck('c6')); set('row_d4', ck('c7')); set('row_ntk', ck('c8'));
 }
@@ -1847,7 +1849,8 @@ function cmpResume(pre, kind) { const S = SEC[pre]; const steps = +document.getE
 async function cmpDownloadPlots(pre) {
   const st = document.getElementById(pre + '_status'), prev = st ? st.textContent : '';
   const ids = ['lossfig','resid','eig','hist','ntkR','g7s','g7l','ntkH','j4t','j4b','d4tp','d4tn','d4bp','d4bn',
-    'pred1','pred2','pred3','pred4','pred5','predp1','predp2','predp3','predp4','predp5','predh1','predh2','predh3','predh4','predh5','predd1','predd2','predd3','predd4','predd5','preddh1','preddh2','preddh3','preddh4','preddh5'];
+    'pred1','pred2','pred3','pred4','pred5','predp1','predp2','predp3','predp4','predp5','predh1','predh2','predh3','predh4','predh5','predd1','predd2','predd3','predd4','predd5','preddh1','preddh2','preddh3','preddh4','preddh5',
+    'c10_47','c10_51','c10_51n','c10_dQ','c10h_47','c10h_51','c10h_51n','c10h_dJ'];   // §10 cubic panels
   const files = []; let i = 1;
   for (const s of ids) { const gd = document.getElementById(pre + '_' + s);
     if (!gd || !gd._fullLayout || gd.offsetParent === null) continue;             // visible + initialized only
@@ -1873,7 +1876,7 @@ function makeCompareSection(pre, kind) {
   document.getElementById(pre + '_dlzip').addEventListener('click', () => cmpDownloadPlots(pre));
   // every panel toggle (c1 loss · c2 resid · c3 eigs · c4 hist · c5 theory σ₁ · c6 §4 · c7 §4d · c8 §7a · c9 §9c)
   // shows/hides its panel(s) immediately (once the plots exist) — matches the §1 behaviour
-  for (const c of ['c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11'])
+  for (const c of ['c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11','c12'])
     document.getElementById(pre + '_' + c).addEventListener('change', () => { cmpVisibility(pre); cmpResize(pre); });
   // preset dropdown: applying a preset sets the controls and runs (like section-1)
   // selecting a preset applies its defaults and redraws EMPTY plots for the new config; it does NOT run
@@ -1885,7 +1888,7 @@ function makeCompareSection(pre, kind) {
     document.getElementById(pre + '_status').textContent = 'preset applied — press Run to start.';
   } });
   // editing any control switches this section's preset to "custom"
-  ['dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','depth','width','act','bias','fixedx','inputstd','ssign','indim','outdim','nsamp','tgt','lr','init','initscheme','steps','seed','neig','eigevery','every_iter','slqprobes','qmode','tset','c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11']
+  ['dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','depth','width','act','bias','fixedx','inputstd','ssign','indim','outdim','nsamp','tgt','lr','init','initscheme','steps','seed','neig','eigevery','every_iter','slqprobes','qmode','tset','c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11','c12']
     .forEach(id => { const el = document.getElementById(pre + '_' + id); if (el) el.addEventListener(el.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input', () => { document.getElementById(pre + '_preset').value = 'custom'; }); });
   cmpApplyPreset(pre, 'linear');   // default surrogate preset = §1 default ('linear'), so the sections match exactly
   // draw empty, labeled plots right away (like the main widget) so the section isn't blank before Run

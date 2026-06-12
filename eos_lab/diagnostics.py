@@ -167,10 +167,9 @@ class Diagnostics:
         # single-sample (Eq-47): propagated J (p,), Q-history (r_k, J_k), Eq-47 accumulators (±PSD)
         self._cJp = None; self._cHistR = None; self._cHistJ = None
         self._cAcc47 = 0.0; self._cAccPSD47 = 0.0
-        # multi-sample (Eq-51): cubic-propagated J (M,p) + its g-history; quad-propagated J (M,p) for the no-η²
-        # variant; accumulators for Eq-51 (±PSD) and Eq-51-without-η² (= quadratic recursion, ±PSD)
+        # multi-sample (Eq-51): cubic-propagated J (M,p) + its g-history; accumulators for Eq-51 (±PSD) and for the
+        # same cubic trajectory WITHOUT the η² (½T[Δθ,Δθ]) term of ΔJ (±PSD)
         self._cJ = None; self._cHistG = None
-        self._cJq = None
         self._cAcc51 = 0.0; self._cAccPSD51 = 0.0
         self._cAcc51n = 0.0; self._cAccPSD51n = 0.0
 
@@ -474,7 +473,7 @@ class Diagnostics:
         reps_ = max(1, ee)
         multi = self.multi                    # true M>1 (single-sample theory needs M==1)
         if multi and not self.multi_ok:       # multi theory needs the M×p Jacobian — infeasible at this size
-            return [None] * 5, [None] * 5, [None] * 5
+            return ([None] * 5,) * 5     # 5-tuple: caller unpacks thP, thA, thPpsd, thP_d, thPpsd_d
 
         if self._thT0 < 0 or (t - self._thT0) >= qapprox:     # window start: freeze θ₀, J₀, FH
             self._thT0 = t
@@ -650,10 +649,11 @@ class Diagnostics:
         3rd-derivative tensor T (accessed matrix-free as central differences of the HVPs); within the window
         propagate BOTH J and Q exactly — Q via the residual·Jacobian history, so a window costs O(window²)
         HVPs — and accumulate the per-step NTK-σ₁ change:
-          single sample  Eq-47:  ΔNTK = ‖ΔJ‖²(PSD) + 2ηr[ JᵀQ_tJ + ηr·T(J,J,J) ]
-          multi  sample  Eq-51:  Δσ₁  = ‖ΔJᵀu₁‖²(PSD) + 2η√σ₁ v₁ᵀQ_t[Jᵀr]ᵀu₁ + 2η²√σ₁ v₁ᵀT[u₁](Jᵀr,Jᵀr)
-        with ΔJ from Eq-44 (single) / Eq-49 (multi). Also Eq-51 WITHOUT the η² term (drop the cubic
-        interaction AND freeze Q ⇒ the quadratic σ₁ recursion) and the window drift ‖ΔQ‖/‖Q₀‖, ‖ΔJ‖/‖J₀‖.
+        with the TRUE-Taylor ΔJ = Q_t·Δθ + ½T[Δθ,Δθ], Δθ=η̃·Jᵀr (η̃=η single, η/N multi). Then
+          single sample  ΔNTK = 2JᵀΔJ + ‖ΔJ‖²(PSD)
+          multi  sample  Δσ₁  = 2√σ₁·v₁ᵀ(ΔJᵀu₁) + ‖ΔJᵀu₁‖²(PSD)
+        Also the "without η²" curve: the SAME cubic trajectory & PSD, dropping only the explicit cubic
+        interaction scalar η̃²√σ₁·v₁ᵀT[u₁](g,g) from Δσ₁; plus the window drift ‖ΔQ‖/‖Q₀‖, ‖ΔJ‖/‖J₀‖.
         Writes per-step keys into `rec` (÷N like §9):  c47/c47p, c51/c51p, c51n/c51np, cActN (NTK σ₁/N),
         cActH (loss-Hessian λmax), cdQ, cdJ.  Residual taken from the live run; everything else from the
         frozen quantities.  MIRRORS server's s17 block."""
@@ -693,7 +693,7 @@ class Diagnostics:
             if multi:
                 J0, _ = jac_cols(self.model, th0, X)
                 self._cJ0 = J0
-                self._cJ = J0.clone(); self._cJq = J0.clone()
+                self._cJ = J0.clone()
                 self._cHistG = []
                 self._cBase = float(bEk_vals[0]) if bEk_vals is not None else float(
                     torch.linalg.eigvalsh(J0 @ J0.t())[-1])
@@ -727,40 +727,31 @@ class Diagnostics:
             rec["cdJ"] = 100.0 * float((self._cJ - self._cJ0).norm()) / max(float(self._cJ0.norm()), 1e-30)
             rec["cdQ"] = cdQ
             for _ in range(reps_):
-                # ---- cubic recursion (Eq-49 / Eq-51): J & Q both propagated, T frozen ----
+                # ---- cubic recursion: Δθ=(η/N)Jᵀr; J & Q both propagated, only T frozen at θ₀ ----
                 Jc = self._cJ
                 Kc, Vc = sym_eig_desc(Jc @ Jc.t())
                 u1 = pin_sign(Vc[:, 0]); sg = math.sqrt(max(float(Kc[0]), 1e-30))
                 v1 = Jc.t() @ u1; v1 = v1 / max(float(v1.norm()), 1e-30)
                 g = Jc.t() @ rr                                            # (p,) GD direction Jᵀr
                 Qg = jhvp(th0, g)                                          # Q₀[g]
-                for gk in self._cHistG:                                    # + η Σ_k T[g_k, g]  (Q propagated, Eq-50)
+                for gk in self._cHistG:                                    # + (η/N) Σ_k T[g_k, g]  (Q propagated, Eq-50)
                     Qg = Qg + etaN * T2m(gk, g)
                 Tgg = T2m(g, g)                                            # T[g,g]  (M,p)
-                dJ = etaN * Qg + (etaN ** 2) * Tgg                         # ΔJ  (Eq-49)
-                dJu = dJ.t() @ u1                                          # ΔJᵀu₁  (p,)
                 Qgu = (u1.unsqueeze(1) * Qg).sum(0)                        # Q_t[g]ᵀu₁  (p,)
                 Tggu = (u1.unsqueeze(1) * Tgg).sum(0)                      # T[u₁](g,g)  (p,)
-                self._cAccPSD51 += float(dJu @ dJu)                        # PSD term ‖ΔJᵀu₁‖²
-                self._cAcc51 += 2 * etaN * sg * float(v1 @ Qgu)            # quadratic σ₁ term
-                self._cAcc51 += 2 * (etaN ** 2) * sg * float(v1 @ Tggu)   # cubic interaction term
-                for i, z in enumerate(self._cZ):                          # ΔQ drift (Eq-50): ΔQ·z += η T[g,z]
+                dJ = etaN * Qg + 0.5 * (etaN ** 2) * Tgg                   # ΔJ = (η/N)Q_t[g] + ½(η/N)²T[g,g]  (true Taylor ½)
+                dJu = dJ.t() @ u1                                          # ΔJᵀu₁  (p,)
+                # Eq-51  Δσ₁ = 2√σ₁ v₁ᵀ(ΔJᵀu₁) + ‖ΔJᵀu₁‖² :  cubic = full ΔJ (the ½(η/N)²T term is the η² piece)
+                self._cAcc51 += 2 * etaN * sg * float(v1 @ Qgu) + (etaN ** 2) * sg * float(v1 @ Tggu)
+                self._cAccPSD51 += float(dJu @ dJu)                        # PSD ‖ΔJᵀu₁‖²
+                # "without η²": SAME cubic trajectory & PSD, but DROP only the explicit cubic interaction scalar
+                # (η/N)²√σ₁·v₁ᵀT[u₁](g,g) from Δσ₁ — so c51 − c51n isolates exactly that term.
+                self._cAcc51n += 2 * etaN * sg * float(v1 @ Qgu)
+                self._cAccPSD51n += float(dJu @ dJu)
+                for i, z in enumerate(self._cZ):                          # ΔQ drift (Eq-50): ΔQ·z += (η/N) T[g,z]
                     self._cdQz[i] = self._cdQz[i] + etaN * T2m(g, z)
                 self._cHistG.append(g)
                 self._cJ = Jc + dJ
-                # ---- Eq-51 WITHOUT the η² term: drop the cubic term AND freeze Q ⇒ the quadratic recursion ----
-                Jq = self._cJq
-                Kq, Vq = sym_eig_desc(Jq @ Jq.t())
-                u1q = pin_sign(Vq[:, 0]); sgq = math.sqrt(max(float(Kq[0]), 1e-30))
-                v1q = Jq.t() @ u1q; v1q = v1q / max(float(v1q.norm()), 1e-30)
-                gq = Jq.t() @ rr
-                Qgq = jhvp(th0, gq)                                        # Q₀[gq]  (frozen Q)
-                dJq = etaN * Qgq
-                dJqu = dJq.t() @ u1q
-                Qgqu = (u1q.unsqueeze(1) * Qgq).sum(0)
-                self._cAccPSD51n += float(dJqu @ dJqu)
-                self._cAcc51n += 2 * etaN * sgq * float(v1q @ Qgqu)
-                self._cJq = Jq + dJq
         elif (not multi) and self._cJp is not None:
             actN = float(J @ J); cap = 10.0 * max(actN, 1e-30)            # NTK σ₁ = ‖J‖² (single sample)
             clmp = lambda x: min(max(x, 0.0), cap)
@@ -777,9 +768,9 @@ class Diagnostics:
                 for rk, Jk in zip(self._cHistR, self._cHistJ):            # + η Σ_k r_k T[J_k, J]  (Q propagated, Eq-45)
                     QJ = QJ + lr * rk * T2s(Jk, Jc)
                 TJJ = T2s(Jc, Jc)                                         # T[J,J]
-                dJ = lr * rsc * QJ + (lr ** 2) * (rsc ** 2) * TJJ         # ΔJ  (Eq-44/40)
-                self._cAcc47 += 2 * lr * rsc * float(Jc @ QJ)            # 2ηr·JᵀQJ
-                self._cAcc47 += 2 * (lr ** 2) * (rsc ** 2) * float(Jc @ TJJ)   # 2η²r²·T(J,J,J)
+                dJ = lr * rsc * QJ + 0.5 * (lr ** 2) * (rsc ** 2) * TJJ   # ΔJ = ηr·Q_t·J + ½η²r²·T[J,J]  (true Taylor ½)
+                # ΔNTK = 2JᵀΔJ + ‖ΔJ‖²
+                self._cAcc47 += 2 * lr * rsc * float(Jc @ QJ) + (lr ** 2) * (rsc ** 2) * float(Jc @ TJJ)
                 self._cAccPSD47 += float(dJ @ dJ)                         # PSD ‖ΔJ‖²
                 for i, z in enumerate(self._cZ):                          # ΔQ drift (Eq-45): ΔQ·z += η r T[J,z]
                     self._cdQz[i] = self._cdQz[i] + lr * rsc * T2s(Jc, z)

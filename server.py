@@ -744,7 +744,7 @@ def cubic_init_state():
     """Fresh per-run §10 cubic-window state (mirrors eos_lab Diagnostics' _c* attributes)."""
     return {"T0": -1, "Th0": None, "Base": 0.0, "J0": None, "Z": None, "Q0z": None, "dQz": None,
             "Jp": None, "HistR": None, "HistJ": None, "A47": 0.0, "P47": 0.0,
-            "J": None, "Jq": None, "HistG": None, "A51": 0.0, "P51": 0.0, "A51n": 0.0, "P51n": 0.0}
+            "J": None, "HistG": None, "A51": 0.0, "P51": 0.0, "A51n": 0.0, "P51n": 0.0}
 
 
 def cubic_step(ctx, st, th, X, Y, t, J, out, rr, bEk_vals, shH):
@@ -782,7 +782,7 @@ def cubic_step(ctx, st, th, X, Y, t, J, out, rr, bEk_vals, shH):
         st["Z"] = [_randn_vec(p, (0xCB1C + i * 0x9E3779B1) & 0xFFFFFFFF) for i in range(cn)]
         if multi:
             J0, _ = jac_cols(th0, X)
-            st["J0"] = J0; st["J"] = J0.clone(); st["Jq"] = J0.clone(); st["HistG"] = []
+            st["J0"] = J0; st["J"] = J0.clone(); st["HistG"] = []
             st["Base"] = float(bEk_vals[0]) if bEk_vals is not None else float(
                 torch.linalg.eigvalsh(J0 @ J0.t())[-1])
             st["Q0z"] = [jac_hvp(th0, X, z) for z in st["Z"]]
@@ -819,20 +819,16 @@ def cubic_step(ctx, st, th, X, Y, t, J, out, rr, bEk_vals, shH):
             for gk in st["HistG"]:
                 Qg = Qg + etaN * T2m(gk, g)
             Tgg = T2m(g, g)
-            dJ = etaN * Qg + (etaN ** 2) * Tgg
-            dJu = dJ.t() @ u1; Qgu = (u1.unsqueeze(1) * Qg).sum(0); Tggu = (u1.unsqueeze(1) * Tgg).sum(0)
+            Qgu = (u1.unsqueeze(1) * Qg).sum(0); Tggu = (u1.unsqueeze(1) * Tgg).sum(0)
+            dJ = etaN * Qg + 0.5 * (etaN ** 2) * Tgg                        # ΔJ = (η/N)Q_t[g] + ½(η/N)²T[g,g]  (true Taylor ½)
+            dJu = dJ.t() @ u1
+            st["A51"] += 2 * etaN * sg * float(v1 @ Qgu) + (etaN ** 2) * sg * float(v1 @ Tggu)   # 2√σ₁ v₁ᵀΔJᵀu₁
             st["P51"] += float(dJu @ dJu)
-            st["A51"] += 2 * etaN * sg * float(v1 @ Qgu) + 2 * (etaN ** 2) * sg * float(v1 @ Tggu)
+            # "without η²": same cubic trajectory & PSD; drop only the explicit cubic interaction scalar from Δσ₁
+            st["A51n"] += 2 * etaN * sg * float(v1 @ Qgu); st["P51n"] += float(dJu @ dJu)
             for i, z in enumerate(st["Z"]):
                 st["dQz"][i] = st["dQz"][i] + etaN * T2m(g, z)
             st["HistG"].append(g); st["J"] = Jc + dJ
-            Jq = st["Jq"]; Kq, Vq = sym_eig_desc(Jq @ Jq.t())
-            u1q = pin_sign(Vq[:, 0]); sgq = math.sqrt(max(float(Kq[0]), 1e-30))
-            v1q = Jq.t() @ u1q; v1q = v1q / max(float(v1q.norm()), 1e-30)
-            gq = Jq.t() @ rr; Qgq = jac_hvp(th0, X, gq); dJq = etaN * Qgq
-            dJqu = dJq.t() @ u1q; Qgqu = (u1q.unsqueeze(1) * Qgq).sum(0)
-            st["P51n"] += float(dJqu @ dJqu); st["A51n"] += 2 * etaN * sgq * float(v1q @ Qgqu)
-            st["Jq"] = Jq + dJq
     elif (not multi) and st["Jp"] is not None:
         actN = float(J @ J); cap = 10.0 * max(actN, 1e-30)
         clmp = lambda x: min(max(x, 0.0), cap)
@@ -846,8 +842,8 @@ def cubic_step(ctx, st, th, X, Y, t, J, out, rr, bEk_vals, shH):
             for rk, Jk in zip(st["HistR"], st["HistJ"]):
                 QJ = QJ + lr * rk * T2s(Jk, Jc)
             TJJ = T2s(Jc, Jc)
-            dJ = lr * rsc * QJ + (lr ** 2) * (rsc ** 2) * TJJ
-            st["A47"] += 2 * lr * rsc * float(Jc @ QJ) + 2 * (lr ** 2) * (rsc ** 2) * float(Jc @ TJJ)
+            dJ = lr * rsc * QJ + 0.5 * (lr ** 2) * (rsc ** 2) * TJJ        # ΔJ = ηr·Q_t·J + ½η²r²·T[J,J]  (true Taylor ½)
+            st["A47"] += 2 * lr * rsc * float(Jc @ QJ) + (lr ** 2) * (rsc ** 2) * float(Jc @ TJJ)   # 2JᵀΔJ
             st["P47"] += float(dJ @ dJ)
             for i, z in enumerate(st["Z"]):
                 st["dQz"][i] = st["dQz"][i] + lr * rsc * T2s(Jc, z)
