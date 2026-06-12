@@ -740,6 +740,121 @@ def fh_frozen(th, X, nProbe, n7, nM, mV, M):
     return out
 
 
+def cubic_init_state():
+    """Fresh per-run §10 cubic-window state (mirrors eos_lab Diagnostics' _c* attributes)."""
+    return {"T0": -1, "Th0": None, "Base": 0.0, "J0": None, "Z": None, "Q0z": None, "dQz": None,
+            "Jp": None, "HistR": None, "HistJ": None, "A47": 0.0, "P47": 0.0,
+            "J": None, "Jq": None, "HistG": None, "A51": 0.0, "P51": 0.0, "A51n": 0.0, "P51n": 0.0}
+
+
+def cubic_step(ctx, st, th, X, Y, t, J, out, rr, bEk_vals, shH):
+    """§10 CUBIC approximation (paper §6) — Eq-47 (single) / Eq-51 (multi) σ₁ predictions with EXACT J&Q
+    propagation. At each window start freeze θ₀, J₀ and the 3rd-derivative tensor T (matrix-free central
+    differences of the HVPs); within the window propagate J and Q (Q via the residual·Jacobian history →
+    O(window²) HVPs) and accumulate the per-step NTK-σ₁ change. Returns the per-step keys (c47/c47p,
+    c51/c51p, c51n/c51np ÷N, cActN, cActH, cdQ, cdJ); mutates `st`. MIRRORS eos_lab Diagnostics._cubic_step."""
+    N, p, M = ctx["N"], ctx["p"], ctx["M"]
+    lr, ee, cubW, cn = ctx["lr"], ctx["ee"], ctx["cubicapprox"], ctx["cn"]
+    multi, multi_ok = ctx["multi"], ctx["multi_ok"]
+    etaN = lr / max(N, 1); reps_ = max(1, ee); eps = 1e-2
+    dev, dt = _dev(), DTYPE
+    rec = {}
+    if multi and not multi_ok:
+        return rec
+    th0 = st["Th0"]
+
+    def T2s(a, b):                                  # single: T[a,b]=∇³f(θ₀)[a,b] (p,) via central diff of Q·b
+        an = float(a.norm())
+        if an < 1e-30:
+            return torch.zeros(p, dtype=dt, device=dev)
+        ah = a / an
+        return an * (hvpF(th0 + eps * ah, X, b) - hvpF(th0 - eps * ah, X, b)) / (2 * eps)
+
+    def T2m(a, b):                                  # multi: T[a,b]={∇³f_c(θ₀)[a,b]}_c (M,p) via central diff of Q[b]
+        an = float(a.norm())
+        if an < 1e-30:
+            return torch.zeros(M, p, dtype=dt, device=dev)
+        ah = a / an
+        return an * (jac_hvp(th0 + eps * ah, X, b) - jac_hvp(th0 - eps * ah, X, b)) / (2 * eps)
+
+    if st["T0"] < 0 or (t - st["T0"]) >= cubW:      # window start: freeze θ₀, J₀, probes; reset accumulators
+        st["T0"] = t; st["Th0"] = th.clone(); th0 = st["Th0"]
+        st["Z"] = [_randn_vec(p, (0xCB1C + i * 0x9E3779B1) & 0xFFFFFFFF) for i in range(cn)]
+        if multi:
+            J0, _ = jac_cols(th0, X)
+            st["J0"] = J0; st["J"] = J0.clone(); st["Jq"] = J0.clone(); st["HistG"] = []
+            st["Base"] = float(bEk_vals[0]) if bEk_vals is not None else float(
+                torch.linalg.eigvalsh(J0 @ J0.t())[-1])
+            st["Q0z"] = [jac_hvp(th0, X, z) for z in st["Z"]]
+            st["dQz"] = [torch.zeros(M, p, dtype=dt, device=dev) for _ in st["Z"]]
+            st["A51"] = st["P51"] = st["A51n"] = st["P51n"] = 0.0
+        else:
+            J0 = J
+            st["J0"] = J0.clone(); st["Jp"] = J0.clone(); st["HistR"] = []; st["HistJ"] = []
+            st["Base"] = float(J0 @ J0)
+            st["Q0z"] = [hvpF(th0, X, z) for z in st["Z"]]
+            st["dQz"] = [torch.zeros(p, dtype=dt, device=dev) for _ in st["Z"]]
+            st["A47"] = st["P47"] = 0.0
+
+    q0n = math.sqrt(max(sum(float((z * z).sum()) for z in st["Q0z"]), 1e-30))
+    dqn = math.sqrt(max(sum(float((z * z).sum()) for z in st["dQz"]), 0.0))
+    cdQ = 100.0 * dqn / q0n
+
+    if multi and st["J"] is not None:
+        actN = float(bEk_vals[0]); cap = 10.0 * max(actN, 1e-30)
+        clmp = lambda x: min(max(x, 0.0), cap)
+        rec["c51"] = clmp(st["Base"] + st["A51"]) / N
+        rec["c51p"] = clmp(st["Base"] + st["A51"] + st["P51"]) / N
+        rec["c51n"] = clmp(st["Base"] + st["A51n"]) / N
+        rec["c51np"] = clmp(st["Base"] + st["A51n"] + st["P51n"]) / N
+        rec["cActN"] = actN / N; rec["cActH"] = shH
+        rec["cdJ"] = 100.0 * float((st["J"] - st["J0"]).norm()) / max(float(st["J0"].norm()), 1e-30)
+        rec["cdQ"] = cdQ
+        for _ in range(reps_):
+            Jc = st["J"]; Kc, Vc = sym_eig_desc(Jc @ Jc.t())
+            u1 = pin_sign(Vc[:, 0]); sg = math.sqrt(max(float(Kc[0]), 1e-30))
+            v1 = Jc.t() @ u1; v1 = v1 / max(float(v1.norm()), 1e-30)
+            g = Jc.t() @ rr
+            Qg = jac_hvp(th0, X, g)
+            for gk in st["HistG"]:
+                Qg = Qg + etaN * T2m(gk, g)
+            Tgg = T2m(g, g)
+            dJ = etaN * Qg + (etaN ** 2) * Tgg
+            dJu = dJ.t() @ u1; Qgu = (u1.unsqueeze(1) * Qg).sum(0); Tggu = (u1.unsqueeze(1) * Tgg).sum(0)
+            st["P51"] += float(dJu @ dJu)
+            st["A51"] += 2 * etaN * sg * float(v1 @ Qgu) + 2 * (etaN ** 2) * sg * float(v1 @ Tggu)
+            for i, z in enumerate(st["Z"]):
+                st["dQz"][i] = st["dQz"][i] + etaN * T2m(g, z)
+            st["HistG"].append(g); st["J"] = Jc + dJ
+            Jq = st["Jq"]; Kq, Vq = sym_eig_desc(Jq @ Jq.t())
+            u1q = pin_sign(Vq[:, 0]); sgq = math.sqrt(max(float(Kq[0]), 1e-30))
+            v1q = Jq.t() @ u1q; v1q = v1q / max(float(v1q.norm()), 1e-30)
+            gq = Jq.t() @ rr; Qgq = jac_hvp(th0, X, gq); dJq = etaN * Qgq
+            dJqu = dJq.t() @ u1q; Qgqu = (u1q.unsqueeze(1) * Qgq).sum(0)
+            st["P51n"] += float(dJqu @ dJqu); st["A51n"] += 2 * etaN * sgq * float(v1q @ Qgqu)
+            st["Jq"] = Jq + dJq
+    elif (not multi) and st["Jp"] is not None:
+        actN = float(J @ J); cap = 10.0 * max(actN, 1e-30)
+        clmp = lambda x: min(max(x, 0.0), cap)
+        rec["c47"] = clmp(st["Base"] + st["A47"]); rec["c47p"] = clmp(st["Base"] + st["A47"] + st["P47"])
+        rec["cActN"] = actN; rec["cActH"] = shH
+        rec["cdJ"] = 100.0 * float((st["Jp"] - st["J0"]).norm()) / max(float(st["J0"].norm()), 1e-30)
+        rec["cdQ"] = cdQ
+        rsc = float((Y.reshape(-1) - out.reshape(-1))[0])
+        for _ in range(reps_):
+            Jc = st["Jp"]; QJ = hvpF(th0, X, Jc)
+            for rk, Jk in zip(st["HistR"], st["HistJ"]):
+                QJ = QJ + lr * rk * T2s(Jk, Jc)
+            TJJ = T2s(Jc, Jc)
+            dJ = lr * rsc * QJ + (lr ** 2) * (rsc ** 2) * TJJ
+            st["A47"] += 2 * lr * rsc * float(Jc @ QJ) + 2 * (lr ** 2) * (rsc ** 2) * float(Jc @ TJJ)
+            st["P47"] += float(dJ @ dJ)
+            for i, z in enumerate(st["Z"]):
+                st["dQz"][i] = st["dQz"][i] + lr * rsc * T2s(Jc, z)
+            st["HistR"].append(rsc); st["HistJ"].append(Jc.clone()); st["Jp"] = Jc + dJ
+    return rec
+
+
 # ===================== Lanczos / SLQ =====================
 def _randn_vec(p, seed):
     g = torch.Generator(device=_dev())
@@ -1116,8 +1231,9 @@ def run_stream(P):
     s14 = P.get("s14", 0)                # §9c: σ₁ predictions vs the FULL loss-Hessian sharpness λmax(∇²L)
     s15 = P.get("s15", 0)                # §9d: predictions with the residual self-computed by the quadratic model
     s16 = P.get("s16", 0)                # §9d-c: §9d predictions vs the full loss-Hessian sharpness
+    s17 = P.get("s17", 0)                # §10: CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation)
     if _TL.loss.name == "ce":            # CE: §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) and the generic
-        s11 = s12 = s14 = s15 = s16 = False   # residual r=−∂L/∂z (= softmax−onehot), so they're valid. Off for CE:
+        s11 = s12 = s14 = s15 = s16 = s17 = False   # residual r=−∂L/∂z (= softmax−onehot), so they're valid. Off for CE:
                                          #   §4d (sign-groups need a scalar residual) and the whole §9 family
                                          #   (§9/§9b/§9c/§9d/§9d-c — the σ₁ recursion is derived for squared loss only).
     nSub = min(max(n, kth, (10 if s6 else 1)), half)
@@ -1189,6 +1305,10 @@ def run_stream(P):
     thJ0 = None; thF0 = None; thDth = None; thJ_d = None
     thProd3_d = 1.0; thProd4_d = 1.0; thProd5_d = 1.0; thAcc2_d = 0.0; thAccPSD_d = 0.0
     thJp0 = None; thF0s = 0.0; thDth_s = None; thJp_d = None; thAcc1_d = 0.0; thAccPSD1_d = 0.0
+    # §10 cubic-approximation window state + context (see cubic_step)
+    cubCtx = {"N": N, "p": p, "M": M, "lr": lr, "ee": ee, "cubicapprox": max(1, P.get("cubicapprox", 10)),
+              "cn": max(1, min(nProbe, 4)), "multi": multi, "multi_ok": multi_ok}
+    cubSt = cubic_init_state()
 
     for t in range(steps + 1):
         if mytok != RUN_TOKEN.get(_devkey, mytok):
@@ -1265,7 +1385,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if multi_ok and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16):
+            if multi_ok and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17):
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -1349,7 +1469,7 @@ def run_stream(P):
             # ---- §4b/§4c/§4d base: NTK top eigvec u₁ (deterministic sign), J·r ----
             u1s = Jrs = bEk_vecs = bEk_vals = None
             Jrns = Rn = 1.0
-            if multi_ok and (s9 or s10 or s11 or s12 or s15 or s16):
+            if multi_ok and (s9 or s10 or s11 or s12 or s15 or s16 or s17):
                 Kb, Vb = sym_eig_desc(Jc @ Jc.t())
                 for k in range(n):
                     Vb[:, k] = pin_sign(Vb[:, k])
@@ -1416,7 +1536,7 @@ def run_stream(P):
             thP = thA = thPpsd = None
             thP_d = thPpsd_d = None       # §9d / §9d-c: predictions with the quad-self-computed residual
             thAH = None
-            if s14 or s16:                # §9c/§9d-c actual: full loss-Hessian sharpness λmax(∇²L) (reuse §1's if present)
+            if s14 or s16 or s17:         # §9c/§9d-c/§10 actual: full loss-Hessian sharpness λmax(∇²L) (reuse §1's if present)
                 thAH = sharp if sharp is not None else float(lanczos_extreme_vals(
                     lambda v: hvpL(th, X, Y, v), p, 1, mV, 0x5EED1)[0][0])
             if s12 or s14 or s15 or s16:
@@ -1553,6 +1673,9 @@ def run_stream(P):
                         thJp_d = thJp_d + lr * r_qs * QJ
                         thDth_s = thDth_s + lr * r_qs * thJp_d
 
+            # ---- §10 CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation) ----
+            cub = cubic_step(cubCtx, cubSt, th, X, Y, t, J, out, rr, bEk_vals, thAH) if s17 else {}
+
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness λmax(∇²L) ≈ λmax(GN) = σ₁/N
             thPr = [(x / N if x is not None else None) for x in thP] if thP else None
             thAr = [(x / N if x is not None else None) for x in thA] if thA else None
@@ -1565,6 +1688,7 @@ def run_stream(P):
                 "loss": loss, "sharp": sharp,
                 "thP": thPr, "thA": thAr, "thPpsd": thPpsdR, "thAH": thAH,
                 "thP_d": thPdR, "thPpsd_d": thPpsddR,
+                **cub,    # §10 cubic keys: c47/c47p, c51/c51p, c51n/c51np, cActN, cActH, cdQ, cdJ (when s17)
                 "r": ([] if r is None else r[:nResid].detach().cpu().tolist()),
                 "hfMax": (feTop[0] / N if feTop else None),         # ÷N: function-Hessian H=∇²Σf is summed over the
                 "hfMin": (feBot[0] / N if feBot else None),         #   N samples → divide to match the per-sample loss
@@ -2061,6 +2185,7 @@ def _parse_params(q):
         "seed": fi("seed", 0), "start": fi("start", 0), "inputstd": ff("inputstd", 1.0),
         "ssign": g("ssign", "off"), "qapprox": max(1, fi("qapprox", 25)),
         "qmode": max(1, fi("qmode", 1)), "tset": max(1, fi("tset", 3)),
+        "cubicapprox": max(1, fi("cubicapprox", 10)),   # §10 cubic-approximation window length
         "dataset": g("dataset", "synthetic"), "arch": g("arch", "mlp"), "loss": g("loss", "mse"),
         "chmul": ff("chmul", 0.25), "nlayer": fi("nlayer", 2), "nhead": fi("nhead", 4),
         "dmodel": fi("dmodel", 64), "seqlen": fi("seqlen", 16), "vocab": fi("vocab", 50257),
@@ -2075,6 +2200,7 @@ def _parse_params(q):
         "s14": g("s14", "0") == "1",     # §9c: σ₁ predictions vs full loss-Hessian sharpness
         "s15": g("s15", "1") == "1",     # §9d: predictions with the residual self-computed by the quadratic model
         "s16": g("s16", "1") == "1",     # §9d-c: §9d predictions vs full loss-Hessian sharpness
+        "s17": g("s17", "0") == "1",     # §10: CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation; OFF by default — heaviest)
         "gs": g("gson", "1") == "1",
         # surrogate-section panel toggles (loss · resid mean/std · top-n eig · histogram · theory · §4 · §4d)
         "c1": g("c1", "1") == "1", "c2": g("c2", "1") == "1", "c3": g("c3", "1") == "1",
