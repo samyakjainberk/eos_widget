@@ -216,7 +216,7 @@ class Diagnostics:
             rec["resid_rms"] = float(r.pow(2).mean().sqrt())
             rec["resid_head"] = r[:self.nResid].detach().cpu().tolist()
 
-        need_vecs = self.s4 or self.s6
+        need_vecs = self.s4 or self.s6 or self.s11    # §4d also projects onto the H eigvecs (match the browser)
         need_vals = self.s1 or self.s2 or self.s3 or need_vecs
 
         # ---- function Hessian H (values, and vectors if §4/§6) ----

@@ -1342,7 +1342,7 @@ def run_stream(P):
             r = None if (ce or dataset == "owt") else (Y - out).reshape(-1)
             cS = _TL.loss.resid_cotangent(out, Y, N)
 
-            needVecs = s4 or s6
+            needVecs = s4 or s6 or s11    # §4d also projects onto the H eigvecs (match the browser)
             needVals = s1 or s2 or s3 or needVecs
             feTop, feBot, feTV, feBV = [], [], None, None
             if needVecs:
