@@ -452,7 +452,7 @@ class Diagnostics:
 
         # ---- §5 SLQ spectral densities (expensive → ~50 snapshots/run via slqStride) ----
         if self.s5 and slq_tick:
-            ng = 160
+            ng = 80                        # density grid points — match the widget (server/browser use 80)
             rec["slq_H"] = slq_density(self._hF(th, X), p, self.nprobe, self.mSLQ, ng, SEED_SLQ_H, dev, dt)
             rec["slq_lossH"] = slq_density(self._hL(th, X, Y), p, self.nprobe, self.mSLQ, ng, SEED_SLQ_L, dev, dt)
             if self.gs:
