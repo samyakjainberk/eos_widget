@@ -496,7 +496,7 @@ function computeFHfrozen(th,spec,X,N,inDim,p,eps,nProbe,n7,nM,mV,M){
   const dn=M, jc=jacCols(th,spec,X,N,inDim,p).cols;
   const GH=new Float64Array(dn*dn);
   for(let pr=0;pr<nProbe;pr++){const z=randVec(p,(0xC0FFEE+pr*2654435761)>>>0);const Hz=jacHVP(th,spec,X,N,inDim,p,z,eps);
-    for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(Hz[a],Hz[b]);GH[a*dn+b]+=v;GH[b*dn+a]+=v;}}
+    for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(Hz[a],Hz[b]);GH[a*dn+b]+=v;if(b!==a)GH[b*dn+a]+=v;}}   // off-diagonal only: the diagonal must not be double-added (Hutchinson Gram)
   for(let i=0;i<dn*dn;i++)GH[i]/=nProbe;
   const eh=symEigDesc(GH,dn), nn=Math.min(n7,dn), gamma=[],yv=[],zz=[],tt=[];
   for(let i=0;i<nn;i++){gamma.push(Math.sqrt(Math.max(eh.vals[i],1e-30)));yv.push(eh.vecs[i]);
@@ -1083,7 +1083,7 @@ async function loop(){                                   // drives ST forward; r
           const rr=new Float64Array(dn);for(let i=0;i<dn;i++)rr[i]=Y[i]-jc.out[i];
           const GH=new Float64Array(dn*dn);                          // Hessian Frobenius Gram via Hutchinson → FH right-singular vecs
           for(let pr=0;pr<S.nProbe;pr++){const z=randVec(p,(0xC0FFEE+pr*2654435761)>>>0);const Hz=jacHVP(S.th,spec,X,N,inDim,p,z,eps);
-            for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(Hz[a],Hz[b]);GH[a*dn+b]+=v;GH[b*dn+a]+=v;}}
+            for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(Hz[a],Hz[b]);GH[a*dn+b]+=v;if(b!==a)GH[b*dn+a]+=v;}}   // off-diagonal only: the diagonal must not be double-added (Hutchinson Gram)
           for(let i=0;i<dn*dn;i++)GH[i]/=S.nProbe;
           const eh=symEigDesc(GH,dn);                                // right singular vecs of FH tensor
           for(let k=0;k<n7;k++){eh.vecs[k]=signTo(eh.vecs[k],S.pVH[k]);S.pVH[k]=eh.vecs[k];}
