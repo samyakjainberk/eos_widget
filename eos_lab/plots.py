@@ -502,8 +502,8 @@ def plot_section11_evolution(hist, key="t3"):
     return fig
 
 
-_G3D_CLASS_LABELS = ["i=j=k", "i=j≠k", "i≠j=k", "i≠j≠k"]
-_G3D_CLASS_COLORS = ["#d62728", "#1f77b4", "#2ca02c", "#ff7f0e"]
+_G3D_CLASS_LABELS = ["i=j=k", "i=j≠k", "i≠j=k", "i=k≠j", "i≠j≠k"]
+_G3D_CLASS_COLORS = ["#d62728", "#1f77b4", "#2ca02c", "#9467bd", "#ff7f0e"]
 
 
 def plot_section11_classes(hist):
@@ -519,8 +519,8 @@ def plot_section11_classes(hist):
               r"$T_3=r_i u_j u_k\,J_i^\top Q_j J_k$"]
     for ti, key in enumerate(("t1", "t2", "t3")):
         ax = axes[ti]
-        ev = np.array([r["g3d"]["ev"][key] for r in snaps])   # (T, 4, 2): [...,0]=mean [...,1]=std
-        for c in range(4):
+        ev = np.array([r["g3d"]["ev"][key] for r in snaps])   # (T, 5, 2): [...,0]=mean [...,1]=std
+        for c in range(5):
             m, s = ev[:, c, 0], ev[:, c, 1]
             ax.fill_between(steps, m - s, m + s, color=_G3D_CLASS_COLORS[c], alpha=0.18, linewidth=0)
             ax.plot(steps, m, color=_G3D_CLASS_COLORS[c], lw=1.4, label=_G3D_CLASS_LABELS[c])

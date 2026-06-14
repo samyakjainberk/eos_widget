@@ -1702,18 +1702,20 @@ def run_stream(P):
                     T1[:, :, kk] = Jc @ QJk.t()                    # [i,j] = Jᵢ·(Qⱼ Jₖ)
                 T2 = T1 * u1s.view(1, M, 1) * u1s.view(1, 1, M)
                 T3 = T2 * rr.view(M, 1, 1)
-                # Per-class evolution stats — mean ± std over the FULL grid (NOT the sparsified subset) for the 4
-                # diagonal classes of (i,j,k): 0:i=j=k  1:i=j≠k  2:i≠j=k  3:i≠j≠k. Tiny payload → curves vs step.
+                # Per-class evolution stats — mean ± std over the FULL grid (NOT the sparsified subset) for the 5
+                # diagonal classes of (i,j,k): 0:i=j=k 1:i=j≠k 2:i≠j=k 3:i=k≠j 4:i≠j≠k. Tiny payload → curves vs step.
                 ai = torch.arange(M, device=_dev())
                 eij = ai.view(M, 1, 1) == ai.view(1, M, 1)
                 ejk = ai.view(1, M, 1) == ai.view(1, 1, M)
-                catf = torch.where(eij & ejk, 0, torch.where(eij, 1, torch.where(ejk, 2, 3))).reshape(-1)
+                eik = ai.view(M, 1, 1) == ai.view(1, 1, M)
+                catf = torch.where(eij & ejk, 0, torch.where(eij, 1, torch.where(ejk, 2,
+                                   torch.where(eik, 3, 4)))).reshape(-1)
 
                 def _ev(T):
                     f = T.reshape(-1)
                     return [[float(f[catf == c].mean()) if int((catf == c).sum()) else 0.0,
                              float(f[catf == c].std(unbiased=False)) if int((catf == c).sum()) else 0.0]
-                            for c in range(4)]
+                            for c in range(5)]
 
                 # Heavy-tailed → keep only the top-|value| points per grid once the cube exceeds the render
                 # budget (each grid picks its own top set since their distributions differ). idx = i·M²+j·M+k.

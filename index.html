@@ -233,7 +233,7 @@
   <label style="white-space:nowrap;font-size:13px"><input type="checkbox" id="g3d_sync" checked> sync rotation</label>
 </div>
 <div class="plotrow row3"><div id="p_g3d1" class="plot" style="height:400px"></div><div id="p_g3d2" class="plot" style="height:400px"></div><div id="p_g3d3" class="plot" style="height:400px"></div></div>
-<p class="cap" style="margin-top:14px">Evolution of each grid's <b>mean ± std</b> (shaded cloud) over training, split by the four diagonal classes of the index triple $(i,j,k)$: <span style="color:#d62728">$i\!=\!j\!=\!k$</span>, <span style="color:#1f77b4">$i\!=\!j\neq k$</span>, <span style="color:#2ca02c">$i\neq j\!=\!k$</span>, <span style="color:#ff7f0e">$i\neq j\neq k$</span>. Statistics are taken over the <em>full</em> grid (not the points shown above).</p>
+<p class="cap" style="margin-top:14px">Evolution of each grid's <b>mean ± std</b> (shaded cloud) over training, split by the four diagonal classes of the index triple $(i,j,k)$: <span style="color:#d62728">$i\!=\!j\!=\!k$</span>, <span style="color:#1f77b4">$i\!=\!j\neq k$</span>, <span style="color:#2ca02c">$i\neq j\!=\!k$</span>, <span style="color:#9467bd">$i\!=\!k\neq j$</span>, <span style="color:#ff7f0e">$i\neq j\neq k$</span> (all distinct). Statistics are taken over the <em>full</em> grid (not the points shown above).</p>
 <div class="plotrow row3"><div id="p_g3de1" class="plot" style="height:300px"></div><div id="p_g3de2" class="plot" style="height:300px"></div><div id="p_g3de3" class="plot" style="height:300px"></div></div>
 </div>
 
@@ -707,10 +707,10 @@ function g3dPush(m){
 
 // ── §11 per-class evolution: mean ± std (shaded cloud) of each grid over training, split by the 4 diagonal
 // classes of (i,j,k): 0:i=j=k 1:i=j≠k 2:i≠j=k 3:i≠j≠k. Stats come from the FULL grid (server/eos_lab side).
-const G3DE_IDS=['p_g3de1','p_g3de2','p_g3de3'], G3DE_LAB=['i=j=k','i=j≠k','i≠j=k','i≠j≠k'],
-      G3DE_COL=['#d62728','#1f77b4','#2ca02c','#ff7f0e'], G3DE_MAXPTS=4000;
+const G3DE_IDS=['p_g3de1','p_g3de2','p_g3de3'], G3DE_LAB=['i=j=k','i=j≠k','i≠j=k','i=k≠j','i≠j≠k'],
+      G3DE_COL=['#d62728','#1f77b4','#2ca02c','#9467bd','#ff7f0e'], G3DE_NC=5, G3DE_MAXPTS=4000;
 let G3DE_STEPS=[], G3DE_DATA=g3deBlank(), G3DE_BUILT=false, G3DE_RAF=0;
-function g3deBlank(){const mk=()=>({m:[[],[],[],[]],s:[[],[],[],[]]});return {t1:mk(),t2:mk(),t3:mk()};}
+function g3deBlank(){const mk=()=>({m:[[],[],[],[],[]],s:[[],[],[],[],[]]});return {t1:mk(),t2:mk(),t3:mk()};}
 function hexA(h,a){const n=parseInt(h.slice(1),16);return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;}
 function g3deReset(){G3DE_STEPS=[];G3DE_DATA=g3deBlank();G3DE_BUILT=false;if(G3DE_RAF){cancelAnimationFrame(G3DE_RAF);G3DE_RAF=0;}
   for(const id of G3DE_IDS){try{Plotly.purge(id);}catch(e){}}}
@@ -718,17 +718,17 @@ function g3deAppend(m){
   if(!m.ev)return;
   G3DE_STEPS.push(m.t);
   for(const key of G3D_KEYS){const ev=m.ev[key];if(!ev)continue;
-    for(let c=0;c<4;c++){G3DE_DATA[key].m[c].push(ev[c][0]);G3DE_DATA[key].s[c].push(ev[c][1]);}}
+    for(let c=0;c<G3DE_NC;c++){G3DE_DATA[key].m[c].push(ev[c][0]);G3DE_DATA[key].s[c].push(ev[c][1]);}}
   if(G3DE_STEPS.length>G3DE_MAXPTS){   // decimate ×2 to bound memory on long runs (span preserved)
     const dec=a=>a.filter((_,ix)=>ix%2===0);
     G3DE_STEPS=dec(G3DE_STEPS);
-    for(const key of G3D_KEYS)for(let c=0;c<4;c++){G3DE_DATA[key].m[c]=dec(G3DE_DATA[key].m[c]);G3DE_DATA[key].s[c]=dec(G3DE_DATA[key].s[c]);}}
+    for(const key of G3D_KEYS)for(let c=0;c<G3DE_NC;c++){G3DE_DATA[key].m[c]=dec(G3DE_DATA[key].m[c]);G3DE_DATA[key].s[c]=dec(G3DE_DATA[key].s[c]);}}
 }
 function g3deBuild(){
   G3DE_BUILT=true;
   for(let g=0;g<3;g++){
     const tr=[];
-    for(let c=0;c<4;c++){   // per class: shaded ±std band (drawn first) then the mean line on top
+    for(let c=0;c<G3DE_NC;c++){   // per class: shaded ±std band (drawn first) then the mean line on top
       tr.push({x:[],y:[],type:'scatter',mode:'lines',fill:'toself',fillcolor:hexA(G3DE_COL[c],0.16),line:{width:0},hoverinfo:'skip',showlegend:false});
       tr.push({x:[],y:[],type:'scatter',mode:'lines',line:{color:G3DE_COL[c],width:1.6},name:G3DE_LAB[c]});
     }
@@ -745,7 +745,7 @@ function g3deRender(){
   const xs=G3DE_STEPS, xr=xs.slice().reverse();
   for(let g=0;g<3;g++){
     const d=G3DE_DATA[G3D_KEYS[g]], X=[], Y=[];
-    for(let c=0;c<4;c++){const m=d.m[c],s=d.s[c],up=m.map((v,i)=>v+s[i]),lo=m.map((v,i)=>v-s[i]);
+    for(let c=0;c<G3DE_NC;c++){const m=d.m[c],s=d.s[c],up=m.map((v,i)=>v+s[i]),lo=m.map((v,i)=>v-s[i]);
       X.push(xs.concat(xr));Y.push(up.concat(lo.slice().reverse()));   // band polygon (forward upper, back lower)
       X.push(xs);Y.push(m);}                                          // mean line
     Plotly.restyle(G3DE_IDS[g],{x:X,y:Y});
@@ -1318,13 +1318,13 @@ async function loop(){                                   // drives ST forward; r
               const v=dot(ji,QJk[j]),w=u[j]*u[k],idx=i*M2+j*Mm+k;
               T1[idx]=v;T2[idx]=v*w;T3[idx]=v*w*ri;}}
           }
-          // per-class mean±std over the FULL grid (evolution panel): 0:i=j=k 1:i=j≠k 2:i≠j=k 3:i≠j≠k
-          const TS=[T1,T2,T3],cnt=[0,0,0,0],sm=[[0,0,0,0],[0,0,0,0],[0,0,0,0]],sq=[[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+          // per-class mean±std over the FULL grid (evolution panel): 0:i=j=k 1:i=j≠k 2:i≠j=k 3:i=k≠j 4:i≠j≠k
+          const TS=[T1,T2,T3],cnt=[0,0,0,0,0],sm=[[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]],sq=[[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]];
           for(let i=0;i<Mm;i++)for(let j=0;j<Mm;j++){const eij=i===j;for(let k=0;k<Mm;k++){
-            const c=(eij&&j===k)?0:eij?1:(j===k)?2:3,idx=i*M2+j*Mm+k;cnt[c]++;
+            const c=(eij&&j===k)?0:eij?1:(j===k)?2:(i===k)?3:4,idx=i*M2+j*Mm+k;cnt[c]++;
             for(let g=0;g<3;g++){const v=TS[g][idx];sm[g][c]+=v;sq[g][c]+=v*v;}}}
           const ev={};
-          for(let g=0;g<3;g++){const arr=[];for(let c=0;c<4;c++){const n=cnt[c]||1,mn=sm[g][c]/n;
+          for(let g=0;g<3;g++){const arr=[];for(let c=0;c<G3DE_NC;c++){const n=cnt[c]||1,mn=sm[g][c]/n;
             arr.push(cnt[c]?[mn,Math.sqrt(Math.max(0,sq[g][c]/n-mn*mn))]:[0,0]);}ev[G3D_KEYS[g]]=arr;}
           // Heavy-tailed → keep only the top-|value| points per grid once the cube exceeds the render budget
           // (mirrors server). idx = i·M²+j·M+k. For small cubes send the dense value arrays as-is.
