@@ -478,7 +478,7 @@ def _g3d_scatter(fig, pos, g, key, M, title):
 
 def plot_section11(hist):
     """§11 — the three N×N×N Hessian–NTK grids (T1=JᵢᵀQⱼJₖ, T2=uⱼuₖ·T1, T3=rᵢuⱼuₖ·T1) at the LAST snapshot."""
-    snaps = [r for r in hist if "g3d" in r]
+    snaps = [r for r in hist if "g3d" in r and "t1" in r["g3d"]]   # grid stored on the SLQ cadence
     if not snaps:
         return None
     g = snaps[-1]["g3d"]; M = g["M"]; t = snaps[-1]["t"]
@@ -498,7 +498,7 @@ def plot_section11(hist):
 
 def plot_section11_evolution(hist, key="t3"):
     """§11 evolution — one grid (default T3) at up to 6 snapshots across training, to show how it develops."""
-    snaps = [r for r in hist if "g3d" in r]
+    snaps = [r for r in hist if "g3d" in r and "t1" in r["g3d"]]   # grid stored on the SLQ cadence
     if len(snaps) < 2:
         return None
     pick = [snaps[round(x * (len(snaps) - 1) / 5)] for x in range(6)]

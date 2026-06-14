@@ -458,7 +458,7 @@ class Diagnostics:
         # ---- §11 3D grids over sample indices (i,j,k): T1=Jᵢᵀ Qⱼ Jₖ, T2=uⱼuₖ·T1, T3=rᵢuⱼuₖ·T1 ----
         # (u = top NTK eigenvector, r = residual). M³ points + M Hessian-vector products → small M only, on the
         # SLQ cadence (~50 snapshots/run). For each k: jac_hvp(Jₖ)={Qⱼ Jₖ}ⱼ, then T1[:,:,k] = Jc·{Qⱼ Jₖ}ⱼᵀ.
-        if (self.s18 and self.multi_ok and slq_tick and Jc is not None and u1s is not None
+        if (self.s18 and self.multi_ok and Jc is not None and u1s is not None
                 and rr is not None and M <= self.grid3dcap):
             u = u1s
             T1 = torch.zeros(M, M, M, dtype=dt, device=dev)
@@ -467,8 +467,9 @@ class Diagnostics:
                 T1[:, :, k] = Jc @ QJk.t()                        # [i,j] = Jᵢ·(Qⱼ Jₖ)
             T2 = T1 * u.view(1, M, 1) * u.view(1, 1, M)           # uⱼ uₖ T1
             T3 = T2 * rr.view(M, 1, 1)                            # rᵢ uⱼ uₖ T1
-            # Per-class evolution stats — mean ± std over the FULL grid (NOT the sparsified subset) for the 5
-            # diagonal classes of (i,j,k): 0:i=j=k 1:i=j≠k 2:i≠j=k 3:i=k≠j 4:i≠j≠k. Tiny → curves vs step.
+            # Per-class stats (mean/std/mean|·|) + positive-share over the FULL grid for the 5 diagonal classes
+            # of (i,j,k): 0:i=j=k 1:i=j≠k 2:i≠j=k 3:i=k≠j 4:i≠j≠k. Computed EVERY tick (tiny) so the evolution /
+            # norm-share / abs-norm-share curve panels are dense like the widget.
             ai = torch.arange(M, device=dev)
             eij = ai.view(M, 1, 1) == ai.view(1, M, 1)
             ejk = ai.view(1, M, 1) == ai.view(1, 1, M)
@@ -487,32 +488,37 @@ class Diagnostics:
                         out.append([0.0, 0.0, 0.0])
                 return out
 
-            # Heavy-tailed (~90% near-zero) → keep only the top-|value| points per grid once the cube exceeds the
-            # render budget, so M≈100 (M³≈10⁶) stays renderable. idx = i·M² + j·M + k (each grid its own top set).
-            sparse = (M * M * M) > G3D_MAXPTS
-
-            def _pack(T):
-                flat = T.reshape(-1).detach()
-                if not sparse:
-                    return flat.cpu().tolist(), None
-                idx = torch.topk(flat.abs(), G3D_MAXPTS).indices
-                return flat[idx].cpu().tolist(), idx.to(torch.int64).cpu().tolist()
-
             def _pospct(T):   # 100·(Σ positive)/(Σ positive + |Σ negative|) over the full N³ grid
                 f = T.reshape(-1).detach()
                 ps = float(f[f > 0].sum()); ns = float(f[f < 0].sum())   # ns ≤ 0 → |neg sum| = -ns
                 den = ps - ns
                 return ps / den * 100.0 if den > 1e-30 else 0.0
 
-            v1, i1 = _pack(T1); v2, i2 = _pack(T2); v3, i3 = _pack(T3)
-            dd = torch.arange(M, device=dev)           # i=j=k diagonal values (always sent so the highlighted
-            d1 = T1[dd, dd, dd]; d2 = T2[dd, dd, dd]; d3 = T3[dd, dd, dd]   # diagonal stays coloured even when sparse
-            rec["g3d"] = {"M": M, "sparse": sparse, "t1": v1, "t2": v2, "t3": v3,
-                          "d1": d1.detach().cpu().tolist(), "d2": d2.detach().cpu().tolist(), "d3": d3.detach().cpu().tolist(),
-                          "pp": [_pospct(T1), _pospct(T2), _pospct(T3)],
-                          "ev": {"t1": _ev(T1), "t2": _ev(T2), "t3": _ev(T3)}}
-            if sparse:
-                rec["g3d"].update({"i1": i1, "i2": i2, "i3": i3})
+            g3d = {"M": M, "pp": [_pospct(T1), _pospct(T2), _pospct(T3)],
+                   "ev": {"t1": _ev(T1), "t2": _ev(T2), "t3": _ev(T3)}}
+
+            # The full M³ grid (for the 3D scatter plots) is heavier to store, and those plots only need a few
+            # snapshots — so keep it on the coarser SLQ cadence while the curves above update every tick.
+            # Heavy-tailed (~90% near-zero) → keep only the top-|value| points per grid once the cube exceeds the
+            # render budget, so M≈100 (M³≈10⁶) stays renderable. idx = i·M² + j·M + k (each grid its own top set).
+            if slq_tick:
+                sparse = (M * M * M) > G3D_MAXPTS
+
+                def _pack(T):
+                    flat = T.reshape(-1).detach()
+                    if not sparse:
+                        return flat.cpu().tolist(), None
+                    idx = torch.topk(flat.abs(), G3D_MAXPTS).indices
+                    return flat[idx].cpu().tolist(), idx.to(torch.int64).cpu().tolist()
+
+                v1, i1 = _pack(T1); v2, i2 = _pack(T2); v3, i3 = _pack(T3)
+                dd = torch.arange(M, device=dev)           # i=j=k diagonal values (stay coloured even when sparse)
+                d1 = T1[dd, dd, dd]; d2 = T2[dd, dd, dd]; d3 = T3[dd, dd, dd]
+                g3d.update({"sparse": sparse, "t1": v1, "t2": v2, "t3": v3,
+                            "d1": d1.detach().cpu().tolist(), "d2": d2.detach().cpu().tolist(), "d3": d3.detach().cpu().tolist()})
+                if sparse:
+                    g3d.update({"i1": i1, "i2": i2, "i3": i3})
+            rec["g3d"] = g3d
 
         # ---- §5 SLQ spectral densities (expensive → ~50 snapshots/run via slqStride) ----
         if self.s5 and slq_tick:
