@@ -441,7 +441,8 @@ _G3D_IDXKEY = {"t1": "i1", "t2": "i2", "t3": "i3"}
 
 
 def _g3d_scatter(fig, pos, g, key, M, title):
-    """One 3D scatter of an M×M×M grid: x=i, y=j, z=k (1..M), colour = signed value.
+    """One 3D scatter of an M×M×M grid: x=i, y=j, z=k (0-based, so the cube starts at the origin and the
+    highlighted i=j=k diagonal runs corner-to-corner), colour = signed value.
 
     The tensors are heavy-tailed (~90% near-zero, both signs), so a linear colour scale washes everything to
     white — we use a SYMLOG norm (linear floor at the 25th percentile of |value|) so the bulk spreads across the
@@ -458,9 +459,13 @@ def _g3d_scatter(fig, pos, g, key, M, title):
     c = np.sign(v) * np.log1p(a / lin); cm = max(float(np.abs(c).max()), 1e-30)
     s = 26.0 * (0.35 + 0.65 * np.abs(c) / cm)
     ax = fig.add_subplot(*pos, projection="3d")
-    sc = ax.scatter(i + 1, j + 1, k + 1, c=v, cmap="RdBu_r",
+    sc = ax.scatter(i, j, k, c=v, cmap="RdBu_r",
                     norm=SymLogNorm(linthresh=lin, vmin=-vmax, vmax=vmax),
                     s=s, alpha=0.85, depthshade=True, linewidths=0)
+    d = np.arange(M)
+    ax.plot(d, d, d, color="k", lw=2.0, alpha=0.9, zorder=5)        # highlight the i=j=k diagonal
+    lim = (0, max(1, M - 1))
+    ax.set_xlim(*lim); ax.set_ylim(*lim); ax.set_zlim(*lim)
     ax.set_xlabel("i"); ax.set_ylabel("j"); ax.set_zlabel("k"); ax.set_title(title, fontsize=9)
     return ax, sc
 

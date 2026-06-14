@@ -628,14 +628,18 @@ function g3dReset(){G3D_SNAPS=[];G3D_M=0;G3D_BUILT=false;G3D_CAMKEY='';if(G3D_RA
   g3deReset();}
 function g3dBuild(M){
   G3D_M=M;G3D_BUILT=true;
+  const dg=[];for(let q=0;q<M;q++)dg.push(q);   // the i=j=k main diagonal (0,0,0)…(M-1,M-1,M-1)
+  const dt=Math.max(1,Math.round(M/10)), rmax=Math.max(1,M-1);
   for(let g=0;g<3;g++){
     const tr=[{type:'scatter3d',mode:'markers',x:[],y:[],z:[],customdata:[],
       marker:{size:3,color:[],colorscale:'RdBu',reversescale:true,cmin:-1,cmax:1,opacity:0.85,
         colorbar:{thickness:9,len:0.78,tickmode:'array',tickfont:{size:9},title:{text:'value',font:{size:9},side:'right'}}},
-      hovertemplate:'i=%{x}, j=%{y}, k=%{z}<br>value=%{customdata:.2e}<extra></extra>'}];
-    const lay={title:{text:G3D_TITLES[g],font:{size:13}},margin:{l:0,r:0,t:28,b:0},uirevision:'g3d',
-      scene:{xaxis:{title:'i',dtick:1},yaxis:{title:'j',dtick:1},zaxis:{title:'k',dtick:1},
-        aspectmode:'cube',camera:{eye:{x:1.7,y:1.7,z:1.2}}}};
+      hovertemplate:'i=%{x}, j=%{y}, k=%{z}<br>value=%{customdata:.2e}<extra></extra>'},
+      {type:'scatter3d',mode:'lines',x:dg,y:dg,z:dg,line:{color:'#111',width:6},   // highlight the i=j=k diagonal
+       opacity:0.9,name:'i=j=k',hovertemplate:'i=j=k=%{x}<extra></extra>'}];
+    const lay={title:{text:G3D_TITLES[g],font:{size:13}},margin:{l:0,r:0,t:28,b:0},uirevision:'g3d',showlegend:false,
+      scene:{xaxis:{title:'i',dtick:dt,tick0:0,range:[0,rmax]},yaxis:{title:'j',dtick:dt,tick0:0,range:[0,rmax]},
+        zaxis:{title:'k',dtick:dt,tick0:0,range:[0,rmax]},aspectmode:'cube',camera:{eye:{x:1.7,y:1.7,z:1.2}}}};
     Plotly.newPlot(G3D_IDS[g],tr,lay,{responsive:true,displaylogo:false});
     // Synced rotation: copy a grid's camera to the other two. Plotly fires plotly_relayout for the
     // PROGRAMMATIC relayout too (asynchronously), so a naïve flag can't suppress the echo and the three
@@ -658,7 +662,7 @@ function g3dBuild(M){
 function g3dPos(M,idxArr,L){
   const x=new Array(L),y=new Array(L),z=new Array(L),M2=M*M;
   for(let q=0;q<L;q++){const p=idxArr?idxArr[q]:q,i=Math.floor(p/M2),rem=p-i*M2,j=Math.floor(rem/M),k=rem-j*M;
-    x[q]=i+1;y[q]=j+1;z[q]=k+1;}   // idx = i·M²+j·M+k  →  axes (x,y,z)=(i,j,k)
+    x[q]=i;y[q]=j;z[q]=k;}   // idx = i·M²+j·M+k → axes (x,y,z)=(i,j,k), 0-based so the cube starts at (0,0,0) and i=j=k is its main diagonal
   return {x,y,z};
 }
 // Signed-log colour: the tensors span orders of magnitude with both signs and are ~90% near-zero, so a linear
