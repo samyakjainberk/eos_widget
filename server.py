@@ -1719,11 +1719,16 @@ def run_stream(P):
                 catf = torch.where(eij & ejk, 0, torch.where(eij, 1, torch.where(ejk, 2,
                                    torch.where(eik, 3, 4)))).reshape(-1)
 
-                def _ev(T):
+                def _ev(T):   # per class: [mean, std, mean|·|] over the FULL grid
                     f = T.reshape(-1)
-                    return [[float(f[catf == c].mean()) if int((catf == c).sum()) else 0.0,
-                             float(f[catf == c].std(unbiased=False)) if int((catf == c).sum()) else 0.0]
-                            for c in range(5)]
+                    out = []
+                    for c in range(5):
+                        sel = f[catf == c]
+                        if int((catf == c).sum()):
+                            out.append([float(sel.mean()), float(sel.std(unbiased=False)), float(sel.abs().mean())])
+                        else:
+                            out.append([0.0, 0.0, 0.0])
+                    return out
 
                 # Heavy-tailed → keep only the top-|value| points per grid once the cube exceeds the render
                 # budget (each grid picks its own top set since their distributions differ). idx = i·M²+j·M+k.

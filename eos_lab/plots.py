@@ -573,6 +573,33 @@ def plot_section11_normshare(hist):
     return fig
 
 
+def plot_section11_absnormshare(hist):
+    """§11 — same as the norm-share panel but using each class's MEAN ABSOLUTE value a_c=mean|·|:
+    100·a_c²/Σ a_c'² over training (five curves sum to 100% per panel)."""
+    import numpy as np
+    snaps = [r for r in hist if "g3d" in r and "ev" in r["g3d"] and len(r["g3d"]["ev"]["t1"][0]) > 2]
+    if len(snaps) < 2:
+        return None
+    steps = np.array([r["t"] for r in snaps], dtype=float)
+    fig, axes = plt.subplots(1, 3, figsize=(16.5, 4.6))
+    titles = [r"$T_1=J_i^\top Q_j J_k$", r"$T_2=u_j u_k\,J_i^\top Q_j J_k$",
+              r"$T_3=r_i u_j u_k\,J_i^\top Q_j J_k$"]
+    for ti, key in enumerate(("t1", "t2", "t3")):
+        ax = axes[ti]
+        a = np.array([[r["g3d"]["ev"][key][c][2] for c in range(5)] for r in snaps])   # (T, 5) class mean|·|
+        sq = a ** 2
+        den = sq.sum(axis=1, keepdims=True); den[den == 0] = 1.0
+        pct = 100.0 * sq / den
+        for c in range(5):
+            ax.plot(steps, pct[:, c], color=_G3D_CLASS_COLORS[c], lw=1.4, label=_G3D_CLASS_LABELS[c])
+        ax.set_title(titles[ti], fontsize=10); ax.set_xlabel("step"); ax.set_ylabel("% of norm (|·|)"); ax.set_ylim(0, 100)
+        if ti == 0:
+            ax.legend(fontsize=8, loc="best", title="class of (i,j,k)", title_fontsize=8)
+    fig.suptitle("§11 — % of norm contributed by each class mean-|·|  (100·aₖ²/Σaₖ²)", fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    return fig
+
+
 def save_panels(results, outdir):
     """Render every supported section to PNGs in `outdir`. Returns the list of files written."""
     os.makedirs(outdir, exist_ok=True)
@@ -600,7 +627,8 @@ def save_panels(results, outdir):
             "section11_grids": plot_section11(hist),
             "section11_evolution": plot_section11_evolution(hist),
             "section11_classes": plot_section11_classes(hist),
-            "section11_normshare": plot_section11_normshare(hist)}
+            "section11_normshare": plot_section11_normshare(hist),
+            "section11_absnormshare": plot_section11_absnormshare(hist)}
     written = []
     for name, fig in figs.items():
         if fig is None:
