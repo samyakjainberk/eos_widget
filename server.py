@@ -46,10 +46,23 @@ DEVICE = torch.device("cpu")   # default/fallback device (= DEVICE_POOL[0]); set
 DEVICE_POOL = []               # every device a run may be assigned to (one GPU each); built in main()
 DTYPE = torch.float64          # set in main()
 EPS = 1e-3                     # finite-difference step (matches index.html / _preview.py)
-G3D_MAXPTS = 10000             # §11 render budget: emit only the top-|value| points per grid above this size
-                               #   (the tensors are heavy-tailed — ~90% near-zero — so the top points carry the
-                               #   structure; this keeps M up to ~100 renderable instead of M³≈10⁶ markers/grid)
+G3D_MAXPTS = 10000             # §11 render budget: emit only ≤this many points per grid above this size
+                               #   (the tensors are heavy-tailed — ~90% near-zero — keeps M up to ~500 renderable)
 PMAX = 10_000_000              # hard cap on parameter count p (matrix-free, so memory is O(p))
+
+
+def _g3d_pack(flat, K=G3D_MAXPTS):
+    """≤K points spanning the value range of a heavy-tailed flat tensor → (values, indices | None).
+    Half the budget is the top-|value| points (structure); half is a random sample of the near-zero bulk —
+    so the rendered colours show a fine white→saturated gradient instead of only the (uniform) saturated tail."""
+    n = int(flat.numel())
+    if n <= K:
+        return flat.detach().cpu().tolist(), None
+    ktop = K // 2
+    top = torch.topk(flat.abs(), ktop).indices
+    rnd = torch.randint(0, n, (K - ktop,), device=flat.device)   # random bulk (with-replacement; dups are harmless)
+    idx = torch.cat([top, rnd])
+    return flat[idx].detach().cpu().tolist(), idx.to(torch.int64).cpu().tolist()
 # Each /run is assigned a device (auto least-busy across DEVICE_POOL). RUN_TOKEN is PER-DEVICE, so runs on
 # different GPUs coexist; a newer run on the SAME device bumps that device's token and the older one stops.
 # _DEV_LOAD counts active runs per device for the least-busy pick. All three are guarded by _DEV_LOCK.
@@ -1745,16 +1758,12 @@ def run_stream(P):
                             out.append([0.0, 0.0, 0.0])
                     return out
 
-                # Heavy-tailed → keep only the top-|value| points per grid once the cube exceeds the render
-                # budget (each grid picks its own top set since their distributions differ). idx = i·M²+j·M+k.
+                # Once the cube exceeds the render budget, emit a representative subset that SPANS the value range
+                # (top-|value| structure + random bulk) so the colours stay fine-grained. idx = i·M²+j·M+k.
                 sparse = (M * M * M) > G3D_MAXPTS
 
                 def _pack(T):
-                    flat = T.reshape(-1)
-                    if not sparse:
-                        return flat.cpu().tolist(), None
-                    idx = torch.topk(flat.abs(), G3D_MAXPTS).indices
-                    return flat[idx].cpu().tolist(), idx.to(torch.int64).cpu().tolist()
+                    return _g3d_pack(T.reshape(-1))
 
                 def _pospct(T):   # 100·(Σ positive)/(Σ positive + |Σ negative|) over the full N³ grid
                     f = T.reshape(-1)
@@ -1765,13 +1774,8 @@ def run_stream(P):
                 v1, ix1 = _pack(T1); v2, ix2 = _pack(T2); v3, ix3 = _pack(T3)
                 dd = torch.arange(M, device=_dev())   # i=j=k diagonal values (always sent so the highlighted
                 d1 = T1[dd, dd, dd]; d2 = T2[dd, dd, dd]; d3 = T3[dd, dd, dd]   # diagonal is coloured even when sparse
-                sqsparse = (M * M) > G3D_MAXPTS       # the square is M² — sparsify the scatter the same way
-                sqflat = Smat.reshape(-1)
-                if sqsparse:
-                    sqidx = torch.topk(sqflat.abs(), G3D_MAXPTS).indices
-                    sqv = sqflat[sqidx].cpu().tolist(); sqi = sqidx.to(torch.int64).cpu().tolist()
-                else:
-                    sqv = sqflat.cpu().tolist(); sqi = None
+                sqv, sqi = _g3d_pack(Smat.reshape(-1))   # the square is M² — same span-preserving subset
+                sqsparse = sqi is not None
                 g3d = {"M": M, "sparse": sparse, "t1": v1, "t2": v2, "t3": v3,
                        "d1": d1.cpu().tolist(), "d2": d2.cpu().tolist(), "d3": d3.cpu().tolist(),
                        "pp": [_pospct(T1), _pospct(T2), _pospct(T3)],

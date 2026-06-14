@@ -28,8 +28,21 @@ from .models import (grad_sum_f, hvp_F, hvp_L, hvp_S, hvp_G, hvp_G2,
 from .linalg import (lanczos_extreme, lanczos_extreme_vals, slq_density, sym_eig_desc,
                      sign_to, pin_sign, pos_subspace, neg_subspace, principal_angles, randn_vec)
 
-# §11 render budget: emit only the top-|value| points per grid above this size (mirror server.G3D_MAXPTS).
+# §11 render budget: emit only ≤this many points per grid above this size (mirror server.G3D_MAXPTS).
 G3D_MAXPTS = 10000
+
+
+def _g3d_pack(flat, K=G3D_MAXPTS):
+    """≤K points spanning the value range → (values, indices | None). Half top-|value| (structure) + half a
+    random sample of the near-zero bulk, so colours show a fine white→saturated gradient (mirror server)."""
+    n = int(flat.numel())
+    if n <= K:
+        return flat.detach().cpu().tolist(), None
+    ktop = K // 2
+    top = torch.topk(flat.abs(), ktop).indices
+    rnd = torch.randint(0, n, (K - ktop,), device=flat.device)
+    idx = torch.cat([top, rnd])
+    return flat[idx].detach().cpu().tolist(), idx.to(torch.int64).cpu().tolist()
 
 # Fixed Lanczos / probe seeds (match server.run_stream so curves line up closely).
 SEED_H, SEED_L, SEED_G, SEED_S = 0xA53F9, 0x5EED1, 0x6A17C, 0x7B23D
@@ -521,22 +534,13 @@ class Diagnostics:
                 sparse = (M * M * M) > G3D_MAXPTS
 
                 def _pack(T):
-                    flat = T.reshape(-1).detach()
-                    if not sparse:
-                        return flat.cpu().tolist(), None
-                    idx = torch.topk(flat.abs(), G3D_MAXPTS).indices
-                    return flat[idx].cpu().tolist(), idx.to(torch.int64).cpu().tolist()
+                    return _g3d_pack(T.reshape(-1))
 
                 v1, i1 = _pack(T1); v2, i2 = _pack(T2); v3, i3 = _pack(T3)
                 dd = torch.arange(M, device=dev)           # i=j=k diagonal values (stay coloured even when sparse)
                 d1 = T1[dd, dd, dd]; d2 = T2[dd, dd, dd]; d3 = T3[dd, dd, dd]
-                sqsparse = (M * M) > G3D_MAXPTS            # the square is M² — sparsify the scatter too
-                sqflat = Smat.reshape(-1).detach()
-                if sqsparse:
-                    sqidx = torch.topk(sqflat.abs(), G3D_MAXPTS).indices
-                    sqv = sqflat[sqidx].cpu().tolist(); sqi = sqidx.to(torch.int64).cpu().tolist()
-                else:
-                    sqv = sqflat.cpu().tolist(); sqi = None
+                sqv, sqi = _g3d_pack(Smat.reshape(-1))     # the square is M² — same span-preserving subset
+                sqsparse = sqi is not None
                 g3d.update({"sparse": sparse, "t1": v1, "t2": v2, "t3": v3,
                             "d1": d1.detach().cpu().tolist(), "d2": d2.detach().cpu().tolist(), "d3": d3.detach().cpu().tolist(),
                             "sq": sqv, "sqsparse": sqsparse,                       # 4th column S[i,j], idx=i·M+j

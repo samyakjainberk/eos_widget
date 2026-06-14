@@ -625,7 +625,14 @@ function refreshSLQ(id,d){Plotly.restyle(id,{x:[d.x],y:[d.y]},[0]);
 // the fixed (i,j,k) marker positions are built once per M, and each snapshot only restyles colour
 // (red +, blue −, symmetric range per snapshot). Dragging one grid rotates all three when synced.
 let G3D_SNAPS=[], G3D_M=0, G3D_BUILT=false, G3D_CAMKEY='', G3D_RAF=0, G3D_PENDING=-1, G3D_MAXSNAPS=1200;
-const G3D_MAXPTS=10000;   // render budget per grid (mirror server G3D_MAXPTS): above this, show only top-|value| points
+const G3D_MAXPTS=10000;   // render budget per grid (mirror server G3D_MAXPTS): above this, emit a subset
+// ≤G3D_MAXPTS indices spanning the value range: half top-|value| (structure) + half random (the near-zero
+// bulk), so the rendered colours show a fine white→saturated gradient instead of only the saturated tail.
+function g3dHybrid(T,n){
+  const ktop=G3D_MAXPTS>>1, id=Array.from({length:n},(_,q)=>q).sort((a,b)=>Math.abs(T[b])-Math.abs(T[a])).slice(0,ktop);
+  for(let q=0;q<G3D_MAXPTS-ktop;q++)id.push(Math.floor(Math.random()*n));
+  return id;
+}
 const G3D_IDS=['p_g3d1','p_g3d2','p_g3d3'], G3D_KEYS=['t1','t2','t3'], G3D_IDX=['i1','i2','i3'];
 const G3D_TITLES=['T₁ = Jᵢᵀ Qⱼ Jₖ','T₂ = uⱼ uₖ · Jᵢᵀ Qⱼ Jₖ','T₃ = rᵢ uⱼ uₖ · Jᵢᵀ Qⱼ Jₖ'];
 function g3dReset(){G3D_SNAPS=[];G3D_M=0;G3D_BUILT=false;G3D_CAMKEY='';if(G3D_RAF){cancelAnimationFrame(G3D_RAF);G3D_RAF=0;}G3D_PENDING=-1;
@@ -1426,8 +1433,8 @@ async function loop(){                                   // drives ST forward; r
           const sqev=[];for(let c=0;c<2;c++){const n=scnt[c]||1,mn=ssm[c]/n;sqev.push(scnt[c]?[mn,Math.sqrt(Math.max(0,ssq2[c]/n-mn*mn)),ssa[c]/n]:[0,0,0]);}
           const sqd=[];for(let q=0;q<Mm;q++)sqd.push(Sm[q*Mm+q]);
           let sps=0,sns=0;for(let q=0;q<M2;q++){const v=Sm[q];if(v>0)sps+=v;else sns+=v;}const sqpp=(sps-sns)>1e-30?sps/(sps-sns)*100:0;
-          const sqsparse=M2>G3D_MAXPTS;let sqv,sqi=null;   // the square is M² → sparsify the scatter for large M
-          if(sqsparse){const id=Array.from({length:M2},(_,q)=>q).sort((a,b)=>Math.abs(Sm[b])-Math.abs(Sm[a])).slice(0,G3D_MAXPTS);sqv=id.map(q=>Sm[q]);sqi=id;}
+          const sqsparse=M2>G3D_MAXPTS;let sqv,sqi=null;   // the square is M² → span-preserving subset for large M
+          if(sqsparse){const id=g3dHybrid(Sm,M2);sqv=id.map(q=>Sm[q]);sqi=id;}
           else sqv=Array.from(Sm);
           // per-class mean±std over the FULL grid (evolution panel): 0:i=j=k 1:i=j≠k 2:i≠j=k 3:i=k≠j 4:i≠j≠k
           const Z=()=>[0,0,0,0,0],ZZ=()=>[Z(),Z(),Z()];
@@ -1438,12 +1445,9 @@ async function loop(){                                   // drives ST forward; r
           const ev={};   // per class: [mean, std, mean|·|]
           for(let g=0;g<3;g++){const arr=[];for(let c=0;c<G3DE_NC;c++){const n=cnt[c]||1,mn=sm[g][c]/n;
             arr.push(cnt[c]?[mn,Math.sqrt(Math.max(0,sq[g][c]/n-mn*mn)),sa[g][c]/n]:[0,0,0]);}ev[G3D_KEYS[g]]=arr;}
-          // Heavy-tailed → keep only the top-|value| points per grid once the cube exceeds the render budget
-          // (mirrors server). idx = i·M²+j·M+k. For small cubes send the dense value arrays as-is.
-          const sparse=n3>G3D_MAXPTS, topN=(T)=>{
-            const id=Array.from({length:n3},(_,q)=>q).sort((a,b)=>Math.abs(T[b])-Math.abs(T[a])).slice(0,G3D_MAXPTS);
-            return {v:id.map(q=>T[q]),i:id};
-          };
+          // Once the cube exceeds the render budget, emit a span-preserving subset (top-|value| + random bulk)
+          // so colours stay fine-grained (mirrors server). idx = i·M²+j·M+k. Small cubes send dense as-is.
+          const sparse=n3>G3D_MAXPTS, topN=(T)=>{const id=g3dHybrid(T,n3);return {v:id.map(q=>T[q]),i:id};};
           const dstep=M2+Mm+1, d1=[],d2=[],d3=[];   // i=j=k diagonal values: flat idx (i,i,i)=i·(M²+M+1)
           for(let q=0;q<Mm;q++){const di=q*dstep;d1.push(T1[di]);d2.push(T2[di]);d3.push(T3[di]);}
           const pospct=(T)=>{let ps=0,ns=0;for(let q=0;q<n3;q++){const v=T[q];if(v>0)ps+=v;else ns+=v;}const den=ps-ns;return den>1e-30?ps/den*100:0;};
