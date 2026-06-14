@@ -14,7 +14,7 @@ import time
 import numpy as np
 import torch
 
-from .models import build_model, build_loss, grad_loss
+from .models import build_model, build_loss, grad_loss, opt_dir
 from .data import init_data_theta, make_test_set
 from .diagnostics import Diagnostics
 
@@ -131,7 +131,7 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
             if on_step is not None:
                 on_step(rec, meta)
         if t < cfg.steps:
-            th = th - cfg.lr * grad_loss(model, loss, th, Xb, Yb)[0]
+            th = th - cfg.lr * opt_dir(model, grad_loss(model, loss, th, Xb, Yb)[0], cfg.optimizer)
 
     meta["wall_sec"] = time.time() - t0
     return {"meta": meta, "config": cfg, "history": history, "series": _to_series(history)}

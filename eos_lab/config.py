@@ -41,6 +41,9 @@ class Config:
                                     # (0 ⇒ full batch = nsamp). Only the owt dataset uses it today.
     tgt: float = 1.0
     lr: float = 0.3
+    optimizer: str = "gd"           # gd (full-batch GD) | sign (θ←θ−lr·sign∇L) | spectral (Muon-style: per weight
+                                    #   matrix step lr·UVᵀ from svd(∇W)=UΣVᵀ, biases→sign; NO momentum). Only the
+                                    #   actual trajectory/statistics change — §9/§10 theory keeps the GD update.
     init: float = 0.1               # init magnitude; meaning depends on initscheme (below)
     initscheme: str = "default"     # default(=scale/√fan_in) | mup | xavier_normal | xavier_uniform |
                                     #   custom(=Gaussian std = init). `init` is the scale/gain/std per scheme.

@@ -519,28 +519,78 @@ def _g3d_square(fig, pos, g, M, title):
     return ax, sc
 
 
-def plot_section11(hist):
-    """§11 — the three N×N×N Hessian–NTK grids + the 2D square S=JᵢᵀQᵢJⱼrⱼ, at the LAST snapshot."""
-    snaps = [r for r in hist if "g3d" in r and "t1" in r["g3d"]]   # grid stored on the SLQ cadence
-    if not snaps:
-        return None
-    g = snaps[-1]["g3d"]; M = g["M"]; t = snaps[-1]["t"]
+def _section11_figure(g, M, t):
+    """Build the §11 grids figure (3 rotating cubes + the 2D square). Returns (fig, [cube Axes3D])."""
     fig = plt.figure(figsize=(21, 5.2))
-    pp = g.get("pp")
+    pp = g.get("pp"); cube_axes = []
     for n, (key, lab) in enumerate((("t1", r"$T_1=J_i^\top Q_j J_k$"),
                                     ("t2", r"$T_2=u_j u_k\,J_i^\top Q_j J_k$"),
                                     ("t3", r"$T_3=r_i u_j u_k\,J_i^\top Q_j J_k$"))):
         if pp is not None:
             lab = lab + f"   (+{pp[n]:.1f}%)"                 # positive share 100·Σ(+)/(Σ(+)+|Σ(−)|)
-        _, sc = _g3d_scatter(fig, (1, 4, n + 1), g, key, M, lab)
-        fig.colorbar(sc, ax=fig.axes[-1], shrink=0.55, pad=0.08)
-    if "sq" in g:                                            # 4th column: the 2D square
+        ax, sc = _g3d_scatter(fig, (1, 4, n + 1), g, key, M, lab); cube_axes.append(ax)
+        fig.colorbar(sc, ax=ax, shrink=0.55, pad=0.08)
+    if "sq" in g:                                            # 4th column: the 2D square (static)
         slab = _G3DSQ_TITLE + (f"   (+{g['sqpp']:.1f}%)" if g.get("sqpp") is not None else "")
         _, sc = _g3d_square(fig, (1, 4, 4), g, M, slab)
         fig.colorbar(sc, ax=fig.axes[-1], shrink=0.55, pad=0.08)
     fig.suptitle(f"§11 — Hessian–NTK grids + square over sample indices (step {t}, N={M})", fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.94))
+    return fig, cube_axes
+
+
+def plot_section11(hist):
+    """§11 — the three N×N×N Hessian–NTK grids + the 2D square S=JᵢᵀQᵢJⱼrⱼ, at the LAST snapshot (static)."""
+    snaps = [r for r in hist if "g3d" in r and "t1" in r["g3d"]]   # grid stored on the SLQ cadence
+    if not snaps:
+        return None
+    g = snaps[-1]["g3d"]
+    fig, _ = _section11_figure(g, g["M"], snaps[-1]["t"])
     return fig
+
+
+def save_section11_grids_gif(hist, path, frames=30, fps=12, dpi=62):
+    """§11 grids as a rotating GIF (the 3 cubes spin 360° so the 3D structure is readable; square static)."""
+    from matplotlib.animation import FuncAnimation, PillowWriter
+    snaps = [r for r in hist if "g3d" in r and "t1" in r["g3d"]]
+    if not snaps:
+        return None
+    g = snaps[-1]["g3d"]
+    fig, cube_axes = _section11_figure(g, g["M"], snaps[-1]["t"])
+
+    def update(frame):
+        az = frame * (360.0 / frames)
+        for ax in cube_axes:
+            ax.view_init(elev=22, azim=az)
+        return []
+    FuncAnimation(fig, update, frames=frames, interval=1000 // fps, blit=False).save(
+        path, writer=PillowWriter(fps=fps), dpi=dpi)
+    plt.close(fig)
+    return path
+
+
+def save_section11_evolution_gif(hist, path, key="t3", maxframes=40, fps=8, dpi=70):
+    """§11 evolution as a GIF: the chosen grid (default T3) animated across training (with a slow spin)."""
+    from matplotlib.animation import FuncAnimation, PillowWriter
+    snaps = [r for r in hist if "g3d" in r and "t1" in r["g3d"]]
+    if len(snaps) < 2:
+        return None
+    if len(snaps) > maxframes:
+        snaps = [snaps[round(x * (len(snaps) - 1) / (maxframes - 1))] for x in range(maxframes)]
+    M = snaps[0]["g3d"]["M"]; lab = {"t1": "T₁", "t2": "T₂", "t3": "T₃"}[key]
+    fig = plt.figure(figsize=(7.5, 6.8))
+
+    def update(i):
+        fig.clear()
+        s = snaps[i]
+        ax, _ = _g3d_scatter(fig, (1, 1, 1), s["g3d"], key, M, f"step {s['t']}")
+        ax.view_init(elev=22, azim=20 + i * 1.5)
+        fig.suptitle(f"§11 — {lab} grid over training (N={M})", fontsize=12)
+        return []
+    FuncAnimation(fig, update, frames=len(snaps), interval=1000 // fps).save(
+        path, writer=PillowWriter(fps=fps), dpi=dpi)
+    plt.close(fig)
+    return path
 
 
 def plot_section11_evolution(hist, key="t3"):
@@ -705,8 +755,6 @@ def save_panels(results, outdir):
             "section9dc_selfresidual_vs_full_hessian": plot_section9dc(series, meta),
             "section10_cubic_vs_ntk": plot_section10_ntk(series, meta),
             "section10_cubic_vs_full_hessian": plot_section10_hess(series, meta),
-            "section11_grids": plot_section11(hist),
-            "section11_evolution": plot_section11_evolution(hist),
             "section11_classes": plot_section11_classes(hist),
             "section11_sumevolution": plot_section11_sumevolution(hist),
             "section11_normshare": plot_section11_normshare(hist),
@@ -719,4 +767,13 @@ def save_panels(results, outdir):
         fig.savefig(path, dpi=110, bbox_inches="tight")
         plt.close(fig)
         written.append(path)
+    # §11 3D grids are rotating GIFs (static images are hard to read in 3D)
+    for name, saver in (("section11_grids", save_section11_grids_gif),
+                        ("section11_evolution", save_section11_evolution_gif)):
+        try:
+            p = saver(hist, os.path.join(outdir, name + ".gif"))
+            if p:
+                written.append(p)
+        except Exception as e:
+            print(f"  [{name}] GIF failed: {e}")
     return written

@@ -63,6 +63,28 @@ def _g3d_pack(flat, K=G3D_MAXPTS):
     rnd = torch.randint(0, n, (K - ktop,), device=flat.device)   # random bulk (with-replacement; dups are harmless)
     idx = torch.cat([top, rnd])
     return flat[idx].detach().cpu().tolist(), idx.to(torch.int64).cpu().tolist()
+
+
+def _opt_dir(model, g, opt):
+    """Update DIRECTION from the raw gradient g (NO momentum). The actual θ step is θ ← θ − lr·dir.
+      gd       → g                       (plain full-batch gradient descent)
+      sign     → sign(g)                 (signed GD, elementwise)
+      spectral → Muon-style: each weight MATRIX W gets svd(∇W)=UΣVᵀ → step UVᵀ (steepest descent under the
+                 spectral norm); biases / non-matrix params fall back to sign(g).
+    Only the actual trajectory changes — the §9/§10 theory recomputes its own GD Δθ and is untouched."""
+    if opt == "sign":
+        return torch.sign(g)
+    if opt == "spectral":
+        d = torch.sign(g)                       # default for biases / non-matrix params
+        spec = getattr(model, "spec", None)
+        if spec is not None:                    # MLP: layer ℓ weight is a din×dout contiguous block of θ
+            for layer in spec:
+                din, dout, wOff = layer[0], layer[1], layer[3]
+                G = g[wOff:wOff + din * dout].view(din, dout)
+                U, _, Vh = torch.linalg.svd(G, full_matrices=False)
+                d[wOff:wOff + din * dout] = (U @ Vh).reshape(-1)
+        return d
+    return g                                    # gd (default)
 # Each /run is assigned a device (auto least-busy across DEVICE_POOL). RUN_TOKEN is PER-DEVICE, so runs on
 # different GPUs coexist; a newer run on the SAME device bumps that device's token and the older one stops.
 # _DEV_LOAD counts active runs per device for the least-busy pick. All three are guarded by _DEV_LOCK.
@@ -1286,6 +1308,7 @@ def run_stream(P):
     n8 = min(n, max(1, p // 2))
     nResid = min(M, 12)
     lr = P["lr"]
+    opt = P.get("optimizer", "gd")
     thr = 2.0 / lr
 
     if p > PMAX:
@@ -1834,7 +1857,7 @@ def run_stream(P):
             eigTick += 1
             done += 1
 
-        th = th - lr * gradL(th, X, Y)[0]
+        th = th - lr * _opt_dir(_TL.model, gradL(th, X, Y)[0], opt)
 
     yield {"type": "done", "p": p}
 
@@ -1899,6 +1922,7 @@ def run_surrogate_compare(P):
     half = max(1, p // 2)
     n = min(max(1, P["neig"]), half)
     lr = P["lr"]
+    opt = P.get("optimizer", "gd")
     thr = 2.0 / lr
     ee = max(1, P["eigevery"])
     steps = P["steps"]
@@ -2283,7 +2307,7 @@ def run_surrogate_compare(P):
         # advance the actual model AND the frozen-window surrogate by one GD step EVERY iteration, so the
         # surrogate stays in lockstep with the actual model regardless of eigevery / qapprox alignment
         # (the surrogate GD is on the frozen-θ₀ MSE Taylor model; Q,J₀ are frozen at the window start).
-        th = th - lr * gradL(th, X, Y)[0]
+        th = th - lr * _opt_dir(_TL.model, gradL(th, X, Y)[0], opt)   # actual trajectory uses the chosen optimizer
         if th0 is not None:
             dths = th_sur - th0
             if kind == "quad":
@@ -2325,7 +2349,7 @@ def _parse_params(q):
         "heavyevery": max(1, fi("heavyevery", 4)),   # cadence for the heaviest panels §7-proj/§8 (keeps runs responsive)
         "slqprobes": fi("slqprobes", 4), "energyp": ff("energyp", 99),
         "seed": fi("seed", 0), "start": fi("start", 0), "inputstd": ff("inputstd", 1.0),
-        "ssign": g("ssign", "off"), "qapprox": max(1, fi("qapprox", 25)),
+        "ssign": g("ssign", "off"), "optimizer": g("optimizer", "gd"), "qapprox": max(1, fi("qapprox", 25)),
         "qmode": max(1, fi("qmode", 1)), "tset": max(1, fi("tset", 3)),
         "cubicapprox": max(1, fi("cubicapprox", 10)),   # §10 cubic-approximation window length
         "dataset": g("dataset", "synthetic"), "arch": g("arch", "mlp"), "loss": g("loss", "mse"),

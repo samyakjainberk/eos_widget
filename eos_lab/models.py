@@ -444,6 +444,24 @@ def grad_loss(model, loss, theta, X, Y):
     return g.detach(), out.detach()
 
 
+def opt_dir(model, g, opt):
+    """Update DIRECTION from the raw gradient g (NO momentum); actual θ step is θ ← θ − lr·dir. MIRRORS
+    server._opt_dir.  gd→g · sign→sign(g) · spectral→Muon-style per weight-matrix UVᵀ (svd(∇W)=UΣVᵀ),
+    biases→sign. Only the trajectory changes; the §9/§10 theory recomputes its own GD Δθ and is untouched."""
+    if opt == "sign":
+        return torch.sign(g)
+    if opt == "spectral":
+        d = torch.sign(g)                       # default for biases / non-matrix params
+        spec = getattr(model, "spec", None)
+        if spec is not None:                    # MLP: layer weight is a din×dout contiguous block of θ
+            for (din, dout, act, w_off, b_off) in spec:
+                G = g[w_off:w_off + din * dout].view(din, dout)
+                U, _, Vh = torch.linalg.svd(G, full_matrices=False)
+                d[w_off:w_off + din * dout] = (U @ Vh).reshape(-1)
+        return d
+    return g                                    # gd (default)
+
+
 def _hvp_scalar(model, theta, X, scalar_fn, v):
     """Generic exact HVP of a scalar(θ): (∇² scalar) · v via double-backward (Pearlmutter)."""
     with torch.enable_grad():

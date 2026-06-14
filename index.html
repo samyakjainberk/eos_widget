@@ -140,6 +140,7 @@
       <div class="ctl"><label>data sampling</label><select id="fixedx"><option value="1" selected>fixed sample (x=1)</option><option value="0">iid Gaussian</option></select></div>
       <div class="ctl"><label>input std (iid)</label><input id="inputstd" type="number" value="1.0" min="0" step="0.1"></div>
       <div class="ctl"><label>init residual sign</label><select id="ssign"><option value="off" selected>off</option><option value="pos">all positive</option><option value="neg">all negative</option></select></div>
+      <div class="ctl"><label title="Optimizer for the actual run (no momentum). full-batch GD (default) | signed GD: θ←θ−lr·sign(∇L) | spectral (Muon-style): each weight matrix W steps by lr·UVᵀ from svd(∇W)=UΣVᵀ, biases→sign. Only the measured statistics change — the §9/§10 theoretical predictions keep using the GD update.">optimizer</label><select id="optimizer"><option value="gd" selected>full-batch GD</option><option value="sign">signed GD</option><option value="spectral">spectral (Muon)</option></select></div>
       <div class="ctl"><label>in_dim</label><input id="indim" type="number" value="10" min="1" max="40" step="1"></div>
       <div class="ctl"><label>out_dim</label><input id="outdim" type="number" value="1" min="1" max="10" step="1"></div>
     </div>
@@ -504,6 +505,42 @@ function signTo(cur,prev){if(!prev)return cur;return dot(cur,prev)<0?cur.map(x=>
 function pinSign(v){let mi=0;for(let i=1;i<v.length;i++)if(Math.abs(v[i])>Math.abs(v[mi]))mi=i;if(v[mi]<0)for(let i=0;i<v.length;i++)v[i]=-v[i];return v;}
 // ---- §7 helpers: NTK / function-Hessian-tensor SVD (multi-sample) ----
 function colOf(V,n,j){const c=new Float64Array(n);for(let i=0;i<n;i++)c[i]=V[i*n+j];return c;}
+// Orthogonal polar factor U·Vᵀ of a row-major m×n matrix G=UΣVᵀ (all singular values → 1), via the smaller
+// Gram matrix + jacobiEig. Used by the spectral (Muon-style) optimizer.
+function polarFactor(G,m,n){
+  if(m>=n){
+    const A=new Float64Array(n*n);                                    // A = GᵀG (n×n)
+    for(let a=0;a<n;a++)for(let b=a;b<n;b++){let s=0;for(let r=0;r<m;r++)s+=G[r*n+a]*G[r*n+b];A[a*n+b]=s;A[b*n+a]=s;}
+    const {vals,V}=jacobiEig(A,n);
+    const inv=new Float64Array(n);for(let k=0;k<n;k++)inv[k]=vals[k]>1e-24?1/Math.sqrt(vals[k]):0;
+    const B=new Float64Array(n*n);                                    // B = V diag(λ^-½) Vᵀ = (GᵀG)^-½
+    for(let a=0;a<n;a++)for(let b=a;b<n;b++){let s=0;for(let k=0;k<n;k++)s+=V[a*n+k]*inv[k]*V[b*n+k];B[a*n+b]=s;B[b*n+a]=s;}
+    const Q=new Float64Array(m*n);                                    // Q = G·B = U·Vᵀ
+    for(let r=0;r<m;r++)for(let b=0;b<n;b++){let s=0;for(let a=0;a<n;a++)s+=G[r*n+a]*B[a*n+b];Q[r*n+b]=s;}
+    return Q;
+  }
+  const A=new Float64Array(m*m);                                      // A = GGᵀ (m×m)
+  for(let a=0;a<m;a++)for(let b=a;b<m;b++){let s=0;for(let c=0;c<n;c++)s+=G[a*n+c]*G[b*n+c];A[a*m+b]=s;A[b*m+a]=s;}
+  const {vals,V}=jacobiEig(A,m);
+  const inv=new Float64Array(m);for(let k=0;k<m;k++)inv[k]=vals[k]>1e-24?1/Math.sqrt(vals[k]):0;
+  const B=new Float64Array(m*m);                                      // B = U diag(λ^-½) Uᵀ = (GGᵀ)^-½
+  for(let a=0;a<m;a++)for(let b=a;b<m;b++){let s=0;for(let k=0;k<m;k++)s+=V[a*m+k]*inv[k]*V[b*m+k];B[a*m+b]=s;B[b*m+a]=s;}
+  const Q=new Float64Array(m*n);                                      // Q = B·G = U·Vᵀ
+  for(let r=0;r<m;r++)for(let c=0;c<n;c++){let s=0;for(let a=0;a<m;a++)s+=B[r*m+a]*G[a*n+c];Q[r*n+c]=s;}
+  return Q;
+}
+// Optimizer update direction from the raw gradient g (NO momentum). gd→g, sign→sign(g),
+// spectral→Muon-style: each weight matrix W (din×dout, row-major i·dout+o) → polar factor U·Vᵀ; biases→sign.
+function optDir(spec,g,p,opt){
+  if(opt==='gd')return g;
+  const d=new Float64Array(p);for(let i=0;i<p;i++)d[i]=Math.sign(g[i]);   // sign (also the bias fallback for spectral)
+  if(opt==='sign')return d;
+  for(const L of spec){const din=L.din,dout=L.dout,wOff=L.wOff,G=new Float64Array(din*dout);
+    for(let i=0;i<din*dout;i++)G[i]=g[wOff+i];
+    const Q=polarFactor(G,din,dout);
+    for(let i=0;i<din*dout;i++)d[wOff+i]=Q[i];}
+  return d;
+}
 function symEigDesc(A,n){const {vals,V}=jacobiEig(A,n);const idx=Array.from({length:n},(_,i)=>i).sort((a,b)=>vals[b]-vals[a]);return {vals:idx.map(i=>vals[i]),vecs:idx.map(i=>colOf(V,n,i))};}
 // per-output gradients = columns of the Jacobian (p-vec each); 1 forward + dn backward passes
 function jacCols(th,spec,X,N,inDim,p){const f=forward(th,spec,X,N,inDim);const M=f.out.length;const cols=[];for(let a=0;a<M;a++){const dO=new Float64Array(M);dO[a]=1;cols.push(backward(th,spec,f.caches,dO,N,p));}return {cols,out:f.out};}
@@ -1290,7 +1327,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const heavyEvery=Math.max(1,+val('heavyevery')||4);   // §7-proj + §8 throttle (mirror server.run_stream)
   const grid3dcap=Math.max(1,+val('grid3dcap')||30);    // §11 3D-grid cap (skip when M>this)
   const g3dStride=1;   // §11 cadence: update on every diagnostic tick (mirror server; bounded by grid3dcap + sparsification)
-  ST={opt,spec,p,X,Y,N,inDim,outDim,M,nResid,th,lr,eps,thr,n,kth,nSub,mF,mV,mSLQ,nProbe,efrac,eigEvery,slqStride,heavyEvery,grid3dcap,g3dStride,steps,posIdx,negIdx,
+  ST={opt,optim:val('optimizer'),spec,p,X,Y,N,inDim,outDim,M,nResid,th,lr,eps,thr,n,kth,nSub,mF,mV,mSLQ,nProbe,efrac,eigEvery,slqStride,heavyEvery,grid3dcap,g3dStride,steps,posIdx,negIdx,
       needVecs,needVals,prevTop:Array(nSub).fill(null),prevBot:Array(nSub).fill(null),prevPos:null,prevNeg:null,
       pNtk:Array(n).fill(null),pVH:Array(n).fill(null),pUJ:Array(n).fill(null),pM1:[null,null,null,null],pM2:[null,null,null,null],pG2:Array(n).fill(null),
       prevSharp7a:null,prevNtkR7a:null,prevPrevNtkR7a:null,sumGsync:null,sumGlag:null,cntGs:0,cntGl:0,   // §7a Δλ·Δr running products
@@ -1630,10 +1667,10 @@ async function loop(){                                   // drives ST forward; r
         const sps=(S.done-segStart)/((performance.now()-t0)/1000);
         sp.textContent=`steps/sec: ${sps.toFixed(0)}`;
         st.textContent=`running… step ${t}/${S.steps}  ·  p=${p}, 2/lr=${S.thr.toFixed(2)}`;
-        {const gl=gradL(S.th,spec,X,Y,N,inDim,p).grad;for(let i=0;i<p;i++)S.th[i]-=S.lr*gl[i];}
+        {const gl=gradL(S.th,spec,X,Y,N,inDim,p).grad,dir=optDir(spec,gl,p,S.optim);for(let i=0;i<p;i++)S.th[i]-=S.lr*dir[i];}
         await new Promise(r=>setTimeout(r,0));   // yield to the event loop so the UI repaints between ticks
       } else {
-        const gl=gradL(S.th,spec,X,Y,N,inDim,p).grad;for(let i=0;i<p;i++)S.th[i]-=S.lr*gl[i];
+        const gl=gradL(S.th,spec,X,Y,N,inDim,p).grad,dir=optDir(spec,gl,p,S.optim);for(let i=0;i<p;i++)S.th[i]-=S.lr*dir[i];
       }
     }
     if(ST&&!PAUSED&&!ABORT&&S.t>S.steps)st.textContent=`done — ${S.done} evals · p=${p} params · 2/lr=${S.thr.toFixed(3)}.`;
@@ -1664,7 +1701,7 @@ function _zip(files){const enc=new TextEncoder(),parts=[],cd=[];let off=0;
   const eo=new Uint8Array([].concat(u32(0x06054b50),u16(0),u16(0),u16(cd.length),u16(cd.length),u32(cs),u32(off),u16(0)));
   return new Blob([...parts,...cp,eo],{type:'application/zip'});}
 function _b64bytes(durl){const s=atob(durl.split(',')[1]),a=new Uint8Array(s.length);for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return a;}
-function _cfgText(){const ids=['preset','compute','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','depth','width','act','bias','fixedx','inputstd','ssign','indim','outdim','nsamp','batch','tgt','lr','init','initscheme','steps','seed','neig','kth','eigevery','heavyevery','slqprobes','energyp','gson','qapprox','qmode','tset','cubicapprox'];
+function _cfgText(){const ids=['preset','compute','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','depth','width','act','bias','fixedx','inputstd','ssign','optimizer','indim','outdim','nsamp','batch','tgt','lr','init','initscheme','steps','seed','neig','kth','eigevery','heavyevery','slqprobes','energyp','gson','qapprox','qmode','tset','cubicapprox'];
   const L=ids.map(id=>{const e=document.getElementById(id);return e?(id+' = '+e.value):null;}).filter(Boolean);
   L.push('panels: '+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18'].map(id=>id+'='+(chk(id)?1:0)).join(' '));
   const stt=document.getElementById('status');if(stt&&stt.textContent)L.push('status: '+stt.textContent);
@@ -1691,7 +1728,7 @@ async function downloadPlots(){
 // ---- GPU backend (server.py) over SSE — compute on the machine's GPU; browser only draws ----
 function backendURL(start){
   const ps=new URLSearchParams();
-  ['depth','width','act','bias','fixedx','inputstd','ssign','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
+  ['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
    'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree'].forEach(id=>ps.set(id,val(id)));
   [['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
@@ -1764,7 +1801,7 @@ const PRESETS={
 };
 function setVal(id,v){document.getElementById(id).value=String(v);}
 function applyPreset(name){const P=PRESETS[name];if(!P)return;for(const k in P){const el=document.getElementById(k);if(!el)continue;if(el.type==='checkbox')el.checked=!!P[k];else el.value=String(P[k]);}syncLossPanels();updateParamBadge();}
-['depth','width','act','bias','fixedx','inputstd','ssign','lr','init','initscheme','nsamp','batch','indim','outdim','tgt','neig','kth','steps','eigevery','slqprobes','energyp','gson','seed','qapprox','qmode','tset','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree']
+['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt','neig','kth','steps','eigevery','slqprobes','energyp','gson','seed','qapprox','qmode','tset','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree']
   .forEach(id=>document.getElementById(id).addEventListener('input',()=>{document.getElementById('preset').value='custom';}));
 ['dataset','arch','loss'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';}));
 // keep the live parameter-count badge + §1/§2/§3 annotations in sync with the architecture controls
@@ -2204,7 +2241,7 @@ function makeCompareSection(pre, kind) {
     document.getElementById(pre + '_status').textContent = 'preset applied — press Run to start.';
   } });
   // editing any control switches this section's preset to "custom"
-  ['dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','depth','width','act','bias','fixedx','inputstd','ssign','indim','outdim','nsamp','tgt','lr','init','initscheme','steps','seed','neig','eigevery','every_iter','slqprobes','qmode','tset','c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11','c12']
+  ['dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','depth','width','act','bias','fixedx','inputstd','ssign','optimizer','indim','outdim','nsamp','tgt','lr','init','initscheme','steps','seed','neig','eigevery','every_iter','slqprobes','qmode','tset','c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11','c12']
     .forEach(id => { const el = document.getElementById(pre + '_' + id); if (el) el.addEventListener(el.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input', () => { document.getElementById(pre + '_preset').value = 'custom'; }); });
   cmpApplyPreset(pre, 'linear');   // default surrogate preset = §1 default ('linear'), so the sections match exactly
   // draw empty, labeled plots right away (like the main widget) so the section isn't blank before Run
