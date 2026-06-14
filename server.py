@@ -1702,6 +1702,19 @@ def run_stream(P):
                     T1[:, :, kk] = Jc @ QJk.t()                    # [i,j] = Jᵢ·(Qⱼ Jₖ)
                 T2 = T1 * u1s.view(1, M, 1) * u1s.view(1, 1, M)
                 T3 = T2 * rr.view(M, 1, 1)
+                # Per-class evolution stats — mean ± std over the FULL grid (NOT the sparsified subset) for the 4
+                # diagonal classes of (i,j,k): 0:i=j=k  1:i=j≠k  2:i≠j=k  3:i≠j≠k. Tiny payload → curves vs step.
+                ai = torch.arange(M, device=_dev())
+                eij = ai.view(M, 1, 1) == ai.view(1, M, 1)
+                ejk = ai.view(1, M, 1) == ai.view(1, 1, M)
+                catf = torch.where(eij & ejk, 0, torch.where(eij, 1, torch.where(ejk, 2, 3))).reshape(-1)
+
+                def _ev(T):
+                    f = T.reshape(-1)
+                    return [[float(f[catf == c].mean()) if int((catf == c).sum()) else 0.0,
+                             float(f[catf == c].std(unbiased=False)) if int((catf == c).sum()) else 0.0]
+                            for c in range(4)]
+
                 # Heavy-tailed → keep only the top-|value| points per grid once the cube exceeds the render
                 # budget (each grid picks its own top set since their distributions differ). idx = i·M²+j·M+k.
                 sparse = (M * M * M) > G3D_MAXPTS
@@ -1714,7 +1727,8 @@ def run_stream(P):
                     return flat[idx].cpu().tolist(), idx.to(torch.int64).cpu().tolist()
 
                 v1, ix1 = _pack(T1); v2, ix2 = _pack(T2); v3, ix3 = _pack(T3)
-                g3d = {"M": M, "sparse": sparse, "t1": v1, "t2": v2, "t3": v3}
+                g3d = {"M": M, "sparse": sparse, "t1": v1, "t2": v2, "t3": v3,
+                       "ev": {"t1": _ev(T1), "t2": _ev(T2), "t3": _ev(T3)}}
                 if sparse:
                     g3d.update({"i1": ix1, "i2": ix2, "i3": ix3})
 

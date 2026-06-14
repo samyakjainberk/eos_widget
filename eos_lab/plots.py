@@ -502,6 +502,36 @@ def plot_section11_evolution(hist, key="t3"):
     return fig
 
 
+_G3D_CLASS_LABELS = ["i=j=k", "i=j≠k", "i≠j=k", "i≠j≠k"]
+_G3D_CLASS_COLORS = ["#d62728", "#1f77b4", "#2ca02c", "#ff7f0e"]
+
+
+def plot_section11_classes(hist):
+    """§11 — evolution of each grid's mean ± std (shaded cloud) over training, for the 4 diagonal classes of
+    (i,j,k): i=j=k, i=j≠k, i≠j=k, i≠j≠k. Three panels: T1=JᵢᵀQⱼJₖ, T2=uⱼuₖ·T1, T3=rᵢuⱼuₖ·T1."""
+    import numpy as np
+    snaps = [r for r in hist if "g3d" in r and "ev" in r["g3d"]]
+    if len(snaps) < 2:
+        return None
+    steps = np.array([r["t"] for r in snaps], dtype=float)
+    fig, axes = plt.subplots(1, 3, figsize=(16.5, 4.6))
+    titles = [r"$T_1=J_i^\top Q_j J_k$", r"$T_2=u_j u_k\,J_i^\top Q_j J_k$",
+              r"$T_3=r_i u_j u_k\,J_i^\top Q_j J_k$"]
+    for ti, key in enumerate(("t1", "t2", "t3")):
+        ax = axes[ti]
+        ev = np.array([r["g3d"]["ev"][key] for r in snaps])   # (T, 4, 2): [...,0]=mean [...,1]=std
+        for c in range(4):
+            m, s = ev[:, c, 0], ev[:, c, 1]
+            ax.fill_between(steps, m - s, m + s, color=_G3D_CLASS_COLORS[c], alpha=0.18, linewidth=0)
+            ax.plot(steps, m, color=_G3D_CLASS_COLORS[c], lw=1.4, label=_G3D_CLASS_LABELS[c])
+        ax.set_title(titles[ti], fontsize=10); ax.set_xlabel("step"); ax.axhline(0, color="#888", lw=0.6)
+        if ti == 0:
+            ax.legend(fontsize=8, loc="best", title="class of (i,j,k)", title_fontsize=8)
+    fig.suptitle("§11 — per-class mean ± std of the Hessian–NTK grids over training", fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    return fig
+
+
 def save_panels(results, outdir):
     """Render every supported section to PNGs in `outdir`. Returns the list of files written."""
     os.makedirs(outdir, exist_ok=True)
@@ -527,7 +557,8 @@ def save_panels(results, outdir):
             "section10_cubic_vs_ntk": plot_section10_ntk(series, meta),
             "section10_cubic_vs_full_hessian": plot_section10_hess(series, meta),
             "section11_grids": plot_section11(hist),
-            "section11_evolution": plot_section11_evolution(hist)}
+            "section11_evolution": plot_section11_evolution(hist),
+            "section11_classes": plot_section11_classes(hist)}
     written = []
     for name, fig in figs.items():
         if fig is None:
