@@ -1369,7 +1369,7 @@ async function loop(){                                   // drives ST forward; r
           const dn=M;const jc=jacCols(S.th,spec,X,N,inDim,p);bJc=jc.cols;
           const Km=new Float64Array(dn*dn);for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(bJc[a],bJc[b]);Km[a*dn+b]=v;Km[b*dn+a]=v;}
           bEk=symEigDesc(Km,dn);
-          for(let k=0;k<S.n;k++)pinSign(bEk.vecs[k]);   // deterministic NTK eigvec sign (largest |component| +) ⇒ reproducible u₁
+          for(let k=0;k<Math.min(S.n,bEk.vecs.length);k++)pinSign(bEk.vecs[k]);   // deterministic NTK eigvec sign; guard M<neig (NTK is M×M)
           u1s=bEk.vecs[0];                              // g₁=J·u₁/‖J·u₁‖ then gives J u₁=σ₁ g₁ with σ₁=‖J u₁‖>0, ‖u₁‖=‖g₁‖=1
           const rr=new Float64Array(dn);for(let i=0;i<dn;i++)rr[i]=Y[i]-jc.out[i];   // r = y − f(x)
           rrs=rr;                                            // §11 needs the residual (r=y−f)

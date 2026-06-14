@@ -1495,7 +1495,7 @@ def run_stream(P):
             Jrns = Rn = 1.0
             if multi_ok and (s9 or s10 or s11 or s12 or s15 or s16 or s17 or s18):
                 Kb, Vb = sym_eig_desc(Jc @ Jc.t())
-                for k in range(n):
+                for k in range(min(n, Vb.shape[1])):   # NTK is M×M → only M eigvecs exist (guard M < neig, e.g. tiny §11 runs)
                     Vb[:, k] = pin_sign(Vb[:, k])
                 bEk_vecs = Vb; bEk_vals = Kb
                 u1s = Vb[:, 0]

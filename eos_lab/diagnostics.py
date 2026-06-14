@@ -374,7 +374,7 @@ class Diagnostics:
         Jrns = Rn = 1.0
         if self.multi_ok and (self.s9 or self.s10 or self.s11 or self.s12 or self.s15 or self.s16 or self.s17 or self.s18):
             Kb, Vb = sym_eig_desc(Jc @ Jc.t())
-            for k in range(n):
+            for k in range(min(n, Vb.shape[1])):   # NTK is M×M → only M eigvecs exist (guard M < neig, e.g. tiny §11 runs)
                 Vb[:, k] = pin_sign(Vb[:, k])
             bEk_vecs, bEk_vals = Vb, Kb
             u1s = Vb[:, 0]
