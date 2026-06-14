@@ -461,17 +461,17 @@ def _g3d_scatter(fig, pos, g, key, M, title):
     s = 26.0 * (0.35 + 0.65 * np.abs(c) / cm)
     norm = SymLogNorm(linthresh=lin, vmin=-vmax, vmax=vmax)
     ax = fig.add_subplot(*pos, projection="3d")
-    sc = ax.scatter(i + 1, j + 1, k + 1, c=v, cmap="RdBu_r", norm=norm,
+    sc = ax.scatter(i, j, k, c=v, cmap="RdBu_r", norm=norm,                 # 0-based → cube starts at (0,0,0)
                     s=s, alpha=0.85, depthshade=True, linewidths=0)
-    # highlight the i=j=k diagonal: a thin guide line + enlarged, dark-ringed markers that KEEP their true colour
-    d = np.arange(1, M + 1)
-    ax.plot(d, d, d, color="#334155", lw=1.4, alpha=0.5, zorder=4)
+    # highlight i=j=k subtly: a faint guide line + lightly-ringed markers that keep their true colour
+    d = np.arange(M)
+    ax.plot(d, d, d, color="#64748b", lw=1.0, alpha=0.35, zorder=4)
     dv = np.asarray(g.get(_G3D_DKEY[key], []), dtype=float)
     if dv.size == M:
-        ax.scatter(d, d, d, c=dv, cmap="RdBu_r", norm=norm, s=46, edgecolors="k",
-                   linewidths=0.8, depthshade=False, zorder=6)
-    lim = (0, M)
-    ax.set_xlim(*lim); ax.set_ylim(*lim); ax.set_zlim(*lim)
+        ax.scatter(d, d, d, c=dv, cmap="RdBu_r", norm=norm, s=30, edgecolors="#475569",
+                   linewidths=0.6, depthshade=False, zorder=6)
+    ax.set_xlim(M - 1, 0)                                                   # reverse the i-axis (0 at the origin corner, with j,k)
+    ax.set_ylim(0, M - 1); ax.set_zlim(0, M - 1)
     ax.set_xlabel("i"); ax.set_ylabel("j"); ax.set_zlabel("k"); ax.set_title(title, fontsize=9)
     return ax, sc
 
