@@ -438,6 +438,7 @@ def plot_section10_hess(series, meta):
 
 
 _G3D_IDXKEY = {"t1": "i1", "t2": "i2", "t3": "i3"}
+_G3D_DKEY = {"t1": "d1", "t2": "d2", "t3": "d3"}     # i=j=k diagonal values, for the highlighted diagonal markers
 
 
 def _g3d_scatter(fig, pos, g, key, M, title):
@@ -458,13 +459,18 @@ def _g3d_scatter(fig, pos, g, key, M, title):
     lin = max(float(np.percentile(a, 25)), vmax * 1e-3, 1e-30)
     c = np.sign(v) * np.log1p(a / lin); cm = max(float(np.abs(c).max()), 1e-30)
     s = 26.0 * (0.35 + 0.65 * np.abs(c) / cm)
+    norm = SymLogNorm(linthresh=lin, vmin=-vmax, vmax=vmax)
     ax = fig.add_subplot(*pos, projection="3d")
-    sc = ax.scatter(i, j, k, c=v, cmap="RdBu_r",
-                    norm=SymLogNorm(linthresh=lin, vmin=-vmax, vmax=vmax),
+    sc = ax.scatter(i + 1, j + 1, k + 1, c=v, cmap="RdBu_r", norm=norm,
                     s=s, alpha=0.85, depthshade=True, linewidths=0)
-    d = np.arange(M)
-    ax.plot(d, d, d, color="k", lw=2.0, alpha=0.9, zorder=5)        # highlight the i=j=k diagonal
-    lim = (0, max(1, M - 1))
+    # highlight the i=j=k diagonal: a thin guide line + enlarged, dark-ringed markers that KEEP their true colour
+    d = np.arange(1, M + 1)
+    ax.plot(d, d, d, color="#334155", lw=1.4, alpha=0.5, zorder=4)
+    dv = np.asarray(g.get(_G3D_DKEY[key], []), dtype=float)
+    if dv.size == M:
+        ax.scatter(d, d, d, c=dv, cmap="RdBu_r", norm=norm, s=46, edgecolors="k",
+                   linewidths=0.8, depthshade=False, zorder=6)
+    lim = (0, M)
     ax.set_xlim(*lim); ax.set_ylim(*lim); ax.set_zlim(*lim)
     ax.set_xlabel("i"); ax.set_ylabel("j"); ax.set_zlabel("k"); ax.set_title(title, fontsize=9)
     return ax, sc

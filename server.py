@@ -1729,7 +1729,10 @@ def run_stream(P):
                     return flat[idx].cpu().tolist(), idx.to(torch.int64).cpu().tolist()
 
                 v1, ix1 = _pack(T1); v2, ix2 = _pack(T2); v3, ix3 = _pack(T3)
+                dd = torch.arange(M, device=_dev())   # i=j=k diagonal values (always sent so the highlighted
+                d1 = T1[dd, dd, dd]; d2 = T2[dd, dd, dd]; d3 = T3[dd, dd, dd]   # diagonal is coloured even when sparse
                 g3d = {"M": M, "sparse": sparse, "t1": v1, "t2": v2, "t3": v3,
+                       "d1": d1.cpu().tolist(), "d2": d2.cpu().tolist(), "d3": d3.cpu().tolist(),
                        "ev": {"t1": _ev(T1), "t2": _ev(T2), "t3": _ev(T3)}}
                 if sparse:
                     g3d.update({"i1": ix1, "i2": ix2, "i3": ix3})

@@ -628,15 +628,18 @@ function g3dReset(){G3D_SNAPS=[];G3D_M=0;G3D_BUILT=false;G3D_CAMKEY='';if(G3D_RA
   g3deReset();}
 function g3dBuild(M){
   G3D_M=M;G3D_BUILT=true;
-  const dg=[];for(let q=0;q<M;q++)dg.push(q);   // the i=j=k main diagonal (0,0,0)…(M-1,M-1,M-1)
-  const dt=Math.max(1,Math.round(M/10)), rmax=Math.max(1,M-1);
+  const dg=[];for(let q=1;q<=M;q++)dg.push(q);   // the i=j=k main diagonal (1,1,1)…(M,M,M)
+  const dt=Math.max(1,Math.round(M/10)), rmax=M;
   for(let g=0;g<3;g++){
     const tr=[{type:'scatter3d',mode:'markers',x:[],y:[],z:[],customdata:[],
       marker:{size:3,color:[],colorscale:'RdBu',reversescale:true,cmin:-1,cmax:1,opacity:0.85,
         colorbar:{thickness:9,len:0.78,tickmode:'array',tickfont:{size:9},title:{text:'value',font:{size:9},side:'right'}}},
       hovertemplate:'i=%{x}, j=%{y}, k=%{z}<br>value=%{customdata:.2e}<extra></extra>'},
-      {type:'scatter3d',mode:'lines',x:dg,y:dg,z:dg,line:{color:'#111',width:6},   // highlight the i=j=k diagonal
-       opacity:0.9,name:'i=j=k',hovertemplate:'i=j=k=%{x}<extra></extra>'}];
+      {type:'scatter3d',mode:'lines',x:dg,y:dg,z:dg,line:{color:'#334155',width:3},opacity:0.45,   // thin i=j=k guide line (lets the colour show)
+       hoverinfo:'skip',showlegend:false},
+      {type:'scatter3d',mode:'markers',x:dg,y:dg,z:dg,customdata:[],                                // highlighted i=j=k markers: TRUE colour + dark ring
+       marker:{size:7,color:[],colorscale:'RdBu',reversescale:true,cmin:-1,cmax:1,opacity:1,line:{color:'#111',width:2},showscale:false},
+       name:'i=j=k',hovertemplate:'i=j=k=%{x}<br>value=%{customdata:.2e}<extra></extra>'}];
     const lay={title:{text:G3D_TITLES[g],font:{size:13}},margin:{l:0,r:0,t:28,b:0},uirevision:'g3d',showlegend:false,
       scene:{xaxis:{title:'i',dtick:dt,tick0:0,range:[0,rmax]},yaxis:{title:'j',dtick:dt,tick0:0,range:[0,rmax]},
         zaxis:{title:'k',dtick:dt,tick0:0,range:[0,rmax]},aspectmode:'cube',camera:{eye:{x:1.7,y:1.7,z:1.2}}}};
@@ -662,7 +665,7 @@ function g3dBuild(M){
 function g3dPos(M,idxArr,L){
   const x=new Array(L),y=new Array(L),z=new Array(L),M2=M*M;
   for(let q=0;q<L;q++){const p=idxArr?idxArr[q]:q,i=Math.floor(p/M2),rem=p-i*M2,j=Math.floor(rem/M),k=rem-j*M;
-    x[q]=i;y[q]=j;z[q]=k;}   // idx = i·M²+j·M+k → axes (x,y,z)=(i,j,k), 0-based so the cube starts at (0,0,0) and i=j=k is its main diagonal
+    x[q]=i+1;y[q]=j+1;z[q]=k+1;}   // idx = i·M²+j·M+k → axes (x,y,z)=(i,j,k), 1-based; axes range from 0 so (1,1,1) is the shared anchor and i=j=k is the main diagonal
   return {x,y,z};
 }
 // Signed-log colour: the tensors span orders of magnitude with both signs and are ~90% near-zero, so a linear
@@ -695,6 +698,10 @@ function g3dRenderNow(i){
     Plotly.restyle(G3D_IDS[g],{x:[pos.x],y:[pos.y],z:[pos.z],customdata:[v],
       'marker.color':[c],'marker.size':[size],'marker.cmin':-cm,'marker.cmax':cm,
       'marker.colorbar.tickvals':[tv],'marker.colorbar.ticktext':[tv.map(x=>fmt(realf(x)))]},[0]);
+    // highlighted i=j=k diagonal markers (trace 2): same symlog scale → TRUE colour, just bigger + ringed
+    const dv=snap['d'+(g+1)];
+    if(dv){const dc=dv.map(x=>(x<0?-1:1)*Math.log1p(Math.abs(x)/lin));
+      Plotly.restyle(G3D_IDS[g],{customdata:[dv],'marker.color':[dc],'marker.cmin':-cm,'marker.cmax':cm},[2]);}
   }
   const sp=document.getElementById('g3d_step');
   if(sp)sp.textContent=`step ${snap.t}  ·  snapshot ${i+1}/${G3D_SNAPS.length}`+(snap.sparse?`  ·  top ${snap.t1.length} of ${snap.M}³ pts`:'');
@@ -1336,7 +1343,9 @@ async function loop(){                                   // drives ST forward; r
             const id=Array.from({length:n3},(_,q)=>q).sort((a,b)=>Math.abs(T[b])-Math.abs(T[a])).slice(0,G3D_MAXPTS);
             return {v:id.map(q=>T[q]),i:id};
           };
-          const msg={type:'g3d',t:S.t,M:Mm,sparse:sparse,ev:ev};
+          const dstep=M2+Mm+1, d1=[],d2=[],d3=[];   // i=j=k diagonal values: flat idx (i,i,i)=i·(M²+M+1)
+          for(let q=0;q<Mm;q++){const di=q*dstep;d1.push(T1[di]);d2.push(T2[di]);d3.push(T3[di]);}
+          const msg={type:'g3d',t:S.t,M:Mm,sparse:sparse,ev:ev,d1:d1,d2:d2,d3:d3};
           if(sparse){const a=topN(T1),b=topN(T2),c=topN(T3);
             msg.t1=a.v;msg.t2=b.v;msg.t3=c.v;msg.i1=a.i;msg.i2=b.i;msg.i3=c.i;}
           else{msg.t1=Array.from(T1);msg.t2=Array.from(T2);msg.t3=Array.from(T3);}
