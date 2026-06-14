@@ -235,9 +235,9 @@
 <div class="plotrow row3"><div id="p_g3d1" class="plot" style="height:400px"></div><div id="p_g3d2" class="plot" style="height:400px"></div><div id="p_g3d3" class="plot" style="height:400px"></div></div>
 <p class="cap" style="margin-top:14px">Evolution of each grid's <b>mean ± std</b> (shaded cloud) over training, split by the four diagonal classes of the index triple $(i,j,k)$: <span style="color:#d62728">$i\!=\!j\!=\!k$</span>, <span style="color:#1f77b4">$i\!=\!j\neq k$</span>, <span style="color:#2ca02c">$i\neq j\!=\!k$</span>, <span style="color:#9467bd">$i\!=\!k\neq j$</span>, <span style="color:#ff7f0e">$i\neq j\neq k$</span> (all distinct). Statistics are taken over the <em>full</em> grid (not the points shown above).</p>
 <div class="plotrow row3"><div id="p_g3de1" class="plot" style="height:300px"></div><div id="p_g3de2" class="plot" style="height:300px"></div><div id="p_g3de3" class="plot" style="height:300px"></div></div>
-<p class="cap" style="margin-top:14px">Percentage of the norm contributed by each class's <b>sum</b> — $100\cdot s_c^2/\sum_{c'} s_{c'}^2$, where $s_c=\sum_{(i,j,k)\in c} T_{ijk}$ is the sum of the grid over class $c$ (the five curves sum to 100% per panel). Same class colours as above.</p>
+<p class="cap" style="margin-top:14px">Percentage of the norm contributed by each class's <b>average</b> — $100\cdot m_c^2/\sum_{c'} m_{c'}^2$, where $m_c$ is the mean of the grid over class $c$ (the five curves sum to 100% per panel). Same class colours as above.</p>
 <div class="plotrow row3"><div id="p_g3dn1" class="plot" style="height:300px"></div><div id="p_g3dn2" class="plot" style="height:300px"></div><div id="p_g3dn3" class="plot" style="height:300px"></div></div>
-<p class="cap" style="margin-top:14px">Same as above but using each class's <b>sum of absolute values</b> — $100\cdot \mathit{as}_c^2/\sum_{c'} \mathit{as}_{c'}^2$, where $\mathit{as}_c=\sum_{(i,j,k)\in c}|T_{ijk}|$ (sign-independent magnitude per class; five curves sum to 100%).</p>
+<p class="cap" style="margin-top:14px">Same as above but using each class's <b>mean absolute value</b> — $100\cdot a_c^2/\sum_{c'} a_{c'}^2$, where $a_c=\operatorname{mean}_{(i,j,k)\in c}|T_{ijk}|$ (sign-independent magnitude per class; five curves sum to 100%).</p>
 <div class="plotrow row3"><div id="p_g3da1" class="plot" style="height:300px"></div><div id="p_g3da2" class="plot" style="height:300px"></div><div id="p_g3da3" class="plot" style="height:300px"></div></div>
 </div>
 
@@ -728,16 +728,13 @@ function g3dPush(m){
 const G3DE_IDS=['p_g3de1','p_g3de2','p_g3de3'], G3DN_IDS=['p_g3dn1','p_g3dn2','p_g3dn3'], G3DA_IDS=['p_g3da1','p_g3da2','p_g3da3'],
       G3DE_LAB=['i=j=k','i=j≠k','i≠j=k','i=k≠j','i≠j≠k'],
       G3DE_COL=['#d62728','#1f77b4','#2ca02c','#9467bd','#ff7f0e'], G3DE_NC=5, G3DE_MAXPTS=4000;
-let G3DE_STEPS=[], G3DE_DATA=g3deBlank(), G3DE_BUILT=false, G3DN_BUILT=false, G3DA_BUILT=false, G3DE_RAF=0, G3DE_M=0;
+let G3DE_STEPS=[], G3DE_DATA=g3deBlank(), G3DE_BUILT=false, G3DN_BUILT=false, G3DA_BUILT=false, G3DE_RAF=0;
 function g3deBlank(){const mk=()=>({m:[[],[],[],[],[]],s:[[],[],[],[],[]],a:[[],[],[],[],[]]});return {t1:mk(),t2:mk(),t3:mk()};}
-// # of (i,j,k) triples in each class [i=j=k, i=j≠k, i≠j=k, i=k≠j, i≠j≠k] — turns a class MEAN into its SUM (mean·count)
-function g3deCounts(){const M=G3DE_M||1;return [M, M*(M-1), M*(M-1), M*(M-1), M*(M-1)*(M-2)];}
 function hexA(h,a){const n=parseInt(h.slice(1),16);return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;}
-function g3deReset(){G3DE_STEPS=[];G3DE_DATA=g3deBlank();G3DE_M=0;G3DE_BUILT=false;G3DN_BUILT=false;G3DA_BUILT=false;if(G3DE_RAF){cancelAnimationFrame(G3DE_RAF);G3DE_RAF=0;}
+function g3deReset(){G3DE_STEPS=[];G3DE_DATA=g3deBlank();G3DE_BUILT=false;G3DN_BUILT=false;G3DA_BUILT=false;if(G3DE_RAF){cancelAnimationFrame(G3DE_RAF);G3DE_RAF=0;}
   for(const id of G3DE_IDS.concat(G3DN_IDS,G3DA_IDS)){try{Plotly.purge(id);}catch(e){}}}
 function g3deAppend(m){
   if(!m.ev)return;
-  if(m.M)G3DE_M=m.M;   // class sizes (for mean→sum in the norm-share panels) depend only on M
   G3DE_STEPS.push(m.t);
   for(const key of G3D_KEYS){const ev=m.ev[key];if(!ev)continue;
     for(let c=0;c<G3DE_NC;c++){G3DE_DATA[key].m[c].push(ev[c][0]);G3DE_DATA[key].s[c].push(ev[c][1]);G3DE_DATA[key].a[c].push(ev[c][2]!=null?ev[c][2]:0);}}
@@ -789,17 +786,17 @@ function g3dnBuild(){
 function g3dnRender(){
   if(!G3DE_STEPS.length)return;
   if(!G3DN_BUILT)g3dnBuild();
-  const xs=G3DE_STEPS, T=xs.length, ct=g3deCounts();
+  const xs=G3DE_STEPS, T=xs.length;
   for(let g=0;g<3;g++){
-    const m=G3DE_DATA[G3D_KEYS[g]].m, pct=[[],[],[],[],[]];   // class SUM s_c = mean_c·count_c
-    for(let t=0;t<T;t++){let den=0;const s=[];for(let c=0;c<G3DE_NC;c++){const v=m[c][t]*ct[c];s.push(v);den+=v*v;}den=den||1;
-      for(let c=0;c<G3DE_NC;c++)pct[c].push(100*s[c]*s[c]/den);}
+    const m=G3DE_DATA[G3D_KEYS[g]].m, pct=[[],[],[],[],[]];
+    for(let t=0;t<T;t++){let den=0;for(let c=0;c<G3DE_NC;c++)den+=m[c][t]*m[c][t];den=den||1;
+      for(let c=0;c<G3DE_NC;c++)pct[c].push(100*m[c][t]*m[c][t]/den);}
     const X=[],Y=[];for(let c=0;c<G3DE_NC;c++){X.push(xs);Y.push(pct[c]);}
     Plotly.restyle(G3DN_IDS[g],{x:X,y:Y});
   }
   g3daRender();
 }
-// ── §11 per-class ABS norm share: same as g3dn but with the class SUM of |·| (Σ|·|=mean|·|·count) — 100·as²/Σas² (sums to 100%).
+// ── §11 per-class ABS norm share: same as g3dn but with a_c = mean|·| per class — 100·a_c²/Σa_c'² (sums to 100%).
 function g3daBuild(){
   G3DA_BUILT=true;
   for(let g=0;g<3;g++){
@@ -814,11 +811,11 @@ function g3daBuild(){
 function g3daRender(){
   if(!G3DE_STEPS.length)return;
   if(!G3DA_BUILT)g3daBuild();
-  const xs=G3DE_STEPS, T=xs.length, ct=g3deCounts();
+  const xs=G3DE_STEPS, T=xs.length;
   for(let g=0;g<3;g++){
-    const a=G3DE_DATA[G3D_KEYS[g]].a, pct=[[],[],[],[],[]];   // class SUM of |·|: as_c = mean|·|_c·count_c
-    for(let t=0;t<T;t++){let den=0;const s=[];for(let c=0;c<G3DE_NC;c++){const v=a[c][t]*ct[c];s.push(v);den+=v*v;}den=den||1;
-      for(let c=0;c<G3DE_NC;c++)pct[c].push(100*s[c]*s[c]/den);}
+    const a=G3DE_DATA[G3D_KEYS[g]].a, pct=[[],[],[],[],[]];
+    for(let t=0;t<T;t++){let den=0;for(let c=0;c<G3DE_NC;c++)den+=a[c][t]*a[c][t];den=den||1;
+      for(let c=0;c<G3DE_NC;c++)pct[c].push(100*a[c][t]*a[c][t]/den);}
     const X=[],Y=[];for(let c=0;c<G3DE_NC;c++){X.push(xs);Y.push(pct[c]);}
     Plotly.restyle(G3DA_IDS[g],{x:X,y:Y});
   }
