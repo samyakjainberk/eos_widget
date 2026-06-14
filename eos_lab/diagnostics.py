@@ -530,10 +530,19 @@ class Diagnostics:
                 v1, i1 = _pack(T1); v2, i2 = _pack(T2); v3, i3 = _pack(T3)
                 dd = torch.arange(M, device=dev)           # i=j=k diagonal values (stay coloured even when sparse)
                 d1 = T1[dd, dd, dd]; d2 = T2[dd, dd, dd]; d3 = T3[dd, dd, dd]
+                sqsparse = (M * M) > G3D_MAXPTS            # the square is M² — sparsify the scatter too
+                sqflat = Smat.reshape(-1).detach()
+                if sqsparse:
+                    sqidx = torch.topk(sqflat.abs(), G3D_MAXPTS).indices
+                    sqv = sqflat[sqidx].cpu().tolist(); sqi = sqidx.to(torch.int64).cpu().tolist()
+                else:
+                    sqv = sqflat.cpu().tolist(); sqi = None
                 g3d.update({"sparse": sparse, "t1": v1, "t2": v2, "t3": v3,
                             "d1": d1.detach().cpu().tolist(), "d2": d2.detach().cpu().tolist(), "d3": d3.detach().cpu().tolist(),
-                            "sq": Smat.reshape(-1).detach().cpu().tolist(),        # 4th column S[i,j], idx=i·M+j
-                            "sqd": torch.diagonal(Smat).detach().cpu().tolist()})  # i=j diagonal (highlight)
+                            "sq": sqv, "sqsparse": sqsparse,                       # 4th column S[i,j], idx=i·M+j
+                            "sqd": torch.diagonal(Smat).detach().cpu().tolist()})  # i=j diagonal (highlight; full M)
+                if sqsparse:
+                    g3d["sqi"] = sqi
                 if sparse:
                     g3d.update({"i1": i1, "i2": i2, "i3": i3})
             rec["g3d"] = g3d

@@ -1765,13 +1765,22 @@ def run_stream(P):
                 v1, ix1 = _pack(T1); v2, ix2 = _pack(T2); v3, ix3 = _pack(T3)
                 dd = torch.arange(M, device=_dev())   # i=j=k diagonal values (always sent so the highlighted
                 d1 = T1[dd, dd, dd]; d2 = T2[dd, dd, dd]; d3 = T3[dd, dd, dd]   # diagonal is coloured even when sparse
+                sqsparse = (M * M) > G3D_MAXPTS       # the square is M² — sparsify the scatter the same way
+                sqflat = Smat.reshape(-1)
+                if sqsparse:
+                    sqidx = torch.topk(sqflat.abs(), G3D_MAXPTS).indices
+                    sqv = sqflat[sqidx].cpu().tolist(); sqi = sqidx.to(torch.int64).cpu().tolist()
+                else:
+                    sqv = sqflat.cpu().tolist(); sqi = None
                 g3d = {"M": M, "sparse": sparse, "t1": v1, "t2": v2, "t3": v3,
                        "d1": d1.cpu().tolist(), "d2": d2.cpu().tolist(), "d3": d3.cpu().tolist(),
                        "pp": [_pospct(T1), _pospct(T2), _pospct(T3)],
                        "ev": {"t1": _ev(T1), "t2": _ev(T2), "t3": _ev(T3)},
-                       "sq": Smat.reshape(-1).cpu().tolist(),                  # 4th column: S[i,j], idx=i·M+j
-                       "sqd": torch.diagonal(Smat).cpu().tolist(),            # i=j diagonal (highlight)
-                       "sqpp": _pospct(Smat), "sqev": _evs(Smat)}
+                       "sq": sqv, "sqsparse": sqsparse,                        # 4th column: S[i,j], idx=i·M+j
+                       "sqd": torch.diagonal(Smat).cpu().tolist(),            # i=j diagonal (highlight; full M)
+                       "sqpp": _pospct(Smat), "sqev": _evs(Smat)}             # stats over the FULL square
+                if sqsparse:
+                    g3d["sqi"] = sqi
                 if sparse:
                     g3d.update({"i1": ix1, "i2": ix2, "i3": ix3})
 
@@ -2331,7 +2340,7 @@ def _parse_params(q):
         "s16": g("s16", "1") == "1",     # §9d-c: §9d predictions vs full loss-Hessian sharpness
         "s17": g("s17", "0") == "1",     # §10: CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation; OFF by default — heaviest)
         "s18": g("s18", "0") == "1",     # §11: 3D Hessian–NTK grids (multi-sample, small M; OFF by default)
-        "grid3dcap": max(1, fi("grid3dcap", 100)),
+        "grid3dcap": max(1, fi("grid3dcap", 500)),
         "gs": g("gson", "1") == "1",
         # surrogate-section panel toggles (loss · resid mean/std · top-n eig · histogram · theory · §4 · §4d)
         "c1": g("c1", "1") == "1", "c2": g("c2", "1") == "1", "c3": g("c3", "1") == "1",

@@ -498,7 +498,8 @@ def _g3d_square(fig, pos, g, M, title):
     import numpy as np
     from matplotlib.colors import SymLogNorm
     v = np.asarray(g["sq"], dtype=float)
-    idx = np.arange(M * M); ii = idx // M; jj = idx % M                  # idx = i·M + j
+    idx = (np.asarray(g["sqi"], dtype=np.int64) if g.get("sqsparse") else np.arange(M * M))   # idx = i·M + j
+    ii = idx // M; jj = idx % M
     a = np.abs(v); vmax = max(float(a.max()), 1e-30)
     lin = max(float(np.percentile(a, 25)), vmax * 1e-3, 1e-30)
     norm = SymLogNorm(linthresh=lin, vmin=-vmax, vmax=vmax)
@@ -601,6 +602,37 @@ def plot_section11_classes(hist):
     return fig
 
 
+def plot_section11_sumevolution(hist):
+    """§11 — evolution of each class's SUM over training (no std): s_c = mean_c·count_c. 4 columns (cubes + square)."""
+    import numpy as np
+    snaps = [r for r in hist if "g3d" in r and "ev" in r["g3d"]]
+    if len(snaps) < 2:
+        return None
+    steps = np.array([r["t"] for r in snaps], dtype=float)
+    M = snaps[0]["g3d"]["M"]; ct5 = _g3d_class_counts(M); ct2 = _g3dsq_class_counts(M)
+    fig, axes = plt.subplots(1, 4, figsize=(21, 4.6))
+    titles = [r"$T_1=J_i^\top Q_j J_k$", r"$T_2=u_j u_k\,J_i^\top Q_j J_k$",
+              r"$T_3=r_i u_j u_k\,J_i^\top Q_j J_k$"]
+    for ti, key in enumerate(("t1", "t2", "t3")):
+        ax = axes[ti]
+        s = np.array([[r["g3d"]["ev"][key][c][0] for c in range(5)] for r in snaps]) * ct5
+        for c in range(5):
+            ax.plot(steps, s[:, c], color=_G3D_CLASS_COLORS[c], lw=1.4, label=_G3D_CLASS_LABELS[c])
+        ax.set_title(titles[ti], fontsize=10); ax.set_xlabel("step"); ax.set_ylabel("sum"); ax.axhline(0, color="#888", lw=0.6)
+        if ti == 0:
+            ax.legend(fontsize=8, loc="best", title="class of (i,j,k)", title_fontsize=8)
+    ax = axes[3]                                              # 4th column: the square (2 classes)
+    if all("sqev" in r["g3d"] for r in snaps):
+        s = np.array([[r["g3d"]["sqev"][c][0] for c in range(2)] for r in snaps]) * ct2
+        for c in range(2):
+            ax.plot(steps, s[:, c], color=_G3DSQ_COLORS[c], lw=1.4, label=_G3DSQ_LABELS[c])
+        ax.legend(fontsize=8, loc="best", title="class of (i,j)", title_fontsize=8)
+    ax.set_title(_G3DSQ_TITLE, fontsize=10); ax.set_xlabel("step"); ax.set_ylabel("sum"); ax.axhline(0, color="#888", lw=0.6)
+    fig.suptitle("§11 — per-class SUM of the Hessian–NTK grids + square over training", fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    return fig
+
+
 def _plot_section11_share(hist, weighted, suptitle):
     """Shared body for the two norm-share panels. weighted=False → class MEAN (100·m_c²/Σm²);
     weighted=True → class SUM (100·s_c²/Σs², s_c=mean_c·count_c). 4th column = the square (2 classes)."""
@@ -676,6 +708,7 @@ def save_panels(results, outdir):
             "section11_grids": plot_section11(hist),
             "section11_evolution": plot_section11_evolution(hist),
             "section11_classes": plot_section11_classes(hist),
+            "section11_sumevolution": plot_section11_sumevolution(hist),
             "section11_normshare": plot_section11_normshare(hist),
             "section11_sumnormshare": plot_section11_sumnormshare(hist)}
     written = []

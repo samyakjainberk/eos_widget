@@ -165,7 +165,7 @@
       <div class="ctl"><label>eig every (steps)</label><input id="eigevery" type="number" value="1" min="1" max="20" step="1"></div>
       <div class="ctl"><label title="The heaviest panels (§7 FH-eigvec projections, §8 FH-reshape SVD) compute every N-th diagnostic tick instead of every step, so runs stay responsive. The cheap core (loss/sharpness/eigenvalues/§9 theory/§7a) updates every step. Set 1 to compute everything every step.">heavy every (ticks)</label><input id="heavyevery" type="number" value="4" min="1" max="50" step="1"></div>
       <div class="ctl"><label title="§10 cubic-approximation window: every N steps freeze θ₀, J₀, Q₀ and the 3rd-derivative tensor T, then propagate J & Q over the window to predict the NTK-σ₁ change. Smaller = more frequent re-anchoring and cheaper (cost is O(window²) HVPs).">cubic window</label><input id="cubicapprox" type="number" value="10" min="2" max="50" step="1"></div>
-      <div class="ctl"><label title="§11 3D-grid cap: skip the N×N×N Hessian–NTK grids when N·d_out exceeds this. The grid is N³ points and costs N Hessian-vector products, so it is feasible only for small N.">3D-grid cap (N·d_out)</label><input id="grid3dcap" type="number" value="100" min="1" max="128" step="1"></div>
+      <div class="ctl"><label title="§11 3D-grid cap: skip the N×N×N Hessian–NTK grids when N·d_out exceeds this. The grid is N³ points and costs N Hessian-vector products, so it is feasible only for small N.">3D-grid cap (N·d_out)</label><input id="grid3dcap" type="number" value="500" min="1" max="600" step="1"></div>
       <div class="ctl"><label>SLQ probes</label><input id="slqprobes" type="number" value="4" min="1" max="12" step="1"></div>
       <div class="ctl"><label>subspace energy %</label><input id="energyp" type="number" value="99" min="50" max="100" step="1"></div>
       <div class="ctl"><label>G &amp; S spectra</label><select id="gson"><option value="1" selected>on</option><option value="0">off</option></select></div>
@@ -236,6 +236,8 @@
 <p class="cap" style="margin-top:6px">The 4th column is the 2D <b>square</b> $S_{ij}=J_i^\top Q_i J_j\,r_j$ (indices $i,j$ only — $Q_i$ acts on its own gradient $J_i$, contracted with $J_j$ and weighted by the residual $r_j$). Its two classes are <span style="color:#d62728">$i\!=\!j$</span> (diagonal) and <span style="color:#1f77b4">$i\neq j$</span>.</p>
 <p class="cap" style="margin-top:14px">Evolution of each grid's <b>mean ± std</b> (shaded cloud) over training, split by the diagonal classes of the index triple $(i,j,k)$: <span style="color:#d62728">$i\!=\!j\!=\!k$</span>, <span style="color:#1f77b4">$i\!=\!j\neq k$</span>, <span style="color:#2ca02c">$i\neq j\!=\!k$</span>, <span style="color:#9467bd">$i\!=\!k\neq j$</span>, <span style="color:#ff7f0e">$i\neq j\neq k$</span> (all distinct) — and for the square (4th) by $i\!=\!j$ / $i\neq j$. Statistics over the <em>full</em> grid.</p>
 <div class="plotrow row4"><div id="p_g3de1" class="plot" style="height:300px"></div><div id="p_g3de2" class="plot" style="height:300px"></div><div id="p_g3de3" class="plot" style="height:300px"></div><div id="p_g3de4" class="plot" style="height:300px"></div></div>
+<p class="cap" style="margin-top:14px">Evolution of each class's <b>sum</b> over training (no std) — $s_c=\sum_{(i,j,k)\in c} T_{ijk}$ per class (and $\sum_{(i,j)\in c} S_{ij}$ for the square). Same class colours as above.</p>
+<div class="plotrow row4"><div id="p_g3ds1" class="plot" style="height:300px"></div><div id="p_g3ds2" class="plot" style="height:300px"></div><div id="p_g3ds3" class="plot" style="height:300px"></div><div id="p_g3ds4" class="plot" style="height:300px"></div></div>
 <p class="cap" style="margin-top:14px">Percentage of the norm contributed by each class's <b>mean</b> — $100\cdot m_c^2/\sum_{c'} m_{c'}^2$, where $m_c$ is the mean of the grid over class $c$ (the curves sum to 100% per panel). Same class colours as above.</p>
 <div class="plotrow row4"><div id="p_g3dn1" class="plot" style="height:300px"></div><div id="p_g3dn2" class="plot" style="height:300px"></div><div id="p_g3dn3" class="plot" style="height:300px"></div><div id="p_g3dn4" class="plot" style="height:300px"></div></div>
 <p class="cap" style="margin-top:14px">Same as above but using each class's <b>sum</b> — $100\cdot s_c^2/\sum_{c'} s_{c'}^2$, where $s_c=\sum_{(i,j,k)\in c} T_{ijk}$ is the sum over class $c$ (so larger classes are weighted by their size; curves sum to 100%).</p>
@@ -666,10 +668,9 @@ function g3dBuild(M){
     });
   }
   // ── 4th column: 2D SQUARE  S[i,j] = Jᵢᵀ Qᵢ Jⱼ rⱼ  (same symlog colour scheme; i=j diagonal highlighted) ──
-  {const dgs=[],x0=[],y0=[];for(let q=0;q<M;q++)dgs.push(q);
-   for(let i=0;i<M;i++)for(let j=0;j<M;j++){x0.push(i);y0.push(j);}   // idx = i·M+j → (x,y)=(i,j)
+  {const dgs=[];for(let q=0;q<M;q++)dgs.push(q);   // positions set per-snapshot in the render (sparse for large M)
    const sz=Math.max(3,Math.min(16,Math.round(300/Math.max(1,M))));
-   const tr=[{type:'scattergl',mode:'markers',x:x0,y:y0,customdata:[],
+   const tr=[{type:'scattergl',mode:'markers',x:[],y:[],customdata:[],
       marker:{size:sz,symbol:'square',color:[],colorscale:'RdBu',reversescale:true,cmin:-1,cmax:1,
         colorbar:{thickness:9,len:0.85,tickmode:'array',tickfont:{size:9},title:{text:'value',font:{size:9},side:'right'}}},
       hovertemplate:'i=%{x}, j=%{y}<br>S=%{customdata:.2e}<extra></extra>'},
@@ -726,10 +727,12 @@ function g3dRenderNow(i){
     const pp=snap.pp&&snap.pp[g]!=null?`   ·   +${snap.pp[g].toFixed(1)}%`:'';
     Plotly.relayout(G3D_IDS[g],{'title.text':G3D_TITLES[g]+pp});
   }
-  // 4th column — the 2D square S (positions fixed in build; restyle colour only)
+  // 4th column — the 2D square S (idx = i·M+j; sparse → top-|value| points for large M)
   if(snap.sq){
+    const Msq=snap.M, idxA=snap.sqsparse?snap.sqi:null, L=snap.sq.length, sx=new Array(L), sy=new Array(L);
+    for(let q=0;q<L;q++){const p=idxA?idxA[q]:q;sx[q]=Math.floor(p/Msq);sy[q]=p%Msq;}
     const {c,cm,lin}=g3dColor(snap.sq), realf=x=>(x<0?-1:1)*lin*Math.expm1(Math.abs(x)), tv=[-cm,-cm/2,0,cm/2,cm];
-    Plotly.restyle('p_g3d4',{customdata:[snap.sq],'marker.color':[c],'marker.cmin':-cm,'marker.cmax':cm,
+    Plotly.restyle('p_g3d4',{x:[sx],y:[sy],customdata:[snap.sq],'marker.color':[c],'marker.cmin':-cm,'marker.cmax':cm,
       'marker.colorbar.tickvals':[tv],'marker.colorbar.ticktext':[tv.map(z=>fmt(realf(z)))]},[0]);
     const dv=snap.sqd;
     if(dv){const dc=dv.map(z=>(z<0?-1:1)*Math.log1p(Math.abs(z)/lin));
@@ -752,19 +755,20 @@ function g3dPush(m){
 
 // ── §11 per-class evolution panels. Columns 1-3 are the cubes (5 classes of (i,j,k)); column 4 is the
 // square S (2 classes i=j / i≠j). Stats come from the FULL grid (server/eos_lab side).
-const G3DE_IDS=['p_g3de1','p_g3de2','p_g3de3'], G3DN_IDS=['p_g3dn1','p_g3dn2','p_g3dn3'], G3DA_IDS=['p_g3da1','p_g3da2','p_g3da3'],
-      G3DSQ_IDS=['p_g3de4','p_g3dn4','p_g3da4'],                      // the square's 4th-column plot in rows 2 / 3 / 4
+const G3DE_IDS=['p_g3de1','p_g3de2','p_g3de3'], G3DS_IDS=['p_g3ds1','p_g3ds2','p_g3ds3'],
+      G3DN_IDS=['p_g3dn1','p_g3dn2','p_g3dn3'], G3DA_IDS=['p_g3da1','p_g3da2','p_g3da3'],
+      G3DSQ_IDS=['p_g3de4','p_g3dn4','p_g3da4'], G3DS_SQID='p_g3ds4',  // the square's 4th-column plot in rows 2 / (sum) / 3 / 4
       G3DE_LAB=['i=j=k','i=j≠k','i≠j=k','i=k≠j','i≠j≠k'], G3DSQ_LAB=['i=j','i≠j'],
       G3DE_COL=['#d62728','#1f77b4','#2ca02c','#9467bd','#ff7f0e'], G3DE_NC=5, G3DSQ_NC=2,
       G3D_SQTITLE='S = Jᵢᵀ Qᵢ Jⱼ rⱼ', G3DE_MAXPTS=4000;
-let G3DE_STEPS=[], G3DE_DATA=g3deBlank(), G3DE_BUILT=false, G3DN_BUILT=false, G3DA_BUILT=false, G3DE_RAF=0, G3DE_M=0;
+let G3DE_STEPS=[], G3DE_DATA=g3deBlank(), G3DE_BUILT=false, G3DS_BUILT=false, G3DN_BUILT=false, G3DA_BUILT=false, G3DE_RAF=0, G3DE_M=0;
 function g3deBlank(){const mk=n=>({m:Array.from({length:n},()=>[]),s:Array.from({length:n},()=>[]),a:Array.from({length:n},()=>[])});
   return {t1:mk(5),t2:mk(5),t3:mk(5),sq:mk(2)};}
 function hexA(h,a){const n=parseInt(h.slice(1),16);return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;}
 function g3deCounts(){const M=G3DE_M||1;return [M,M*(M-1),M*(M-1),M*(M-1),M*(M-1)*(M-2)];}   // 5-class sizes (mean→sum)
 function g3dsqCounts(){const M=G3DE_M||1;return [M,M*(M-1)];}                                  // 2-class sizes (i=j, i≠j)
-function g3deReset(){G3DE_STEPS=[];G3DE_DATA=g3deBlank();G3DE_M=0;G3DE_BUILT=false;G3DN_BUILT=false;G3DA_BUILT=false;if(G3DE_RAF){cancelAnimationFrame(G3DE_RAF);G3DE_RAF=0;}
-  for(const id of G3DE_IDS.concat(G3DN_IDS,G3DA_IDS,G3DSQ_IDS)){try{Plotly.purge(id);}catch(e){}}}
+function g3deReset(){G3DE_STEPS=[];G3DE_DATA=g3deBlank();G3DE_M=0;G3DE_BUILT=false;G3DS_BUILT=false;G3DN_BUILT=false;G3DA_BUILT=false;if(G3DE_RAF){cancelAnimationFrame(G3DE_RAF);G3DE_RAF=0;}
+  for(const id of G3DE_IDS.concat(G3DS_IDS,G3DN_IDS,G3DA_IDS,G3DSQ_IDS,[G3DS_SQID])){try{Plotly.purge(id);}catch(e){}}}
 function g3deAppend(m){
   if(!m.ev)return;
   if(m.M)G3DE_M=m.M;
@@ -800,6 +804,24 @@ function g3deRender(){
     X.push(xs.concat(xr));Y.push(up.concat(lo.slice().reverse()));X.push(xs);Y.push(m);}return {X,Y};};
   for(let g=0;g<3;g++){const r=bands(G3DE_DATA[G3D_KEYS[g]],G3DE_NC);Plotly.restyle(G3DE_IDS[g],{x:r.X,y:r.Y});}
   {const r=bands(G3DE_DATA.sq,G3DSQ_NC);Plotly.restyle(G3DSQ_IDS[0],{x:r.X,y:r.Y});}
+  g3dsRender();
+}
+// ── panel 2b (below panel 2): per-class SUM over training (no std). s_c = mean_c·count_c ──
+function g3dsBuild(){
+  G3DS_BUILT=true;
+  const mk=(id,labs,col,nc,title,showleg)=>{const tr=[];
+    for(let c=0;c<nc;c++)tr.push({x:[],y:[],type:'scatter',mode:'lines',line:{color:col[c],width:1.6},name:labs[c]});
+    newP(id,tr,{title:{text:title,font:{size:12}},margin:{l:58,r:8,t:24,b:34},xaxis:{title:'step'},yaxis:{title:'sum',zeroline:true,zerolinecolor:'#cbd5e1'},legend:{font:{size:9},orientation:'h',y:1.16,x:0},showlegend:showleg});};
+  for(let g=0;g<3;g++)mk(G3DS_IDS[g],G3DE_LAB,G3DE_COL,G3DE_NC,G3D_TITLES[g],g===0);
+  mk(G3DS_SQID,G3DSQ_LAB,G3DE_COL,G3DSQ_NC,G3D_SQTITLE,false);
+}
+function g3dsRender(){
+  if(!G3DE_STEPS.length)return;
+  if(!G3DS_BUILT)g3dsBuild();
+  const xs=G3DE_STEPS, T=xs.length, ct5=g3deCounts(), ct2=g3dsqCounts();
+  const sumXY=(m,nc,ct)=>{const X=[],Y=[];for(let c=0;c<nc;c++){const y=[];for(let t=0;t<T;t++)y.push(m[c][t]*ct[c]);X.push(xs);Y.push(y);}return {X,Y};};
+  for(let g=0;g<3;g++){const r=sumXY(G3DE_DATA[G3D_KEYS[g]].m,G3DE_NC,ct5);Plotly.restyle(G3DS_IDS[g],{x:r.X,y:r.Y});}
+  {const r=sumXY(G3DE_DATA.sq.m,G3DSQ_NC,ct2);Plotly.restyle(G3DS_SQID,{x:r.X,y:r.Y});}
   g3dnRender();
 }
 // ── panel 3: norm share from each class MEAN — 100·m_c²/Σm_c'² ──
@@ -1404,6 +1426,9 @@ async function loop(){                                   // drives ST forward; r
           const sqev=[];for(let c=0;c<2;c++){const n=scnt[c]||1,mn=ssm[c]/n;sqev.push(scnt[c]?[mn,Math.sqrt(Math.max(0,ssq2[c]/n-mn*mn)),ssa[c]/n]:[0,0,0]);}
           const sqd=[];for(let q=0;q<Mm;q++)sqd.push(Sm[q*Mm+q]);
           let sps=0,sns=0;for(let q=0;q<M2;q++){const v=Sm[q];if(v>0)sps+=v;else sns+=v;}const sqpp=(sps-sns)>1e-30?sps/(sps-sns)*100:0;
+          const sqsparse=M2>G3D_MAXPTS;let sqv,sqi=null;   // the square is M² → sparsify the scatter for large M
+          if(sqsparse){const id=Array.from({length:M2},(_,q)=>q).sort((a,b)=>Math.abs(Sm[b])-Math.abs(Sm[a])).slice(0,G3D_MAXPTS);sqv=id.map(q=>Sm[q]);sqi=id;}
+          else sqv=Array.from(Sm);
           // per-class mean±std over the FULL grid (evolution panel): 0:i=j=k 1:i=j≠k 2:i≠j=k 3:i=k≠j 4:i≠j≠k
           const Z=()=>[0,0,0,0,0],ZZ=()=>[Z(),Z(),Z()];
           const TS=[T1,T2,T3],cnt=Z(),sm=ZZ(),sq=ZZ(),sa=ZZ();
@@ -1423,7 +1448,8 @@ async function loop(){                                   // drives ST forward; r
           for(let q=0;q<Mm;q++){const di=q*dstep;d1.push(T1[di]);d2.push(T2[di]);d3.push(T3[di]);}
           const pospct=(T)=>{let ps=0,ns=0;for(let q=0;q<n3;q++){const v=T[q];if(v>0)ps+=v;else ns+=v;}const den=ps-ns;return den>1e-30?ps/den*100:0;};
           const msg={type:'g3d',t:S.t,M:Mm,sparse:sparse,ev:ev,d1:d1,d2:d2,d3:d3,pp:[pospct(T1),pospct(T2),pospct(T3)],
-                     sq:Array.from(Sm),sqd:sqd,sqev:sqev,sqpp:sqpp};
+                     sq:sqv,sqsparse:sqsparse,sqd:sqd,sqev:sqev,sqpp:sqpp};
+          if(sqsparse)msg.sqi=sqi;
           if(sparse){const a=topN(T1),b=topN(T2),c=topN(T3);
             msg.t1=a.v;msg.t2=b.v;msg.t3=c.v;msg.i1=a.i;msg.i2=b.i;msg.i3=c.i;}
           else{msg.t1=Array.from(T1);msg.t2=Array.from(T2);msg.t3=Array.from(T3);}

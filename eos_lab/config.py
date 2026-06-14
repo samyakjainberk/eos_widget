@@ -63,7 +63,7 @@ class Config:
     qapprox: int = 25              # §9 frozen-Q window length (steps)
     qmode: int = 1                 # §9 col-3 mode index — legacy (Eq-22 uses no mode)
     tset: int = 3                  # §9 Eq-29 number of top modes |T|
-    grid3dcap: int = 100           # §11 3D-grid cap: skip the N×N×N Hessian–NTK grids when M=N·d_out exceeds this.
+    grid3dcap: int = 500           # §11 3D-grid cap: skip the N×N×N Hessian–NTK grids when M=N·d_out exceeds this.
                                    #   Costs M Hessian-vector products; only the top-|value| points are emitted/plotted
                                    #   (G3D_MAXPTS) so even M≈100 (M³≈10⁶ entries) stays renderable.
     cubicapprox: int = 10          # §10 cubic-approximation window: every `cubicapprox` steps freeze θ₀, J₀, Q₀
