@@ -546,21 +546,29 @@ def plot_section11_classes(hist):
     return fig
 
 
+def _g3d_class_counts(M):
+    """Number of (i,j,k) triples in each of the 5 classes: i=j=k, i=j≠k, i≠j=k, i=k≠j, i≠j≠k."""
+    import numpy as np
+    return np.array([M, M * (M - 1), M * (M - 1), M * (M - 1), M * (M - 1) * (M - 2)], dtype=float)
+
+
 def plot_section11_normshare(hist):
-    """§11 — % of the norm contributed by each class's average over training: 100·m_c²/Σ m_c'² (m_c = class mean).
+    """§11 — % of the norm contributed by each class's SUM over training: 100·s_c²/Σ s_c'² (s_c = class sum).
     The five curves sum to 100% in each of the three panels."""
     import numpy as np
     snaps = [r for r in hist if "g3d" in r and "ev" in r["g3d"]]
     if len(snaps) < 2:
         return None
     steps = np.array([r["t"] for r in snaps], dtype=float)
+    ct = _g3d_class_counts(snaps[0]["g3d"]["M"])         # class sizes → sum = mean·count
     fig, axes = plt.subplots(1, 3, figsize=(16.5, 4.6))
     titles = [r"$T_1=J_i^\top Q_j J_k$", r"$T_2=u_j u_k\,J_i^\top Q_j J_k$",
               r"$T_3=r_i u_j u_k\,J_i^\top Q_j J_k$"]
     for ti, key in enumerate(("t1", "t2", "t3")):
         ax = axes[ti]
         m = np.array([[r["g3d"]["ev"][key][c][0] for c in range(5)] for r in snaps])   # (T, 5) class means
-        sq = m ** 2
+        s = m * ct                                        # class sums
+        sq = s ** 2
         den = sq.sum(axis=1, keepdims=True); den[den == 0] = 1.0
         pct = 100.0 * sq / den
         for c in range(5):
@@ -568,26 +576,28 @@ def plot_section11_normshare(hist):
         ax.set_title(titles[ti], fontsize=10); ax.set_xlabel("step"); ax.set_ylabel("% of norm"); ax.set_ylim(0, 100)
         if ti == 0:
             ax.legend(fontsize=8, loc="best", title="class of (i,j,k)", title_fontsize=8)
-    fig.suptitle("§11 — % of norm contributed by each class average  (100·mₖ²/Σmₖ²)", fontsize=11)
+    fig.suptitle("§11 — % of norm contributed by each class SUM  (100·sₖ²/Σsₖ²)", fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     return fig
 
 
 def plot_section11_absnormshare(hist):
-    """§11 — same as the norm-share panel but using each class's MEAN ABSOLUTE value a_c=mean|·|:
-    100·a_c²/Σ a_c'² over training (five curves sum to 100% per panel)."""
+    """§11 — same as the norm-share panel but using each class's SUM OF ABSOLUTE values as_c=Σ|·|:
+    100·as_c²/Σ as_c'² over training (five curves sum to 100% per panel)."""
     import numpy as np
     snaps = [r for r in hist if "g3d" in r and "ev" in r["g3d"] and len(r["g3d"]["ev"]["t1"][0]) > 2]
     if len(snaps) < 2:
         return None
     steps = np.array([r["t"] for r in snaps], dtype=float)
+    ct = _g3d_class_counts(snaps[0]["g3d"]["M"])         # class sizes → Σ|·| = mean|·|·count
     fig, axes = plt.subplots(1, 3, figsize=(16.5, 4.6))
     titles = [r"$T_1=J_i^\top Q_j J_k$", r"$T_2=u_j u_k\,J_i^\top Q_j J_k$",
               r"$T_3=r_i u_j u_k\,J_i^\top Q_j J_k$"]
     for ti, key in enumerate(("t1", "t2", "t3")):
         ax = axes[ti]
         a = np.array([[r["g3d"]["ev"][key][c][2] for c in range(5)] for r in snaps])   # (T, 5) class mean|·|
-        sq = a ** 2
+        asum = a * ct                                     # class sum of |·|
+        sq = asum ** 2
         den = sq.sum(axis=1, keepdims=True); den[den == 0] = 1.0
         pct = 100.0 * sq / den
         for c in range(5):
@@ -595,7 +605,7 @@ def plot_section11_absnormshare(hist):
         ax.set_title(titles[ti], fontsize=10); ax.set_xlabel("step"); ax.set_ylabel("% of norm (|·|)"); ax.set_ylim(0, 100)
         if ti == 0:
             ax.legend(fontsize=8, loc="best", title="class of (i,j,k)", title_fontsize=8)
-    fig.suptitle("§11 — % of norm contributed by each class mean-|·|  (100·aₖ²/Σaₖ²)", fontsize=11)
+    fig.suptitle("§11 — % of norm contributed by each class SUM-|·|  (100·asₖ²/Σasₖ²)", fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     return fig
 
