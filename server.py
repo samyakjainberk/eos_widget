@@ -1285,6 +1285,9 @@ def run_stream(P):
     efrac = min(1.0, max(0.5, P["energyp"] / 100.0))
     slqStride = max(1, math.ceil((steps // ee + 1) / 50))
     heavyevery = max(1, P.get("heavyevery", 4))   # §7-proj + §8 compute every heavyevery-th tick (responsiveness)
+    # §11 grid cadence: tiny grids refresh (almost) every tick for a smooth movie; bigger grids throttle so the
+    #   M Hessian-vector products + the M³-float payload don't stall the step stream. Far finer than the SLQ stride.
+    g3dstride = (1 if M <= 8 else 2 if M <= 16 else heavyevery if M <= 24 else slqStride)
     start = max(0, min(int(P.get("start", 0)), steps))  # resume: fast-forward GD to here, then stream
 
     mytok = P.get("_token", 0)                          # per-device token claimed in _sse via acquire_device()
@@ -1688,7 +1691,7 @@ def run_stream(P):
 
             # ---- §11 3D grids T1=JᵢᵀQⱼJₖ, T2=uⱼuₖT1, T3=rᵢuⱼuₖT1 (multi-sample, small M, SLQ cadence) ----
             g3d = None
-            if (s18 and multi_ok and eigTick % slqStride == 0 and Jc is not None and u1s is not None
+            if (s18 and multi_ok and eigTick % g3dstride == 0 and Jc is not None and u1s is not None
                     and rr is not None and M <= grid3dcap):
                 T1 = torch.zeros(M, M, M, dtype=DTYPE, device=_dev())
                 for kk in range(M):

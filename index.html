@@ -615,10 +615,10 @@ function refreshSLQ(id,d){Plotly.restyle(id,{x:[d.x],y:[d.y]},[0]);
 // flat C-order index i·M²+j·M+k. Every snapshot is kept so the slider can scrub the whole run;
 // the fixed (i,j,k) marker positions are built once per M, and each snapshot only restyles colour
 // (red +, blue −, symmetric range per snapshot). Dragging one grid rotates all three when synced.
-let G3D_SNAPS=[], G3D_M=0, G3D_BUILT=false, G3D_SYNCING=false;
+let G3D_SNAPS=[], G3D_M=0, G3D_BUILT=false, G3D_CAMKEY='', G3D_RAF=0, G3D_PENDING=-1, G3D_MAXSNAPS=1200;
 const G3D_IDS=['p_g3d1','p_g3d2','p_g3d3'], G3D_KEYS=['t1','t2','t3'];
 const G3D_TITLES=['T₁ = Jᵢᵀ Qⱼ Jₖ','T₂ = uⱼ uₖ · Jᵢᵀ Qⱼ Jₖ','T₃ = rᵢ uⱼ uₖ · Jᵢᵀ Qⱼ Jₖ'];
-function g3dReset(){G3D_SNAPS=[];G3D_M=0;G3D_BUILT=false;
+function g3dReset(){G3D_SNAPS=[];G3D_M=0;G3D_BUILT=false;G3D_CAMKEY='';if(G3D_RAF){cancelAnimationFrame(G3D_RAF);G3D_RAF=0;}G3D_PENDING=-1;
   const sl=document.getElementById('g3d_slider');if(sl){sl.max=0;sl.value=0;}
   const sp=document.getElementById('g3d_step');if(sp)sp.textContent='—';}
 function g3dBuild(M){
@@ -631,24 +631,36 @@ function g3dBuild(M){
       marker:{size:sz,color:new Array(n).fill(0),colorscale:'RdBu',reversescale:true,
         cmin:-1,cmax:1,colorbar:{thickness:8,len:0.7},opacity:0.9},
       hovertemplate:'i=%{x}, j=%{y}, k=%{z}<br>%{marker.color:.3g}<extra></extra>'}];
-    const lay={title:{text:G3D_TITLES[g],font:{size:13}},margin:{l:0,r:0,t:28,b:0},
+    const lay={title:{text:G3D_TITLES[g],font:{size:13}},margin:{l:0,r:0,t:28,b:0},uirevision:'g3d',
       scene:{xaxis:{title:'i',dtick:1},yaxis:{title:'j',dtick:1},zaxis:{title:'k',dtick:1},
         aspectmode:'cube',camera:{eye:{x:1.7,y:1.7,z:1.2}}}};
     Plotly.newPlot(G3D_IDS[g],tr,lay,{responsive:true,displaylogo:false});
-    document.getElementById(G3D_IDS[g]).on('plotly_relayout',ev=>{   // synced rotation across the 3 grids
-      if(!chk('g3d_sync')||G3D_SYNCING)return;
-      const cam=ev['scene.camera'];if(!cam)return;
-      G3D_SYNCING=true;
+    // Synced rotation: copy a grid's camera to the other two. Plotly fires plotly_relayout for the
+    // PROGRAMMATIC relayout too (asynchronously), so a naïve flag can't suppress the echo and the three
+    // plots ping-pong forever → freeze. Dedup on the camera value instead: an echo carries the camera we
+    // just broadcast, matches G3D_CAMKEY, and is dropped — breaking the loop.
+    document.getElementById(G3D_IDS[g]).on('plotly_relayout',ev=>{
+      if(!chk('g3d_sync'))return;
+      if(!Object.keys(ev).some(k=>k.indexOf('scene.camera')===0))return;   // not a rotation event
+      const gd=document.getElementById(G3D_IDS[g]);
+      const cam=gd&&gd._fullLayout&&gd._fullLayout.scene&&gd._fullLayout.scene.camera;   // FULL camera (with defaults) so the echo key matches
+      if(!cam)return;
+      const key=JSON.stringify(cam);
+      if(key===G3D_CAMKEY)return;   // echo of our own broadcast — ignore (breaks the ping-pong)
+      G3D_CAMKEY=key;
       for(const oid of G3D_IDS)if(oid!==G3D_IDS[g])Plotly.relayout(oid,{'scene.camera':cam});
-      G3D_SYNCING=false;
     });
   }
 }
-function g3dRenderIdx(i){
+// Coalesce renders: many g3d messages (or fast slider drags) collapse to one restyle per animation
+// frame, so the colour update can never pile up behind the run and stall the page.
+function g3dRenderIdx(i){G3D_PENDING=i;if(G3D_RAF)return;
+  G3D_RAF=requestAnimationFrame(()=>{G3D_RAF=0;const j=G3D_PENDING;G3D_PENDING=-1;if(j>=0)g3dRenderNow(j);});}
+function g3dRenderNow(i){
   const snap=G3D_SNAPS[i];if(!snap)return;
   if(!G3D_BUILT||G3D_M!==snap.M)g3dBuild(snap.M);
   for(let g=0;g<3;g++){
-    const v=snap[G3D_KEYS[g]];let m=1e-30;for(const x of v)if(Math.abs(x)>m)m=Math.abs(x);
+    const v=snap[G3D_KEYS[g]];let m=1e-30;for(let q=0;q<v.length;q++){const a=v[q]<0?-v[q]:v[q];if(a>m)m=a;}
     Plotly.restyle(G3D_IDS[g],{'marker.color':[v],'marker.cmin':-m,'marker.cmax':m},[0]);
   }
   const sp=document.getElementById('g3d_step');if(sp)sp.textContent=`step ${snap.t}  ·  snapshot ${i+1}/${G3D_SNAPS.length}`;
@@ -657,6 +669,7 @@ function g3dPush(m){
   if(!Array.isArray(m.t1))return;
   const sl=document.getElementById('g3d_slider'), wasLive=!sl||(+sl.value>=+sl.max);
   G3D_SNAPS.push(m);
+  if(G3D_SNAPS.length>G3D_MAXSNAPS){G3D_SNAPS=G3D_SNAPS.filter((_,ix)=>ix%2===0);}   // decimate ×2 to bound memory; whole-run span preserved
   if(sl){sl.max=G3D_SNAPS.length-1;if(wasLive)sl.value=sl.max;}
   g3dRenderIdx(wasLive?G3D_SNAPS.length-1:(sl?+sl.value:0));
 }
@@ -1092,7 +1105,8 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const slqStride=Math.max(1,Math.ceil((Math.floor(steps/eigEvery)+1)/50));
   const heavyEvery=Math.max(1,+val('heavyevery')||4);   // §7-proj + §8 throttle (mirror server.run_stream)
   const grid3dcap=Math.max(1,+val('grid3dcap')||30);    // §11 3D-grid cap (skip when M>this)
-  ST={opt,spec,p,X,Y,N,inDim,outDim,M,nResid,th,lr,eps,thr,n,kth,nSub,mF,mV,mSLQ,nProbe,efrac,eigEvery,slqStride,heavyEvery,grid3dcap,steps,posIdx,negIdx,
+  const g3dStride=(M<=8?1:M<=16?2:M<=24?heavyEvery:slqStride);   // §11 cadence: fine for small grids, throttled for big (mirror server)
+  ST={opt,spec,p,X,Y,N,inDim,outDim,M,nResid,th,lr,eps,thr,n,kth,nSub,mF,mV,mSLQ,nProbe,efrac,eigEvery,slqStride,heavyEvery,grid3dcap,g3dStride,steps,posIdx,negIdx,
       needVecs,needVals,prevTop:Array(nSub).fill(null),prevBot:Array(nSub).fill(null),prevPos:null,prevNeg:null,
       pNtk:Array(n).fill(null),pVH:Array(n).fill(null),pUJ:Array(n).fill(null),pM1:[null,null,null,null],pM2:[null,null,null,null],pG2:Array(n).fill(null),
       prevSharp7a:null,prevNtkR7a:null,prevPrevNtkR7a:null,sumGsync:null,sumGlag:null,cntGs:0,cntGl:0,   // §7a Δλ·Δr running products
@@ -1218,7 +1232,7 @@ async function loop(){                                   // drives ST forward; r
         }
         // §11 3D Hessian–NTK grids — T1[i,j,k]=Jᵢᵀ Qⱼ Jₖ, T2=uⱼuₖ·T1, T3=rᵢuⱼuₖ·T1 (u=top NTK eigvec, r=residual).
         // On the SLQ cadence and small M only (M³ points + M jacobian-HVPs). QJk[j]=Q_j·J_k via jacHVP(J_k). Mirrors server §11.
-        if(O.s18&&M>1&&S.eigTick%S.slqStride===0&&bJc&&u1s&&rrs&&M<=S.grid3dcap){
+        if(O.s18&&M>1&&S.eigTick%S.g3dStride===0&&bJc&&u1s&&rrs&&M<=S.grid3dcap){
           const Mm=M,M2=Mm*Mm,u=u1s,n3=Mm*M2,T1=new Float64Array(n3),T2=new Float64Array(n3),T3=new Float64Array(n3);
           for(let k=0;k<Mm;k++){
             const QJk=jacHVP(S.th,spec,X,N,inDim,p,bJc[k],eps);     // QJk[j]=Q_j·J_k (M vectors length p)
