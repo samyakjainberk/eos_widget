@@ -252,6 +252,15 @@ def init_data_theta(model, P, dataset, N, in_dim, out_dim, device, dtype, cifar_
             X[i] = Xc[k]
             f = Fc[k]
             Y[i] = f + s * torch.clamp((Yc[k] - f).abs(), min=floor)
+    # Fixed-target datasets (cifar10/sorting/chebyshev) load Y directly and so skip the residual-sign
+    # construction above — force the requested initial residual sign here by overriding Y per sample
+    # (keep the dataset's inputs X and the residual's natural magnitude; only its sign is pinned).
+    if dataset in ("cifar10", "sorting", "chebyshev") and ssign in ("pos", "neg"):
+        s = 1.0 if ssign == "pos" else -1.0
+        floor = 0.25 * max(abs(tgt), 1e-6)
+        f0 = model.forward(th, X)
+        Y = f0 + s * torch.clamp((Y - f0).abs(), min=floor)
+
     # §4d: fix the two sample groups by the sign of the summed initial residual r=y−f(x,θ₀)
     ssum0 = (Y - model.forward(th, X)).sum(dim=1)
     pos_rows = torch.tensor([i * out_dim + c for i in range(N) if float(ssum0[i]) >= 0
