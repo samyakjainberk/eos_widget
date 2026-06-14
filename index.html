@@ -1183,7 +1183,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const slqStride=Math.max(1,Math.ceil((Math.floor(steps/eigEvery)+1)/50));
   const heavyEvery=Math.max(1,+val('heavyevery')||4);   // §7-proj + §8 throttle (mirror server.run_stream)
   const grid3dcap=Math.max(1,+val('grid3dcap')||30);    // §11 3D-grid cap (skip when M>this)
-  const g3dStride=(M<=8?1:M<=16?2:M<=24?heavyEvery:slqStride);   // §11 cadence: fine for small grids, throttled for big (mirror server)
+  const g3dStride=1;   // §11 cadence: update on every diagnostic tick (mirror server; bounded by grid3dcap + sparsification)
   ST={opt,spec,p,X,Y,N,inDim,outDim,M,nResid,th,lr,eps,thr,n,kth,nSub,mF,mV,mSLQ,nProbe,efrac,eigEvery,slqStride,heavyEvery,grid3dcap,g3dStride,steps,posIdx,negIdx,
       needVecs,needVals,prevTop:Array(nSub).fill(null),prevBot:Array(nSub).fill(null),prevPos:null,prevNeg:null,
       pNtk:Array(n).fill(null),pVH:Array(n).fill(null),pUJ:Array(n).fill(null),pM1:[null,null,null,null],pM2:[null,null,null,null],pG2:Array(n).fill(null),
