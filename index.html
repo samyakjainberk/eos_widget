@@ -235,6 +235,8 @@
 <div class="plotrow row3"><div id="p_g3d1" class="plot" style="height:400px"></div><div id="p_g3d2" class="plot" style="height:400px"></div><div id="p_g3d3" class="plot" style="height:400px"></div></div>
 <p class="cap" style="margin-top:14px">Evolution of each grid's <b>mean ± std</b> (shaded cloud) over training, split by the four diagonal classes of the index triple $(i,j,k)$: <span style="color:#d62728">$i\!=\!j\!=\!k$</span>, <span style="color:#1f77b4">$i\!=\!j\neq k$</span>, <span style="color:#2ca02c">$i\neq j\!=\!k$</span>, <span style="color:#9467bd">$i\!=\!k\neq j$</span>, <span style="color:#ff7f0e">$i\neq j\neq k$</span> (all distinct). Statistics are taken over the <em>full</em> grid (not the points shown above).</p>
 <div class="plotrow row3"><div id="p_g3de1" class="plot" style="height:300px"></div><div id="p_g3de2" class="plot" style="height:300px"></div><div id="p_g3de3" class="plot" style="height:300px"></div></div>
+<p class="cap" style="margin-top:14px">Percentage of the norm contributed by each class's <b>average</b> — $100\cdot m_c^2/\sum_{c'} m_{c'}^2$, where $m_c$ is the mean of the grid over class $c$ (the five curves sum to 100% per panel). Same class colours as above.</p>
+<div class="plotrow row3"><div id="p_g3dn1" class="plot" style="height:300px"></div><div id="p_g3dn2" class="plot" style="height:300px"></div><div id="p_g3dn3" class="plot" style="height:300px"></div></div>
 </div>
 
 <div id="sec_2">
@@ -718,13 +720,14 @@ function g3dPush(m){
 
 // ── §11 per-class evolution: mean ± std (shaded cloud) of each grid over training, split by the 4 diagonal
 // classes of (i,j,k): 0:i=j=k 1:i=j≠k 2:i≠j=k 3:i≠j≠k. Stats come from the FULL grid (server/eos_lab side).
-const G3DE_IDS=['p_g3de1','p_g3de2','p_g3de3'], G3DE_LAB=['i=j=k','i=j≠k','i≠j=k','i=k≠j','i≠j≠k'],
+const G3DE_IDS=['p_g3de1','p_g3de2','p_g3de3'], G3DN_IDS=['p_g3dn1','p_g3dn2','p_g3dn3'],
+      G3DE_LAB=['i=j=k','i=j≠k','i≠j=k','i=k≠j','i≠j≠k'],
       G3DE_COL=['#d62728','#1f77b4','#2ca02c','#9467bd','#ff7f0e'], G3DE_NC=5, G3DE_MAXPTS=4000;
-let G3DE_STEPS=[], G3DE_DATA=g3deBlank(), G3DE_BUILT=false, G3DE_RAF=0;
+let G3DE_STEPS=[], G3DE_DATA=g3deBlank(), G3DE_BUILT=false, G3DN_BUILT=false, G3DE_RAF=0;
 function g3deBlank(){const mk=()=>({m:[[],[],[],[],[]],s:[[],[],[],[],[]]});return {t1:mk(),t2:mk(),t3:mk()};}
 function hexA(h,a){const n=parseInt(h.slice(1),16);return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;}
-function g3deReset(){G3DE_STEPS=[];G3DE_DATA=g3deBlank();G3DE_BUILT=false;if(G3DE_RAF){cancelAnimationFrame(G3DE_RAF);G3DE_RAF=0;}
-  for(const id of G3DE_IDS){try{Plotly.purge(id);}catch(e){}}}
+function g3deReset(){G3DE_STEPS=[];G3DE_DATA=g3deBlank();G3DE_BUILT=false;G3DN_BUILT=false;if(G3DE_RAF){cancelAnimationFrame(G3DE_RAF);G3DE_RAF=0;}
+  for(const id of G3DE_IDS.concat(G3DN_IDS)){try{Plotly.purge(id);}catch(e){}}}
 function g3deAppend(m){
   if(!m.ev)return;
   G3DE_STEPS.push(m.t);
@@ -760,6 +763,31 @@ function g3deRender(){
       X.push(xs.concat(xr));Y.push(up.concat(lo.slice().reverse()));   // band polygon (forward upper, back lower)
       X.push(xs);Y.push(m);}                                          // mean line
     Plotly.restyle(G3DE_IDS[g],{x:X,y:Y});
+  }
+  g3dnRender();
+}
+// ── §11 per-class norm share: % of the norm contributed by each class average — 100·m_c²/Σm_c'² (sums to 100%).
+function g3dnBuild(){
+  G3DN_BUILT=true;
+  for(let g=0;g<3;g++){
+    const tr=[];
+    for(let c=0;c<G3DE_NC;c++)tr.push({x:[],y:[],type:'scatter',mode:'lines',line:{color:G3DE_COL[c],width:1.6},name:G3DE_LAB[c]});
+    const lay={title:{text:G3D_TITLES[g],font:{size:12}},margin:{l:48,r:8,t:24,b:34},
+      xaxis:{title:'step'},yaxis:{title:'% of norm',range:[0,100],ticksuffix:'%'},
+      legend:{font:{size:9},orientation:'h',y:1.16,x:0},showlegend:g===0};
+    newP(G3DN_IDS[g],tr,lay);
+  }
+}
+function g3dnRender(){
+  if(!G3DE_STEPS.length)return;
+  if(!G3DN_BUILT)g3dnBuild();
+  const xs=G3DE_STEPS, T=xs.length;
+  for(let g=0;g<3;g++){
+    const m=G3DE_DATA[G3D_KEYS[g]].m, pct=[[],[],[],[],[]];
+    for(let t=0;t<T;t++){let den=0;for(let c=0;c<G3DE_NC;c++)den+=m[c][t]*m[c][t];den=den||1;
+      for(let c=0;c<G3DE_NC;c++)pct[c].push(100*m[c][t]*m[c][t]/den);}
+    const X=[],Y=[];for(let c=0;c<G3DE_NC;c++){X.push(xs);Y.push(pct[c]);}
+    Plotly.restyle(G3DN_IDS[g],{x:X,y:Y});
   }
 }
 let OPT={s1:true,s2:true,s3:true,s4:true,s5:true,s6:true,gs:true};
