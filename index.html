@@ -704,6 +704,9 @@ function g3dRenderNow(i){
     const dv=snap['d'+(g+1)];
     if(dv){const dc=dv.map(x=>(x<0?-1:1)*Math.log1p(Math.abs(x)/lin));
       Plotly.restyle(G3D_IDS[g],{customdata:[dv],'marker.color':[dc],'marker.cmin':-cm,'marker.cmax':cm},[2]);}
+    // running positive-share in the title: 100·Σ(+)/(Σ(+)+|Σ(−)|) over the full N³ grid
+    const pp=snap.pp&&snap.pp[g]!=null?`   ·   +${snap.pp[g].toFixed(1)}%`:'';
+    Plotly.relayout(G3D_IDS[g],{'title.text':G3D_TITLES[g]+pp});
   }
   const sp=document.getElementById('g3d_step');
   if(sp)sp.textContent=`step ${snap.t}  ·  snapshot ${i+1}/${G3D_SNAPS.length}`+(snap.sparse?`  ·  top ${snap.t1.length} of ${snap.M}³ pts`:'');
@@ -1373,7 +1376,8 @@ async function loop(){                                   // drives ST forward; r
           };
           const dstep=M2+Mm+1, d1=[],d2=[],d3=[];   // i=j=k diagonal values: flat idx (i,i,i)=i·(M²+M+1)
           for(let q=0;q<Mm;q++){const di=q*dstep;d1.push(T1[di]);d2.push(T2[di]);d3.push(T3[di]);}
-          const msg={type:'g3d',t:S.t,M:Mm,sparse:sparse,ev:ev,d1:d1,d2:d2,d3:d3};
+          const pospct=(T)=>{let ps=0,ns=0;for(let q=0;q<n3;q++){const v=T[q];if(v>0)ps+=v;else ns+=v;}const den=ps-ns;return den>1e-30?ps/den*100:0;};
+          const msg={type:'g3d',t:S.t,M:Mm,sparse:sparse,ev:ev,d1:d1,d2:d2,d3:d3,pp:[pospct(T1),pospct(T2),pospct(T3)]};
           if(sparse){const a=topN(T1),b=topN(T2),c=topN(T3);
             msg.t1=a.v;msg.t2=b.v;msg.t3=c.v;msg.i1=a.i;msg.i2=b.i;msg.i3=c.i;}
           else{msg.t1=Array.from(T1);msg.t2=Array.from(T2);msg.t3=Array.from(T3);}

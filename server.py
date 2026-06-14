@@ -1728,11 +1728,18 @@ def run_stream(P):
                     idx = torch.topk(flat.abs(), G3D_MAXPTS).indices
                     return flat[idx].cpu().tolist(), idx.to(torch.int64).cpu().tolist()
 
+                def _pospct(T):   # 100·(Σ positive)/(Σ positive + |Σ negative|) over the full N³ grid
+                    f = T.reshape(-1)
+                    ps = float(f[f > 0].sum()); ns = float(f[f < 0].sum())   # ns ≤ 0 → |neg sum| = -ns
+                    den = ps - ns
+                    return ps / den * 100.0 if den > 1e-30 else 0.0
+
                 v1, ix1 = _pack(T1); v2, ix2 = _pack(T2); v3, ix3 = _pack(T3)
                 dd = torch.arange(M, device=_dev())   # i=j=k diagonal values (always sent so the highlighted
                 d1 = T1[dd, dd, dd]; d2 = T2[dd, dd, dd]; d3 = T3[dd, dd, dd]   # diagonal is coloured even when sparse
                 g3d = {"M": M, "sparse": sparse, "t1": v1, "t2": v2, "t3": v3,
                        "d1": d1.cpu().tolist(), "d2": d2.cpu().tolist(), "d3": d3.cpu().tolist(),
+                       "pp": [_pospct(T1), _pospct(T2), _pospct(T3)],
                        "ev": {"t1": _ev(T1), "t2": _ev(T2), "t3": _ev(T3)}}
                 if sparse:
                     g3d.update({"i1": ix1, "i2": ix2, "i3": ix3})

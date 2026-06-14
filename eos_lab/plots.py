@@ -483,9 +483,12 @@ def plot_section11(hist):
         return None
     g = snaps[-1]["g3d"]; M = g["M"]; t = snaps[-1]["t"]
     fig = plt.figure(figsize=(16.5, 5.2))
+    pp = g.get("pp")
     for n, (key, lab) in enumerate((("t1", r"$T_1=J_i^\top Q_j J_k$"),
                                     ("t2", r"$T_2=u_j u_k\,J_i^\top Q_j J_k$"),
                                     ("t3", r"$T_3=r_i u_j u_k\,J_i^\top Q_j J_k$"))):
+        if pp is not None:
+            lab = lab + f"   (+{pp[n]:.1f}%)"                 # positive share 100·Σ(+)/(Σ(+)+|Σ(−)|)
         _, sc = _g3d_scatter(fig, (1, 3, n + 1), g, key, M, lab)
         fig.colorbar(sc, ax=fig.axes[-1], shrink=0.55, pad=0.08)
     fig.suptitle(f"§11 — 3D Hessian–NTK grids over sample indices (step {t}, N={M})", fontsize=11)
