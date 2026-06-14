@@ -437,6 +437,57 @@ def plot_section10_hess(series, meta):
                        "§10 — cubic-approximation σ₁ predictions vs the full-Hessian λmax  (plot 4: ‖ΔJ‖ %)")
 
 
+def _g3d_scatter(fig, pos, vals, M, title):
+    """One 3D scatter of an M×M×M grid: x=i, y=j, z=k (1..M), color = signed value (diverging, 0-centered)."""
+    import numpy as np
+    idx = np.arange(M * M * M)
+    i = idx // (M * M); j = (idx // M) % M; k = idx % M       # flat C-order: idx = i·M² + j·M + k
+    v = np.asarray(vals, dtype=float)
+    vmax = max(float(np.nanmax(np.abs(v))), 1e-30)
+    ax = fig.add_subplot(*pos, projection="3d")
+    sc = ax.scatter(i + 1, j + 1, k + 1, c=v, cmap="RdBu_r", vmin=-vmax, vmax=vmax,
+                    s=12, alpha=0.85, depthshade=True, linewidths=0)
+    ax.set_xlabel("i"); ax.set_ylabel("j"); ax.set_zlabel("k"); ax.set_title(title, fontsize=9)
+    return ax, sc
+
+
+def plot_section11(hist):
+    """§11 — the three N×N×N Hessian–NTK grids (T1=JᵢᵀQⱼJₖ, T2=uⱼuₖ·T1, T3=rᵢuⱼuₖ·T1) at the LAST snapshot."""
+    snaps = [r for r in hist if "g3d" in r]
+    if not snaps:
+        return None
+    g = snaps[-1]["g3d"]; M = g["M"]; t = snaps[-1]["t"]
+    fig = plt.figure(figsize=(16.5, 5.2))
+    for n, (key, lab) in enumerate((("t1", r"$T_1=J_i^\top Q_j J_k$"),
+                                    ("t2", r"$T_2=u_j u_k\,J_i^\top Q_j J_k$"),
+                                    ("t3", r"$T_3=r_i u_j u_k\,J_i^\top Q_j J_k$"))):
+        _, sc = _g3d_scatter(fig, (1, 3, n + 1), g[key], M, lab)
+        fig.colorbar(sc, ax=fig.axes[-1], shrink=0.55, pad=0.08)
+    fig.suptitle(f"§11 — 3D Hessian–NTK grids over sample indices (step {t}, N={M})", fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    return fig
+
+
+def plot_section11_evolution(hist, key="t3"):
+    """§11 evolution — one grid (default T3) at up to 6 snapshots across training, to show how it develops."""
+    snaps = [r for r in hist if "g3d" in r]
+    if len(snaps) < 2:
+        return None
+    pick = [snaps[round(x * (len(snaps) - 1) / 5)] for x in range(6)]
+    seen, sel = set(), []
+    for s in pick:                                            # de-dup while preserving order (short runs)
+        if s["t"] not in seen:
+            seen.add(s["t"]); sel.append(s)
+    M = sel[0]["g3d"]["M"]
+    lab = {"t1": "T₁", "t2": "T₂", "t3": "T₃"}[key]
+    fig = plt.figure(figsize=(16.5, 5.4 * ((len(sel) + 2) // 3)))
+    for n, s in enumerate(sel):
+        _, sc = _g3d_scatter(fig, ((len(sel) + 2) // 3, 3, n + 1), s["g3d"][key], M, f"step {s['t']}")
+    fig.suptitle(f"§11 — {lab} grid over the course of training (N={M})", fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    return fig
+
+
 def save_panels(results, outdir):
     """Render every supported section to PNGs in `outdir`. Returns the list of files written."""
     os.makedirs(outdir, exist_ok=True)
@@ -460,7 +511,9 @@ def save_panels(results, outdir):
             "section9d_selfresidual_vs_empirical": plot_section9d(series, meta),
             "section9dc_selfresidual_vs_full_hessian": plot_section9dc(series, meta),
             "section10_cubic_vs_ntk": plot_section10_ntk(series, meta),
-            "section10_cubic_vs_full_hessian": plot_section10_hess(series, meta)}
+            "section10_cubic_vs_full_hessian": plot_section10_hess(series, meta),
+            "section11_grids": plot_section11(hist),
+            "section11_evolution": plot_section11_evolution(hist)}
     written = []
     for name, fig in figs.items():
         if fig is None:

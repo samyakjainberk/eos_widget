@@ -71,6 +71,7 @@ class Diagnostics:
         self.s15 = P.get("s15", 0)          # §9d: predictions with the residual self-computed by the quadratic model
         self.s16 = P.get("s16", 0)          # §9d-c: §9d predictions vs the full loss-Hessian sharpness
         self.s17 = P.get("s17", 0)          # §10: CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation)
+        self.s18 = P.get("s18", 0)          # §11: 3D grids T1=JᵢᵀQⱼJₖ, T2=uⱼuₖT1, T3=rᵢuⱼuₖT1 (multi-sample, small M)
         if loss.name == "ce":
             # CE uses the generic residual r = −∂L/∂z = softmax(z)−onehot (the loss-output cotangent). §4
             # (J→H) and §6 (rotation) are model-only; §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) plus
@@ -108,6 +109,7 @@ class Diagnostics:
         self.slqStride = max(1, math.ceil((cfg.steps // self.eigevery + 1) / 50))
         self.qapprox = max(1, cfg.qapprox)
         self.cubicapprox = max(1, getattr(cfg, "cubicapprox", 10))   # §10 cubic-window length
+        self.grid3dcap = max(1, getattr(cfg, "grid3dcap", 30))       # §11 3D-grid size cap (skip when M exceeds it)
         self.qmode = cfg.qmode
         self.tset = cfg.tset
         # Krylov depths (match server.run_stream)
@@ -275,7 +277,7 @@ class Diagnostics:
         # ---- shared multi-sample Jacobian columns Jc (M,p) + residual rr (M,) ----
         Jc = rr = None
         want_multi = self.multi_ok and (self.s7 or self.s8 or self.s9 or self.s10 or self.s11
-                                         or self.s12 or self.s13 or self.s15 or self.s16 or self.s17)
+                                         or self.s12 or self.s13 or self.s15 or self.s16 or self.s17 or self.s18)
         if want_multi:
             Jc, out_flat = jac_cols(self.model, th, X)
             rr = (-N * cS).reshape(-1)        # generic residual −N·∂L/∂out: Y−f (MSE), onehot−softmax (CE)
@@ -367,7 +369,7 @@ class Diagnostics:
         # ---- §4b/§4c/§4d base: NTK top eigvec u₁ (deterministic sign), J·r ----
         u1s = Jrs = bEk_vecs = bEk_vals = None
         Jrns = Rn = 1.0
-        if self.multi_ok and (self.s9 or self.s10 or self.s11 or self.s12 or self.s15 or self.s16 or self.s17):
+        if self.multi_ok and (self.s9 or self.s10 or self.s11 or self.s12 or self.s15 or self.s16 or self.s17 or self.s18):
             Kb, Vb = sym_eig_desc(Jc @ Jc.t())
             for k in range(n):
                 Vb[:, k] = pin_sign(Vb[:, k])
@@ -449,6 +451,23 @@ class Diagnostics:
                 shH = float(lanczos_extreme_vals(self._hL(th, X, Y), self.p, 1, self.mV, SEED_L,
                                                  self.device, self.dtype)[0][0])
             self._cubic_step(th, X, Y, t, J, out, rr, bEk_vals, shH, rec)
+
+        # ---- §11 3D grids over sample indices (i,j,k): T1=Jᵢᵀ Qⱼ Jₖ, T2=uⱼuₖ·T1, T3=rᵢuⱼuₖ·T1 ----
+        # (u = top NTK eigenvector, r = residual). M³ points + M Hessian-vector products → small M only, on the
+        # SLQ cadence (~50 snapshots/run). For each k: jac_hvp(Jₖ)={Qⱼ Jₖ}ⱼ, then T1[:,:,k] = Jc·{Qⱼ Jₖ}ⱼᵀ.
+        if (self.s18 and self.multi_ok and slq_tick and Jc is not None and u1s is not None
+                and rr is not None and M <= self.grid3dcap):
+            u = u1s
+            T1 = torch.zeros(M, M, M, dtype=dt, device=dev)
+            for k in range(M):
+                QJk = jac_hvp(self.model, th, X, Jc[k])          # (M,p), row j = Qⱼ·Jₖ = ∇²fⱼ·∇fₖ
+                T1[:, :, k] = Jc @ QJk.t()                        # [i,j] = Jᵢ·(Qⱼ Jₖ)
+            T2 = T1 * u.view(1, M, 1) * u.view(1, 1, M)           # uⱼ uₖ T1
+            T3 = T2 * rr.view(M, 1, 1)                            # rᵢ uⱼ uₖ T1
+            rec["g3d"] = {"M": M,
+                          "t1": T1.reshape(-1).detach().cpu().tolist(),   # flat C-order: idx = i·M² + j·M + k
+                          "t2": T2.reshape(-1).detach().cpu().tolist(),
+                          "t3": T3.reshape(-1).detach().cpu().tolist()}
 
         # ---- §5 SLQ spectral densities (expensive → ~50 snapshots/run via slqStride) ----
         if self.s5 and slq_tick:

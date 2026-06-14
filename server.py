@@ -1240,6 +1240,8 @@ def run_stream(P):
     s15 = P.get("s15", 0)                # §9d: predictions with the residual self-computed by the quadratic model
     s16 = P.get("s16", 0)                # §9d-c: §9d predictions vs the full loss-Hessian sharpness
     s17 = P.get("s17", 0)                # §10: CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation)
+    s18 = P.get("s18", 0)                # §11: 3D grids T1=JᵢᵀQⱼJₖ, T2=uⱼuₖT1, T3=rᵢuⱼuₖT1 (multi-sample, small M)
+    grid3dcap = max(1, P.get("grid3dcap", 30))
     if _TL.loss.name == "ce":            # CE: §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) and the generic
         s11 = s12 = s14 = s15 = s16 = s17 = False   # residual r=−∂L/∂z (= softmax−onehot), so they're valid. Off for CE:
                                          #   §4d (sign-groups need a scalar residual) and the whole §9 family
@@ -1393,7 +1395,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if multi_ok and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17):
+            if multi_ok and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18):
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -1477,7 +1479,7 @@ def run_stream(P):
             # ---- §4b/§4c/§4d base: NTK top eigvec u₁ (deterministic sign), J·r ----
             u1s = Jrs = bEk_vecs = bEk_vals = None
             Jrns = Rn = 1.0
-            if multi_ok and (s9 or s10 or s11 or s12 or s15 or s16 or s17):
+            if multi_ok and (s9 or s10 or s11 or s12 or s15 or s16 or s17 or s18):
                 Kb, Vb = sym_eig_desc(Jc @ Jc.t())
                 for k in range(n):
                     Vb[:, k] = pin_sign(Vb[:, k])
@@ -1684,6 +1686,19 @@ def run_stream(P):
             # ---- §10 CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation) ----
             cub = cubic_step(cubCtx, cubSt, th, X, Y, t, J, out, rr, bEk_vals, thAH) if s17 else {}
 
+            # ---- §11 3D grids T1=JᵢᵀQⱼJₖ, T2=uⱼuₖT1, T3=rᵢuⱼuₖT1 (multi-sample, small M, SLQ cadence) ----
+            g3d = None
+            if (s18 and multi_ok and eigTick % slqStride == 0 and Jc is not None and u1s is not None
+                    and rr is not None and M <= grid3dcap):
+                T1 = torch.zeros(M, M, M, dtype=DTYPE, device=_dev())
+                for kk in range(M):
+                    QJk = jac_hvp(th, X, Jc[kk])                  # (M,p), row j = Qⱼ·Jₖ
+                    T1[:, :, kk] = Jc @ QJk.t()                    # [i,j] = Jᵢ·(Qⱼ Jₖ)
+                T2 = T1 * u1s.view(1, M, 1) * u1s.view(1, 1, M)
+                T3 = T2 * rr.view(M, 1, 1)
+                g3d = {"M": M, "t1": T1.reshape(-1).cpu().tolist(),
+                       "t2": T2.reshape(-1).cpu().tolist(), "t3": T3.reshape(-1).cpu().tolist()}
+
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness λmax(∇²L) ≈ λmax(GN) = σ₁/N
             thPr = [(x / N if x is not None else None) for x in thP] if thP else None
             thAr = [(x / N if x is not None else None) for x in thA] if thA else None
@@ -1725,6 +1740,8 @@ def run_stream(P):
                     "sS": slq_density(lambda v: hvpS(th, X, v, cS), p, nProbe, mSLQ, 80, 0x33),
                     "sHL": slq_density(lambda v: hvpL(th, X, Y, v), p, nProbe, mSLQ, 80, 0x44),
                 }
+            if g3d is not None:
+                yield {"type": "g3d", "t": t, **g3d}     # §11 3D-grid snapshot (browser stores + scrubs these)
             eigTick += 1
             done += 1
 
@@ -2237,6 +2254,8 @@ def _parse_params(q):
         "s15": g("s15", "1") == "1",     # §9d: predictions with the residual self-computed by the quadratic model
         "s16": g("s16", "1") == "1",     # §9d-c: §9d predictions vs full loss-Hessian sharpness
         "s17": g("s17", "0") == "1",     # §10: CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation; OFF by default — heaviest)
+        "s18": g("s18", "0") == "1",     # §11: 3D Hessian–NTK grids (multi-sample, small M; OFF by default)
+        "grid3dcap": max(1, fi("grid3dcap", 30)),
         "gs": g("gson", "1") == "1",
         # surrogate-section panel toggles (loss · resid mean/std · top-n eig · histogram · theory · §4 · §4d)
         "c1": g("c1", "1") == "1", "c2": g("c2", "1") == "1", "c3": g("c3", "1") == "1",
