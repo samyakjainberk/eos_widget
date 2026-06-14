@@ -46,6 +46,9 @@ DEVICE = torch.device("cpu")   # default/fallback device (= DEVICE_POOL[0]); set
 DEVICE_POOL = []               # every device a run may be assigned to (one GPU each); built in main()
 DTYPE = torch.float64          # set in main()
 EPS = 1e-3                     # finite-difference step (matches index.html / _preview.py)
+G3D_MAXPTS = 10000             # §11 render budget: emit only the top-|value| points per grid above this size
+                               #   (the tensors are heavy-tailed — ~90% near-zero — so the top points carry the
+                               #   structure; this keeps M up to ~100 renderable instead of M³≈10⁶ markers/grid)
 PMAX = 10_000_000              # hard cap on parameter count p (matrix-free, so memory is O(p))
 # Each /run is assigned a device (auto least-busy across DEVICE_POOL). RUN_TOKEN is PER-DEVICE, so runs on
 # different GPUs coexist; a newer run on the SAME device bumps that device's token and the older one stops.
@@ -1699,8 +1702,21 @@ def run_stream(P):
                     T1[:, :, kk] = Jc @ QJk.t()                    # [i,j] = Jᵢ·(Qⱼ Jₖ)
                 T2 = T1 * u1s.view(1, M, 1) * u1s.view(1, 1, M)
                 T3 = T2 * rr.view(M, 1, 1)
-                g3d = {"M": M, "t1": T1.reshape(-1).cpu().tolist(),
-                       "t2": T2.reshape(-1).cpu().tolist(), "t3": T3.reshape(-1).cpu().tolist()}
+                # Heavy-tailed → keep only the top-|value| points per grid once the cube exceeds the render
+                # budget (each grid picks its own top set since their distributions differ). idx = i·M²+j·M+k.
+                sparse = (M * M * M) > G3D_MAXPTS
+
+                def _pack(T):
+                    flat = T.reshape(-1)
+                    if not sparse:
+                        return flat.cpu().tolist(), None
+                    idx = torch.topk(flat.abs(), G3D_MAXPTS).indices
+                    return flat[idx].cpu().tolist(), idx.to(torch.int64).cpu().tolist()
+
+                v1, ix1 = _pack(T1); v2, ix2 = _pack(T2); v3, ix3 = _pack(T3)
+                g3d = {"M": M, "sparse": sparse, "t1": v1, "t2": v2, "t3": v3}
+                if sparse:
+                    g3d.update({"i1": ix1, "i2": ix2, "i3": ix3})
 
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness λmax(∇²L) ≈ λmax(GN) = σ₁/N
             thPr = [(x / N if x is not None else None) for x in thP] if thP else None
@@ -2258,7 +2274,7 @@ def _parse_params(q):
         "s16": g("s16", "1") == "1",     # §9d-c: §9d predictions vs full loss-Hessian sharpness
         "s17": g("s17", "0") == "1",     # §10: CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation; OFF by default — heaviest)
         "s18": g("s18", "0") == "1",     # §11: 3D Hessian–NTK grids (multi-sample, small M; OFF by default)
-        "grid3dcap": max(1, fi("grid3dcap", 30)),
+        "grid3dcap": max(1, fi("grid3dcap", 100)),
         "gs": g("gson", "1") == "1",
         # surrogate-section panel toggles (loss · resid mean/std · top-n eig · histogram · theory · §4 · §4d)
         "c1": g("c1", "1") == "1", "c2": g("c2", "1") == "1", "c3": g("c3", "1") == "1",

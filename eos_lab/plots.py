@@ -437,16 +437,30 @@ def plot_section10_hess(series, meta):
                        "§10 — cubic-approximation σ₁ predictions vs the full-Hessian λmax  (plot 4: ‖ΔJ‖ %)")
 
 
-def _g3d_scatter(fig, pos, vals, M, title):
-    """One 3D scatter of an M×M×M grid: x=i, y=j, z=k (1..M), color = signed value (diverging, 0-centered)."""
+_G3D_IDXKEY = {"t1": "i1", "t2": "i2", "t3": "i3"}
+
+
+def _g3d_scatter(fig, pos, g, key, M, title):
+    """One 3D scatter of an M×M×M grid: x=i, y=j, z=k (1..M), colour = signed value.
+
+    The tensors are heavy-tailed (~90% near-zero, both signs), so a linear colour scale washes everything to
+    white — we use a SYMLOG norm (linear floor at the 25th percentile of |value|) so the bulk spreads across the
+    diverging map while the colorbar still reads true values. Marker size grows with magnitude to declutter the
+    cube. `g` is the snapshot dict; when g['sparse'] only the top-|value| points are present (with flat indices)."""
     import numpy as np
-    idx = np.arange(M * M * M)
-    i = idx // (M * M); j = (idx // M) % M; k = idx % M       # flat C-order: idx = i·M² + j·M + k
-    v = np.asarray(vals, dtype=float)
-    vmax = max(float(np.nanmax(np.abs(v))), 1e-30)
+    from matplotlib.colors import SymLogNorm
+    v = np.asarray(g[key], dtype=float)
+    idx = (np.asarray(g[_G3D_IDXKEY[key]], dtype=np.int64) if g.get("sparse")
+           else np.arange(M * M * M))                         # flat C-order: idx = i·M² + j·M + k
+    i = idx // (M * M); j = (idx // M) % M; k = idx % M
+    a = np.abs(v); vmax = max(float(a.max()), 1e-30)
+    lin = max(float(np.percentile(a, 25)), vmax * 1e-3, 1e-30)
+    c = np.sign(v) * np.log1p(a / lin); cm = max(float(np.abs(c).max()), 1e-30)
+    s = 26.0 * (0.35 + 0.65 * np.abs(c) / cm)
     ax = fig.add_subplot(*pos, projection="3d")
-    sc = ax.scatter(i + 1, j + 1, k + 1, c=v, cmap="RdBu_r", vmin=-vmax, vmax=vmax,
-                    s=12, alpha=0.85, depthshade=True, linewidths=0)
+    sc = ax.scatter(i + 1, j + 1, k + 1, c=v, cmap="RdBu_r",
+                    norm=SymLogNorm(linthresh=lin, vmin=-vmax, vmax=vmax),
+                    s=s, alpha=0.85, depthshade=True, linewidths=0)
     ax.set_xlabel("i"); ax.set_ylabel("j"); ax.set_zlabel("k"); ax.set_title(title, fontsize=9)
     return ax, sc
 
@@ -461,7 +475,7 @@ def plot_section11(hist):
     for n, (key, lab) in enumerate((("t1", r"$T_1=J_i^\top Q_j J_k$"),
                                     ("t2", r"$T_2=u_j u_k\,J_i^\top Q_j J_k$"),
                                     ("t3", r"$T_3=r_i u_j u_k\,J_i^\top Q_j J_k$"))):
-        _, sc = _g3d_scatter(fig, (1, 3, n + 1), g[key], M, lab)
+        _, sc = _g3d_scatter(fig, (1, 3, n + 1), g, key, M, lab)
         fig.colorbar(sc, ax=fig.axes[-1], shrink=0.55, pad=0.08)
     fig.suptitle(f"§11 — 3D Hessian–NTK grids over sample indices (step {t}, N={M})", fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.94))
@@ -482,7 +496,7 @@ def plot_section11_evolution(hist, key="t3"):
     lab = {"t1": "T₁", "t2": "T₂", "t3": "T₃"}[key]
     fig = plt.figure(figsize=(16.5, 5.4 * ((len(sel) + 2) // 3)))
     for n, s in enumerate(sel):
-        _, sc = _g3d_scatter(fig, ((len(sel) + 2) // 3, 3, n + 1), s["g3d"][key], M, f"step {s['t']}")
+        _, sc = _g3d_scatter(fig, ((len(sel) + 2) // 3, 3, n + 1), s["g3d"], key, M, f"step {s['t']}")
     fig.suptitle(f"§11 — {lab} grid over the course of training (N={M})", fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     return fig

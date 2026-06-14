@@ -165,7 +165,7 @@
       <div class="ctl"><label>eig every (steps)</label><input id="eigevery" type="number" value="1" min="1" max="20" step="1"></div>
       <div class="ctl"><label title="The heaviest panels (§7 FH-eigvec projections, §8 FH-reshape SVD) compute every N-th diagnostic tick instead of every step, so runs stay responsive. The cheap core (loss/sharpness/eigenvalues/§9 theory/§7a) updates every step. Set 1 to compute everything every step.">heavy every (ticks)</label><input id="heavyevery" type="number" value="4" min="1" max="50" step="1"></div>
       <div class="ctl"><label title="§10 cubic-approximation window: every N steps freeze θ₀, J₀, Q₀ and the 3rd-derivative tensor T, then propagate J & Q over the window to predict the NTK-σ₁ change. Smaller = more frequent re-anchoring and cheaper (cost is O(window²) HVPs).">cubic window</label><input id="cubicapprox" type="number" value="10" min="2" max="50" step="1"></div>
-      <div class="ctl"><label title="§11 3D-grid cap: skip the N×N×N Hessian–NTK grids when N·d_out exceeds this. The grid is N³ points and costs N Hessian-vector products, so it is feasible only for small N.">3D-grid cap (N·d_out)</label><input id="grid3dcap" type="number" value="30" min="1" max="120" step="1"></div>
+      <div class="ctl"><label title="§11 3D-grid cap: skip the N×N×N Hessian–NTK grids when N·d_out exceeds this. The grid is N³ points and costs N Hessian-vector products, so it is feasible only for small N.">3D-grid cap (N·d_out)</label><input id="grid3dcap" type="number" value="100" min="1" max="128" step="1"></div>
       <div class="ctl"><label>SLQ probes</label><input id="slqprobes" type="number" value="4" min="1" max="12" step="1"></div>
       <div class="ctl"><label>subspace energy %</label><input id="energyp" type="number" value="99" min="50" max="100" step="1"></div>
       <div class="ctl"><label>G &amp; S spectra</label><select id="gson"><option value="1" selected>on</option><option value="0">off</option></select></div>
@@ -616,21 +616,20 @@ function refreshSLQ(id,d){Plotly.restyle(id,{x:[d.x],y:[d.y]},[0]);
 // the fixed (i,j,k) marker positions are built once per M, and each snapshot only restyles colour
 // (red +, blue −, symmetric range per snapshot). Dragging one grid rotates all three when synced.
 let G3D_SNAPS=[], G3D_M=0, G3D_BUILT=false, G3D_CAMKEY='', G3D_RAF=0, G3D_PENDING=-1, G3D_MAXSNAPS=1200;
-const G3D_IDS=['p_g3d1','p_g3d2','p_g3d3'], G3D_KEYS=['t1','t2','t3'];
+const G3D_MAXPTS=10000;   // render budget per grid (mirror server G3D_MAXPTS): above this, show only top-|value| points
+const G3D_IDS=['p_g3d1','p_g3d2','p_g3d3'], G3D_KEYS=['t1','t2','t3'], G3D_IDX=['i1','i2','i3'];
 const G3D_TITLES=['T₁ = Jᵢᵀ Qⱼ Jₖ','T₂ = uⱼ uₖ · Jᵢᵀ Qⱼ Jₖ','T₃ = rᵢ uⱼ uₖ · Jᵢᵀ Qⱼ Jₖ'];
 function g3dReset(){G3D_SNAPS=[];G3D_M=0;G3D_BUILT=false;G3D_CAMKEY='';if(G3D_RAF){cancelAnimationFrame(G3D_RAF);G3D_RAF=0;}G3D_PENDING=-1;
+  for(const id of G3D_IDS){try{Plotly.purge(id);}catch(e){}}   // blank the cubes so a Reset / new run doesn't leave stale grids
   const sl=document.getElementById('g3d_slider');if(sl){sl.max=0;sl.value=0;}
   const sp=document.getElementById('g3d_step');if(sp)sp.textContent='—';}
 function g3dBuild(M){
   G3D_M=M;G3D_BUILT=true;
-  const x=[],y=[],z=[];
-  for(let i=0;i<M;i++)for(let j=0;j<M;j++)for(let k=0;k<M;k++){x.push(i+1);y.push(j+1);z.push(k+1);}
-  const n=M*M*M, sz=Math.max(2,Math.min(6,Math.round(120/Math.max(1,M))));
   for(let g=0;g<3;g++){
-    const tr=[{type:'scatter3d',mode:'markers',x,y,z,
-      marker:{size:sz,color:new Array(n).fill(0),colorscale:'RdBu',reversescale:true,
-        cmin:-1,cmax:1,colorbar:{thickness:8,len:0.7},opacity:0.9},
-      hovertemplate:'i=%{x}, j=%{y}, k=%{z}<br>%{marker.color:.3g}<extra></extra>'}];
+    const tr=[{type:'scatter3d',mode:'markers',x:[],y:[],z:[],customdata:[],
+      marker:{size:3,color:[],colorscale:'RdBu',reversescale:true,cmin:-1,cmax:1,opacity:0.85,
+        colorbar:{thickness:9,len:0.78,tickmode:'array',tickfont:{size:9},title:{text:'value',font:{size:9},side:'right'}}},
+      hovertemplate:'i=%{x}, j=%{y}, k=%{z}<br>value=%{customdata:.2e}<extra></extra>'}];
     const lay={title:{text:G3D_TITLES[g],font:{size:13}},margin:{l:0,r:0,t:28,b:0},uirevision:'g3d',
       scene:{xaxis:{title:'i',dtick:1},yaxis:{title:'j',dtick:1},zaxis:{title:'k',dtick:1},
         aspectmode:'cube',camera:{eye:{x:1.7,y:1.7,z:1.2}}}};
@@ -652,6 +651,26 @@ function g3dBuild(M){
     });
   }
 }
+// Decode flat C-order indices (i·M²+j·M+k) → 1-based (i,j,k) coordinates. idxArr=null ⇒ the dense full grid.
+function g3dPos(M,idxArr,L){
+  const x=new Array(L),y=new Array(L),z=new Array(L),M2=M*M;
+  for(let q=0;q<L;q++){const p=idxArr?idxArr[q]:q,i=Math.floor(p/M2),rem=p-i*M2,j=Math.floor(rem/M),k=rem-j*M;
+    x[q]=i+1;y[q]=j+1;z[q]=k+1;}   // idx = i·M²+j·M+k  →  axes (x,y,z)=(i,j,k)
+  return {x,y,z};
+}
+// Signed-log colour: the tensors span orders of magnitude with both signs and are ~90% near-zero, so a linear
+// scale to the max washes everything to white. Map v→sign(v)·log1p(|v|/lin) with lin a low percentile (the
+// noise floor) — this spreads the meaningful bulk across the diverging colormap. Colorbar ticks are mapped
+// back to REAL values so the scale still reads true. Marker size grows with |colour| to declutter the cube.
+function g3dColor(v){
+  const n=v.length, a=new Array(n);
+  for(let q=0;q<n;q++)a[q]=Math.abs(v[q]);
+  const s=a.slice().sort((p,q)=>p-q), mx=s[n-1]||1e-30;
+  const lin=Math.max(s[Math.floor(0.25*(n-1))]||0, mx*1e-3, 1e-30);   // p25 linear floor
+  const c=new Array(n); let cm=1e-30;
+  for(let q=0;q<n;q++){const cc=(v[q]<0?-1:1)*Math.log1p(a[q]/lin);c[q]=cc;if(Math.abs(cc)>cm)cm=Math.abs(cc);}
+  return {c,cm,lin};
+}
 // Coalesce renders: many g3d messages (or fast slider drags) collapse to one restyle per animation
 // frame, so the colour update can never pile up behind the run and stall the page.
 function g3dRenderIdx(i){G3D_PENDING=i;if(G3D_RAF)return;
@@ -659,11 +678,19 @@ function g3dRenderIdx(i){G3D_PENDING=i;if(G3D_RAF)return;
 function g3dRenderNow(i){
   const snap=G3D_SNAPS[i];if(!snap)return;
   if(!G3D_BUILT||G3D_M!==snap.M)g3dBuild(snap.M);
+  const fmt=x=>x===0?'0':(x<0?'-':'')+Math.abs(x).toExponential(1);
   for(let g=0;g<3;g++){
-    const v=snap[G3D_KEYS[g]];let m=1e-30;for(let q=0;q<v.length;q++){const a=v[q]<0?-v[q]:v[q];if(a>m)m=a;}
-    Plotly.restyle(G3D_IDS[g],{'marker.color':[v],'marker.cmin':-m,'marker.cmax':m},[0]);
+    const v=snap[G3D_KEYS[g]];if(!v)continue;
+    const idxArr=snap.sparse?snap[G3D_IDX[g]]:null, L=v.length, pos=g3dPos(snap.M,idxArr,L);
+    const {c,cm,lin}=g3dColor(v), base=Math.max(2.5,Math.min(7,140/Math.max(1,snap.M)));
+    const size=new Array(L);for(let q=0;q<L;q++)size[q]=base*(0.4+0.6*Math.abs(c[q])/cm);
+    const tv=[-cm,-cm/2,0,cm/2,cm], realf=x=>(x<0?-1:1)*lin*Math.expm1(Math.abs(x));   // invert symlog → real value
+    Plotly.restyle(G3D_IDS[g],{x:[pos.x],y:[pos.y],z:[pos.z],customdata:[v],
+      'marker.color':[c],'marker.size':[size],'marker.cmin':-cm,'marker.cmax':cm,
+      'marker.colorbar.tickvals':[tv],'marker.colorbar.ticktext':[tv.map(x=>fmt(realf(x)))]},[0]);
   }
-  const sp=document.getElementById('g3d_step');if(sp)sp.textContent=`step ${snap.t}  ·  snapshot ${i+1}/${G3D_SNAPS.length}`;
+  const sp=document.getElementById('g3d_step');
+  if(sp)sp.textContent=`step ${snap.t}  ·  snapshot ${i+1}/${G3D_SNAPS.length}`+(snap.sparse?`  ·  top ${snap.t1.length} of ${snap.M}³ pts`:'');
 }
 function g3dPush(m){
   if(!Array.isArray(m.t1))return;
@@ -1240,7 +1267,17 @@ async function loop(){                                   // drives ST forward; r
               const v=dot(ji,QJk[j]),w=u[j]*u[k],idx=i*M2+j*Mm+k;
               T1[idx]=v;T2[idx]=v*w;T3[idx]=v*w*ri;}}
           }
-          g3dPush({type:'g3d',t:S.t,M:Mm,t1:Array.from(T1),t2:Array.from(T2),t3:Array.from(T3)});
+          // Heavy-tailed → keep only the top-|value| points per grid once the cube exceeds the render budget
+          // (mirrors server). idx = i·M²+j·M+k. For small cubes send the dense value arrays as-is.
+          const sparse=n3>G3D_MAXPTS, topN=(T)=>{
+            const id=Array.from({length:n3},(_,q)=>q).sort((a,b)=>Math.abs(T[b])-Math.abs(T[a])).slice(0,G3D_MAXPTS);
+            return {v:id.map(q=>T[q]),i:id};
+          };
+          const msg={type:'g3d',t:S.t,M:Mm,sparse:sparse};
+          if(sparse){const a=topN(T1),b=topN(T2),c=topN(T3);
+            msg.t1=a.v;msg.t2=b.v;msg.t3=c.v;msg.i1=a.i;msg.i2=b.i;msg.i3=c.i;}
+          else{msg.t1=Array.from(T1);msg.t2=Array.from(T2);msg.t3=Array.from(T3);}
+          g3dPush(msg);
         }
         // Q[u₁] = Σ_a (u₁)_a ∇²f_a — extreme eigvecs (shared by §4b and §4d), sign-tracked once
         let qe=null;
@@ -1429,6 +1466,7 @@ function resetSim(){
   document.getElementById('sps').textContent='steps/sec: —';
   document.getElementById('status').textContent='reset.';
   PLOT_IDS.forEach(id=>{try{Plotly.purge(id);}catch(e){}});
+  g3dReset();   // §11: clear the 3D grids + snapshots/slider too
   updateButtons();
 }
 

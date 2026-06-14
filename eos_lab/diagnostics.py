@@ -28,6 +28,9 @@ from .models import (grad_sum_f, hvp_F, hvp_L, hvp_S, hvp_G, hvp_G2,
 from .linalg import (lanczos_extreme, lanczos_extreme_vals, slq_density, sym_eig_desc,
                      sign_to, pin_sign, pos_subspace, neg_subspace, principal_angles, randn_vec)
 
+# §11 render budget: emit only the top-|value| points per grid above this size (mirror server.G3D_MAXPTS).
+G3D_MAXPTS = 10000
+
 # Fixed Lanczos / probe seeds (match server.run_stream so curves line up closely).
 SEED_H, SEED_L, SEED_G, SEED_S = 0xA53F9, 0x5EED1, 0x6A17C, 0x7B23D
 SEED_SLQ_H, SEED_SLQ_G, SEED_SLQ_S, SEED_SLQ_L = 0x11, 0x22, 0x33, 0x44
@@ -464,10 +467,21 @@ class Diagnostics:
                 T1[:, :, k] = Jc @ QJk.t()                        # [i,j] = Jᵢ·(Qⱼ Jₖ)
             T2 = T1 * u.view(1, M, 1) * u.view(1, 1, M)           # uⱼ uₖ T1
             T3 = T2 * rr.view(M, 1, 1)                            # rᵢ uⱼ uₖ T1
-            rec["g3d"] = {"M": M,
-                          "t1": T1.reshape(-1).detach().cpu().tolist(),   # flat C-order: idx = i·M² + j·M + k
-                          "t2": T2.reshape(-1).detach().cpu().tolist(),
-                          "t3": T3.reshape(-1).detach().cpu().tolist()}
+            # Heavy-tailed (~90% near-zero) → keep only the top-|value| points per grid once the cube exceeds the
+            # render budget, so M≈100 (M³≈10⁶) stays renderable. idx = i·M² + j·M + k (each grid its own top set).
+            sparse = (M * M * M) > G3D_MAXPTS
+
+            def _pack(T):
+                flat = T.reshape(-1).detach()
+                if not sparse:
+                    return flat.cpu().tolist(), None
+                idx = torch.topk(flat.abs(), G3D_MAXPTS).indices
+                return flat[idx].cpu().tolist(), idx.to(torch.int64).cpu().tolist()
+
+            v1, i1 = _pack(T1); v2, i2 = _pack(T2); v3, i3 = _pack(T3)
+            rec["g3d"] = {"M": M, "sparse": sparse, "t1": v1, "t2": v2, "t3": v3}
+            if sparse:
+                rec["g3d"].update({"i1": i1, "i2": i2, "i3": i3})
 
         # ---- §5 SLQ spectral densities (expensive → ~50 snapshots/run via slqStride) ----
         if self.s5 and slq_tick:
