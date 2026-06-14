@@ -1705,11 +1705,26 @@ def run_stream(P):
             if (s18 and multi_ok and eigTick % g3dstride == 0 and Jc is not None and u1s is not None
                     and rr is not None and M <= grid3dcap):
                 T1 = torch.zeros(M, M, M, dtype=DTYPE, device=_dev())
+                Gd = torch.zeros_like(Jc)                          # gᵢ = Qᵢ Jᵢ (the diagonal row of each HVP)
                 for kk in range(M):
                     QJk = jac_hvp(th, X, Jc[kk])                  # (M,p), row j = Qⱼ·Jₖ
                     T1[:, :, kk] = Jc @ QJk.t()                    # [i,j] = Jᵢ·(Qⱼ Jₖ)
+                    Gd[kk] = QJk[kk]                               # Qₖ Jₖ  (reused → no extra HVP)
                 T2 = T1 * u1s.view(1, M, 1) * u1s.view(1, 1, M)
                 T3 = T2 * rr.view(M, 1, 1)
+                # §11 SQUARE — S[i,j] = Jᵢᵀ Qᵢ Jⱼ · rⱼ = (Qᵢ Jᵢ)·Jⱼ · rⱼ (2D over (i,j); classes i=j / i≠j)
+                Smat = (Gd @ Jc.t()) * rr.view(1, M)              # (M,M): [i,j] = gᵢ·Jⱼ · rⱼ
+                jj_ = torch.arange(M, device=_dev())
+                cats = torch.where(jj_.view(M, 1) == jj_.view(1, M), 0, 1).reshape(-1)   # 0:i=j  1:i≠j
+
+                def _evs(S):   # per (i=j / i≠j) class: [mean, std, mean|·|]
+                    f = S.reshape(-1)
+                    out = []
+                    for c in range(2):
+                        sel = f[cats == c]
+                        out.append([float(sel.mean()), float(sel.std(unbiased=False)), float(sel.abs().mean())]
+                                   if int((cats == c).sum()) else [0.0, 0.0, 0.0])
+                    return out
                 # Per-class evolution stats — mean ± std over the FULL grid (NOT the sparsified subset) for the 5
                 # diagonal classes of (i,j,k): 0:i=j=k 1:i=j≠k 2:i≠j=k 3:i=k≠j 4:i≠j≠k. Tiny payload → curves vs step.
                 ai = torch.arange(M, device=_dev())
@@ -1753,7 +1768,10 @@ def run_stream(P):
                 g3d = {"M": M, "sparse": sparse, "t1": v1, "t2": v2, "t3": v3,
                        "d1": d1.cpu().tolist(), "d2": d2.cpu().tolist(), "d3": d3.cpu().tolist(),
                        "pp": [_pospct(T1), _pospct(T2), _pospct(T3)],
-                       "ev": {"t1": _ev(T1), "t2": _ev(T2), "t3": _ev(T3)}}
+                       "ev": {"t1": _ev(T1), "t2": _ev(T2), "t3": _ev(T3)},
+                       "sq": Smat.reshape(-1).cpu().tolist(),                  # 4th column: S[i,j], idx=i·M+j
+                       "sqd": torch.diagonal(Smat).cpu().tolist(),            # i=j diagonal (highlight)
+                       "sqpp": _pospct(Smat), "sqev": _evs(Smat)}
                 if sparse:
                     g3d.update({"i1": ix1, "i2": ix2, "i3": ix3})
 

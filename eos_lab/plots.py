@@ -476,22 +476,68 @@ def _g3d_scatter(fig, pos, g, key, M, title):
     return ax, sc
 
 
+_G3DSQ_LABELS = ["i=j", "i≠j"]
+_G3DSQ_COLORS = ["#d62728", "#1f77b4"]
+_G3DSQ_TITLE = r"$S=J_i^\top Q_i J_j\,r_j$"
+
+
+def _g3d_class_counts(M):
+    """# of (i,j,k) triples in the 5 classes: i=j=k, i=j≠k, i≠j=k, i=k≠j, i≠j≠k (turns class MEAN→SUM)."""
+    import numpy as np
+    return np.array([M, M * (M - 1), M * (M - 1), M * (M - 1), M * (M - 1) * (M - 2)], dtype=float)
+
+
+def _g3dsq_class_counts(M):
+    """# of (i,j) pairs in the 2 square classes: i=j, i≠j."""
+    import numpy as np
+    return np.array([M, M * (M - 1)], dtype=float)
+
+
+def _g3d_square(fig, pos, g, M, title):
+    """2D square S[i,j]=JᵢᵀQᵢJⱼrⱼ — symlog-coloured square-marker scatter, i=j diagonal highlighted."""
+    import numpy as np
+    from matplotlib.colors import SymLogNorm
+    v = np.asarray(g["sq"], dtype=float)
+    idx = np.arange(M * M); ii = idx // M; jj = idx % M                  # idx = i·M + j
+    a = np.abs(v); vmax = max(float(a.max()), 1e-30)
+    lin = max(float(np.percentile(a, 25)), vmax * 1e-3, 1e-30)
+    norm = SymLogNorm(linthresh=lin, vmin=-vmax, vmax=vmax)
+    c = np.sign(v) * np.log1p(a / lin); cm = max(float(np.abs(c).max()), 1e-30)
+    base = max(6.0, min(60.0, 1400.0 / M))
+    ax = fig.add_subplot(*pos)
+    sc = ax.scatter(ii, jj, c=v, cmap="RdBu_r", norm=norm, s=base * (0.35 + 0.65 * np.abs(c) / cm),
+                    marker="s", linewidths=0)
+    d = np.arange(M)
+    ax.plot(d, d, color="#64748b", lw=1.0, alpha=0.4, zorder=4)          # i=j diagonal guide
+    dv = np.asarray(g.get("sqd", []), dtype=float)
+    if dv.size == M:
+        ax.scatter(d, d, c=dv, cmap="RdBu_r", norm=norm, s=base * 1.2, marker="s",
+                   edgecolors="#222", linewidths=0.8, zorder=6)
+    ax.set_xlim(-0.5, M - 0.5); ax.set_ylim(-0.5, M - 0.5); ax.set_aspect("equal")
+    ax.set_xlabel("i"); ax.set_ylabel("j"); ax.set_title(title, fontsize=9)
+    return ax, sc
+
+
 def plot_section11(hist):
-    """§11 — the three N×N×N Hessian–NTK grids (T1=JᵢᵀQⱼJₖ, T2=uⱼuₖ·T1, T3=rᵢuⱼuₖ·T1) at the LAST snapshot."""
+    """§11 — the three N×N×N Hessian–NTK grids + the 2D square S=JᵢᵀQᵢJⱼrⱼ, at the LAST snapshot."""
     snaps = [r for r in hist if "g3d" in r and "t1" in r["g3d"]]   # grid stored on the SLQ cadence
     if not snaps:
         return None
     g = snaps[-1]["g3d"]; M = g["M"]; t = snaps[-1]["t"]
-    fig = plt.figure(figsize=(16.5, 5.2))
+    fig = plt.figure(figsize=(21, 5.2))
     pp = g.get("pp")
     for n, (key, lab) in enumerate((("t1", r"$T_1=J_i^\top Q_j J_k$"),
                                     ("t2", r"$T_2=u_j u_k\,J_i^\top Q_j J_k$"),
                                     ("t3", r"$T_3=r_i u_j u_k\,J_i^\top Q_j J_k$"))):
         if pp is not None:
             lab = lab + f"   (+{pp[n]:.1f}%)"                 # positive share 100·Σ(+)/(Σ(+)+|Σ(−)|)
-        _, sc = _g3d_scatter(fig, (1, 3, n + 1), g, key, M, lab)
+        _, sc = _g3d_scatter(fig, (1, 4, n + 1), g, key, M, lab)
         fig.colorbar(sc, ax=fig.axes[-1], shrink=0.55, pad=0.08)
-    fig.suptitle(f"§11 — 3D Hessian–NTK grids over sample indices (step {t}, N={M})", fontsize=11)
+    if "sq" in g:                                            # 4th column: the 2D square
+        slab = _G3DSQ_TITLE + (f"   (+{g['sqpp']:.1f}%)" if g.get("sqpp") is not None else "")
+        _, sc = _g3d_square(fig, (1, 4, 4), g, M, slab)
+        fig.colorbar(sc, ax=fig.axes[-1], shrink=0.55, pad=0.08)
+    fig.suptitle(f"§11 — Hessian–NTK grids + square over sample indices (step {t}, N={M})", fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.94))
     return fig
 
@@ -528,12 +574,12 @@ def plot_section11_classes(hist):
     if len(snaps) < 2:
         return None
     steps = np.array([r["t"] for r in snaps], dtype=float)
-    fig, axes = plt.subplots(1, 3, figsize=(16.5, 4.6))
+    fig, axes = plt.subplots(1, 4, figsize=(21, 4.6))
     titles = [r"$T_1=J_i^\top Q_j J_k$", r"$T_2=u_j u_k\,J_i^\top Q_j J_k$",
               r"$T_3=r_i u_j u_k\,J_i^\top Q_j J_k$"]
     for ti, key in enumerate(("t1", "t2", "t3")):
         ax = axes[ti]
-        ev = np.array([r["g3d"]["ev"][key] for r in snaps])   # (T, 5, 2): [...,0]=mean [...,1]=std
+        ev = np.array([r["g3d"]["ev"][key] for r in snaps])   # (T, 5, 3): [...,0]=mean [...,1]=std
         for c in range(5):
             m, s = ev[:, c, 0], ev[:, c, 1]
             ax.fill_between(steps, m - s, m + s, color=_G3D_CLASS_COLORS[c], alpha=0.18, linewidth=0)
@@ -541,63 +587,66 @@ def plot_section11_classes(hist):
         ax.set_title(titles[ti], fontsize=10); ax.set_xlabel("step"); ax.axhline(0, color="#888", lw=0.6)
         if ti == 0:
             ax.legend(fontsize=8, loc="best", title="class of (i,j,k)", title_fontsize=8)
-    fig.suptitle("§11 — per-class mean ± std of the Hessian–NTK grids over training", fontsize=11)
+    ax = axes[3]                                              # 4th column: the square (2 classes)
+    if all("sqev" in r["g3d"] for r in snaps):
+        sev = np.array([r["g3d"]["sqev"] for r in snaps])     # (T, 2, 3)
+        for c in range(2):
+            m, s = sev[:, c, 0], sev[:, c, 1]
+            ax.fill_between(steps, m - s, m + s, color=_G3DSQ_COLORS[c], alpha=0.18, linewidth=0)
+            ax.plot(steps, m, color=_G3DSQ_COLORS[c], lw=1.4, label=_G3DSQ_LABELS[c])
+        ax.legend(fontsize=8, loc="best", title="class of (i,j)", title_fontsize=8)
+    ax.set_title(_G3DSQ_TITLE, fontsize=10); ax.set_xlabel("step"); ax.axhline(0, color="#888", lw=0.6)
+    fig.suptitle("§11 — per-class mean ± std of the Hessian–NTK grids + square over training", fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     return fig
 
 
-def plot_section11_normshare(hist):
-    """§11 — % of the norm contributed by each class's average over training: 100·m_c²/Σ m_c'² (m_c = class mean).
-    The five curves sum to 100% in each of the three panels."""
+def _plot_section11_share(hist, weighted, suptitle):
+    """Shared body for the two norm-share panels. weighted=False → class MEAN (100·m_c²/Σm²);
+    weighted=True → class SUM (100·s_c²/Σs², s_c=mean_c·count_c). 4th column = the square (2 classes)."""
     import numpy as np
     snaps = [r for r in hist if "g3d" in r and "ev" in r["g3d"]]
     if len(snaps) < 2:
         return None
     steps = np.array([r["t"] for r in snaps], dtype=float)
-    fig, axes = plt.subplots(1, 3, figsize=(16.5, 4.6))
+    M = snaps[0]["g3d"]["M"]
+    ct5 = _g3d_class_counts(M) if weighted else np.ones(5)
+    ct2 = _g3dsq_class_counts(M) if weighted else np.ones(2)
+    fig, axes = plt.subplots(1, 4, figsize=(21, 4.6))
     titles = [r"$T_1=J_i^\top Q_j J_k$", r"$T_2=u_j u_k\,J_i^\top Q_j J_k$",
               r"$T_3=r_i u_j u_k\,J_i^\top Q_j J_k$"]
     for ti, key in enumerate(("t1", "t2", "t3")):
         ax = axes[ti]
-        m = np.array([[r["g3d"]["ev"][key][c][0] for c in range(5)] for r in snaps])   # (T, 5) class means
-        sq = m ** 2
-        den = sq.sum(axis=1, keepdims=True); den[den == 0] = 1.0
+        x = np.array([[r["g3d"]["ev"][key][c][0] for c in range(5)] for r in snaps]) * ct5
+        sq = x ** 2; den = sq.sum(axis=1, keepdims=True); den[den == 0] = 1.0
         pct = 100.0 * sq / den
         for c in range(5):
             ax.plot(steps, pct[:, c], color=_G3D_CLASS_COLORS[c], lw=1.4, label=_G3D_CLASS_LABELS[c])
         ax.set_title(titles[ti], fontsize=10); ax.set_xlabel("step"); ax.set_ylabel("% of norm"); ax.set_ylim(0, 100)
         if ti == 0:
             ax.legend(fontsize=8, loc="best", title="class of (i,j,k)", title_fontsize=8)
-    fig.suptitle("§11 — % of norm contributed by each class average  (100·mₖ²/Σmₖ²)", fontsize=11)
-    fig.tight_layout(rect=(0, 0, 1, 0.93))
-    return fig
-
-
-def plot_section11_absnormshare(hist):
-    """§11 — same as the norm-share panel but using each class's MEAN ABSOLUTE value a_c=mean|·|:
-    100·a_c²/Σ a_c'² over training (five curves sum to 100% per panel)."""
-    import numpy as np
-    snaps = [r for r in hist if "g3d" in r and "ev" in r["g3d"] and len(r["g3d"]["ev"]["t1"][0]) > 2]
-    if len(snaps) < 2:
-        return None
-    steps = np.array([r["t"] for r in snaps], dtype=float)
-    fig, axes = plt.subplots(1, 3, figsize=(16.5, 4.6))
-    titles = [r"$T_1=J_i^\top Q_j J_k$", r"$T_2=u_j u_k\,J_i^\top Q_j J_k$",
-              r"$T_3=r_i u_j u_k\,J_i^\top Q_j J_k$"]
-    for ti, key in enumerate(("t1", "t2", "t3")):
-        ax = axes[ti]
-        a = np.array([[r["g3d"]["ev"][key][c][2] for c in range(5)] for r in snaps])   # (T, 5) class mean|·|
-        sq = a ** 2
-        den = sq.sum(axis=1, keepdims=True); den[den == 0] = 1.0
+    ax = axes[3]                                              # 4th column: the square (2 classes)
+    if all("sqev" in r["g3d"] for r in snaps):
+        x = np.array([[r["g3d"]["sqev"][c][0] for c in range(2)] for r in snaps]) * ct2
+        sq = x ** 2; den = sq.sum(axis=1, keepdims=True); den[den == 0] = 1.0
         pct = 100.0 * sq / den
-        for c in range(5):
-            ax.plot(steps, pct[:, c], color=_G3D_CLASS_COLORS[c], lw=1.4, label=_G3D_CLASS_LABELS[c])
-        ax.set_title(titles[ti], fontsize=10); ax.set_xlabel("step"); ax.set_ylabel("% of norm (|·|)"); ax.set_ylim(0, 100)
-        if ti == 0:
-            ax.legend(fontsize=8, loc="best", title="class of (i,j,k)", title_fontsize=8)
-    fig.suptitle("§11 — % of norm contributed by each class mean-|·|  (100·aₖ²/Σaₖ²)", fontsize=11)
+        for c in range(2):
+            ax.plot(steps, pct[:, c], color=_G3DSQ_COLORS[c], lw=1.4, label=_G3DSQ_LABELS[c])
+        ax.legend(fontsize=8, loc="best", title="class of (i,j)", title_fontsize=8)
+    ax.set_title(_G3DSQ_TITLE, fontsize=10); ax.set_xlabel("step"); ax.set_ylabel("% of norm"); ax.set_ylim(0, 100)
+    fig.suptitle(suptitle, fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     return fig
+
+
+def plot_section11_normshare(hist):
+    """§11 — % of norm contributed by each class MEAN: 100·m_c²/Σ m_c'² (curves sum to 100% per panel)."""
+    return _plot_section11_share(hist, False, "§11 — % of norm contributed by each class MEAN  (100·mₖ²/Σmₖ²)")
+
+
+def plot_section11_sumnormshare(hist):
+    """§11 — % of norm contributed by each class SUM: 100·s_c²/Σ s_c'², s_c=mean_c·count_c (size-weighted)."""
+    return _plot_section11_share(hist, True, "§11 — % of norm contributed by each class SUM  (100·sₖ²/Σsₖ²)")
 
 
 def save_panels(results, outdir):
@@ -628,7 +677,7 @@ def save_panels(results, outdir):
             "section11_evolution": plot_section11_evolution(hist),
             "section11_classes": plot_section11_classes(hist),
             "section11_normshare": plot_section11_normshare(hist),
-            "section11_absnormshare": plot_section11_absnormshare(hist)}
+            "section11_sumnormshare": plot_section11_sumnormshare(hist)}
     written = []
     for name, fig in figs.items():
         if fig is None:

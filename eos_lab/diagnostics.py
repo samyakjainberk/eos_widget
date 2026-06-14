@@ -462,11 +462,26 @@ class Diagnostics:
                 and rr is not None and M <= self.grid3dcap):
             u = u1s
             T1 = torch.zeros(M, M, M, dtype=dt, device=dev)
+            Gd = torch.zeros_like(Jc)                             # gᵢ = Qᵢ Jᵢ (diagonal row of each HVP)
             for k in range(M):
                 QJk = jac_hvp(self.model, th, X, Jc[k])          # (M,p), row j = Qⱼ·Jₖ = ∇²fⱼ·∇fₖ
                 T1[:, :, k] = Jc @ QJk.t()                        # [i,j] = Jᵢ·(Qⱼ Jₖ)
+                Gd[k] = QJk[k]                                    # Qₖ Jₖ (reused → no extra HVP)
             T2 = T1 * u.view(1, M, 1) * u.view(1, 1, M)           # uⱼ uₖ T1
             T3 = T2 * rr.view(M, 1, 1)                            # rᵢ uⱼ uₖ T1
+            # §11 SQUARE — S[i,j] = Jᵢᵀ Qᵢ Jⱼ · rⱼ = (Qᵢ Jᵢ)·Jⱼ · rⱼ (2D over (i,j); classes i=j / i≠j)
+            Smat = (Gd @ Jc.t()) * rr.view(1, M)                 # (M,M): [i,j] = gᵢ·Jⱼ · rⱼ
+            jj_ = torch.arange(M, device=dev)
+            cats = torch.where(jj_.view(M, 1) == jj_.view(1, M), 0, 1).reshape(-1)   # 0:i=j  1:i≠j
+
+            def _evs(S):   # per (i=j / i≠j) class: [mean, std, mean|·|]
+                f = S.reshape(-1).detach()
+                out = []
+                for c in range(2):
+                    sel = f[cats == c]
+                    out.append([float(sel.mean()), float(sel.std(unbiased=False)), float(sel.abs().mean())]
+                               if int((cats == c).sum()) else [0.0, 0.0, 0.0])
+                return out
             # Per-class stats (mean/std/mean|·|) + positive-share over the FULL grid for the 5 diagonal classes
             # of (i,j,k): 0:i=j=k 1:i=j≠k 2:i≠j=k 3:i=k≠j 4:i≠j≠k. Computed EVERY tick (tiny) so the evolution /
             # norm-share / abs-norm-share curve panels are dense like the widget.
@@ -495,7 +510,8 @@ class Diagnostics:
                 return ps / den * 100.0 if den > 1e-30 else 0.0
 
             g3d = {"M": M, "pp": [_pospct(T1), _pospct(T2), _pospct(T3)],
-                   "ev": {"t1": _ev(T1), "t2": _ev(T2), "t3": _ev(T3)}}
+                   "ev": {"t1": _ev(T1), "t2": _ev(T2), "t3": _ev(T3)},
+                   "sqpp": _pospct(Smat), "sqev": _evs(Smat)}
 
             # The full M³ grid (for the 3D scatter plots) is heavier to store, and those plots only need a few
             # snapshots — so keep it on the coarser SLQ cadence while the curves above update every tick.
@@ -515,7 +531,9 @@ class Diagnostics:
                 dd = torch.arange(M, device=dev)           # i=j=k diagonal values (stay coloured even when sparse)
                 d1 = T1[dd, dd, dd]; d2 = T2[dd, dd, dd]; d3 = T3[dd, dd, dd]
                 g3d.update({"sparse": sparse, "t1": v1, "t2": v2, "t3": v3,
-                            "d1": d1.detach().cpu().tolist(), "d2": d2.detach().cpu().tolist(), "d3": d3.detach().cpu().tolist()})
+                            "d1": d1.detach().cpu().tolist(), "d2": d2.detach().cpu().tolist(), "d3": d3.detach().cpu().tolist(),
+                            "sq": Smat.reshape(-1).detach().cpu().tolist(),        # 4th column S[i,j], idx=i·M+j
+                            "sqd": torch.diagonal(Smat).detach().cpu().tolist()})  # i=j diagonal (highlight)
                 if sparse:
                     g3d.update({"i1": i1, "i2": i2, "i3": i3})
             rec["g3d"] = g3d

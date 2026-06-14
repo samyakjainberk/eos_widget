@@ -232,13 +232,14 @@
   <span id="g3d_step" style="white-space:nowrap;color:#475569;font-size:13px;min-width:120px">—</span>
   <label style="white-space:nowrap;font-size:13px"><input type="checkbox" id="g3d_sync" checked> sync rotation</label>
 </div>
-<div class="plotrow row3"><div id="p_g3d1" class="plot" style="height:400px"></div><div id="p_g3d2" class="plot" style="height:400px"></div><div id="p_g3d3" class="plot" style="height:400px"></div></div>
-<p class="cap" style="margin-top:14px">Evolution of each grid's <b>mean ± std</b> (shaded cloud) over training, split by the four diagonal classes of the index triple $(i,j,k)$: <span style="color:#d62728">$i\!=\!j\!=\!k$</span>, <span style="color:#1f77b4">$i\!=\!j\neq k$</span>, <span style="color:#2ca02c">$i\neq j\!=\!k$</span>, <span style="color:#9467bd">$i\!=\!k\neq j$</span>, <span style="color:#ff7f0e">$i\neq j\neq k$</span> (all distinct). Statistics are taken over the <em>full</em> grid (not the points shown above).</p>
-<div class="plotrow row3"><div id="p_g3de1" class="plot" style="height:300px"></div><div id="p_g3de2" class="plot" style="height:300px"></div><div id="p_g3de3" class="plot" style="height:300px"></div></div>
-<p class="cap" style="margin-top:14px">Percentage of the norm contributed by each class's <b>average</b> — $100\cdot m_c^2/\sum_{c'} m_{c'}^2$, where $m_c$ is the mean of the grid over class $c$ (the five curves sum to 100% per panel). Same class colours as above.</p>
-<div class="plotrow row3"><div id="p_g3dn1" class="plot" style="height:300px"></div><div id="p_g3dn2" class="plot" style="height:300px"></div><div id="p_g3dn3" class="plot" style="height:300px"></div></div>
-<p class="cap" style="margin-top:14px">Same as above but using each class's <b>mean absolute value</b> — $100\cdot a_c^2/\sum_{c'} a_{c'}^2$, where $a_c=\operatorname{mean}_{(i,j,k)\in c}|T_{ijk}|$ (sign-independent magnitude per class; five curves sum to 100%).</p>
-<div class="plotrow row3"><div id="p_g3da1" class="plot" style="height:300px"></div><div id="p_g3da2" class="plot" style="height:300px"></div><div id="p_g3da3" class="plot" style="height:300px"></div></div>
+<div class="plotrow row4"><div id="p_g3d1" class="plot" style="height:400px"></div><div id="p_g3d2" class="plot" style="height:400px"></div><div id="p_g3d3" class="plot" style="height:400px"></div><div id="p_g3d4" class="plot" style="height:400px"></div></div>
+<p class="cap" style="margin-top:6px">The 4th column is the 2D <b>square</b> $S_{ij}=J_i^\top Q_i J_j\,r_j$ (indices $i,j$ only — $Q_i$ acts on its own gradient $J_i$, contracted with $J_j$ and weighted by the residual $r_j$). Its two classes are <span style="color:#d62728">$i\!=\!j$</span> (diagonal) and <span style="color:#1f77b4">$i\neq j$</span>.</p>
+<p class="cap" style="margin-top:14px">Evolution of each grid's <b>mean ± std</b> (shaded cloud) over training, split by the diagonal classes of the index triple $(i,j,k)$: <span style="color:#d62728">$i\!=\!j\!=\!k$</span>, <span style="color:#1f77b4">$i\!=\!j\neq k$</span>, <span style="color:#2ca02c">$i\neq j\!=\!k$</span>, <span style="color:#9467bd">$i\!=\!k\neq j$</span>, <span style="color:#ff7f0e">$i\neq j\neq k$</span> (all distinct) — and for the square (4th) by $i\!=\!j$ / $i\neq j$. Statistics over the <em>full</em> grid.</p>
+<div class="plotrow row4"><div id="p_g3de1" class="plot" style="height:300px"></div><div id="p_g3de2" class="plot" style="height:300px"></div><div id="p_g3de3" class="plot" style="height:300px"></div><div id="p_g3de4" class="plot" style="height:300px"></div></div>
+<p class="cap" style="margin-top:14px">Percentage of the norm contributed by each class's <b>mean</b> — $100\cdot m_c^2/\sum_{c'} m_{c'}^2$, where $m_c$ is the mean of the grid over class $c$ (the curves sum to 100% per panel). Same class colours as above.</p>
+<div class="plotrow row4"><div id="p_g3dn1" class="plot" style="height:300px"></div><div id="p_g3dn2" class="plot" style="height:300px"></div><div id="p_g3dn3" class="plot" style="height:300px"></div><div id="p_g3dn4" class="plot" style="height:300px"></div></div>
+<p class="cap" style="margin-top:14px">Same as above but using each class's <b>sum</b> — $100\cdot s_c^2/\sum_{c'} s_{c'}^2$, where $s_c=\sum_{(i,j,k)\in c} T_{ijk}$ is the sum over class $c$ (so larger classes are weighted by their size; curves sum to 100%).</p>
+<div class="plotrow row4"><div id="p_g3da1" class="plot" style="height:300px"></div><div id="p_g3da2" class="plot" style="height:300px"></div><div id="p_g3da3" class="plot" style="height:300px"></div><div id="p_g3da4" class="plot" style="height:300px"></div></div>
 </div>
 
 <div id="sec_2">
@@ -626,7 +627,7 @@ const G3D_MAXPTS=10000;   // render budget per grid (mirror server G3D_MAXPTS): 
 const G3D_IDS=['p_g3d1','p_g3d2','p_g3d3'], G3D_KEYS=['t1','t2','t3'], G3D_IDX=['i1','i2','i3'];
 const G3D_TITLES=['T₁ = Jᵢᵀ Qⱼ Jₖ','T₂ = uⱼ uₖ · Jᵢᵀ Qⱼ Jₖ','T₃ = rᵢ uⱼ uₖ · Jᵢᵀ Qⱼ Jₖ'];
 function g3dReset(){G3D_SNAPS=[];G3D_M=0;G3D_BUILT=false;G3D_CAMKEY='';if(G3D_RAF){cancelAnimationFrame(G3D_RAF);G3D_RAF=0;}G3D_PENDING=-1;
-  for(const id of G3D_IDS){try{Plotly.purge(id);}catch(e){}}   // blank the cubes so a Reset / new run doesn't leave stale grids
+  for(const id of G3D_IDS.concat(['p_g3d4'])){try{Plotly.purge(id);}catch(e){}}   // blank the cubes + square so a Reset / new run doesn't leave stale grids
   const sl=document.getElementById('g3d_slider');if(sl){sl.max=0;sl.value=0;}
   const sp=document.getElementById('g3d_step');if(sp)sp.textContent='—';
   g3deReset();}
@@ -664,6 +665,21 @@ function g3dBuild(M){
       for(const oid of G3D_IDS)if(oid!==G3D_IDS[g])Plotly.relayout(oid,{'scene.camera':cam});
     });
   }
+  // ── 4th column: 2D SQUARE  S[i,j] = Jᵢᵀ Qᵢ Jⱼ rⱼ  (same symlog colour scheme; i=j diagonal highlighted) ──
+  {const dgs=[],x0=[],y0=[];for(let q=0;q<M;q++)dgs.push(q);
+   for(let i=0;i<M;i++)for(let j=0;j<M;j++){x0.push(i);y0.push(j);}   // idx = i·M+j → (x,y)=(i,j)
+   const sz=Math.max(3,Math.min(16,Math.round(300/Math.max(1,M))));
+   const tr=[{type:'scattergl',mode:'markers',x:x0,y:y0,customdata:[],
+      marker:{size:sz,symbol:'square',color:[],colorscale:'RdBu',reversescale:true,cmin:-1,cmax:1,
+        colorbar:{thickness:9,len:0.85,tickmode:'array',tickfont:{size:9},title:{text:'value',font:{size:9},side:'right'}}},
+      hovertemplate:'i=%{x}, j=%{y}<br>S=%{customdata:.2e}<extra></extra>'},
+     {type:'scattergl',mode:'lines',x:dgs,y:dgs,line:{color:'#64748b',width:1.5},opacity:0.4,hoverinfo:'skip',showlegend:false},
+     {type:'scattergl',mode:'markers',x:dgs,y:dgs,customdata:[],
+      marker:{size:Math.round(sz*1.2)+1,symbol:'square',color:[],colorscale:'RdBu',reversescale:true,cmin:-1,cmax:1,line:{color:'#222',width:0.9}},
+      name:'i=j',hovertemplate:'i=j=%{x}<br>S=%{customdata:.2e}<extra></extra>'}];
+   const lay={title:{text:'S = Jᵢᵀ Qᵢ Jⱼ rⱼ',font:{size:13}},margin:{l:40,r:8,t:28,b:34},showlegend:false,uirevision:'g3d',
+     xaxis:{title:'i',dtick:dt,tick0:0,range:[-0.5,rmax+0.5]},yaxis:{title:'j',dtick:dt,tick0:0,range:[-0.5,rmax+0.5],scaleanchor:'x',scaleratio:1}};
+   Plotly.newPlot('p_g3d4',tr,lay,{responsive:true,displaylogo:false});}
 }
 // Decode flat C-order indices (i·M²+j·M+k) → 1-based (i,j,k) coordinates. idxArr=null ⇒ the dense full grid.
 function g3dPos(M,idxArr,L){
@@ -710,6 +726,17 @@ function g3dRenderNow(i){
     const pp=snap.pp&&snap.pp[g]!=null?`   ·   +${snap.pp[g].toFixed(1)}%`:'';
     Plotly.relayout(G3D_IDS[g],{'title.text':G3D_TITLES[g]+pp});
   }
+  // 4th column — the 2D square S (positions fixed in build; restyle colour only)
+  if(snap.sq){
+    const {c,cm,lin}=g3dColor(snap.sq), realf=x=>(x<0?-1:1)*lin*Math.expm1(Math.abs(x)), tv=[-cm,-cm/2,0,cm/2,cm];
+    Plotly.restyle('p_g3d4',{customdata:[snap.sq],'marker.color':[c],'marker.cmin':-cm,'marker.cmax':cm,
+      'marker.colorbar.tickvals':[tv],'marker.colorbar.ticktext':[tv.map(z=>fmt(realf(z)))]},[0]);
+    const dv=snap.sqd;
+    if(dv){const dc=dv.map(z=>(z<0?-1:1)*Math.log1p(Math.abs(z)/lin));
+      Plotly.restyle('p_g3d4',{customdata:[dv],'marker.color':[dc],'marker.cmin':-cm,'marker.cmax':cm},[2]);}
+    const spp=snap.sqpp!=null?`   ·   +${snap.sqpp.toFixed(1)}%`:'';
+    Plotly.relayout('p_g3d4',{'title.text':'S = Jᵢᵀ Qᵢ Jⱼ rⱼ'+spp});
+  }
   const sp=document.getElementById('g3d_step');
   if(sp)sp.textContent=`step ${snap.t}  ·  snapshot ${i+1}/${G3D_SNAPS.length}`+(snap.sparse?`  ·  top ${snap.t1.length} of ${snap.M}³ pts`:'');
 }
@@ -723,102 +750,83 @@ function g3dPush(m){
   g3deAppend(m);g3deRenderSched();   // §11 per-class mean±std evolution panel (separate, accumulates over the run)
 }
 
-// ── §11 per-class evolution: mean ± std (shaded cloud) of each grid over training, split by the 4 diagonal
-// classes of (i,j,k): 0:i=j=k 1:i=j≠k 2:i≠j=k 3:i≠j≠k. Stats come from the FULL grid (server/eos_lab side).
+// ── §11 per-class evolution panels. Columns 1-3 are the cubes (5 classes of (i,j,k)); column 4 is the
+// square S (2 classes i=j / i≠j). Stats come from the FULL grid (server/eos_lab side).
 const G3DE_IDS=['p_g3de1','p_g3de2','p_g3de3'], G3DN_IDS=['p_g3dn1','p_g3dn2','p_g3dn3'], G3DA_IDS=['p_g3da1','p_g3da2','p_g3da3'],
-      G3DE_LAB=['i=j=k','i=j≠k','i≠j=k','i=k≠j','i≠j≠k'],
-      G3DE_COL=['#d62728','#1f77b4','#2ca02c','#9467bd','#ff7f0e'], G3DE_NC=5, G3DE_MAXPTS=4000;
-let G3DE_STEPS=[], G3DE_DATA=g3deBlank(), G3DE_BUILT=false, G3DN_BUILT=false, G3DA_BUILT=false, G3DE_RAF=0;
-function g3deBlank(){const mk=()=>({m:[[],[],[],[],[]],s:[[],[],[],[],[]],a:[[],[],[],[],[]]});return {t1:mk(),t2:mk(),t3:mk()};}
+      G3DSQ_IDS=['p_g3de4','p_g3dn4','p_g3da4'],                      // the square's 4th-column plot in rows 2 / 3 / 4
+      G3DE_LAB=['i=j=k','i=j≠k','i≠j=k','i=k≠j','i≠j≠k'], G3DSQ_LAB=['i=j','i≠j'],
+      G3DE_COL=['#d62728','#1f77b4','#2ca02c','#9467bd','#ff7f0e'], G3DE_NC=5, G3DSQ_NC=2,
+      G3D_SQTITLE='S = Jᵢᵀ Qᵢ Jⱼ rⱼ', G3DE_MAXPTS=4000;
+let G3DE_STEPS=[], G3DE_DATA=g3deBlank(), G3DE_BUILT=false, G3DN_BUILT=false, G3DA_BUILT=false, G3DE_RAF=0, G3DE_M=0;
+function g3deBlank(){const mk=n=>({m:Array.from({length:n},()=>[]),s:Array.from({length:n},()=>[]),a:Array.from({length:n},()=>[])});
+  return {t1:mk(5),t2:mk(5),t3:mk(5),sq:mk(2)};}
 function hexA(h,a){const n=parseInt(h.slice(1),16);return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;}
-function g3deReset(){G3DE_STEPS=[];G3DE_DATA=g3deBlank();G3DE_BUILT=false;G3DN_BUILT=false;G3DA_BUILT=false;if(G3DE_RAF){cancelAnimationFrame(G3DE_RAF);G3DE_RAF=0;}
-  for(const id of G3DE_IDS.concat(G3DN_IDS,G3DA_IDS)){try{Plotly.purge(id);}catch(e){}}}
+function g3deCounts(){const M=G3DE_M||1;return [M,M*(M-1),M*(M-1),M*(M-1),M*(M-1)*(M-2)];}   // 5-class sizes (mean→sum)
+function g3dsqCounts(){const M=G3DE_M||1;return [M,M*(M-1)];}                                  // 2-class sizes (i=j, i≠j)
+function g3deReset(){G3DE_STEPS=[];G3DE_DATA=g3deBlank();G3DE_M=0;G3DE_BUILT=false;G3DN_BUILT=false;G3DA_BUILT=false;if(G3DE_RAF){cancelAnimationFrame(G3DE_RAF);G3DE_RAF=0;}
+  for(const id of G3DE_IDS.concat(G3DN_IDS,G3DA_IDS,G3DSQ_IDS)){try{Plotly.purge(id);}catch(e){}}}
 function g3deAppend(m){
   if(!m.ev)return;
+  if(m.M)G3DE_M=m.M;
   G3DE_STEPS.push(m.t);
   for(const key of G3D_KEYS){const ev=m.ev[key];if(!ev)continue;
     for(let c=0;c<G3DE_NC;c++){G3DE_DATA[key].m[c].push(ev[c][0]);G3DE_DATA[key].s[c].push(ev[c][1]);G3DE_DATA[key].a[c].push(ev[c][2]!=null?ev[c][2]:0);}}
+  if(m.sqev)for(let c=0;c<G3DSQ_NC;c++){G3DE_DATA.sq.m[c].push(m.sqev[c][0]);G3DE_DATA.sq.s[c].push(m.sqev[c][1]);G3DE_DATA.sq.a[c].push(m.sqev[c][2]!=null?m.sqev[c][2]:0);}
   if(G3DE_STEPS.length>G3DE_MAXPTS){   // decimate ×2 to bound memory on long runs (span preserved)
-    const dec=a=>a.filter((_,ix)=>ix%2===0);
-    G3DE_STEPS=dec(G3DE_STEPS);
-    for(const key of G3D_KEYS)for(let c=0;c<G3DE_NC;c++){G3DE_DATA[key].m[c]=dec(G3DE_DATA[key].m[c]);G3DE_DATA[key].s[c]=dec(G3DE_DATA[key].s[c]);G3DE_DATA[key].a[c]=dec(G3DE_DATA[key].a[c]);}}
+    const dec=a=>a.filter((_,ix)=>ix%2===0);G3DE_STEPS=dec(G3DE_STEPS);
+    for(const key of Object.keys(G3DE_DATA)){const d=G3DE_DATA[key];for(const arr of [d.m,d.s,d.a])for(let c=0;c<arr.length;c++)arr[c]=dec(arr[c]);}}
 }
+// shared norm-share helper: % of norm from each class with per-class weight wt (1=mean panel, count=sum panel)
+function g3dPctXY(xs,m,nc,wt){const T=xs.length,pct=[];for(let c=0;c<nc;c++)pct.push([]);
+  for(let t=0;t<T;t++){let den=0;const s=[];for(let c=0;c<nc;c++){const v=m[c][t]*wt[c];s.push(v);den+=v*v;}den=den||1;
+    for(let c=0;c<nc;c++)pct[c].push(100*s[c]*s[c]/den);}
+  const X=[],Y=[];for(let c=0;c<nc;c++){X.push(xs);Y.push(pct[c]);}return {X,Y};}
+function g3deRenderSched(){if(G3DE_RAF)return;G3DE_RAF=requestAnimationFrame(()=>{G3DE_RAF=0;g3deRender();});}
+// ── panel 2: mean ± std (shaded band + line) per class ──
 function g3deBuild(){
   G3DE_BUILT=true;
-  for(let g=0;g<3;g++){
-    const tr=[];
-    for(let c=0;c<G3DE_NC;c++){   // per class: shaded ±std band (drawn first) then the mean line on top
-      tr.push({x:[],y:[],type:'scatter',mode:'lines',fill:'toself',fillcolor:hexA(G3DE_COL[c],0.16),line:{width:0},hoverinfo:'skip',showlegend:false});
-      tr.push({x:[],y:[],type:'scatter',mode:'lines',line:{color:G3DE_COL[c],width:1.6},name:G3DE_LAB[c]});
-    }
-    const lay={title:{text:G3D_TITLES[g],font:{size:12}},margin:{l:54,r:8,t:24,b:34},
-      xaxis:{title:'step'},yaxis:{title:'value',zeroline:true,zerolinecolor:'#cbd5e1'},
-      legend:{font:{size:9},orientation:'h',y:1.16,x:0},showlegend:g===0};
-    newP(G3DE_IDS[g],tr,lay);
-  }
+  const mk=(id,labs,col,nc,title,showleg)=>{const tr=[];
+    for(let c=0;c<nc;c++){tr.push({x:[],y:[],type:'scatter',mode:'lines',fill:'toself',fillcolor:hexA(col[c],0.16),line:{width:0},hoverinfo:'skip',showlegend:false});
+      tr.push({x:[],y:[],type:'scatter',mode:'lines',line:{color:col[c],width:1.6},name:labs[c]});}
+    newP(id,tr,{title:{text:title,font:{size:12}},margin:{l:54,r:8,t:24,b:34},xaxis:{title:'step'},yaxis:{title:'value',zeroline:true,zerolinecolor:'#cbd5e1'},legend:{font:{size:9},orientation:'h',y:1.16,x:0},showlegend:showleg});};
+  for(let g=0;g<3;g++)mk(G3DE_IDS[g],G3DE_LAB,G3DE_COL,G3DE_NC,G3D_TITLES[g],g===0);
+  mk(G3DSQ_IDS[0],G3DSQ_LAB,G3DE_COL,G3DSQ_NC,G3D_SQTITLE,false);
 }
-function g3deRenderSched(){if(G3DE_RAF)return;G3DE_RAF=requestAnimationFrame(()=>{G3DE_RAF=0;g3deRender();});}
 function g3deRender(){
   if(!G3DE_STEPS.length)return;
   if(!G3DE_BUILT)g3deBuild();
   const xs=G3DE_STEPS, xr=xs.slice().reverse();
-  for(let g=0;g<3;g++){
-    const d=G3DE_DATA[G3D_KEYS[g]], X=[], Y=[];
-    for(let c=0;c<G3DE_NC;c++){const m=d.m[c],s=d.s[c],up=m.map((v,i)=>v+s[i]),lo=m.map((v,i)=>v-s[i]);
-      X.push(xs.concat(xr));Y.push(up.concat(lo.slice().reverse()));   // band polygon (forward upper, back lower)
-      X.push(xs);Y.push(m);}                                          // mean line
-    Plotly.restyle(G3DE_IDS[g],{x:X,y:Y});
-  }
+  const bands=(d,nc)=>{const X=[],Y=[];for(let c=0;c<nc;c++){const m=d.m[c],s=d.s[c],up=m.map((v,i)=>v+s[i]),lo=m.map((v,i)=>v-s[i]);
+    X.push(xs.concat(xr));Y.push(up.concat(lo.slice().reverse()));X.push(xs);Y.push(m);}return {X,Y};};
+  for(let g=0;g<3;g++){const r=bands(G3DE_DATA[G3D_KEYS[g]],G3DE_NC);Plotly.restyle(G3DE_IDS[g],{x:r.X,y:r.Y});}
+  {const r=bands(G3DE_DATA.sq,G3DSQ_NC);Plotly.restyle(G3DSQ_IDS[0],{x:r.X,y:r.Y});}
   g3dnRender();
 }
-// ── §11 per-class norm share: % of the norm contributed by each class average — 100·m_c²/Σm_c'² (sums to 100%).
-function g3dnBuild(){
-  G3DN_BUILT=true;
-  for(let g=0;g<3;g++){
-    const tr=[];
-    for(let c=0;c<G3DE_NC;c++)tr.push({x:[],y:[],type:'scatter',mode:'lines',line:{color:G3DE_COL[c],width:1.6},name:G3DE_LAB[c]});
-    const lay={title:{text:G3D_TITLES[g],font:{size:12}},margin:{l:48,r:8,t:24,b:34},
-      xaxis:{title:'step'},yaxis:{title:'% of norm',range:[0,100],ticksuffix:'%'},
-      legend:{font:{size:9},orientation:'h',y:1.16,x:0},showlegend:g===0};
-    newP(G3DN_IDS[g],tr,lay);
-  }
+// ── panel 3: norm share from each class MEAN — 100·m_c²/Σm_c'² ──
+function g3dnLineBuild(ids,sqid){
+  const mk=(id,labs,col,nc,title,showleg)=>{const tr=[];
+    for(let c=0;c<nc;c++)tr.push({x:[],y:[],type:'scatter',mode:'lines',line:{color:col[c],width:1.6},name:labs[c]});
+    newP(id,tr,{title:{text:title,font:{size:12}},margin:{l:48,r:8,t:24,b:34},xaxis:{title:'step'},yaxis:{title:'% of norm',range:[0,100],ticksuffix:'%'},legend:{font:{size:9},orientation:'h',y:1.16,x:0},showlegend:showleg});};
+  for(let g=0;g<3;g++)mk(ids[g],G3DE_LAB,G3DE_COL,G3DE_NC,G3D_TITLES[g],g===0);
+  mk(sqid,G3DSQ_LAB,G3DE_COL,G3DSQ_NC,G3D_SQTITLE,false);
 }
+function g3dnBuild(){G3DN_BUILT=true;g3dnLineBuild(G3DN_IDS,G3DSQ_IDS[1]);}
 function g3dnRender(){
   if(!G3DE_STEPS.length)return;
   if(!G3DN_BUILT)g3dnBuild();
-  const xs=G3DE_STEPS, T=xs.length;
-  for(let g=0;g<3;g++){
-    const m=G3DE_DATA[G3D_KEYS[g]].m, pct=[[],[],[],[],[]];
-    for(let t=0;t<T;t++){let den=0;for(let c=0;c<G3DE_NC;c++)den+=m[c][t]*m[c][t];den=den||1;
-      for(let c=0;c<G3DE_NC;c++)pct[c].push(100*m[c][t]*m[c][t]/den);}
-    const X=[],Y=[];for(let c=0;c<G3DE_NC;c++){X.push(xs);Y.push(pct[c]);}
-    Plotly.restyle(G3DN_IDS[g],{x:X,y:Y});
-  }
+  const xs=G3DE_STEPS, o5=[1,1,1,1,1], o2=[1,1];
+  for(let g=0;g<3;g++){const r=g3dPctXY(xs,G3DE_DATA[G3D_KEYS[g]].m,G3DE_NC,o5);Plotly.restyle(G3DN_IDS[g],{x:r.X,y:r.Y});}
+  {const r=g3dPctXY(xs,G3DE_DATA.sq.m,G3DSQ_NC,o2);Plotly.restyle(G3DSQ_IDS[1],{x:r.X,y:r.Y});}
   g3daRender();
 }
-// ── §11 per-class ABS norm share: same as g3dn but with a_c = mean|·| per class — 100·a_c²/Σa_c'² (sums to 100%).
-function g3daBuild(){
-  G3DA_BUILT=true;
-  for(let g=0;g<3;g++){
-    const tr=[];
-    for(let c=0;c<G3DE_NC;c++)tr.push({x:[],y:[],type:'scatter',mode:'lines',line:{color:G3DE_COL[c],width:1.6},name:G3DE_LAB[c]});
-    const lay={title:{text:G3D_TITLES[g],font:{size:12}},margin:{l:48,r:8,t:24,b:34},
-      xaxis:{title:'step'},yaxis:{title:'% of norm (|·|)',range:[0,100],ticksuffix:'%'},
-      legend:{font:{size:9},orientation:'h',y:1.16,x:0},showlegend:g===0};
-    newP(G3DA_IDS[g],tr,lay);
-  }
-}
+// ── panel 4: norm share from each class SUM — 100·s_c²/Σs_c'², s_c = mean_c·count_c (size-weighted) ──
+function g3daBuild(){G3DA_BUILT=true;g3dnLineBuild(G3DA_IDS,G3DSQ_IDS[2]);}
 function g3daRender(){
   if(!G3DE_STEPS.length)return;
   if(!G3DA_BUILT)g3daBuild();
-  const xs=G3DE_STEPS, T=xs.length;
-  for(let g=0;g<3;g++){
-    const a=G3DE_DATA[G3D_KEYS[g]].a, pct=[[],[],[],[],[]];
-    for(let t=0;t<T;t++){let den=0;for(let c=0;c<G3DE_NC;c++)den+=a[c][t]*a[c][t];den=den||1;
-      for(let c=0;c<G3DE_NC;c++)pct[c].push(100*a[c][t]*a[c][t]/den);}
-    const X=[],Y=[];for(let c=0;c<G3DE_NC;c++){X.push(xs);Y.push(pct[c]);}
-    Plotly.restyle(G3DA_IDS[g],{x:X,y:Y});
-  }
+  const xs=G3DE_STEPS, ct5=g3deCounts(), ct2=g3dsqCounts();
+  for(let g=0;g<3;g++){const r=g3dPctXY(xs,G3DE_DATA[G3D_KEYS[g]].m,G3DE_NC,ct5);Plotly.restyle(G3DA_IDS[g],{x:r.X,y:r.Y});}
+  {const r=g3dPctXY(xs,G3DE_DATA.sq.m,G3DSQ_NC,ct2);Plotly.restyle(G3DSQ_IDS[2],{x:r.X,y:r.Y});}
 }
 let OPT={s1:true,s2:true,s3:true,s4:true,s5:true,s6:true,gs:true};
 
@@ -1380,13 +1388,22 @@ async function loop(){                                   // drives ST forward; r
         // §11 3D Hessian–NTK grids — T1[i,j,k]=Jᵢᵀ Qⱼ Jₖ, T2=uⱼuₖ·T1, T3=rᵢuⱼuₖ·T1 (u=top NTK eigvec, r=residual).
         // On the SLQ cadence and small M only (M³ points + M jacobian-HVPs). QJk[j]=Q_j·J_k via jacHVP(J_k). Mirrors server §11.
         if(O.s18&&M>1&&S.eigTick%S.g3dStride===0&&bJc&&u1s&&rrs&&M<=S.grid3dcap){
-          const Mm=M,M2=Mm*Mm,u=u1s,n3=Mm*M2,T1=new Float64Array(n3),T2=new Float64Array(n3),T3=new Float64Array(n3);
+          const Mm=M,M2=Mm*Mm,u=u1s,n3=Mm*M2,T1=new Float64Array(n3),T2=new Float64Array(n3),T3=new Float64Array(n3),Gd=[];
           for(let k=0;k<Mm;k++){
             const QJk=jacHVP(S.th,spec,X,N,inDim,p,bJc[k],eps);     // QJk[j]=Q_j·J_k (M vectors length p)
+            Gd[k]=QJk[k];                                           // g_k = Q_k·J_k (reused → no extra HVP)
             for(let i=0;i<Mm;i++){const ji=bJc[i],ri=rrs[i];for(let j=0;j<Mm;j++){
               const v=dot(ji,QJk[j]),w=u[j]*u[k],idx=i*M2+j*Mm+k;
               T1[idx]=v;T2[idx]=v*w;T3[idx]=v*w*ri;}}
           }
+          // §11 SQUARE — S[i,j] = Jᵢᵀ Qᵢ Jⱼ rⱼ = (Q_i J_i)·J_j · r_j  (2D; classes i=j / i≠j)
+          const Sm=new Float64Array(M2);
+          for(let i=0;i<Mm;i++){const gi=Gd[i];for(let j=0;j<Mm;j++)Sm[i*Mm+j]=dot(gi,bJc[j])*rrs[j];}
+          const scnt=[0,0],ssm=[0,0],ssq2=[0,0],ssa=[0,0];
+          for(let i=0;i<Mm;i++)for(let j=0;j<Mm;j++){const c=i===j?0:1,v=Sm[i*Mm+j];scnt[c]++;ssm[c]+=v;ssq2[c]+=v*v;ssa[c]+=Math.abs(v);}
+          const sqev=[];for(let c=0;c<2;c++){const n=scnt[c]||1,mn=ssm[c]/n;sqev.push(scnt[c]?[mn,Math.sqrt(Math.max(0,ssq2[c]/n-mn*mn)),ssa[c]/n]:[0,0,0]);}
+          const sqd=[];for(let q=0;q<Mm;q++)sqd.push(Sm[q*Mm+q]);
+          let sps=0,sns=0;for(let q=0;q<M2;q++){const v=Sm[q];if(v>0)sps+=v;else sns+=v;}const sqpp=(sps-sns)>1e-30?sps/(sps-sns)*100:0;
           // per-class mean±std over the FULL grid (evolution panel): 0:i=j=k 1:i=j≠k 2:i≠j=k 3:i=k≠j 4:i≠j≠k
           const Z=()=>[0,0,0,0,0],ZZ=()=>[Z(),Z(),Z()];
           const TS=[T1,T2,T3],cnt=Z(),sm=ZZ(),sq=ZZ(),sa=ZZ();
@@ -1405,7 +1422,8 @@ async function loop(){                                   // drives ST forward; r
           const dstep=M2+Mm+1, d1=[],d2=[],d3=[];   // i=j=k diagonal values: flat idx (i,i,i)=i·(M²+M+1)
           for(let q=0;q<Mm;q++){const di=q*dstep;d1.push(T1[di]);d2.push(T2[di]);d3.push(T3[di]);}
           const pospct=(T)=>{let ps=0,ns=0;for(let q=0;q<n3;q++){const v=T[q];if(v>0)ps+=v;else ns+=v;}const den=ps-ns;return den>1e-30?ps/den*100:0;};
-          const msg={type:'g3d',t:S.t,M:Mm,sparse:sparse,ev:ev,d1:d1,d2:d2,d3:d3,pp:[pospct(T1),pospct(T2),pospct(T3)]};
+          const msg={type:'g3d',t:S.t,M:Mm,sparse:sparse,ev:ev,d1:d1,d2:d2,d3:d3,pp:[pospct(T1),pospct(T2),pospct(T3)],
+                     sq:Array.from(Sm),sqd:sqd,sqev:sqev,sqpp:sqpp};
           if(sparse){const a=topN(T1),b=topN(T2),c=topN(T3);
             msg.t1=a.v;msg.t2=b.v;msg.t3=c.v;msg.i1=a.i;msg.i2=b.i;msg.i3=c.i;}
           else{msg.t1=Array.from(T1);msg.t2=Array.from(T2);msg.t3=Array.from(T3);}
