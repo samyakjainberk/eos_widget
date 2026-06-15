@@ -221,8 +221,7 @@
 <div id="sec_1">
 <h2>1 · Loss, sharpness, residual, and the spectral edges of $H$<span class="secparams" id="secp1"></span></h2>
 <p class="cap">Sharpness vs the EoS threshold $2/\eta$ (dashed). Residual is the signed $y-f(x)$ per output component. Last panel: the largest and smallest eigenvalue of the function Hessian $H$.</p>
-<div class="plotrow row4"><div id="p_loss" class="plot"></div><div id="p_sharp" class="plot"></div><div id="p_resid" class="plot"></div><div id="p_eHfX" class="plot"></div><div id="p_psharp" class="plot precond" style="display:none"></div></div>
-<p class="cap precond" style="display:none;margin-top:4px"><b>Preconditioned sharpness</b> $\lambda_{\max}(P\nabla^2 L)=\lambda_{\max}(P^{1/2}\nabla^2 L\,P^{1/2})$ — the curvature seen in the optimizer's geometry, where $P$ is the preconditioner mapping the gradient to the update ($P\,g=$ step direction). Signed GD: $P=\operatorname{diag}(1/|g|)$. Spectral (Muon): per weight block $P_\ell:V\mapsto(GG^\top)^{-1/4}V(G^\top G)^{-1/4}$ (so $P_\ell g_\ell=UV^\top$), biases $\operatorname{diag}(1/|g|)$. Shown only for signed / spectral GD (for plain GD $P=I$ and it equals the sharpness).</p>
+<div class="plotrow row4"><div id="p_loss" class="plot"></div><div id="p_sharp" class="plot"></div><div id="p_resid" class="plot"></div><div id="p_eHfX" class="plot"></div></div>
 </div>
 
 <div id="sec_g3d" style="display:none">
@@ -249,15 +248,13 @@
 <div id="sec_2">
 <h2>2 · Eigenvalue evolution — top-$n$<span class="secparams" id="secp2"></span></h2>
 <p class="cap">The $n$ largest eigenvalues over training of the function Hessian $H$, the loss Hessian ($=G+S$; its top eigenvalue is the sharpness), Gauss–Newton $G$, and the residual term $S$.</p>
-<div class="plotrow row4"><div id="p_eHfT" class="plot"></div><div id="p_eHLT" class="plot"></div><div id="p_eGNT" class="plot"></div><div id="p_eSRT" class="plot"></div><div id="p_epHLT" class="plot precond" style="display:none"></div></div>
-<p class="cap precond" style="display:none;margin-top:4px">Last panel (signed / spectral GD only): top-$n$ eigenvalues of the <b>preconditioned</b> loss Hessian $P^{1/2}\nabla^2 L\,P^{1/2}$ (its largest = the §1 preconditioned sharpness).</p>
+<div class="plotrow row4"><div id="p_eHfT" class="plot"></div><div id="p_eHLT" class="plot"></div><div id="p_eGNT" class="plot"></div><div id="p_eSRT" class="plot"></div></div>
 </div>
 
 <div id="sec_3">
 <h2>3 · Eigenvalue evolution — bottom-$n$<span class="secparams" id="secp3"></span></h2>
 <p class="cap">The $n$ smallest (most negative) eigenvalues of the same four matrices. ($G$ is PSD, so its bottom eigenvalues sit near 0.)</p>
-<div class="plotrow row4"><div id="p_eHfB" class="plot"></div><div id="p_eHLB" class="plot"></div><div id="p_eGNB" class="plot"></div><div id="p_eSRB" class="plot"></div><div id="p_epHLB" class="plot precond" style="display:none"></div></div>
-<p class="cap precond" style="display:none;margin-top:4px">Last panel (signed / spectral GD only): bottom-$n$ eigenvalues of the <b>preconditioned</b> loss Hessian $P^{1/2}\nabla^2 L\,P^{1/2}$.</p>
+<div class="plotrow row4"><div id="p_eHfB" class="plot"></div><div id="p_eHLB" class="plot"></div><div id="p_eGNB" class="plot"></div><div id="p_eSRB" class="plot"></div></div>
 </div>
 
 <div id="sec_4">
@@ -548,30 +545,6 @@ function optDir(spec,g,p,opt){
     for(let i=0;i<din*dout;i++)d[wOff+i]=Q[i];}
   return d;
 }
-// Symmetric matrix power M^expo of a row-major n×n symmetric PSD M (eigvals below tol·λmax → 0). Used to
-// build the spectral preconditioner's −1/8 powers (GGᵀ)^(-1/8),(GᵀG)^(-1/8). MIRRORS the torch SVD path.
-function symPow(A,n,expo,tol){const {vals,V}=jacobiEig(A,n);let mx=0;for(let k=0;k<n;k++)if(vals[k]>mx)mx=vals[k];const th=tol*mx+1e-30;const w=new Float64Array(n);for(let k=0;k<n;k++)w[k]=vals[k]>th?Math.pow(vals[k],expo):0;
-  const M=new Float64Array(n*n);for(let a=0;a<n;a++)for(let b=a;b<n;b++){let s=0;for(let k=0;k<n;k++)s+=V[a*n+k]*w[k]*V[b*n+k];M[a*n+b]=s;M[b*n+a]=s;}return M;}
-// P^½ matvec for preconditioned sharpness λmax(P·∇²L)=λmax(P^½∇²L P^½). P maps the gradient to the optimizer
-// step (P·g=optDir). sign: P^½=diag(1/√|g|). spectral: per weight block (G=∇W din×dout) P^½:V↦(GGᵀ)^(-1/8)
-// V(GᵀG)^(-1/8) (biases diag(1/√|g|)). Relative floor 1e-6·max|g| keeps it finite. MIRRORS server._precond_half.
-function precondHalf(spec,g,p,opt){
-  let mx=0;for(let i=0;i<p;i++){const a=Math.abs(g[i]);if(a>mx)mx=a;}
-  const floor=Math.max(mx*1e-6,1e-30),d=new Float64Array(p);
-  for(let i=0;i<p;i++)d[i]=1/Math.sqrt(Math.max(Math.abs(g[i]),floor));   // diag(1/√|g|)
-  if(opt==='sign')return v=>{const o=new Float64Array(p);for(let i=0;i<p;i++)o[i]=v[i]*d[i];return o;};
-  const blocks=[];                                                         // spectral: per weight-matrix block
-  for(const L of spec){const din=L.din,dout=L.dout,wOff=L.wOff,G=new Float64Array(din*dout);
-    for(let i=0;i<din*dout;i++)G[i]=g[wOff+i];
-    const GG=new Float64Array(din*din);for(let a=0;a<din;a++)for(let b=a;b<din;b++){let s=0;for(let c=0;c<dout;c++)s+=G[a*dout+c]*G[b*dout+c];GG[a*din+b]=s;GG[b*din+a]=s;}
-    const GT=new Float64Array(dout*dout);for(let a=0;a<dout;a++)for(let b=a;b<dout;b++){let s=0;for(let r=0;r<din;r++)s+=G[r*dout+a]*G[r*dout+b];GT[a*dout+b]=s;GT[b*dout+a]=s;}
-    blocks.push({wOff,din,dout,A:symPow(GG,din,-0.125,1e-12),B:symPow(GT,dout,-0.125,1e-12)});}   // (GGᵀ)^-⅛,(GᵀG)^-⅛
-  return v=>{const o=new Float64Array(p);for(let i=0;i<p;i++)o[i]=v[i]*d[i];   // biases / non-matrix slots
-    for(const bl of blocks){const {wOff,din,dout,A,B}=bl,tmp=new Float64Array(din*dout);
-      for(let a=0;a<din;a++)for(let c=0;c<dout;c++){let s=0;for(let r=0;r<din;r++)s+=A[a*din+r]*v[wOff+r*dout+c];tmp[a*dout+c]=s;}   // A·W
-      for(let a=0;a<din;a++)for(let c=0;c<dout;c++){let s=0;for(let e=0;e<dout;e++)s+=tmp[a*dout+e]*B[e*dout+c];o[wOff+a*dout+c]=s;}}   // (A·W)·B
-    return o;};
-}
 function symEigDesc(A,n){const {vals,V}=jacobiEig(A,n);const idx=Array.from({length:n},(_,i)=>i).sort((a,b)=>vals[b]-vals[a]);return {vals:idx.map(i=>vals[i]),vecs:idx.map(i=>colOf(V,n,i))};}
 // per-output gradients = columns of the Jacobian (p-vec each); 1 forward + dn backward passes
 function jacCols(th,spec,X,N,inDim,p){const f=forward(th,spec,X,N,inDim);const M=f.out.length;const cols=[];for(let a=0;a<M;a++){const dO=new Float64Array(M);dO[a]=1;cols.push(backward(th,spec,f.caches,dO,N,p));}return {cols,out:f.out};}
@@ -656,7 +629,7 @@ function withThr(L,thr){
 }
 const emptyN=(cnt,namer,dash)=>Array.from({length:cnt},(_,i)=>({x:[],y:[],mode:'lines',name:namer(i),line:{width:1.6,color:PALETTE[i%PALETTE.length],dash:dash||'solid'}}));
 const SLQ_PLOTS=['p_sH','p_sG','p_sS','p_sHL'];
-const TIME_PLOTS=['p_loss','p_sharp','p_psharp','p_resid','p_eHfX','p_eHfT','p_eHLT','p_eGNT','p_eSRT','p_epHLT','p_eHfB','p_eHLB','p_eGNB','p_eSRB','p_epHLB','p_Jtop','p_Jbot','p_Jtopn','p_Jbotn','p_paPos','p_paNeg','p_ntkR','p_ntkGs','p_ntkGl','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb','p_pred1','p_pred2','p_pred3','p_pred4','p_pred5','p_predp1','p_predp2','p_predp3','p_predp4','p_predp5','p_predh1','p_predh2','p_predh3','p_predh4','p_predh5','p_predd1','p_predd2','p_predd3','p_predd4','p_predd5','p_preddh1','p_preddh2','p_preddh3','p_preddh4','p_preddh5','p_c10_47','p_c10_51','p_c10_51n','p_c10_dQ','p_c10h_47','p_c10h_51','p_c10h_51n','p_c10h_dJ'];
+const TIME_PLOTS=['p_loss','p_sharp','p_resid','p_eHfX','p_eHfT','p_eHLT','p_eGNT','p_eSRT','p_eHfB','p_eHLB','p_eGNB','p_eSRB','p_Jtop','p_Jbot','p_Jtopn','p_Jbotn','p_paPos','p_paNeg','p_ntkR','p_ntkGs','p_ntkGl','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb','p_pred1','p_pred2','p_pred3','p_pred4','p_pred5','p_predp1','p_predp2','p_predp3','p_predp4','p_predp5','p_predh1','p_predh2','p_predh3','p_predh4','p_predh5','p_predd1','p_predd2','p_predd3','p_predd4','p_predd5','p_preddh1','p_preddh2','p_preddh3','p_preddh4','p_preddh5','p_c10_47','p_c10_51','p_c10_51n','p_c10_dQ','p_c10h_47','p_c10h_51','p_c10h_51n','p_c10h_dJ'];
 const PLOT_IDS=TIME_PLOTS.concat(SLQ_PLOTS);
 function newP(id,traces,layout){Plotly.newPlot(id,traces,layout,CFG);const gd=document.getElementById(id);gd._baseShapes=layout.shapes?JSON.parse(JSON.stringify(layout.shapes)):[];}
 // Live-plot DECIMATION — fixes the progressive hang. Without it, every diagnostic tick re-renders the full,
@@ -945,19 +918,10 @@ function g3daRender(){
 }
 let OPT={s1:true,s2:true,s3:true,s4:true,s5:true,s6:true,gs:true};
 
-// Preconditioned-sharpness panels (§1/§2/§3) only make sense for the adaptive optimizers (P=I for plain
-// GD, so it equals the sharpness). Show/hide every .precond element by the optimizer dropdown.
-function syncPrecondVis(){
-  const show=['sign','spectral'].includes(val('optimizer'));
-  document.querySelectorAll('.precond').forEach(el=>{el.style.display=show?'':'none';});
-  if(show)requestAnimationFrame(()=>{for(const id of ['p_psharp','p_epHLT','p_epHLB']){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});
-}
-
 // Show/hide each §1 section by its panel toggle (en1..en12 → sec_1..sec_12 · en13 → sec_7a · en14 → sec_9c).
 // Multi-sample-only sections (§7/§8/§4b–d and §7a) also need M=N·d_out>1. Called at run start AND on every
 // toggle change, so a toggled-off section disappears immediately instead of lingering until the next Run.
 function syncSectionVis(multi){
-  syncPrecondVis();
   if(multi===undefined) multi = (+val('nsamp') * Math.max(1,+val('outdim')) > 1);
   for(let i=1;i<=12;i++){const el=document.getElementById('sec_'+i);if(el)el.style.display=(chk('en'+i)&&(i<7||multi||i===12))?'':'none';}
   {const el=document.getElementById('sec_7a');if(el)el.style.display=(chk('en13')&&multi)?'':'none';}   // §7a NTK alignment (s13, multi-only)
@@ -977,7 +941,6 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   // §1
   newP('p_loss',oneTrace('loss','#2563eb'),baseLayout('loss (log scale)','loss',true));
   newP('p_sharp',oneTrace('sharpness','#dc2626'),withThr(baseLayout('sharpness  λmax(∇²loss)','sharpness',false),thr));
-  newP('p_psharp',oneTrace('precond sharpness','#7c3aed'),withThr(baseLayout('preconditioned sharpness  λmax(P·∇²L)','λmax(P·∇²L)',false),thr));
   const residNames=nResid===1?['y − f']:Array.from({length:nResid},(_,i)=>`r${i}`);
   const residTraces=residNames.map((nm,i)=>({x:[],y:[],mode:'lines',name:nm,line:{width:1.5,color:PALETTE[i%PALETTE.length]}}));
   const residL=withZero(baseLayout('residual  y − f(x)','y − f',false));residL.showlegend=nResid<=6;
@@ -988,13 +951,11 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_eHLT',emptyN(n,i=>`λ${i+1}`),withThr(baseLayout('loss Hessian — top-n eigenvalues','eigenvalue',false),thr));
   newP('p_eGNT',emptyN(n,i=>`λ${i+1}`),baseLayout(dis('Gauss–Newton G — top-n eigenvalues'),'eigenvalue',false));
   newP('p_eSRT',emptyN(n,i=>`λ${i+1}`),withZero(baseLayout(dis('residual term S — top-n eigenvalues'),'eigenvalue',false)));
-  newP('p_epHLT',emptyN(n,i=>`λ${i+1}`),withThr(baseLayout('preconditioned loss Hessian P^½∇²L P^½ — top-n','eigenvalue',false),thr));
   // §3 bottom-n
   newP('p_eHfB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout('function Hessian H — bottom-n eigenvalues','eigenvalue',false)));
   newP('p_eHLB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout('loss Hessian — bottom-n eigenvalues','eigenvalue',false)));
   newP('p_eGNB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout(dis('Gauss–Newton G — bottom-n eigenvalues'),'eigenvalue',false)));
   newP('p_eSRB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout(dis('residual term S — bottom-n eigenvalues'),'eigenvalue',false)));
-  newP('p_epHLB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout('preconditioned loss Hessian P^½∇²L P^½ — bottom-n','eigenvalue',false)));
   // §4 projections
   newP('p_Jtop',emptyN(n,i=>`top-${i+1}`),baseLayout(`J onto top-${n} eigvecs of H`,'⟨J, w⟩',false));
   newP('p_Jbot',emptyN(n,i=>`bot-${i+1}`),baseLayout(`J onto bottom-${n} eigvecs of H`,'⟨J, w⟩',false));
@@ -1175,19 +1136,16 @@ function pushPoint(t,D,n,kth,nResid){
     extP('p_sharp',{x:[[t]],y:[[D.sharp]]},[0]);
     if(D.r&&D.r.length){const nr=Math.min(D.r.length,nResid||D.r.length);extP('p_resid',{x:reps(nr,t),y:colsOf(nr,D.r)},ids(nr));}  // clamp to the nResid=min(M,12) created traces (browser sends full r); CE/LM sends none
     extP('p_eHfX',{x:[[t],[t]],y:[[D.hfMax],[D.hfMin]]},[0,1]);
-    if(D.psharp!=null)extP('p_psharp',{x:[[t]],y:[[D.psharp]]},[0]);   // preconditioned sharpness (sign/spectral only)
   }
   if(OPT.s2){
     extP('p_eHfT',{x:reps(n,t),y:colsOf(n,D.hfTop)},ids(n));
     extP('p_eHLT',{x:reps(n,t),y:colsOf(n,D.hlTop)},ids(n));
     if(OPT.gs){extP('p_eGNT',{x:reps(n,t),y:colsOf(n,D.gnTop)},ids(n));extP('p_eSRT',{x:reps(n,t),y:colsOf(n,D.srTop)},ids(n));}
-    if(D.pHlTop)extP('p_epHLT',{x:reps(n,t),y:colsOf(n,D.pHlTop)},ids(n));
   }
   if(OPT.s3){
     extP('p_eHfB',{x:reps(n,t),y:colsOf(n,D.hfBot)},ids(n));
     extP('p_eHLB',{x:reps(n,t),y:colsOf(n,D.hlBot)},ids(n));
     if(OPT.gs){extP('p_eGNB',{x:reps(n,t),y:colsOf(n,D.gnBot)},ids(n));extP('p_eSRB',{x:reps(n,t),y:colsOf(n,D.srBot)},ids(n));}
-    if(D.pHlBot)extP('p_epHLB',{x:reps(n,t),y:colsOf(n,D.pHlBot)},ids(n));
   }
   if(OPT.s4&&D.jt){   // D.jt is null on cross-entropy runs (server disables §4); guard like §7–§12
     extP('p_Jtop',{x:reps(n,t),y:colsOf(n,D.jt)},ids(n));
@@ -1429,13 +1387,6 @@ async function loop(){                                   // drives ST forward; r
         else if(S.needVals){const fv=lanczosExtremeVals(v=>hvpF(S.th,spec,X,N,inDim,p,v,eps),p,S.n,S.mV,0xA53F9);feTop=fv.top;feBot=fv.bot;}
         let hl=null; if(O.s1||O.s2||O.s3||O.s14) hl=lanczosExtremeVals(v=>hvpL(S.th,spec,X,Y,N,inDim,p,v,eps),p,S.n,S.mV,0x5EED1);
         const sharp=hl?hl.top[0]:NaN;
-        // preconditioned sharpness λmax(P^½∇²L P^½) — adaptive optimizers only (P=I for plain GD → equals sharp)
-        let psharp=null,pHlTop=null,pHlBot=null;
-        if((S.optim==='sign'||S.optim==='spectral')&&(O.s1||O.s2||O.s3)){
-          const ph=precondHalf(spec,gradL(S.th,spec,X,Y,N,inDim,p).grad,p,S.optim);
-          const pe=lanczosExtremeVals(v=>ph(hvpL(S.th,spec,X,Y,N,inDim,p,ph(v),eps)),p,S.n,S.mV,0x9C0FFEE>>>0);
-          psharp=pe.top[0];pHlTop=pe.top;pHlBot=pe.bot;
-        }
         let gn=null,sr=null;
         if((O.s2||O.s3)&&O.gs){gn=lanczosExtremeVals(v=>hvpG(S.th,spec,X,N,inDim,p,v,eps),p,S.n,S.mV,0x6A17C);sr=lanczosExtremeVals(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,cS),p,S.n,S.mV,0x7B23D);}
         if(S.needVecs&&feTV){for(let i=0;i<S.nSub;i++){feTV[i]=signTo(feTV[i],S.prevTop[i]);S.prevTop[i]=feTV[i];feBV[i]=signTo(feBV[i],S.prevBot[i]);S.prevBot[i]=feBV[i];}} // sign-track H eigvecs once (shared by §4 and §4d)
@@ -1735,7 +1686,7 @@ async function loop(){                                   // drives ST forward; r
           }
         }
         pushPoint(t,{loss,sharp,r,jt,jb,jtN,jbN,hfMax:feTop[0]/N,hfMin:feBot[0]/N,hfTop:feTop.map(v=>v/N),hfBot:feBot.map(v=>v/N),d4Ht,d4Hb,d4Qt,d4Qb,thP,thA,thPpsd,thP_d,thPpsd_d,thAH,   // H eigs ÷N (∇²Σf summed over N samples → per-sample, matches G/S)
-          hlTop:hl?hl.top:null,hlBot:hl?hl.bot:null,psharp,pHlTop,pHlBot,gnTop:gn?gn.top:null,gnBot:gn?gn.bot:null,srTop:sr?sr.top:null,srBot:sr?sr.bot:null,
+          hlTop:hl?hl.top:null,hlBot:hl?hl.bot:null,gnTop:gn?gn.top:null,gnBot:gn?gn.bot:null,srTop:sr?sr.top:null,srBot:sr?sr.bot:null,
           paPos,paNeg,ntkR,ntkH,ntkGs,ntkGsA,ntkGl,ntkGlA,fhEvT,fhEvB,jhe1,jhe2,jhe1b,jhe2b,jh2e1,jh2e2,jh2e1b,jh2e2b,g2J,g2Jn,
           q9t,q9b,q9tN,q9bN,q9tR,q9bR,q9gt,q9gb,q10,q10N},S.n,S.kth,S.nResid);
         if(O.s5&&S.eigTick%S.slqStride===0){
@@ -1906,7 +1857,6 @@ function syncLossPanels(){
 // (for the browser-previewable case) redraws EMPTY plots. Training starts only when Run is pressed.
 function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic' && val('arch')==='mlp'){ runLocal(true); } }
 document.getElementById('loss').addEventListener('change',syncLossPanels);
-document.getElementById('optimizer').addEventListener('change',syncPrecondVis);   // show/hide preconditioned-sharpness panels (§1/§2/§3)
 document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
 ['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
 {const sl=document.getElementById('g3d_slider');if(sl)sl.addEventListener('input',function(){g3dRenderIdx(+this.value);});}   // §11 scrub past snapshots

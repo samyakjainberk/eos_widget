@@ -85,46 +85,6 @@ def _opt_dir(model, g, opt):
                 d[wOff:wOff + din * dout] = (U @ Vh).reshape(-1)
         return d
     return g                                    # gd (default)
-
-
-def _precond_half(model, g, opt):
-    """P^½ matvec for the preconditioned-sharpness diagnostic. P is the optimizer's preconditioner —
-    the operator that maps the raw gradient g to its update direction (P·g = _opt_dir); preconditioned
-    sharpness is λmax(P·H). P is symmetric PSD, so λmax(P·H)=λmax(P^½ H P^½) (real) — we return the P^½
-    matvec and feed it to Lanczos as v ↦ P^½(H(P^½ v)).
-      sign     : P = diag(1/|g|)              → P^½ = diag(1/√|g|)
-      spectral : per weight-block (G = ∇W reshaped din×dout) P_ℓ : V ↦ (GGᵀ)^(-1/4) V (GᵀG)^(-1/4)
-                 → P^½_ℓ : V ↦ (GGᵀ)^(-1/8) V (GᵀG)^(-1/8)  (so P^½·g = UVᵀ-half; P·g = UVᵀ = Muon step);
-                 biases / non-matrix params (sign-stepped) use diag(1/√|g|).
-    A small relative floor (1e-6·max|g|) keeps the inverse-square-roots finite near small gradients.
-    MIRRORS eos_lab.models.precond_half / index.html precondHalf."""
-    gabs = g.abs()
-    floor = (gabs.max() * 1e-6).clamp_min(1e-30) if gabs.numel() else g.new_tensor(1e-30)
-    d = gabs.clamp_min(floor).rsqrt()           # diag(1/√|g|) — used wholesale (sign) or for biases (spectral)
-    if opt == "sign":
-        return lambda v: v * d
-    if opt == "spectral":
-        blocks = []
-        spec = getattr(model, "spec", None)
-        if spec is not None:
-            for layer in spec:
-                din, dout, wOff = layer[0], layer[1], layer[3]
-                G = g[wOff:wOff + din * dout].view(din, dout)
-                U, S, Vh = torch.linalg.svd(G, full_matrices=False)
-                tol = (S.max() * 1e-6 + 1e-30) if S.numel() else G.new_tensor(1e-30)
-                q = torch.where(S > tol, S.pow(-0.25), torch.zeros_like(S))   # σ^(-1/4): (GGᵀ)^(-1/8) eigvals
-                A = (U * q) @ U.t()                  # (GGᵀ)^(-1/8) = U diag(σ^(-1/4)) Uᵀ
-                B = (Vh.t() * q) @ Vh                # (GᵀG)^(-1/8) = V diag(σ^(-1/4)) Vᵀ
-                blocks.append((wOff, din, dout, A, B))
-
-        def phalf(v):
-            out = v * d                              # biases / non-matrix slots: diag(1/√|g|)
-            for (wOff, din, dout, A, B) in blocks:
-                V = v[wOff:wOff + din * dout].view(din, dout)
-                out[wOff:wOff + din * dout] = (A @ V @ B).reshape(-1)
-            return out
-        return phalf
-    return lambda v: v                          # gd: identity (preconditioned sharpness == sharpness; not shown)
 # Each /run is assigned a device (auto least-busy across DEVICE_POOL). RUN_TOKEN is PER-DEVICE, so runs on
 # different GPUs coexist; a newer run on the SAME device bumps that device's token and the older one stops.
 # _DEV_LOAD counts active runs per device for the least-busy pick. All three are guarded by _DEV_LOCK.
@@ -1459,14 +1419,6 @@ def run_stream(P):
                     lambda v: hvpL(th, X, Y, v), p, n, mV, 0x5EED1)
             sharp = hlt[0] if hlt else None
 
-            # preconditioned sharpness λmax(P·H) = λmax(P^½ ∇²L P^½) of the loss Hessian — only meaningful
-            # for the adaptive optimizers (P=I for plain GD, so it equals the §1 sharpness and is hidden).
-            pHlt = pHlb = None
-            if opt in ("sign", "spectral") and (s1 or s2 or s3):
-                phalf = _precond_half(_TL.model, gradL(th, X, Y)[0], opt)
-                pHlt, pHlb = lanczos_extreme_vals(
-                    lambda v: phalf(hvpL(th, X, Y, phalf(v))), p, n, mV, 0x9C0FFEE)
-
             gnt = gnb = srt = srb = None
             if (s2 or s3) and gs:
                 gnt, gnb = lanczos_extreme_vals(
@@ -1897,8 +1849,6 @@ def run_stream(P):
                 "hfMin": (feBot[0] / N if feBot else None),         #   N samples → divide to match the per-sample loss
                 "hfTop": [v / N for v in feTop[:n]], "hfBot": [v / N for v in feBot[:n]],   # Hessian (G+S) scale (mirrors eos_lab)
                 "hlTop": hlt, "hlBot": hlb,
-                "psharp": (pHlt[0] if pHlt else None),                   # §1: preconditioned sharpness λmax(P·∇²L)
-                "pHlTop": pHlt, "pHlBot": pHlb,                          # §2/§3: preconditioned loss-Hessian top/bottom-n
                 "gnTop": gnt, "gnBot": gnb, "srTop": srt, "srBot": srb,
                 "jt": jt, "jb": jb, "jtN": jtN, "jbN": jbN,
                 "paPos": paPos, "paNeg": paNeg, "dimPos": dimPos, "dimNeg": dimNeg,

@@ -141,7 +141,6 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
 _VECTOR_KEYS = [
     "resid_head",                                                    # §1 per-sample residual y−f (first nResid)
     "H_top", "H_bot", "lossH_top", "lossH_bot", "G_top", "G_bot", "S_top", "S_bot",
-    "pH_top", "pH_bot",                                              # §2/§3 preconditioned loss-Hessian (sign/spectral)
     "jt", "jb", "jtN", "jbN",                                         # §4
     "ntkR", "ntkH", "ntkGs", "ntkGsA", "ntkGl", "ntkGlA",            # §7a (+ Δλ·Δr products & running avgs)
     "fhEvT", "fhEvB", "jhe1", "jhe2", "jhe1b", "jhe2b",              # §7
@@ -161,7 +160,7 @@ def _to_series(history):
         return {}
     steps = [r["t"] for r in history]
     s = {"t": steps}
-    scalar_keys = ["loss", "test_loss", "sharpness", "psharp", "thr", "resid_mean", "resid_rms",
+    scalar_keys = ["loss", "test_loss", "sharpness", "thr", "resid_mean", "resid_rms",
                    "H_edge_max", "H_edge_min", "dim_pos", "dim_neg", "thAH",
                    "c47", "c47p", "c51", "c51p", "c51n", "c51np",   # §10 cubic predictions
                    "cActN", "cActH", "cdQ", "cdJ"]                  # §10 cubic actuals + ‖ΔQ‖/‖ΔJ‖ drift
