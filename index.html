@@ -248,24 +248,36 @@
 </div>
 
 <div id="sec_s12" style="display:none">
-<h2>12 · per-sample Hessian eigenvector cross-similarity</h2>
-<p class="cap">For each sample $i$ the per-sample function Hessian $Q_i=\nabla^2 f_i$ (the ground-truth-label output) has its <b>top-15</b> and <b>bottom-15</b> eigenpairs extracted <b>matrix-free by Lanczos</b> (no $p\times p$ matrix is ever formed, so this scales to large models like §1–§3). Its <b>top-$k$</b> and <b>bottom-$k$</b> eigenvectors ($2k$ unit vectors, with eigenvalue $\lambda$) are compared across every sample pair $(i,j)$. Each plot title carries a running number = the mean over the whole grid/cuboid. <b>Drag to rotate</b> the cuboids; the slider scrubs captured snapshots. Multi-sample only; only $N$ is capped (the grid is $N\times N$). Computed every iteration. This is the heaviest section ($N$ Lanczos eigendecompositions per snapshot), so if a run gets slow reduce $N$ or raise "eig every".</p>
+<h2>12 · per-sample Hessian eigenvector cross-similarity — triple $(i,j,k)$ grids</h2>
+<p class="cap">For each sample $i$, $Q_i=\nabla^2 f_i$ (ground-truth-label output) has its <b>top-15 ⊕ bottom-15</b> eigenpairs extracted <b>matrix-free by Lanczos</b>. For a triple $(i,j,k)$ and the top-$k_0$ ⊕ bottom-$k_0$ dirs: $\max\cos_{ij}=\max_{a,b}|\cos(e_i^a,e_j^b)|$ with $(u_i,u_j)$ the argmax pair (eigenvalue $\sigma$), likewise $\max\cos_{jk}$; $J_i=\langle\nabla f_i,u_i\rangle$, $r_i=y_i-f_i$. Every eigenvector is <b>gradient-gauged</b> (oriented so $\langle\nabla f,u\rangle\ge0$) so all signs are gauge-invariant & reproducible. The 5 grids (signed $\cos$ used, not $|\cos|$): <b>A</b>$=\max\cos_{ij}\cdot\max\cos_{jk}$; <b>B</b>$=\cos_{ij}\cos_{jk}\,\mathrm{sgn}(\sigma_i\sigma_j\sigma_k)\,\mathrm{sgn}(J_i)\mathrm{sgn}(J_k)$; <b>C</b>$=\mathrm{sgn}(r_k\sigma_j)\cos_{ij}\cos_{jk}\,\mathrm{sgn}(\sigma_i\sigma_k r_i r_k)\mathrm{sgn}(J_i)\mathrm{sgn}(J_k)$; <b>D</b>$=\cos_{ij}\cos_{jk}\,\sigma_j$; <b>E</b>$=\cos_{ij}\cos_{jk}\,r_k\sigma_j$. $\sigma_j$ from the $(j,k)$ match. Panels 1–3: $k_0=1,2,5$. The $i\!=\!j\!=\!k$ diagonal is highlighted (ringed). Each title shows $\mu$ = mean over the grid. <b>Drag to rotate</b>; slider scrubs snapshots. 3D grids ($N^3$) are gated by the §11 <b>3D-grid cap</b> (small $N$).</p>
 <div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
   <label style="white-space:nowrap">snapshot</label>
   <input id="s12_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
   <span id="s12_step" style="white-space:nowrap;color:#475569;font-size:13px;min-width:120px">—</span>
   <label style="white-space:nowrap;font-size:13px"><input type="checkbox" id="s12_sync" checked> sync rotation</label>
 </div>
-<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — $k=2$ &nbsp; (cols: grid = a single value per pair; cuboid = the 10 largest pairs on $z$)</h3>
-<p class="cap">Col 1: $\max_{a,b}\,|\cos(e_i^a,e_j^b)|$. Col 2: the 10 largest $|\cos|$. Col 3/4: $|\cos|$ (argmax pair / top-10) $\times\,\mathrm{sgn}\,\lambda_i\,\mathrm{sgn}\,\lambda_j$. Col 5/6: cols 3/4 further $\times\,\mathrm{sgn}\,r_i\,\mathrm{sgn}\,r_j$. The sign is carried <b>only</b> by the gauge-invariant $\mathrm{sgn}\,\lambda\,(\mathrm{sgn}\,r)$ &mdash; the cosine contributes magnitude $|\cos|$ alone, since $\mathrm{sgn}\cos$ between eigenvectors of different $Q_i$ is gauge-dependent (flips with each Ritz vector's arbitrary $\pm$).</p>
-<div class="plotrow row6"><div id="p_s12p1_1" class="plot" style="height:300px"></div><div id="p_s12p1_2" class="plot" style="height:300px"></div><div id="p_s12p1_3" class="plot" style="height:300px"></div><div id="p_s12p1_4" class="plot" style="height:300px"></div><div id="p_s12p1_5" class="plot" style="height:300px"></div><div id="p_s12p1_6" class="plot" style="height:300px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — $k=5$</h3>
-<div class="plotrow row6"><div id="p_s12p2_1" class="plot" style="height:300px"></div><div id="p_s12p2_2" class="plot" style="height:300px"></div><div id="p_s12p2_3" class="plot" style="height:300px"></div><div id="p_s12p2_4" class="plot" style="height:300px"></div><div id="p_s12p2_5" class="plot" style="height:300px"></div><div id="p_s12p2_6" class="plot" style="height:300px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — mean principal angle (deg) between the top-$k$ ⊕ bottom-$k$ subspaces of $Q_i,Q_j$ for $k=1,5,10,15$</h3>
-<div class="plotrow row4"><div id="p_s12p3_1" class="plot" style="height:300px"></div><div id="p_s12p3_2" class="plot" style="height:300px"></div><div id="p_s12p3_3" class="plot" style="height:300px"></div><div id="p_s12p3_4" class="plot" style="height:300px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — evolution over training</h3>
-<p class="cap">Cols 1–2: mean ± std (cloud) of panel-1 / panel-2 cuboids (the three cuboids: $|\cos|$, signed, signed$\cdot\mathrm{sgn}\,r$). Cols 3–4: mean principal angle for $k=5$ and $k=15$.</p>
-<div class="plotrow row4"><div id="p_s12p4_1" class="plot"></div><div id="p_s12p4_2" class="plot"></div><div id="p_s12p4_3" class="plot"></div><div id="p_s12p4_4" class="plot"></div></div>
+<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — $k_0=1$ &nbsp; (A,B,C,D,E)</h3>
+<div class="plotrow row5"><div id="p_s12_1_A" class="plot" style="height:300px"></div><div id="p_s12_1_B" class="plot" style="height:300px"></div><div id="p_s12_1_C" class="plot" style="height:300px"></div><div id="p_s12_1_D" class="plot" style="height:300px"></div><div id="p_s12_1_E" class="plot" style="height:300px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — $k_0=2$</h3>
+<div class="plotrow row5"><div id="p_s12_2_A" class="plot" style="height:300px"></div><div id="p_s12_2_B" class="plot" style="height:300px"></div><div id="p_s12_2_C" class="plot" style="height:300px"></div><div id="p_s12_2_D" class="plot" style="height:300px"></div><div id="p_s12_2_E" class="plot" style="height:300px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — $k_0=5$</h3>
+<div class="plotrow row5"><div id="p_s12_5_A" class="plot" style="height:300px"></div><div id="p_s12_5_B" class="plot" style="height:300px"></div><div id="p_s12_5_C" class="plot" style="height:300px"></div><div id="p_s12_5_D" class="plot" style="height:300px"></div><div id="p_s12_5_E" class="plot" style="height:300px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — mean principal angle (deg) between top-$k$ ⊕ bottom-$k$ subspaces of $Q_i,Q_j$ ($k=1,5,10,15$)</h3>
+<div class="plotrow row4"><div id="p_s12ang_0" class="plot" style="height:300px"></div><div id="p_s12ang_1" class="plot" style="height:300px"></div><div id="p_s12ang_2" class="plot" style="height:300px"></div><div id="p_s12ang_3" class="plot" style="height:300px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 5 — evolution over training</h3>
+<p class="cap">Cols 1–2: mean ± std (over the grid) of grids <b>A,B,C</b> for $k_0=2$ and $k_0=5$. Cols 3–4: mean principal angle for $k=5$ and $k=15$.</p>
+<div class="plotrow row4"><div id="p_s12evo_2" class="plot"></div><div id="p_s12evo_5" class="plot"></div><div id="p_s12evo_a5" class="plot"></div><div id="p_s12evo_aF" class="plot"></div></div>
+</div>
+
+<div id="sec_s13" style="display:none">
+<h2>13 · residual-weighted per-sample curvature alignment</h2>
+<p class="cap">Same per-pair quantities as §12 (gradient-gauged). <b>Panel 1</b> ($N\times N\times N$ over $i,j,k$): $G_1=r_k\sigma_j(1+r_i\sigma_i)\cos_{ij}J_i\,(1+r_k\sigma_k)\cos_{jk}J_k$ (here $J_i=\langle\nabla f_i,u_i\rangle$ as a value, $\cos$ signed). <b>Panel 2</b> ($N\times N$ over $j,k$): $G_2=r_k\sigma_j(1+r_k\sigma_k)\cos_{jk}J_k$. <b>Panel 3</b>: $G_3=|G_2|$. $k_0=1,2,5$ across the three plots in each panel. Diagonal $i\!=\!j\!=\!k$ highlighted in panel 1. Gated by the §11 3D-grid cap. Each title shows $\mu$ = mean.</p>
+<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — $G_1$ (3D), $k_0=1,2,5$</h3>
+<div class="plotrow row3"><div id="p_s13g1_1" class="plot" style="height:320px"></div><div id="p_s13g1_2" class="plot" style="height:320px"></div><div id="p_s13g1_5" class="plot" style="height:320px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — $G_2$ (2D over $j,k$), $k_0=1,2,5$</h3>
+<div class="plotrow row3"><div id="p_s13g2_1" class="plot" style="height:320px"></div><div id="p_s13g2_2" class="plot" style="height:320px"></div><div id="p_s13g2_5" class="plot" style="height:320px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — $G_3=|G_2|$, $k_0=1,2,5$</h3>
+<div class="plotrow row3"><div id="p_s13g3_1" class="plot" style="height:320px"></div><div id="p_s13g3_2" class="plot" style="height:320px"></div><div id="p_s13g3_5" class="plot" style="height:320px"></div></div>
 </div>
 
 <div id="sec_2">
@@ -939,98 +951,118 @@ function g3daRender(){
   for(let g=0;g<3;g++){const r=g3dPctXY(xs,G3DE_DATA[G3D_KEYS[g]].m,G3DE_NC,ct5);Plotly.restyle(G3DA_IDS[g],{x:r.X,y:r.Y});}
   {const r=g3dPctXY(xs,G3DE_DATA.sq.m,G3DSQ_NC,ct2);Plotly.restyle(G3DSQ_IDS[2],{x:r.X,y:r.Y});}
 }
-// ── §12 per-sample Hessian eigenvector cross-similarity ──────────────────────
-const S12_P1=['p_s12p1_1','p_s12p1_2','p_s12p1_3','p_s12p1_4','p_s12p1_5','p_s12p1_6'];
-const S12_P2=['p_s12p2_1','p_s12p2_2','p_s12p2_3','p_s12p2_4','p_s12p2_5','p_s12p2_6'];
-const S12_P3=['p_s12p3_1','p_s12p3_2','p_s12p3_3','p_s12p3_4'];
-const S12_P4=['p_s12p4_1','p_s12p4_2','p_s12p4_3','p_s12p4_4'];
-const S12_CUBES=['p_s12p1_2','p_s12p1_4','p_s12p1_6','p_s12p2_2','p_s12p2_4','p_s12p2_6'];
-const S12_KIND=['g','c','g','c','g','c'], S12_SIGN=[false,false,true,true,true,true];   // col layout: grid/cuboid, signed?
-const S12_GT=['max|cos|','|cos| top-10','sgnλ·|cos|','sgnλ·|cos| t10','sgnλr·|cos|','sgnλr·|cos| t10'];   // concise (cells are narrow); sign from λ·r only
-const S12_P3T=['principal angle k=1','principal angle k=5','principal angle k=10','principal angle k=15'];
-const S12E_COL=['#2563eb','#16a34a','#dc2626'], S12E_LAB=['|cos|','sgnλ·|cos|','sgnλ·sgnr·|cos|'];
-let S12_SNAPS=[], S12_N=0, S12_K=0, S12_BUILT=false, S12_RAF=0, S12_PENDING=-1, S12_CAMKEY='', S12E_STEPS=[], S12E_DATA=null;
-function s12AllIds(){return S12_P1.concat(S12_P2,S12_P3,S12_P4);}
-function s12Reset(){S12_SNAPS=[];S12_N=0;S12_K=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEPS=[];S12E_DATA=null;
+// ── §12 per-sample Hessian triple-(i,j,k) grids + §13 ────────────────────────
+// Panels 1-3 (k0=1,2,5): 5 3D grids each — A=max|cos_ij|·max|cos_jk|; B=cos_ij cos_jk·sgn(σ_iσ_jσ_k J_i J_k);
+//   C=…·sgn(r_kσ_j·σ_iσ_k r_i r_k); D=cos_ij cos_jk σ_j; E=…·r_k. Panel 4: principal angles. Panel 5: evolution.
+// §13: G1 (3D), G2/G3 (2D over j,k) × k0∈{1,2,5}. Gradient-gauged ⇒ gauge-invariant. Cubes mirror §11 (sparse+diag).
+const S12_KS=[1,2,5], S12_GR=['A','B','C','D','E'];
+const S12_GMODE={A:'pos01',B:'pm1',C:'pm1',D:'symlog',E:'symlog'};   // A∈[0,1] viridis; B,C∈[-1,1] RdBu; D,E signed wide → symlog
+const S12_GLAB={A:'A · m·m',B:'B · signed σ,J',C:'C · signed σ,r,J',D:'D · cc·σ_j',E:'E · cc·r·σ_j'};
+const S12_ANGT=['principal angle k=1','principal angle k=5','principal angle k=10','principal angle k=15'];
+const S12E_COL=['#2563eb','#16a34a','#dc2626'], S12E_LAB=['A','B','C'];
+let S12_SNAPS=[], S12_N=0, S12_BUILT=false, S12_RAF=0, S12_PENDING=-1, S12_CAMKEY='', S12E_STEPS=[], S12E_DATA=null;
+function s12CubeIds(){const a=[];for(const k of S12_KS)for(const g of S12_GR)a.push('p_s12_'+k+'_'+g);for(const k of S12_KS)a.push('p_s13g1_'+k);return a;}
+function s12AllIds(){const a=s12CubeIds();for(let n=0;n<4;n++)a.push('p_s12ang_'+n);for(const k of S12_KS){a.push('p_s13g2_'+k);a.push('p_s13g3_'+k);}return a.concat(['p_s12evo_2','p_s12evo_5','p_s12evo_a5','p_s12evo_aF']);}
+function s12Reset(){S12_SNAPS=[];S12_N=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEPS=[];S12E_DATA=null;
   if(S12_RAF){cancelAnimationFrame(S12_RAF);S12_RAF=0;}S12_PENDING=-1;
   for(const id of s12AllIds()){try{Plotly.purge(id);}catch(e){}}
   const sl=document.getElementById('s12_slider');if(sl){sl.max=0;sl.value=0;}
   const sp=document.getElementById('s12_step');if(sp)sp.textContent='—';}
-function s12HeatZ(flat,N){const z=[];for(let i=0;i<N;i++)z.push(flat.slice(i*N,(i+1)*N));return z;}   // z[i]=row i (j=cols)
-function s12CubeXYZ(N,K){const L=N*N*K,x=new Array(L),y=new Array(L),zz=new Array(L);   // idx=i·(N·K)+j·K+r
-  for(let q=0;q<L;q++){const i=Math.floor(q/(N*K)),rem=q-i*N*K,j=Math.floor(rem/K),r=rem-j*K;x[q]=i;y[q]=j;zz[q]=r;}return {x,y,zz};}
-function s12HeatTrace(signed,amax,N){const z=N?s12HeatZ(new Array(N*N).fill(0),N):[[0]];return signed   // build at N×N (robust resize)
-  ? [{type:'heatmap',z:z,colorscale:'RdBu',reversescale:true,zmid:0,zmin:-amax,zmax:amax,colorbar:{thickness:8,len:0.82,tickfont:{size:8}}}]
-  : [{type:'heatmap',z:z,colorscale:'Viridis',zmin:0,zmax:amax,colorbar:{thickness:8,len:0.82,tickfont:{size:8}}}];}
-function s12CubeTrace(signed){return [{type:'scatter3d',mode:'markers',x:[],y:[],z:[],customdata:[],
-  marker:{size:3,color:[],colorscale:signed?'RdBu':'Viridis',reversescale:signed,cmin:signed?-1:0,cmax:1,opacity:0.85,
-    colorbar:{thickness:8,len:0.8,tickfont:{size:8}}},hovertemplate:'i=%{x}, j=%{y}, rank=%{z}<br>%{customdata:.3f}<extra></extra>'}];}
-function s12HeatLayout(title,N){const dt=Math.max(1,Math.round(N/8));   // bigger margins + automargin so the plot does not overlap the axes/title
-  return {title:{text:title,font:{size:11},x:0.5,xanchor:'center'},margin:{l:48,r:14,t:42,b:42},uirevision:'s12',
+function s12HeatZ(flat,N){const z=[];for(let i=0;i<N;i++)z.push(flat.slice(i*N,(i+1)*N));return z;}
+function s12HeatLayout(title,N){const dt=Math.max(1,Math.round(N/8));
+  return {title:{text:title,font:{size:10},x:0.5,xanchor:'center'},margin:{l:46,r:12,t:30,b:36},uirevision:'s12',
     xaxis:{title:{text:'j',standoff:6},dtick:dt,automargin:true},yaxis:{title:{text:'i',standoff:6},dtick:dt,autorange:'reversed',automargin:true}};}
-function s12CubeLayout(title,N,K){const dt=Math.max(1,Math.round(N/6));
-  return {title:{text:title,font:{size:11},x:0.5,xanchor:'center'},margin:{l:0,r:0,t:36,b:0},uirevision:'s12',showlegend:false,
-    scene:{xaxis:{title:'i',dtick:dt,range:[N-1,0]},yaxis:{title:'j',dtick:dt,range:[0,N-1]},zaxis:{title:'rank',range:[0,K-1]},aspectmode:'cube',camera:{eye:{x:1.7,y:1.7,z:1.2}}}};}
-function s12Build(N,K){
-  S12_N=N;S12_K=K;S12_BUILT=true;
-  for(const ids of [S12_P1,S12_P2]) for(let n=0;n<6;n++){
-    if(S12_KIND[n]==='g'){Plotly.newPlot(ids[n],s12HeatTrace(S12_SIGN[n],1,N),s12HeatLayout(S12_GT[n],N),{responsive:true,displaylogo:false});}
-    else{Plotly.newPlot(ids[n],s12CubeTrace(S12_SIGN[n]),s12CubeLayout(S12_GT[n],N,K),{responsive:true,displaylogo:false});
-      document.getElementById(ids[n]).on('plotly_relayout',ev=>{   // synced cuboid rotation (mirror §11)
-        if(!chk('s12_sync'))return;
-        if(!Object.keys(ev).some(k=>k.indexOf('scene.camera')===0))return;
-        const gd=document.getElementById(ids[n]),cam=gd&&gd._fullLayout&&gd._fullLayout.scene&&gd._fullLayout.scene.camera;
-        if(!cam)return;const key=JSON.stringify(cam);if(key===S12_CAMKEY)return;S12_CAMKEY=key;
-        for(const oid of S12_CUBES)if(oid!==ids[n])Plotly.relayout(oid,{'scene.camera':cam});});}
-  }
-  for(let n=0;n<4;n++)Plotly.newPlot(S12_P3[n],s12HeatTrace(false,90,N),s12HeatLayout(S12_P3T[n],N),{responsive:true,displaylogo:false});
+function s12Heat2DBuild(id,N,title,signed){
+  const z=s12HeatZ(new Array(N*N).fill(0),N);
+  Plotly.newPlot(id,[signed?{type:'heatmap',z:z,colorscale:'RdBu',reversescale:true,zmid:0,colorbar:{thickness:8,len:0.82,tickfont:{size:8}}}
+    :{type:'heatmap',z:z,colorscale:'Viridis',colorbar:{thickness:8,len:0.82,tickfont:{size:8}}}],s12HeatLayout(title,N),{responsive:true,displaylogo:false});}
+// ── generalized 3D cube (mirror §11 g3dBuild): markers + faint i=j=k line + ringed diagonal markers ──
+function s12CubeBuild(id,M,title,signed){
+  const dg=[];for(let q=0;q<M;q++)dg.push(q);
+  const dt=Math.max(1,Math.round(M/8)),rmax=Math.max(1,M-1),base=Math.max(2.5,Math.min(7,140/Math.max(1,M)));
+  const cs=signed?'RdBu':'Viridis',rev=signed,cmin=signed?-1:0;
+  const tr=[{type:'scatter3d',mode:'markers',x:[],y:[],z:[],customdata:[],
+      marker:{size:3,color:[],colorscale:cs,reversescale:rev,cmin:cmin,cmax:1,opacity:0.85,colorbar:{thickness:8,len:0.78,tickmode:'array',tickfont:{size:8}}},
+      hovertemplate:'i=%{x}, j=%{y}, k=%{z}<br>%{customdata:.2e}<extra></extra>'},
+    {type:'scatter3d',mode:'lines',x:dg,y:dg,z:dg,line:{color:'#64748b',width:2},opacity:0.35,hoverinfo:'skip',showlegend:false},
+    {type:'scatter3d',mode:'markers',x:dg,y:dg,z:dg,customdata:[],
+      marker:{size:base*0.9,color:[],colorscale:cs,reversescale:rev,cmin:cmin,cmax:1,opacity:0.95,line:{color:'#475569',width:0.8},showscale:false},
+      name:'i=j=k',hovertemplate:'i=j=k=%{x}<br>%{customdata:.2e}<extra></extra>'}];
+  const lay={title:{text:title,font:{size:10},x:0.5,xanchor:'center'},margin:{l:0,r:0,t:22,b:0},uirevision:'s12',showlegend:false,
+    scene:{xaxis:{title:'i',dtick:dt,range:[rmax,0]},yaxis:{title:'j',dtick:dt,range:[0,rmax]},zaxis:{title:'k',dtick:dt,range:[0,rmax]},aspectmode:'cube',camera:{eye:{x:1.7,y:1.7,z:1.2}}}};
+  Plotly.newPlot(id,tr,lay,{responsive:true,displaylogo:false});
+  document.getElementById(id).on('plotly_relayout',ev=>{
+    if(!chk('s12_sync'))return;if(!Object.keys(ev).some(k=>k.indexOf('scene.camera')===0))return;
+    const gd=document.getElementById(id),cam=gd&&gd._fullLayout&&gd._fullLayout.scene&&gd._fullLayout.scene.camera;
+    if(!cam)return;const key=JSON.stringify(cam);if(key===S12_CAMKEY)return;S12_CAMKEY=key;
+    for(const oid of s12CubeIds())if(oid!==id)Plotly.relayout(oid,{'scene.camera':cam});});}
+function s12CubeRender(id,pack,M,title,mode){
+  const v=pack.v,idxArr=pack.idx,L=v.length,pos=g3dPos(M,idxArr,L),dv=pack.d;
+  const base=Math.max(2.5,Math.min(7,140/Math.max(1,M))),fmt=x=>x===0?'0':(x<0?'-':'')+Math.abs(x).toExponential(1);
+  let c,size,cmin,cmax,tickvals,ticktext,dc;
+  if(mode==='symlog'){const g=g3dColor(v);c=g.c;cmin=-g.cm;cmax=g.cm;size=c.map(x=>base*(0.4+0.6*Math.abs(x)/g.cm));
+    const tv=[-g.cm,-g.cm/2,0,g.cm/2,g.cm],rf=x=>(x<0?-1:1)*g.lin*Math.expm1(Math.abs(x));
+    tickvals=tv;ticktext=tv.map(x=>fmt(rf(x)));dc=dv.map(x=>(x<0?-1:1)*Math.log1p(Math.abs(x)/g.lin));}
+  else{cmin=mode==='pm1'?-1:0;cmax=1;c=v.slice();size=v.map(x=>base*(0.4+0.6*Math.min(1,Math.abs(x))));
+    tickvals=mode==='pm1'?[-1,-0.5,0,0.5,1]:[0,0.25,0.5,0.75,1];ticktext=tickvals.map(x=>''+x);dc=dv.slice();}
+  Plotly.restyle(id,{x:[pos.x],y:[pos.y],z:[pos.z],customdata:[v],'marker.color':[c],'marker.size':[size],
+    'marker.cmin':cmin,'marker.cmax':cmax,'marker.colorbar.tickvals':[tickvals],'marker.colorbar.ticktext':[ticktext]},[0]);
+  Plotly.restyle(id,{customdata:[dv],'marker.color':[dc],'marker.cmin':cmin,'marker.cmax':cmax},[2]);
+  Plotly.relayout(id,{'title.text':title});}
+function s12Build(N){
+  S12_N=N;S12_BUILT=true;
+  for(const k of S12_KS)for(const g of S12_GR)s12CubeBuild('p_s12_'+k+'_'+g,N,S12_GLAB[g]+' k='+k,S12_GMODE[g]!=='pos01');
+  for(let n=0;n<4;n++)s12Heat2DBuild('p_s12ang_'+n,N,S12_ANGT[n],false);
+  for(const k of S12_KS)s12CubeBuild('p_s13g1_'+k,N,'G1 k='+k,true);
+  for(const k of S12_KS){s12Heat2DBuild('p_s13g2_'+k,N,'G2 k='+k,true);s12Heat2DBuild('p_s13g3_'+k,N,'G3=|G2| k='+k,false);}
   s12EvoBuild();
 }
 function s12EvoBuild(){
-  for(const id of [S12_P4[0],S12_P4[1]]){const tr=[];
+  for(const id of ['p_s12evo_2','p_s12evo_5']){const tr=[];
     for(let n=0;n<3;n++){tr.push({x:[],y:[],fill:'toself',fillcolor:S12E_COL[n]+'22',line:{width:0},hoverinfo:'skip',showlegend:false});
       tr.push({x:[],y:[],mode:'lines',name:S12E_LAB[n],line:{color:S12E_COL[n],width:1.8}});}
-    Plotly.newPlot(id,tr,withZero(baseLayout(id===S12_P4[0]?'panel 1 cuboids — mean ± std (k=2)':'panel 2 cuboids — mean ± std (k=5)','value',false)),{responsive:true,displaylogo:false});}
-  Plotly.newPlot(S12_P4[2],[{x:[],y:[],mode:'lines',line:{color:'#7c3aed',width:1.9}}],baseLayout('mean principal angle k=5','angle (deg)',false),{responsive:true,displaylogo:false});
-  Plotly.newPlot(S12_P4[3],[{x:[],y:[],mode:'lines',line:{color:'#7c3aed',width:1.9}}],baseLayout('mean principal angle k=15','angle (deg)',false),{responsive:true,displaylogo:false});
+    Plotly.newPlot(id,tr,withZero(baseLayout(id==='p_s12evo_2'?'grids A,B,C — mean ± std (k=2)':'grids A,B,C — mean ± std (k=5)','value',false)),{responsive:true,displaylogo:false});}
+  Plotly.newPlot('p_s12evo_a5',[{x:[],y:[],mode:'lines',line:{color:'#7c3aed',width:1.9}}],baseLayout('mean principal angle k=5','angle (deg)',false),{responsive:true,displaylogo:false});
+  Plotly.newPlot('p_s12evo_aF',[{x:[],y:[],mode:'lines',line:{color:'#7c3aed',width:1.9}}],baseLayout('mean principal angle k=15','angle (deg)',false),{responsive:true,displaylogo:false});
 }
 function s12EvoAppend(m){
-  if(!S12E_DATA)S12E_DATA={p1:[[],[],[]],p1s:[[],[],[]],p2:[[],[],[]],p2s:[[],[],[]],a5:[],aF:[]};
-  S12E_STEPS.push(m.t);
-  for(let n=0;n<3;n++){S12E_DATA.p1[n].push(m.p1.cm[n]);S12E_DATA.p1s[n].push(m.p1.cs[n]);S12E_DATA.p2[n].push(m.p2.cm[n]);S12E_DATA.p2s[n].push(m.p2.cs[n]);}
-  S12E_DATA.a5.push(m.p3.gm[1]);S12E_DATA.aF.push(m.p3.gm[3]);
+  if(!m.do3d||!m.ev)return;
+  if(!S12E_DATA)S12E_DATA={k2:[[],[],[]],k2s:[[],[],[]],k5:[[],[],[]],k5s:[[],[],[]],a5:[],aF:[]};
+  S12E_STEPS.push(m.t);const G=['A','B','C'];
+  for(let n=0;n<3;n++){S12E_DATA.k2[n].push(m.ev['2'][G[n]][0]);S12E_DATA.k2s[n].push(m.ev['2'][G[n]][1]);
+    S12E_DATA.k5[n].push(m.ev['5'][G[n]][0]);S12E_DATA.k5s[n].push(m.ev['5'][G[n]][1]);}
+  S12E_DATA.a5.push(m.ang.gm[1]);S12E_DATA.aF.push(m.ang.gm[3]);
 }
 function s12EvoRender(){
   if(!S12E_DATA||!S12E_STEPS.length)return;const t=S12E_STEPS, tr=t.concat(t.slice().reverse());
-  for(const [id,key,skey] of [[S12_P4[0],'p1','p1s'],[S12_P4[1],'p2','p2s']]){const X=[],Y=[];
+  for(const [id,key,skey] of [['p_s12evo_2','k2','k2s'],['p_s12evo_5','k5','k5s']]){const X=[],Y=[];
     for(let n=0;n<3;n++){const m=S12E_DATA[key][n],s=S12E_DATA[skey][n];
-      X.push(tr);Y.push(m.map((v,q)=>v+s[q]).concat(m.map((v,q)=>v-s[q]).reverse()));
-      X.push(t);Y.push(m);}
+      X.push(tr);Y.push(m.map((v,q)=>v+s[q]).concat(m.map((v,q)=>v-s[q]).reverse()));X.push(t);Y.push(m);}
     Plotly.restyle(id,{x:X,y:Y});}
-  Plotly.restyle(S12_P4[2],{x:[t],y:[S12E_DATA.a5]});Plotly.restyle(S12_P4[3],{x:[t],y:[S12E_DATA.aF]});
+  Plotly.restyle('p_s12evo_a5',{x:[t],y:[S12E_DATA.a5]});Plotly.restyle('p_s12evo_aF',{x:[t],y:[S12E_DATA.aF]});
 }
 function s12RenderIdx(i){S12_PENDING=i;if(S12_RAF)return;S12_RAF=requestAnimationFrame(()=>{S12_RAF=0;const j=S12_PENDING;S12_PENDING=-1;if(j>=0)s12RenderNow(j);});}
+function s12Heat2DSnap(id,flat,N,lab,signed,deg){
+  let mx=0,sm=0;for(const v of flat){sm+=v;mx=Math.max(mx,signed?Math.abs(v):v);}mx=mx||1;
+  Plotly.restyle(id,signed?{z:[s12HeatZ(flat,N)],zmin:-mx,zmax:mx}:{z:[s12HeatZ(flat,N)],zmin:0,zmax:mx},[0]);
+  const mn=sm/flat.length;Plotly.relayout(id,{'title.text':lab+'  μ='+(deg?mn.toFixed(1)+'°':mn.toFixed(2))});}
 function s12RenderNow(i){
-  const s=S12_SNAPS[i];if(!s)return;const N=s.M,K=(s.p1&&s.p1.K)||10;
-  if(!S12_BUILT||S12_N!==N||S12_K!==K)s12Build(N,K);
-  const cube=s12CubeXYZ(N,K);
-  for(const pk of ['p1','p2']){const ids=pk==='p1'?S12_P1:S12_P2,P=s[pk];
-    for(let n=0;n<6;n++){const idx=Math.floor(n/2);
-      if(S12_KIND[n]==='g'){Plotly.restyle(ids[n],{z:[s12HeatZ(P.g[idx],N)]},[0]);
-        Plotly.relayout(ids[n],{'title.text':S12_GT[n]+'  μ='+P.gm[idx].toFixed(2)});}
-      else{const f=P.c[idx];
-        Plotly.restyle(ids[n],{x:[cube.x],y:[cube.y],z:[cube.zz],customdata:[f],'marker.color':[f],
-          'marker.size':[f.map(v=>2.6*(0.45+0.55*Math.min(1,Math.abs(v))))]},[0]);
-        Plotly.relayout(ids[n],{'title.text':S12_GT[n]+'  μ='+P.cm[idx].toFixed(2)});}}}
-  for(let n=0;n<4;n++){Plotly.restyle(S12_P3[n],{z:[s12HeatZ(s.p3.g[n],N)]},[0]);
-    const lab=n<3?S12_P3T[n]:('principal angle k='+(s.p3.kfull||15));
-    Plotly.relayout(S12_P3[n],{'title.text':lab+'  μ='+s.p3.gm[n].toFixed(1)+'°'});}
+  const s=S12_SNAPS[i];if(!s||!s.ang)return;const N=s.M;
+  if(!S12_BUILT||S12_N!==N)s12Build(N);
+  for(let n=0;n<4;n++)s12Heat2DSnap('p_s12ang_'+n,s.ang.g[n],N,(n<3?S12_ANGT[n]:'principal angle k='+(s.ang.kfull||15)),false,true);
+  if(s.do3d){
+    for(const k of S12_KS)for(const g of S12_GR){const pk=s.s12[''+k][g];
+      s12CubeRender('p_s12_'+k+'_'+g,pk,N,S12_GLAB[g]+' k='+k+'  μ='+(pk.mn!=null?pk.mn.toFixed(2):'?'),S12_GMODE[g]);}
+    for(const k of S12_KS){const pk=s.g1[''+k];s12CubeRender('p_s13g1_'+k,pk,N,'G1 k='+k+'  μ='+(pk.mn!=null?pk.mn.toExponential(1):'?'),'symlog');}
+    for(const k of S12_KS){s12Heat2DSnap('p_s13g2_'+k,s.g2[''+k],N,'G2 k='+k,true,false);s12Heat2DSnap('p_s13g3_'+k,s.g3[''+k],N,'G3=|G2| k='+k,false,false);}
+  }
   const sp=document.getElementById('s12_step');if(sp)sp.textContent=`step ${s.t}  ·  snapshot ${i+1}/${S12_SNAPS.length}`;
 }
 function s12Push(m){
-  if(!m.p1)return;const sl=document.getElementById('s12_slider'),wasLive=!sl||(+sl.value>=+sl.max);
+  if(!m.ang)return;const sl=document.getElementById('s12_slider'),wasLive=!sl||(+sl.value>=+sl.max);
   S12_SNAPS.push(m);
   if(sl){sl.max=S12_SNAPS.length-1;if(wasLive)sl.value=sl.max;}
+  if(!S12_BUILT||S12_N!==m.M)s12Build(m.M);   // build synchronously so the evolution restyle targets exist
   s12EvoAppend(m);s12EvoRender();
   s12RenderIdx(wasLive?S12_SNAPS.length-1:(sl?+sl.value:0));
 }
@@ -1038,27 +1070,51 @@ function s12Push(m){
 const SEC12_KFULL=15;   // rank of the §12 "full-space" principal-angle plot (top-15 ⊕ bottom-15). MIRRORS server.
 function s12Dot(u,v,p){let d=0;for(let q=0;q<p;q++)d+=u[q]*v[q];return d;}
 // TV[i]/BV[i] = arrays of K top/bottom eigenVECTORS (Float64Array p, raw signs); TW[i]/BW[i] = their eigenVALUES.
-function s12CosPanel(k,TV,TW,BV,BW,rs,N,p){
-  const K2=Math.max(1,Math.min(k,TV[0].length)),D=2*K2,KK=Math.min(10,D*D);
-  const E=[],S=[];
-  for(let i=0;i<N;i++){const vv=[],ss=[];
-    for(let a=0;a<K2;a++){vv.push(TV[i][a]);const w=TW[i][a];ss.push(w<0?-1:(w>0?1:0));}
-    for(let a=0;a<K2;a++){vv.push(BV[i][a]);const w=BW[i][a];ss.push(w<0?-1:(w>0?1:0));}
-    E.push(vv);S.push(ss);}
-  const g1=new Float64Array(N*N),g3=new Float64Array(N*N),g5=new Float64Array(N*N);
-  const c2=new Float64Array(N*N*KK),c4=new Float64Array(N*N*KK),c6=new Float64Array(N*N*KK);
-  for(let i=0;i<N;i++)for(let j=0;j<N;j++){
-    const cos=new Float64Array(D*D),sgn=new Float64Array(D*D);
-    for(let a=0;a<D;a++)for(let b=0;b<D;b++){const d=s12Dot(E[i][a],E[j][b],p);cos[a*D+b]=d;sgn[a*D+b]=Math.abs(d)*S[i][a]*S[j][b];}  // |cos|·sgnλ_i·sgnλ_j (sign from λ only; no gauge-dependent sign(cos))
-    let mx=-1,am=0;for(let q=0;q<D*D;q++){const av=Math.abs(cos[q]);if(av>mx){mx=av;am=q;}}
-    const sr=rs[i]*rs[j],base=i*N+j;
-    g1[base]=mx;g3[base]=sgn[am];g5[base]=sgn[am]*sr;
-    const ord=Array.from({length:D*D},(_,q)=>q).sort((x,y)=>Math.abs(cos[y])-Math.abs(cos[x]));
-    for(let q=0;q<KK;q++){const idx=ord[q],o=base*KK+q;c2[o]=Math.abs(cos[idx]);c4[o]=sgn[idx];c6[o]=sgn[idx]*sr;}}
-  const mean=a=>{let s=0;for(let q=0;q<a.length;q++)s+=a[q];return s/a.length;};
-  const std=a=>{const m=mean(a);let s=0;for(let q=0;q<a.length;q++){const d=a[q]-m;s+=d*d;}return Math.sqrt(s/a.length);};
-  return {g:[Array.from(g1),Array.from(g3),Array.from(g5)],c:[Array.from(c2),Array.from(c4),Array.from(c6)],
-    gm:[mean(g1),mean(g3),mean(g5)],cm:[mean(c2),mean(c4),mean(c6)],cs:[std(c2),std(c4),std(c6)],K:KK};
+const S12_SGN=x=>(x>0?1:(x<0?-1:0));
+// gradient-gauged per ordered pair (a,b) at top/bottom count k0: m=max|cos|, c=signed cos@argmax, σ_a,σ_b,J_a,J_b.
+// Every dir is flipped so ⟨∇f_i,e⟩≥0 (gradient gauge → all grids gauge-invariant). Self-pair (i==i)→top-1 (c=1).
+function s12PerPair(TV,TW,BV,BW,Jg,N,p,k0){
+  const K2=Math.max(1,Math.min(k0,TV[0].length)), D=2*K2;
+  const E=[],W=[],Ju=[];
+  for(let i=0;i<N;i++){const vv=[],ww=[];
+    for(let a=0;a<K2;a++){vv.push(TV[i][a]);ww.push(TW[i][a]);}
+    for(let a=0;a<K2;a++){vv.push(BV[i][a]);ww.push(BW[i][a]);}
+    const ov=[],ju=new Float64Array(D);
+    for(let a=0;a<D;a++){const s=(s12Dot(Jg[i],vv[a],p)>=0?1:-1),e=new Float64Array(p);
+      for(let q=0;q<p;q++)e[q]=s*vv[a][q];ov.push(e);ju[a]=s12Dot(Jg[i],e,p);}   // oriented dir + J·u (≥0)
+    E.push(ov);W.push(ww);Ju.push(ju);}
+  const m=new Float64Array(N*N),c=new Float64Array(N*N),sA=new Float64Array(N*N),sB=new Float64Array(N*N),JA=new Float64Array(N*N),JB=new Float64Array(N*N);
+  for(let i=0;i<N;i++)for(let j=0;j<N;j++){const o=i*N+j;
+    if(i===j){m[o]=1;c[o]=1;sA[o]=W[i][0];sB[o]=W[i][0];JA[o]=Ju[i][0];JB[o]=Ju[i][0];continue;}
+    let best=-1,bi=0,bj=0;
+    for(let a=0;a<D;a++)for(let b=0;b<D;b++){const d=Math.abs(s12Dot(E[i][a],E[j][b],p));if(d>best){best=d;bi=a;bj=b;}}
+    m[o]=best;c[o]=s12Dot(E[i][bi],E[j][bj],p);sA[o]=W[i][bi];sB[o]=W[j][bj];JA[o]=Ju[i][bi];JB[o]=Ju[j][bj];}
+  return {m,c,sA,sB,JA,JB};
+}
+// §12 grids A..E (3D, i,j,l) + §13 G1 (3D), G2/G3 (2D, j,l) for one k0 — mirrors server grids().
+function s1213Grids(TV,TW,BV,BW,r,Jg,N,p,k0){
+  const P=s12PerPair(TV,TW,BV,BW,Jg,N,p,k0),m=P.m,c=P.c,sA=P.sA,sB=P.sB,JA=P.JA,JB=P.JB,sg=S12_SGN;
+  const N3=N*N*N,A=new Float64Array(N3),B=new Float64Array(N3),C=new Float64Array(N3),Dd=new Float64Array(N3),Ee=new Float64Array(N3),G1=new Float64Array(N3);
+  for(let i=0;i<N;i++)for(let j=0;j<N;j++){const ij=i*N+j,m_ij=m[ij],c_ij=c[ij],sig_i=sA[ij],J_i=JA[ij],r_i=r[i];
+    for(let l=0;l<N;l++){const jl=j*N+l,m_jl=m[jl],c_jl=c[jl],sig_j=sA[jl],sig_l=sB[jl],J_l=JB[jl],r_l=r[l],o=ij*N+l;
+      A[o]=m_ij*m_jl;
+      B[o]=c_ij*c_jl*sg(sig_i*sig_j*sig_l)*sg(J_i)*sg(J_l);
+      C[o]=sg(r_l*sig_j)*c_ij*c_jl*sg(sig_i*sig_l*r_i*r_l)*sg(J_i)*sg(J_l);
+      Dd[o]=c_ij*c_jl*sig_j;
+      Ee[o]=c_ij*c_jl*r_l*sig_j;
+      G1[o]=r_l*sig_j*(1+r_i*sig_i)*c_ij*J_i*(1+r_l*sig_l)*c_jl*J_l;}}
+  const G2=new Float64Array(N*N),G3=new Float64Array(N*N);
+  for(let j=0;j<N;j++)for(let l=0;l<N;l++){const jl=j*N+l;G2[jl]=r[l]*sA[jl]*(1+r[l]*sB[jl])*c[jl]*JB[jl];G3[jl]=Math.abs(G2[jl]);}
+  return {A,B,C,D:Dd,E:Ee,G1,G2,G3};
+}
+// pack a 3D grid like server pack3d: dense for small N, sparse (top-|val|+random bulk) above budget; always send
+// the i=j=l diagonal (idx i·(M²+M+1)) for the highlight + the +share% over the FULL grid.
+function s1213Pack3d(T,M){
+  const n3=M*M*M,dstep=M*M+M+1,d=[];for(let q=0;q<M;q++)d.push(T[q*dstep]);
+  let ps=0,ns=0,sm=0;for(let q=0;q<n3;q++){const v=T[q];sm+=v;if(v>0)ps+=v;else ns+=v;}
+  const den=ps-ns,pp=den>1e-30?ps/den*100:0,mn=sm/n3;
+  if(n3<=G3D_MAXPTS)return {v:Array.from(T),idx:null,d:d,mn:mn,pp:pp};
+  const id=g3dHybrid(T,n3);return {v:id.map(q=>T[q]),idx:id,d:d,mn:mn,pp:pp};
 }
 function s12Angles(TV,BV,N,p,k){
   const K2=Math.max(1,Math.min(k,TV[0].length)),sub=[];
@@ -1074,12 +1130,21 @@ function s12Angles(TV,BV,N,p,k){
     g[i*N+j]=ang/n2*180/Math.PI;}
   let s=0;for(let q=0;q<N*N;q++)s+=g[q];return {g:Array.from(g),gm:s/(N*N)};
 }
-function sec12Payload(TV,TW,BV,BW,r,N,p){
-  // No sign-pinning: |cos|, sign(λ), sign(r) and the principal angles are all invariant to each eigenvector's ±.
-  const rs=r.map(x=>x<0?-1:(x>0?1:0)), K=TV[0].length, kf=Math.max(1,Math.min(SEC12_KFULL,K));
+// §12 (triple 3D grids, 5 plots × k0∈{1,2,5}) + §13. MIRRORS server._sec12_payload (gradient-gauged; verified).
+function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap){
+  const K=TV[0].length, kf=Math.max(1,Math.min(SEC12_KFULL,K));
   const pas=[s12Angles(TV,BV,N,p,1),s12Angles(TV,BV,N,p,5),s12Angles(TV,BV,N,p,10),s12Angles(TV,BV,N,p,kf)];
-  return {M:N,p1:s12CosPanel(2,TV,TW,BV,BW,rs,N,p),p2:s12CosPanel(5,TV,TW,BV,BW,rs,N,p),
-    p3:{g:pas.map(x=>x.g),gm:pas.map(x=>x.gm),kfull:kf}};
+  const out={M:N,do3d:false,ks:[1,2,5],ang:{g:pas.map(x=>x.g),gm:pas.map(x=>x.gm),kfull:kf}};
+  if(N>grid3dcap)return out;
+  out.do3d=true;
+  const mean=a=>{let s=0;for(let q=0;q<a.length;q++)s+=a[q];return s/a.length;};
+  const std=a=>{const mm=mean(a);let s=0;for(let q=0;q<a.length;q++){const d=a[q]-mm;s+=d*d;}return Math.sqrt(s/a.length);};
+  const s12={},g1={},g2={},g3={},ev={};
+  for(const k0 of [1,2,5]){const G=s1213Grids(TV,TW,BV,BW,r,Jg,N,p,k0),key=''+k0;
+    s12[key]={A:s1213Pack3d(G.A,N),B:s1213Pack3d(G.B,N),C:s1213Pack3d(G.C,N),D:s1213Pack3d(G.D,N),E:s1213Pack3d(G.E,N)};
+    g1[key]=s1213Pack3d(G.G1,N);g2[key]=Array.from(G.G2);g3[key]=Array.from(G.G3);
+    if(k0===2||k0===5)ev[key]={A:[mean(G.A),std(G.A)],B:[mean(G.B),std(G.B)],C:[mean(G.C),std(G.C)]};}
+  out.s12=s12;out.g1=g1;out.g2=g2;out.g3=g3;out.ev=ev;return out;
 }
 let OPT={s1:true,s2:true,s3:true,s4:true,s5:true,s6:true,gs:true};
 
@@ -1096,6 +1161,7 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_cubic');if(el)el.style.display=chk('en17')?'':'none';}          // §10 cubic approximation (Eq-47/51) — own id (sec_10 is already §4c)
   {const el=document.getElementById('sec_g3d');if(el)el.style.display=(chk('en18')&&multi)?'':'none';}   // §11 3D Hessian–NTK grids (s18, multi-only)
   {const el=document.getElementById('sec_s12');if(el)el.style.display=(chk('en19')&&multi)?'':'none';}   // §12 per-sample Hessian eigvec similarity (s19, multi-only)
+  {const el=document.getElementById('sec_s13');if(el)el.style.display=(chk('en19')&&multi)?'':'none';}   // §13 residual-weighted curvature alignment (shares the §12 toggle/compute)
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
 }
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
@@ -1706,8 +1772,8 @@ async function loop(){                                   // drives ST forward; r
           for(let i=0;i<N;i++){const c=new Float64Array(M);c[lblsel[i]]=1;   // one-hot cotangent → Q_i·v via hvpS
             const le=lanczosExtreme(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,c),p,K12,m12,(0x5EC12+i*7919)>>>0);
             TV.push(le.topVecs);TW.push(le.topVals);BV.push(le.botVecs);BW.push(le.botVals);}
-          const r12=lblsel.map(a=>rrs[a]);
-          s12Push({type:'g4d',t:S.t,...sec12Payload(TV,TW,BV,BW,r12,N,p)});
+          const r12=lblsel.map(a=>rrs[a]), Jg12=lblsel.map(a=>bJc[a]);   // GT-label residual + gradient ∇f_i per sample
+          s12Push({type:'g4d',t:S.t,...sec1213Payload(TV,TW,BV,BW,r12,Jg12,N,p,S.grid3dcap)});
         }
         // Q[u₁] = Σ_a (u₁)_a ∇²f_a — extreme eigvecs (shared by §4b and §4d), sign-tracked once
         let qe=null;

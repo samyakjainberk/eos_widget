@@ -752,8 +752,6 @@ def plot_section11_sumnormshare(hist):
 
 
 # ─────────────────────────────── §12 per-sample Hessian eigenvector cross-similarity ───────────────────────
-_S12_GTITLE = ["max|cos|", "sgnλ·|cos|", "sgnλ·sgnr·|cos|"]            # grid columns (1,3,5); sign from λ·r only
-_S12_CTITLE = ["top-10 |cos|", "sgnλ·|cos| top10", "sgnλ·sgnr·|cos| top10"]  # cuboid columns (2,4,6)
 
 
 def _s12_heat(ax, vals, N, title):
@@ -769,61 +767,66 @@ def _s12_heat(ax, vals, N, title):
     return im
 
 
-def _s12_cuboid(fig, pos, vals, N, K, title):
-    """3D scatter of an N×N×K cuboid (x=i, y=j, z=rank), colour = value (RdBu_r if signed else viridis).
-    idx = i·(N·K) + j·K + r — mirrors the §11 cube ambience but with the rank axis (10 largest pairs)."""
+# §12 5-grid panels: A=m·m (non-neg); B,C signed [-1,1]; D,E signed (σ_j-scaled). Each is N×N×N over (i,j,k).
+_S12_GRIDS = [("A", "A · m·m", False), ("B", "B · signed σ,J", True),
+              ("C", "C · signed σ,r,J", True), ("D", "D · cc·σ_j", True), ("E", "E · cc·r·σ_j", True)]
+
+
+def _s12_grid3d(fig, pos, pack, N, title, signed):
+    """3D scatter of an N×N×K grid over (i,j,k) from a packed grid {v,idx,d}; i=j=k diagonal ringed."""
     import numpy as np
     from matplotlib.colors import Normalize
-    v = np.asarray(vals, dtype=float)
-    idx = np.arange(N * N * K)
-    i = idx // (N * K); j = (idx // K) % N; r = idx % K
-    signed = v.min() < -1e-9
+    v = np.asarray(pack["v"], dtype=float)
+    q = np.asarray(pack["idx"]) if pack.get("idx") is not None else np.arange(v.size)
+    i = q // (N * N); j = (q // N) % N; k = q % N
     cmap = "RdBu_r" if signed else "viridis"
     m = max(float(np.abs(v).max()), 1e-30)
     norm = Normalize(-m, m) if signed else Normalize(0.0, m)
     ax = fig.add_subplot(*pos, projection="3d")
-    sc = ax.scatter(i, j, r, c=v, cmap=cmap, norm=norm, s=14, alpha=0.85, depthshade=True, linewidths=0)
-    ax.set_xlim(N - 1, 0); ax.set_ylim(0, N - 1); ax.set_zlim(0, K - 1)
-    ax.set_xlabel("i"); ax.set_ylabel("j"); ax.set_zlabel("rank"); ax.set_title(title, fontsize=9)
+    sc = ax.scatter(i, j, k, c=v, cmap=cmap, norm=norm, s=10, alpha=0.7, depthshade=True, linewidths=0)
+    dg = np.arange(N); d = np.asarray(pack["d"], dtype=float)
+    ax.scatter(dg, dg, dg, c=d, cmap=cmap, norm=norm, s=55, edgecolors="k", linewidths=0.6)   # i=j=k highlight
+    ax.set_xlim(N - 1, 0); ax.set_ylim(0, N - 1); ax.set_zlim(0, N - 1)
+    ax.set_xlabel("i"); ax.set_ylabel("j"); ax.set_zlabel("k"); ax.set_title(title, fontsize=8)
     return ax, sc
 
 
-def _s12_panel_fig(g, which):
-    """Panel 1 (which='p1', k=2) / panel 2 ('p2', k=5): 6 plots [grid1,cub2,grid3,cub4,grid5,cub6]."""
-    P = g[which]; N = g["M"]; K = P["K"]
-    fig = plt.figure(figsize=(22, 3.7))
-    layout = [("g", 0), ("c", 0), ("g", 1), ("c", 1), ("g", 2), ("c", 2)]
-    for n, (kind, ix) in enumerate(layout):
-        if kind == "g":
-            ax = fig.add_subplot(1, 6, n + 1)
-            im = _s12_heat(ax, P["g"][ix], N, f"{_S12_GTITLE[ix]}   μ={P['gm'][ix]:.3f}")
-            fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        else:
-            ax, sc = _s12_cuboid(fig, (1, 6, n + 1), P["c"][ix], N, K, f"{_S12_CTITLE[ix]}   μ={P['cm'][ix]:.3f}")
-            fig.colorbar(sc, ax=ax, fraction=0.04, pad=0.06)
-    klab = "2" if which == "p1" else "5"
-    fig.suptitle(f"§12 panel {'1' if which == 'p1' else '2'} — Qᵢ eigenvector cross-similarity (k={klab})", fontsize=12)
+def _s12_grids_fig(g, k0):
+    """One §12 panel (k0=1/2/5): 5 3D grids A,B,C,D,E over (i,j,k)."""
+    N = g["M"]; S = g["s12"][str(k0)]
+    fig = plt.figure(figsize=(22, 4.2))
+    for n, (nm, lab, signed) in enumerate(_S12_GRIDS):
+        pk = S[nm]
+        ax, sc = _s12_grid3d(fig, (1, 5, n + 1), pk, N, f"{lab}  μ={pk['mn']:.2f}", signed)
+        fig.colorbar(sc, ax=ax, fraction=0.04, pad=0.06)
+    fig.suptitle(f"§12 — per-sample Hessian triple-(i,j,k) grids (k0={k0})", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     return fig
 
 
+def _s12_3d_snaps(hist):
+    return [r for r in hist if "g4d" in r and r["g4d"].get("do3d")]
+
+
 def plot_section12_panel1(hist):
-    snaps = [r for r in hist if "g4d" in r]
-    return _s12_panel_fig(snaps[-1]["g4d"], "p1") if snaps else None
+    s = _s12_3d_snaps(hist); return _s12_grids_fig(s[-1]["g4d"], 1) if s else None
 
 
 def plot_section12_panel2(hist):
-    snaps = [r for r in hist if "g4d" in r]
-    return _s12_panel_fig(snaps[-1]["g4d"], "p2") if snaps else None
+    s = _s12_3d_snaps(hist); return _s12_grids_fig(s[-1]["g4d"], 2) if s else None
+
+
+def plot_section12_panel3(hist):
+    s = _s12_3d_snaps(hist); return _s12_grids_fig(s[-1]["g4d"], 5) if s else None
 
 
 def plot_section12_angles(hist):
-    """§12 panel 3 — four (i,j) grids of the MEAN principal angle between Qᵢ,Qⱼ subspaces (k=1,5,10,energy)."""
+    """§12 panel 4 — four (i,j) grids of the MEAN principal angle between Qᵢ,Qⱼ subspaces (k=1,5,10,kfull)."""
     import numpy as np
     snaps = [r for r in hist if "g4d" in r]
     if not snaps:
         return None
-    g = snaps[-1]["g4d"]; N = g["M"]; P = g["p3"]; labs = ["k=1", "k=5", "k=10", f"k={P.get('kfull', 15)}"]
+    g = snaps[-1]["g4d"]; N = g["M"]; P = g["ang"]; labs = ["k=1", "k=5", "k=10", f"k={P.get('kfull', 15)}"]
     fig = plt.figure(figsize=(16, 3.7))
     for n in range(4):
         ax = fig.add_subplot(1, 4, n + 1)
@@ -831,46 +834,88 @@ def plot_section12_angles(hist):
         im = ax.imshow(A, cmap="magma", vmin=0.0, vmax=90.0, origin="upper")
         ax.set_xlabel("j"); ax.set_ylabel("i"); ax.set_title(f"angle {labs[n]}   μ={P['gm'][n]:.1f}°", fontsize=9)
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    fig.suptitle("§12 panel 3 — mean principal angle between Qᵢ,Qⱼ subspaces (deg)", fontsize=12)
+    fig.suptitle("§12 panel 4 — mean principal angle between Qᵢ,Qⱼ subspaces (deg)", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.92))
     return fig
 
 
 def plot_section12_evolution(hist):
-    """§12 panel 4 — col1/2: mean±std of panel-1/2 cuboids over training; col3/4: mean principal angle k=5 / energy."""
+    """§12 panel 5 — cols 1/2: mean±std of grids A,B,C over training (k0=2,5); cols 3/4: mean principal angle k=5/kfull."""
     import numpy as np
-    snaps = [r for r in hist if "g4d" in r]
+    snaps = _s12_3d_snaps(hist)
     if len(snaps) < 2:
         return None
     t = [r["t"] for r in snaps]
     fig, axs = plt.subplots(1, 4, figsize=(18, 3.7))
-    labs = ["|cos|", "signed", "signed·sgn r"]; cols = ["#2563eb", "#16a34a", "#dc2626"]
-    for c, which in enumerate(["p1", "p2"]):
+    labs = ["A", "B", "C"]; cols = ["#2563eb", "#16a34a", "#dc2626"]
+    for c, k0 in enumerate(["2", "5"]):
         ax = axs[c]
-        for n in range(3):
-            m = np.array([r["g4d"][which]["cm"][n] for r in snaps])
-            s = np.array([r["g4d"][which]["cs"][n] for r in snaps])
+        for n, nm in enumerate(["A", "B", "C"]):
+            m = np.array([r["g4d"]["ev"][k0][nm][0] for r in snaps])
+            s = np.array([r["g4d"]["ev"][k0][nm][1] for r in snaps])
             ax.plot(t, m, color=cols[n], label=labs[n]); ax.fill_between(t, m - s, m + s, color=cols[n], alpha=0.18)
         ax.axhline(0, c="k", lw=0.6); ax.set_xlabel("step"); ax.legend(fontsize=8)
-        ax.set_title(f"panel {c+1} cuboids mean ± std (k={'2' if which == 'p1' else '5'})", fontsize=10)
-    kfull = snaps[-1]["g4d"]["p3"].get("kfull", 15)
+        ax.set_title(f"grids A,B,C mean ± std (k0={k0})", fontsize=10)
+    kfull = snaps[-1]["g4d"]["ang"].get("kfull", 15)
     for c, (idx, lab) in enumerate([(1, "k=5"), (3, f"k={kfull}")]):
         ax = axs[2 + c]
-        a = np.array([r["g4d"]["p3"]["gm"][idx] for r in snaps])
+        a = np.array([r["g4d"]["ang"]["gm"][idx] for r in snaps])
         ax.plot(t, a, color="#7c3aed"); ax.set_xlabel("step"); ax.set_ylabel("angle (deg)")
         ax.set_title(f"mean principal angle {lab}", fontsize=10)
-    fig.suptitle("§12 panel 4 — evolution of the cuboid statistics and principal angles", fontsize=12)
+    fig.suptitle("§12 panel 5 — evolution of grid statistics and principal angles", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.92))
     return fig
 
 
-def save_section12_panel_gif(hist, which, path, frames=30, fps=12, dpi=60):
-    """§12 cuboid panel as a rotating GIF (the 3 cuboids spin so the (i,j,rank) structure is readable)."""
-    from matplotlib.animation import FuncAnimation, PillowWriter
-    snaps = [r for r in hist if "g4d" in r]
+# ─────────────────────────────── §13 residual-weighted per-sample curvature alignment ───────────────────────
+def plot_section13_panel1(hist):
+    """§13 panel 1 — G1 (3D over i,j,k) for k0=1,2,5."""
+    snaps = _s12_3d_snaps(hist)
     if not snaps:
         return None
-    fig = _s12_panel_fig(snaps[-1]["g4d"], which)
+    g = snaps[-1]["g4d"]; N = g["M"]
+    fig = plt.figure(figsize=(16, 4.4))
+    for n, k0 in enumerate([1, 2, 5]):
+        pk = g["g1"][str(k0)]
+        ax, sc = _s12_grid3d(fig, (1, 3, n + 1), pk, N, f"G1 k0={k0}  μ={pk['mn']:.1e}", True)
+        fig.colorbar(sc, ax=ax, fraction=0.04, pad=0.06)
+    fig.suptitle("§13 panel 1 — G1 = r_k σ_j (1+r_iσ_i) cos_ij J_i (1+r_kσ_k) cos_jk J_k", fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
+    return fig
+
+
+def _s13_2d_fig(hist, key, title):
+    import numpy as np
+    snaps = _s12_3d_snaps(hist)
+    if not snaps:
+        return None
+    g = snaps[-1]["g4d"]; N = g["M"]
+    fig = plt.figure(figsize=(16, 3.7))
+    for n, k0 in enumerate([1, 2, 5]):
+        ax = fig.add_subplot(1, 3, n + 1)
+        flat = g[key][str(k0)]
+        im = _s12_heat(ax, flat, N, f"{title} k0={k0}   μ={float(np.mean(flat)):.2f}")
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    fig.suptitle(f"§13 — {title} over (j,k)", fontsize=12)
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
+    return fig
+
+
+def plot_section13_panel2(hist):
+    return _s13_2d_fig(hist, "g2", "G2 = r_k σ_j (1+r_kσ_k) cos_jk J_k")
+
+
+def plot_section13_panel3(hist):
+    return _s13_2d_fig(hist, "g3", "G3 = |G2|")
+
+
+def save_section12_panel_gif(hist, k0, path, frames=30, fps=12, dpi=60):
+    """A §12 grid panel as a rotating GIF (the 3D (i,j,k) grids spin so the structure is readable)."""
+    from matplotlib.animation import FuncAnimation, PillowWriter
+    snaps = _s12_3d_snaps(hist)
+    if not snaps:
+        return None
+    fig = _s12_grids_fig(snaps[-1]["g4d"], k0)
     cube_axes = [ax for ax in fig.axes if hasattr(ax, "view_init")]
 
     def update(frame):
@@ -913,10 +958,14 @@ def save_panels(results, outdir):
             "section11_sumevolution": plot_section11_sumevolution(hist),
             "section11_normshare": plot_section11_normshare(hist),
             "section11_sumnormshare": plot_section11_sumnormshare(hist),
-            "section12_panel1_k2": plot_section12_panel1(hist),
-            "section12_panel2_k5": plot_section12_panel2(hist),
-            "section12_panel3_angles": plot_section12_angles(hist),
-            "section12_panel4_evolution": plot_section12_evolution(hist)}
+            "section12_panel1_k1": plot_section12_panel1(hist),
+            "section12_panel2_k2": plot_section12_panel2(hist),
+            "section12_panel3_k5": plot_section12_panel3(hist),
+            "section12_panel4_angles": plot_section12_angles(hist),
+            "section12_panel5_evolution": plot_section12_evolution(hist),
+            "section13_panel1_G1": plot_section13_panel1(hist),
+            "section13_panel2_G2": plot_section13_panel2(hist),
+            "section13_panel3_G3": plot_section13_panel3(hist)}
     written = []
     for name, fig in figs.items():
         if fig is None:
@@ -935,9 +984,9 @@ def save_panels(results, outdir):
         except Exception as e:
             print(f"  [{name}] GIF failed: {e}")
     # §12 cuboid panels as rotating GIFs (the 3D (i,j,rank) cuboids are hard to read static)
-    for name, which in (("section12_panel1_k2", "p1"), ("section12_panel2_k5", "p2")):
+    for name, k0 in (("section12_panel1_k1", 1), ("section12_panel2_k2", 2), ("section12_panel3_k5", 5)):
         try:
-            p = save_section12_panel_gif(hist, which, os.path.join(outdir, name + ".gif"))
+            p = save_section12_panel_gif(hist, k0, os.path.join(outdir, name + ".gif"))
             if p:
                 written.append(p)
         except Exception as e:

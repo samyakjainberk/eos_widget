@@ -74,63 +74,102 @@ SEC12_KFULL = 15   # rank of the "full-space" principal-angle plot (top-15 ⊕ b
                    # too, needs only Lanczos extremes rather than the full spectrum.
 
 
-def _sec12_payload(TV, TW, BV, BW, r, kfull=SEC12_KFULL):
-    """§12 from per-sample Lanczos eigenpairs. TV,BV:(N,K,p) top/bottom eigenVECTORS; TW,BW:(N,K) their
-    eigenVALUES; r:(N,) residual. Returns {M,p1,p2,p3}:
-      p1/p2 (k=2 / k=5): {g:[grid1,grid3,grid5] (N·N), c:[cub2,cub4,cub6] (N·N·10), gm,cm,cs, K}.
-      p3 (principal angles k=1,5,10,kfull): {g:[4 grids N·N], gm:[4 means], kfull}.
-    grid1 = max_{a,b}|cos(e_i^a,e_j^b)| over the 2k top⊕bottom eigenvectors; cub2 = the 10 largest |cos|;
-    grid3 = |cos| of the argmax pair × sign(λ_i)·sign(λ_j); cub4 = same for the top-10 pairs;
-    grid5/cub6 = grid3/cub4 × sign(r_i)·sign(r_j). Panel-3 cell = MEAN principal angle (deg) of the 2k
-    subspaces. The SIGN comes purely from sign(λ)·sign(r) (both gauge-invariant); the cosine contributes only
-    its magnitude |cos|. sign(cos) between eigenvectors of two different Q_i is gauge-dependent — it flips with
-    the arbitrary ± of each Ritz vector (e e^T, λ, r do not), so it is NOT used and no sign-pinning is needed."""
+def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
+    """§12 (triple-(i,j,l) 3D grids, 5 plots × k0∈{1,2,5}) + §13, from per-sample Lanczos eigenpairs.
+    TV,BV:(N,K,p) top/bottom eigenVECTORS; TW,BW:(N,K) eigenVALUES; r:(N,) residual; Jg:(N,p) per-sample
+    GT-label gradients ∇f_i. Every eigenvector is GRADIENT-GAUGED first (flipped so ⟨∇f_i,u⟩≥0) → the signed
+    cosines, J·u and all grids are gauge-invariant (reproducible across backends; fixes the i-, j- AND l-side).
+    Per ordered pair (a,b) at top/bottom count k0 (D=2·k0 dirs): (a*,b*)=argmax|cos| over the D×D dir pairs;
+    m=|cos|@argmax; c=signed cos@argmax; σ=eigenvalue & J=⟨∇f,u⟩ of the matched dirs. SELF-pair (a==a) is
+    canonicalised to the top-1 dir (c=1, σ=top eigval) so the highlighted diagonal is deterministic.
+    For triple (i,j,l): pair(i,j)→m_ij,c_ij,σ_i,J_i ; pair(j,l)→m_jl,c_jl,σ_j(=a-side of (j,l)),σ_l,J_l.
+      §12 grids:  A=m_ij·m_jl ; B=c_ij·c_jl·sgn(σ_iσ_jσ_l)·sgn(J_i)·sgn(J_l) ;
+        C=sgn(r_lσ_j)·c_ij·c_jl·sgn(σ_iσ_l r_i r_l)·sgn(J_i)·sgn(J_l) ; D=c_ij·c_jl·σ_j ; E=c_ij·c_jl·r_l·σ_j .
+      §13:  G1=r_lσ_j(1+r_iσ_i)c_ij J_i(1+r_lσ_l)c_jl J_l (3D) ; G2=r_lσ_j(1+r_lσ_l)c_jl J_l (2D j,l) ; G3=|G2|.
+    Returns {M,do3d,ks,ang[,s12,g1,g2,g3,ev]}. ang = panel-4 principal angles (over all N≤sec12ncap). The 3D
+    grids (panels 1-3, §13-p1) are gated on N≤grid3dcap (N³ like §11). MIRRORS eos_lab.linalg.sec12_payload /
+    index.html sec1213Payload."""
     import math as _m
     N, K, p = int(TV.shape[0]), int(TV.shape[1]), int(TV.shape[2])
-    dt = TV.dtype
+    dev = TV.device
 
-    # No sign-pinning: every quantity below (|cos|, sign(λ), sign(r), principal angles) is invariant to the
-    # arbitrary ± of each eigenvector, so the Ritz vectors are used exactly as Lanczos returns them.
-    rs = torch.sign(r).to(dt)
-
-    def vecset(k):
-        kk = max(1, min(k, K))
-        E = torch.cat([TV[:, :kk, :], BV[:, :kk, :]], dim=1)          # (N, 2k, p)
-        w = torch.cat([TW[:, :kk], BW[:, :kk]], dim=1)                # (N, 2k)
-        return E, torch.sign(w).to(dt)
-
-    def cos_panel(k):
-        E, s = vecset(k)
-        D = E.shape[1]
-        C = torch.einsum('iap,jbp->ijab', E, E)         # (N,N,D,D) cos = ⟨e_i^a, e_j^b⟩
-        Cf = C.reshape(N, N, D * D)
-        absf = Cf.abs()                                               # |cos| — gauge-invariant
-        Sab = torch.einsum('ia,jb->ijab', s, s).reshape(N, N, D * D)   # sign(λ_i^a)·sign(λ_j^b) — gauge-invariant
-        Mf = absf * Sab                                               # |cos|·sgnλ_i·sgnλ_j  (sign from λ only; no gauge-dependent sign(cos))
-        sr = rs.view(N, 1) * rs.view(1, N)
-        g1 = absf.amax(dim=2)
-        g3 = torch.gather(Mf, 2, absf.argmax(dim=2, keepdim=True)).squeeze(2)   # |cos_argmax|·sgnλ_i·sgnλ_j
-        g5 = g3 * sr
-        KK = min(10, D * D)
-        tv, ti = torch.topk(absf, KK, dim=2)
-        c2 = tv; c4 = torch.gather(Mf, 2, ti); c6 = c4 * sr.unsqueeze(2)
-        grids, cubs = [g1, g3, g5], [c2, c4, c6]
-        return {"g": [x.reshape(-1).detach().cpu().tolist() for x in grids],
-                "c": [x.reshape(-1).detach().cpu().tolist() for x in cubs],
-                "gm": [float(x.mean()) for x in grids],
-                "cm": [float(x.mean()) for x in cubs],
-                "cs": [float(x.std(unbiased=False)) for x in cubs], "K": KK}
-
+    # ---- panel 4: principal angles over all N (gauge-free: svdvals is invariant to eigenvector ±) ----
     def pa(k):
-        E, _ = vecset(k)
+        kk = max(1, min(k, K))
+        E = torch.cat([TV[:, :kk, :], BV[:, :kk, :]], dim=1)
         sv = torch.linalg.svdvals(torch.einsum('iap,jbp->ijab', E, E)).clamp(-1.0, 1.0)
         return (torch.acos(sv) * (180.0 / _m.pi)).mean(dim=2)
-
     kf = max(1, min(kfull, K))
     pas = [pa(1), pa(5), pa(10), pa(kf)]
-    return {"M": N, "p1": cos_panel(2), "p2": cos_panel(5),
-            "p3": {"g": [x.reshape(-1).detach().cpu().tolist() for x in pas],
+    out = {"M": N, "do3d": False, "ks": [1, 2, 5],
+           "ang": {"g": [x.reshape(-1).detach().cpu().tolist() for x in pas],
                    "gm": [float(x.mean()) for x in pas], "kfull": kf}}
+    if N > grid3dcap:                                     # 3D grids are N³ — only for small N (like §11)
+        return out
+    out["do3d"] = True
+    dg = torch.arange(N, device=dev)
+
+    def per_pair(k0):
+        """gradient-gauged per ordered pair (a,b): m,c (max|cos| & signed cos @argmax), σ_a,σ_b,J_a,J_b."""
+        kk = max(1, min(k0, K))
+        E = torch.cat([TV[:, :kk, :], BV[:, :kk, :]], dim=1)          # (N,D,p)
+        w = torch.cat([TW[:, :kk], BW[:, :kk]], dim=1)                # (N,D) signed eigenvalues
+        D = E.shape[1]
+        gE = torch.einsum('ip,iap->ia', Jg, E)                       # ⟨∇f_i, E[i,a]⟩
+        E = E * torch.where(gE >= 0, torch.ones_like(gE), -torch.ones_like(gE)).unsqueeze(2)  # GRADIENT GAUGE
+        C = torch.einsum('iap,jbp->ijab', E, E).reshape(N, N, D * D)  # signed cos
+        absC = C.abs()
+        idx = absC.argmax(dim=2)
+        astar = (idx // D).clone(); bstar = (idx % D).clone()
+        astar[dg, dg] = 0; bstar[dg, dg] = 0                          # canonical self-pair = top-1
+        flat = astar * D + bstar
+        m = torch.gather(absC, 2, flat.unsqueeze(2)).squeeze(2)
+        c = torch.gather(C, 2, flat.unsqueeze(2)).squeeze(2)
+        m[dg, dg] = 1.0; c[dg, dg] = 1.0
+        Ju = torch.einsum('ip,iap->ia', Jg, E)                       # ⟨∇f_i, oriented E[i,a]⟩ (≥0)
+        sigA = torch.gather(w.unsqueeze(1).expand(N, N, D), 2, astar.unsqueeze(2)).squeeze(2)
+        sigB = torch.gather(w.unsqueeze(0).expand(N, N, D), 2, bstar.unsqueeze(2)).squeeze(2)
+        JA = torch.gather(Ju.unsqueeze(1).expand(N, N, D), 2, astar.unsqueeze(2)).squeeze(2)
+        JB = torch.gather(Ju.unsqueeze(0).expand(N, N, D), 2, bstar.unsqueeze(2)).squeeze(2)
+        return m, c, sigA, sigB, JA, JB
+
+    def grids(k0):
+        m, c, sigA, sigB, JA, JB = per_pair(k0)
+        sgn = torch.sign
+        r3i = r.view(N, 1, 1); r3l = r.view(1, 1, N)
+        mij, mjl = m.unsqueeze(2), m.unsqueeze(0)
+        cij, cjl = c.unsqueeze(2), c.unsqueeze(0)
+        sAij, sAjl, sBjl = sigA.unsqueeze(2), sigA.unsqueeze(0), sigB.unsqueeze(0)
+        JAij, JBjl = JA.unsqueeze(2), JB.unsqueeze(0)
+        A = mij * mjl
+        B = cij * cjl * sgn(sAij * sAjl * sBjl) * sgn(JAij) * sgn(JBjl)
+        Cg = sgn(r3l * sAjl) * cij * cjl * sgn(sAij * sBjl * r3i * r3l) * sgn(JAij) * sgn(JBjl)
+        Dd = cij * cjl * sAjl
+        Ee = cij * cjl * r3l * sAjl
+        G1 = r3l * sAjl * (1 + r3i * sAij) * cij * JAij * (1 + r3l * sBjl) * cjl * JBjl
+        rl = r.view(1, N)
+        G2 = rl * sigA * (1 + rl * sigB) * c * JB
+        return A, B, Cg, Dd, Ee, G1, G2, G2.abs()
+
+    def pack3d(T):                                        # ≤G3D_MAXPTS span-preserving subset + full diagonal + mean + +share%
+        v, idx = _g3d_pack(T.reshape(-1))
+        f = T.reshape(-1); ps = float(f[f > 0].sum()); ns = float(f[f < 0].sum()); den = ps - ns
+        return {"v": v, "idx": idx, "d": T[dg, dg, dg].detach().cpu().tolist(), "mn": float(f.mean()),
+                "pp": (ps / den * 100.0 if den > 1e-30 else 0.0)}
+
+    s12 = {}; g1 = {}; g2 = {}; g3 = {}; ev = {}
+    for k0 in (1, 2, 5):
+        A, B, Cg, Dd, Ee, G1, G2, G3 = grids(k0)
+        key = str(k0)
+        s12[key] = {"A": pack3d(A), "B": pack3d(B), "C": pack3d(Cg), "D": pack3d(Dd), "E": pack3d(Ee)}
+        g1[key] = pack3d(G1)
+        g2[key] = G2.reshape(-1).detach().cpu().tolist()
+        g3[key] = G3.reshape(-1).detach().cpu().tolist()
+        if k0 in (2, 5):                                  # evolution panel tracks the 3 bounded grids A,B,C
+            ev[key] = {nm: [float(g.mean()), float(g.std(unbiased=False))]
+                       for nm, g in (("A", A), ("B", B), ("C", Cg))}
+    out.update({"s12": s12, "g1": g1, "g2": g2, "g3": g3, "ev": ev})
+    return out
 
 
 def _opt_dir(model, g, opt):
@@ -1989,7 +2028,7 @@ def run_stream(P):
                         TWl.append(torch.tensor(tval, dtype=DTYPE, device=_dev()))
                         BWl.append(torch.tensor(bval, dtype=DTYPE, device=_dev()))
                     TV, TW, BV, BW = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
-                sec12 = _sec12_payload(TV, TW, BV, BW, rr[lblsel12])
+                sec12 = _sec12_payload(TV, TW, BV, BW, rr[lblsel12], Jc[lblsel12], grid3dcap)
 
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness λmax(∇²L) ≈ λmax(GN) = σ₁/N
             thPr = [(x / N if x is not None else None) for x in thP] if thP else None

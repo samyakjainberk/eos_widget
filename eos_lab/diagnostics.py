@@ -602,7 +602,7 @@ class Diagnostics:
                     TWl.append(torch.tensor(tval, dtype=dt, device=dev))
                     BWl.append(torch.tensor(bval, dtype=dt, device=dev))
                 TV, TW, BV, BW = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
-            rec["g4d"] = sec12_payload(TV, TW, BV, BW, rr[lblsel12])
+            rec["g4d"] = sec12_payload(TV, TW, BV, BW, rr[lblsel12], Jc[lblsel12], self.grid3dcap)
 
         # ---- §5 SLQ spectral densities (expensive → ~50 snapshots/run via slqStride) ----
         if self.s5 and slq_tick:
