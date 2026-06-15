@@ -1043,16 +1043,26 @@ def batched_lanczos_extreme(hvp_batch, p, N, n, m, seeds):
     q = q / q.norm(dim=1, keepdim=True)
     Qs, al, be = [], [], []
     qp = torch.zeros(N, p, dtype=dt, device=dev); beta = torch.zeros(N, dtype=dt, device=dev)
+    done = torch.zeros(N, dtype=torch.bool, device=dev)              # samples whose Krylov space is exhausted
+    bmax = torch.zeros(N, dtype=dt, device=dev)                      # running max β (scale, for the relative breakdown test)
     for _ in range(min(p, m)):
         Qs.append(q)
-        w = hvp_batch(q)
+        w = hvp_batch(q)                                            # frozen samples have q=0 ⇒ w=0 ⇒ a,β=0 (stay frozen)
         a = (w * q).sum(1); al.append(a)
         w = w - a[:, None] * q - beta[:, None] * qp
         Qm = torch.stack(Qs, dim=1)                                   # (N,k,p)
         for _ in range(2):                                           # twice-iterated full reorthogonalisation
             w = w - torch.bmm(Qm.transpose(1, 2), torch.bmm(Qm, w.unsqueeze(2))).squeeze(2)
-        beta = w.norm(dim=1); be.append(beta)
-        qp = q; q = w / beta.clamp_min(1e-30).unsqueeze(1)
+        beta = w.norm(dim=1)
+        bmax = torch.maximum(bmax, beta)
+        # FREEZE on breakdown (β≈0 ⇒ Krylov space exhausted, e.g. a low-rank Hessian): set q=0 so no noise vector
+        # pollutes the basis — the batched equivalent of lanczos_extreme's `if β<tol: break`. Without this the
+        # corrupted basis yields non-unit eigenvectors (|cos|>1).
+        done = done | (beta < 1e-6 * bmax.clamp_min(1e-30) + 1e-30)
+        beta = torch.where(done, torch.zeros_like(beta), beta)       # frozen ⇒ 0 off-diagonal (block-separates T)
+        be.append(beta)
+        qp = q
+        q = torch.where(done.unsqueeze(1), torch.zeros_like(w), w / beta.clamp_min(1e-30).unsqueeze(1))
     Qmat = torch.stack(Qs, dim=1); k = len(Qs)
     T = torch.zeros(N, k, k, dtype=dt, device=dev)
     for i in range(k):
@@ -1066,7 +1076,9 @@ def batched_lanczos_extreme(hvp_batch, p, N, n, m, seeds):
     def gp(ix):
         vals = torch.gather(mu, 1, ix)
         Svs = torch.gather(Sv, 2, ix.unsqueeze(1).expand(N, k, nn))   # (N,k,nn)
-        return torch.einsum('nkp,nkj->njp', Qmat, Svs), vals          # (N,nn,p),(N,nn)
+        vecs = torch.einsum('nkp,nkj->njp', Qmat, Svs)               # (N,nn,p)
+        vecs = vecs / vecs.norm(dim=2, keepdim=True).clamp_min(1.0)   # safety: never amplify a spurious ~0 Ritz vector
+        return vecs, vals                                            #         (only shrinks |·|>1 to unit); ⇒ |cos|≤1
     tv, tw = gp(top); bv, bw = gp(bot)
     return tv, tw, bv, bw
 

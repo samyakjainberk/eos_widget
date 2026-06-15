@@ -93,6 +93,8 @@ def batched_lanczos_extreme(hvp_batch, p, N, n, m, seeds, device, dtype):
     q = q / q.norm(dim=1, keepdim=True)
     Qs, al, be = [], [], []
     qp = torch.zeros(N, p, dtype=dtype, device=device); beta = torch.zeros(N, dtype=dtype, device=device)
+    done = torch.zeros(N, dtype=torch.bool, device=device)          # Krylov-exhausted samples (freeze, q=0)
+    bmax = torch.zeros(N, dtype=dtype, device=device)
     for _ in range(min(p, m)):
         Qs.append(q)
         w = hvp_batch(q)
@@ -101,7 +103,12 @@ def batched_lanczos_extreme(hvp_batch, p, N, n, m, seeds, device, dtype):
         Qm = torch.stack(Qs, dim=1)
         for _ in range(2):
             w = w - torch.bmm(Qm.transpose(1, 2), torch.bmm(Qm, w.unsqueeze(2))).squeeze(2)
-        beta = w.norm(dim=1); be.append(beta); qp = q; q = w / beta.clamp_min(1e-30).unsqueeze(1)
+        beta = w.norm(dim=1)
+        bmax = torch.maximum(bmax, beta)
+        done = done | (beta < 1e-6 * bmax.clamp_min(1e-30) + 1e-30)  # breakdown ⇒ freeze (no noise vector in the basis)
+        beta = torch.where(done, torch.zeros_like(beta), beta)
+        be.append(beta); qp = q
+        q = torch.where(done.unsqueeze(1), torch.zeros_like(w), w / beta.clamp_min(1e-30).unsqueeze(1))
     Qmat = torch.stack(Qs, dim=1); k = len(Qs)
     T = torch.zeros(N, k, k, dtype=dtype, device=device)
     for i in range(k):
@@ -115,7 +122,9 @@ def batched_lanczos_extreme(hvp_batch, p, N, n, m, seeds, device, dtype):
     def gp(ix):
         vals = torch.gather(mu, 1, ix)
         Svs = torch.gather(Sv, 2, ix.unsqueeze(1).expand(N, k, nn))
-        return torch.einsum('nkp,nkj->njp', Qmat, Svs), vals
+        vecs = torch.einsum('nkp,nkj->njp', Qmat, Svs)
+        vecs = vecs / vecs.norm(dim=2, keepdim=True).clamp_min(1.0)  # safety: shrink any |·|>1 Ritz vector to unit ⇒ |cos|≤1
+        return vecs, vals
     tv, tw = gp(top); bv, bw = gp(bot)
     return tv, tw, bv, bw
 
