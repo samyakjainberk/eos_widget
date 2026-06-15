@@ -559,7 +559,7 @@ def _section11_figure(g, M, t):
 
 def plot_section11(hist):
     """§11 — the three N×N×N Hessian–NTK grids + the 2D square S=JᵢᵀQᵢJⱼrⱼ, at the LAST snapshot (static)."""
-    snaps = [r for r in hist if "g3d" in r and "t1" in r["g3d"]]   # grid stored on the SLQ cadence
+    snaps = [r for r in hist if "g3d" in r and "t1" in r["g3d"]]   # grid stored every diagnostic tick
     if not snaps:
         return None
     g = snaps[-1]["g3d"]
@@ -587,8 +587,10 @@ def save_section11_grids_gif(hist, path, frames=30, fps=12, dpi=62):
     return path
 
 
-def save_section11_evolution_gif(hist, path, key="t3", maxframes=40, fps=8, dpi=70):
-    """§11 evolution as a GIF: the chosen grid (default T3) animated across training (with a slow spin)."""
+def save_section11_evolution_gif(hist, path, key="t3", maxframes=300, fps=10, dpi=70):
+    """§11 evolution as a GIF: the chosen grid (default T3) animated across training (with a slow spin).
+    The grid is now stored every diagnostic tick, so this shows ONE FRAME PER ITERATION (essential to read
+    the Edge-of-Stability oscillation) — only subsampled if the run is longer than maxframes."""
     from matplotlib.animation import FuncAnimation, PillowWriter
     snaps = [r for r in hist if "g3d" in r and "t1" in r["g3d"]]
     if len(snaps) < 2:
@@ -613,7 +615,7 @@ def save_section11_evolution_gif(hist, path, key="t3", maxframes=40, fps=8, dpi=
 
 def plot_section11_evolution(hist, key="t3"):
     """§11 evolution — one grid (default T3) at up to 6 snapshots across training, to show how it develops."""
-    snaps = [r for r in hist if "g3d" in r and "t1" in r["g3d"]]   # grid stored on the SLQ cadence
+    snaps = [r for r in hist if "g3d" in r and "t1" in r["g3d"]]   # grid stored every diagnostic tick
     if len(snaps) < 2:
         return None
     pick = [snaps[round(x * (len(snaps) - 1) / 5)] for x in range(6)]

@@ -469,8 +469,9 @@ class Diagnostics:
             self._cubic_step(th, X, Y, t, J, out, rr, bEk_vals, shH, rec)
 
         # ---- §11 3D grids over sample indices (i,j,k): T1=Jᵢᵀ Qⱼ Jₖ, T2=uⱼuₖ·T1, T3=rᵢuⱼuₖ·T1 ----
-        # (u = top NTK eigenvector, r = residual). M³ points + M Hessian-vector products → small M only, on the
-        # SLQ cadence (~50 snapshots/run). For each k: jac_hvp(Jₖ)={Qⱼ Jₖ}ⱼ, then T1[:,:,k] = Jc·{Qⱼ Jₖ}ⱼᵀ.
+        # (u = top NTK eigenvector, r = residual). M³ points + M Hessian-vector products → small M only, computed
+        # EVERY diagnostic tick (one grid snapshot per iteration, to resolve the EoS dynamics — mirrors the
+        # widget). For each k: jac_hvp(Jₖ)={Qⱼ Jₖ}ⱼ, then T1[:,:,k] = Jc·{Qⱼ Jₖ}ⱼᵀ.
         if (self.s18 and self.multi_ok and Jc is not None and u1s is not None
                 and rr is not None and N <= self.grid3dcap):
             # §11 uses ONE output per sample — the GROUND-TRUTH-LABEL output (argmax of the target). Single-output
@@ -535,29 +536,31 @@ class Diagnostics:
                    "ev": {"t1": _ev(T1), "t2": _ev(T2), "t3": _ev(T3)},
                    "sqpp": _pospct(Smat), "sqev": _evs(Smat)}
 
-            # The full M³ grid (for the 3D scatter plots) is heavier to store, and those plots only need a few
-            # snapshots — so keep it on the coarser SLQ cadence while the curves above update every tick.
-            # Heavy-tailed (~90% near-zero) → keep only the top-|value| points per grid once the cube exceeds the
-            # render budget, so M≈100 (M³≈10⁶) stays renderable. idx = i·M² + j·M + k (each grid its own top set).
-            if slq_tick:
-                sparse = (Ms * Ms * Ms) > G3D_MAXPTS
+            # The full M³ grid (for the 3D scatter plots) is packed/stored EVERY diagnostic tick (mirrors the
+            # widget's g3dstride=1) — dense per-iteration frames are essential to read the Edge-of-Stability
+            # dynamics. This is cheap: the N HVPs that build T1/T2/T3 already ran above for the every-tick
+            # curves, so only the reshape/top-k/CPU-copy is added here; per-frame size stays bounded by
+            # grid3dcap + the top-|value| sparsification. Heavy-tailed (~90% near-zero) → keep only the
+            # top-|value| points per grid once the cube exceeds the render budget, so M≈100 (M³≈10⁶) stays
+            # renderable. idx = i·M² + j·M + k (each grid its own top set).
+            sparse = (Ms * Ms * Ms) > G3D_MAXPTS
 
-                def _pack(T):
-                    return _g3d_pack(T.reshape(-1))
+            def _pack(T):
+                return _g3d_pack(T.reshape(-1))
 
-                v1, i1 = _pack(T1); v2, i2 = _pack(T2); v3, i3 = _pack(T3)
-                dd = torch.arange(Ms, device=dev)           # i=j=k diagonal values (stay coloured even when sparse)
-                d1 = T1[dd, dd, dd]; d2 = T2[dd, dd, dd]; d3 = T3[dd, dd, dd]
-                sqv, sqi = _g3d_pack(Smat.reshape(-1))     # the square is M² — same span-preserving subset
-                sqsparse = sqi is not None
-                g3d.update({"sparse": sparse, "t1": v1, "t2": v2, "t3": v3,
-                            "d1": d1.detach().cpu().tolist(), "d2": d2.detach().cpu().tolist(), "d3": d3.detach().cpu().tolist(),
-                            "sq": sqv, "sqsparse": sqsparse,                       # 4th column S[i,j], idx=i·M+j
-                            "sqd": torch.diagonal(Smat).detach().cpu().tolist()})  # i=j diagonal (highlight; full M)
-                if sqsparse:
-                    g3d["sqi"] = sqi
-                if sparse:
-                    g3d.update({"i1": i1, "i2": i2, "i3": i3})
+            v1, i1 = _pack(T1); v2, i2 = _pack(T2); v3, i3 = _pack(T3)
+            dd = torch.arange(Ms, device=dev)           # i=j=k diagonal values (stay coloured even when sparse)
+            d1 = T1[dd, dd, dd]; d2 = T2[dd, dd, dd]; d3 = T3[dd, dd, dd]
+            sqv, sqi = _g3d_pack(Smat.reshape(-1))     # the square is M² — same span-preserving subset
+            sqsparse = sqi is not None
+            g3d.update({"sparse": sparse, "t1": v1, "t2": v2, "t3": v3,
+                        "d1": d1.detach().cpu().tolist(), "d2": d2.detach().cpu().tolist(), "d3": d3.detach().cpu().tolist(),
+                        "sq": sqv, "sqsparse": sqsparse,                       # 4th column S[i,j], idx=i·M+j
+                        "sqd": torch.diagonal(Smat).detach().cpu().tolist()})  # i=j diagonal (highlight; full M)
+            if sqsparse:
+                g3d["sqi"] = sqi
+            if sparse:
+                g3d.update({"i1": i1, "i2": i2, "i3": i3})
             rec["g3d"] = g3d
 
         # ---- §5 SLQ spectral densities (expensive → ~50 snapshots/run via slqStride) ----
