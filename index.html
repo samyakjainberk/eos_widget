@@ -164,7 +164,7 @@
       <div class="ctl"><label>n (top/bottom eigs)</label><input id="neig" type="number" value="3" min="1" max="8" step="1"></div>
       <div class="ctl"><label>k (which single eigvec)</label><input id="kth" type="number" value="1" min="1" max="8" step="1"></div>
       <div class="ctl"><label>eig every (steps)</label><input id="eigevery" type="number" value="1" min="1" max="20" step="1"></div>
-      <div class="ctl"><label title="The heaviest panels (§7 FH-eigvec projections, §8 FH-reshape SVD) compute every N-th diagnostic tick instead of every step, so runs stay responsive. The cheap core (loss/sharpness/eigenvalues/§9 theory/§7a) updates every step. Set 1 to compute everything every step.">heavy every (ticks)</label><input id="heavyevery" type="number" value="4" min="1" max="50" step="1"></div>
+      <div class="ctl"><label title="The heaviest panels (§7 FH-eigvec projections, §8 FH-reshape SVD, §12 per-sample Hessian eigenpairs) compute every N-th diagnostic tick instead of every step, so runs stay responsive. The cheap core (loss/sharpness/eigenvalues/§9 theory/§7a) updates every step. Raise this if §12 is making the run slow; set 1 to compute everything every step.">heavy every (ticks)</label><input id="heavyevery" type="number" value="4" min="1" max="50" step="1"></div>
       <div class="ctl"><label title="§10 cubic-approximation window: every N steps freeze θ₀, J₀, Q₀ and the 3rd-derivative tensor T, then propagate J & Q over the window to predict the NTK-σ₁ change. Smaller = more frequent re-anchoring and cheaper (cost is O(window²) HVPs).">cubic window</label><input id="cubicapprox" type="number" value="10" min="2" max="50" step="1"></div>
       <div class="ctl"><label title="§11 3D-grid cap: skip the N×N×N Hessian–NTK grids when N·d_out exceeds this. The grid is N³ points and costs N Hessian-vector products, so it is feasible only for small N.">3D-grid cap (N·d_out)</label><input id="grid3dcap" type="number" value="500" min="1" max="600" step="1"></div>
       <div class="ctl"><label title="§12 sample cap: skip §12 when the number of samples N exceeds this. §12 extracts each sample's top-/bottom-15 Hessian eigenpairs MATRIX-FREE via Lanczos (no p×p matrix is formed), so it scales to large models like §1–§3; the grid is N×N so only N is capped.">§12 N-cap</label><input id="sec12ncap" type="number" value="500" min="1" max="600" step="1"></div>
@@ -249,7 +249,7 @@
 
 <div id="sec_s12" style="display:none">
 <h2>12 · per-sample Hessian eigenvector cross-similarity</h2>
-<p class="cap">For each sample $i$ the per-sample function Hessian $Q_i=\nabla^2 f_i$ (the ground-truth-label output) has its <b>top-15</b> and <b>bottom-15</b> eigenpairs extracted <b>matrix-free by Lanczos</b> (no $p\times p$ matrix is ever formed, so this scales to large models like §1–§3). Its <b>top-$k$</b> and <b>bottom-$k$</b> eigenvectors ($2k$ unit vectors, with eigenvalue $\lambda$) are compared across every sample pair $(i,j)$. Each plot title carries a running number = the mean over the whole grid/cuboid. <b>Drag to rotate</b> the cuboids; the slider scrubs captured snapshots. Multi-sample only; only $N$ is capped (the grid is $N\times N$).</p>
+<p class="cap">For each sample $i$ the per-sample function Hessian $Q_i=\nabla^2 f_i$ (the ground-truth-label output) has its <b>top-15</b> and <b>bottom-15</b> eigenpairs extracted <b>matrix-free by Lanczos</b> (no $p\times p$ matrix is ever formed, so this scales to large models like §1–§3). Its <b>top-$k$</b> and <b>bottom-$k$</b> eigenvectors ($2k$ unit vectors, with eigenvalue $\lambda$) are compared across every sample pair $(i,j)$. Each plot title carries a running number = the mean over the whole grid/cuboid. <b>Drag to rotate</b> the cuboids; the slider scrubs captured snapshots. Multi-sample only; only $N$ is capped (the grid is $N\times N$). This is the heaviest section ($N$ Lanczos eigendecompositions per snapshot), so it is computed on the <b>"heavy every"</b> cadence — raise that control if it slows the run, or set it to 1 for every step.</p>
 <div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
   <label style="white-space:nowrap">snapshot</label>
   <input id="s12_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
@@ -1700,7 +1700,7 @@ async function loop(){                                   // drives ST forward; r
         // §12 — per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity (ground-truth-label output).
         // MATRIX-FREE: Lanczos on the per-sample HVP v↦Q_i·v (=hvpS with a one-hot cotangent) gives the top-/
         // bottom-K12 eigenpairs — no p×p Hessian formed, scales to any p. Gated on N (≤sec12ncap). Mirrors server.
-        if(O.s19&&M>1&&bJc&&rrs&&N<=S.sec12ncap){
+        if(O.s19&&M>1&&S.eigTick%S.heavyEvery===0&&bJc&&rrs&&N<=S.sec12ncap){   // throttled like §7/§8 (N Lanczos runs/tick is heavy)
           const oD=Math.round(M/N), lblsel=new Array(N);
           for(let i=0;i<N;i++){if(oD>1){let mx=-Infinity,mi=0;for(let c=0;c<oD;c++){const yv=Y[i*oD+c];if(yv>mx){mx=yv;mi=c;}}lblsel[i]=i*oD+mi;}else lblsel[i]=i;}
           const K12=Math.max(1,Math.min(SEC12_KFULL,Math.floor(p/2))), m12=Math.min(p,Math.max(6*K12,64));

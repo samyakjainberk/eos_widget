@@ -1908,7 +1908,8 @@ def run_stream(P):
             # HVP v↦Q_i·v (= hvpS with a one-hot cotangent) extracts the top-K12 & bottom-K12 eigenpairs — no
             # p×p Hessian is formed, so this scales to any p (like §1–§3). Gated on N (≤sec12ncap).
             sec12 = None
-            if s19 and multi_ok and Jc is not None and rr is not None and N <= sec12ncap:
+            if (s19 and multi_ok and eigTick % heavyevery == 0      # throttled like §7/§8 (N Lanczos runs/tick is heavy)
+                    and Jc is not None and rr is not None and N <= sec12ncap):
                 lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
                             if outD > 1 else torch.arange(N, device=_dev()))
                 K12 = max(1, min(SEC12_KFULL, p // 2))          # top-/bottom-K12 eigenpairs (covers k=1,2,5,10,kfull)

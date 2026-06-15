@@ -570,7 +570,8 @@ class Diagnostics:
         # ---- §12 per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity (ground-truth-label output) ----
         # MATRIX-FREE: Lanczos on the per-sample HVP v↦Q_i·v (=hvp_S with a one-hot cotangent) extracts the
         # top-K12 & bottom-K12 eigenpairs — no p×p Hessian formed, so it scales to any p. Gated on N (≤sec12ncap).
-        if self.s19 and self.multi_ok and Jc is not None and rr is not None and N <= self.sec12ncap:
+        if (self.s19 and self.multi_ok and heavy_tick                # throttled like §7/§8 (N Lanczos runs/tick is heavy)
+                and Jc is not None and rr is not None and N <= self.sec12ncap):
             lblsel12 = (torch.arange(N, device=dev) * outD + Y.reshape(N, outD).argmax(dim=1)
                         if outD > 1 else torch.arange(N, device=dev))
             K12 = max(1, min(SEC12_KFULL, p // 2))
