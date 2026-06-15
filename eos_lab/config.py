@@ -67,6 +67,7 @@ class Config:
     qmode: int = 1                 # §9 col-3 mode index — legacy (Eq-22 uses no mode)
     tset: int = 3                  # §9 Eq-29 number of top modes |T|
     grid3dcap: int = 500           # §11 3D-grid cap: skip the N×N×N Hessian–NTK grids when M=N·d_out exceeds this.
+    sec12pcap: int = 1200          # §12 cap: skip the per-sample Hessian eigvec cross-similarity when p exceeds this.
                                    #   Costs M Hessian-vector products; only the top-|value| points are emitted/plotted
                                    #   (G3D_MAXPTS) so even M≈100 (M³≈10⁶ entries) stays renderable.
     cubicapprox: int = 10          # §10 cubic-approximation window: every `cubicapprox` steps freeze θ₀, J₀, Q₀
@@ -109,6 +110,9 @@ class Config:
                     #   the η² term, and ‖ΔQ‖/‖ΔJ‖ over the window — vs both the NTK σ₁ (panel 1) and the full
                     #   loss-Hessian λmax (panel 2). OFF by default: it propagates Q exactly (O(window²) HVPs/window)
                     #   so it is by far the heaviest section; enable per-run when you want the cubic comparison.
+    s19: int = 0    # §12 per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity grids/cuboids + principal
+                    #   angles over sample pairs (i,j). OFF by default; forms N dense p×p Hessians (p HVPs) + N
+                    #   eigendecompositions — small N (≤grid3dcap) AND small p (≤sec12pcap) only.
 
     # ---- test set (held-out) ----
     n_test: int = 0                # held-out test points (0 ⇒ default: max(nsamp, 256), capped per dataset)

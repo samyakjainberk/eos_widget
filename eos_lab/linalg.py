@@ -104,6 +104,81 @@ def hutch_trace(hvp, p, nprobe, seed, device, dtype):
     return s / max(1, nprobe)
 
 
+def sec12_payload(Qmats, r, energyfrac):
+    """§12 per-sample Hessian eigenvector cross-similarity. Qmats:(N,p,p), r:(N,), energyfrac∈(0,1].
+    Returns {M, p1, p2, p3} — see server._sec12_payload (this MIRRORS it exactly).
+      p1/p2 (k=2 / k=5): {g:[grid1,grid3,grid5] (N·N), c:[cub2,cub4,cub6] (N·N·10), gm,cm,cs, K}.
+      p3 (principal angles, k=1,5,10,energy): {g:[4 grids N·N], gm:[4 means in degrees]}.
+    grid1=max_{a,b}|cos(e_i^a,e_j^b)|; cub2=top-10 |cos|; grid3=signed cos of argmax × sign(λ_i)·sign(λ_j);
+    cub4=same for top-10; grid5/cub6 = ×sign(r_i)·sign(r_j); panel-3 cell = MEAN principal angle of the
+    2k (energy=|λ|-energyfrac) eigen-subspaces of Q_i and Q_j."""
+    N, p = int(Qmats.shape[0]), int(Qmats.shape[1])
+    dev, dt = Qmats.device, Qmats.dtype
+    Vd = torch.empty(N, p, p, dtype=dt, device=dev)     # eigenvectors columns DESCENDING by eigenvalue
+    wd = torch.empty(N, p, dtype=dt, device=dev)
+    for i in range(N):
+        w, V = torch.linalg.eigh(0.5 * (Qmats[i] + Qmats[i].t()))
+        wd[i] = w.flip(0); Vi = V.flip(1)
+        mx = Vi.abs().argmax(dim=0)                      # pin sign: largest-|component| positive (reproducible)
+        sg = torch.sign(Vi[mx, torch.arange(p, device=dev)])
+        Vd[i] = Vi * torch.where(sg == 0, torch.ones_like(sg), sg).view(1, p)
+    rs = torch.sign(r).to(dt)
+
+    def vecset(k):
+        kk = max(1, min(k, p // 2))
+        V2 = torch.cat([Vd[:, :, :kk], Vd[:, :, p - kk:]], dim=2)
+        wv = torch.cat([wd[:, :kk], wd[:, p - kk:]], dim=1)
+        return V2, torch.sign(wv).to(dt)
+
+    def cos_panel(k):
+        E, s = vecset(k)
+        D = E.shape[2]
+        C = torch.einsum('ipa,jpb->ijab', E, E)
+        Cf = C.reshape(N, N, D * D)
+        Sab = torch.einsum('ia,jb->ijab', s, s).reshape(N, N, D * D)
+        Mf = Cf * Sab
+        absf = Cf.abs()
+        sr = rs.view(N, 1) * rs.view(1, N)
+        g1 = absf.amax(dim=2)
+        g3 = torch.gather(Mf, 2, absf.argmax(dim=2, keepdim=True)).squeeze(2)
+        g5 = g3 * sr
+        K = min(10, D * D)
+        tv, ti = torch.topk(absf, K, dim=2)
+        c2 = tv; c4 = torch.gather(Mf, 2, ti); c6 = c4 * sr.unsqueeze(2)
+        grids, cubs = [g1, g3, g5], [c2, c4, c6]
+        return {"g": [x.reshape(-1).detach().cpu().tolist() for x in grids],
+                "c": [x.reshape(-1).detach().cpu().tolist() for x in cubs],
+                "gm": [float(x.mean()) for x in grids],
+                "cm": [float(x.mean()) for x in cubs],
+                "cs": [float(x.std(unbiased=False)) for x in cubs], "K": K}
+
+    def pa_fixed(k):
+        E, _ = vecset(k)
+        sv = torch.linalg.svdvals(torch.einsum('ipa,jpb->ijab', E, E)).clamp(-1.0, 1.0)
+        return (torch.acos(sv) * (180.0 / math.pi)).mean(dim=2)
+
+    def pa_energy():
+        Es = []
+        for i in range(N):
+            aw = wd[i].abs()
+            order = torch.argsort(aw, descending=True)
+            cw = torch.cumsum(aw[order], dim=0)
+            tot = float(cw[-1]) if float(cw[-1]) > 0 else 1.0
+            d = max(1, min(int((cw < energyfrac * tot).sum().item()) + 1, p))
+            Es.append(Vd[i][:, order[:d]])
+        G = torch.zeros(N, N, dtype=dt, device=dev)
+        for i in range(N):
+            for j in range(N):
+                sv = torch.linalg.svdvals(Es[i].t() @ Es[j]).clamp(-1.0, 1.0)
+                G[i, j] = (torch.acos(sv) * (180.0 / math.pi)).mean()
+        return G
+
+    pas = [pa_fixed(1), pa_fixed(5), pa_fixed(10), pa_energy()]
+    return {"M": N, "p1": cos_panel(2), "p2": cos_panel(5),
+            "p3": {"g": [x.reshape(-1).detach().cpu().tolist() for x in pas],
+                   "gm": [float(x.mean()) for x in pas]}}
+
+
 def slq_density(hvp, p, nprobe, m, ngrid, seed, device, dtype):
     """Stochastic Lanczos Quadrature estimate of the spectral density (Gaussian-smoothed).
     MIRRORS server.slq_density. Returns {'x': [...], 'y': [...]} (§5)."""

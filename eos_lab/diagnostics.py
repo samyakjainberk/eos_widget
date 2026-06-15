@@ -26,7 +26,7 @@ import torch
 from .models import (grad_sum_f, hvp_F, hvp_L, hvp_S, hvp_G, hvp_G2,
                      jac_cols, jac_hvp, grad_out)
 from .linalg import (lanczos_extreme, lanczos_extreme_vals, slq_density, hutch_trace, sym_eig_desc,
-                     sign_to, pin_sign, pos_subspace, neg_subspace, principal_angles, randn_vec)
+                     sign_to, pin_sign, pos_subspace, neg_subspace, principal_angles, randn_vec, sec12_payload)
 
 # §11 render budget: emit only ≤this many points per grid above this size (mirror server.G3D_MAXPTS).
 G3D_MAXPTS = 10000
@@ -88,6 +88,7 @@ class Diagnostics:
         self.s16 = P.get("s16", 0)          # §9d-c: §9d predictions vs the full loss-Hessian sharpness
         self.s17 = P.get("s17", 0)          # §10: CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation)
         self.s18 = P.get("s18", 0)          # §11: 3D grids T1=JᵢᵀQⱼJₖ, T2=uⱼuₖT1, T3=rᵢuⱼuₖT1 (multi-sample, small M)
+        self.s19 = P.get("s19", 0)          # §12: per-sample Q_i eigenvector cross-similarity (multi-sample, small N & p)
         if loss.name == "ce":
             # CE uses the generic residual r = −∂L/∂z = softmax(z)−onehot (the loss-output cotangent). §4
             # (J→H) and §6 (rotation) are model-only; §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) plus
@@ -126,6 +127,7 @@ class Diagnostics:
         self.qapprox = max(1, cfg.qapprox)
         self.cubicapprox = max(1, getattr(cfg, "cubicapprox", 10))   # §10 cubic-window length
         self.grid3dcap = max(1, getattr(cfg, "grid3dcap", 30))       # §11 3D-grid size cap (skip when M exceeds it)
+        self.sec12pcap = max(1, getattr(cfg, "sec12pcap", 1200))     # §12 p cap (skip the dense per-sample Hessians)
         self.qmode = cfg.qmode
         self.tset = cfg.tset
         # Krylov depths (match server.run_stream)
@@ -293,7 +295,8 @@ class Diagnostics:
         # ---- shared multi-sample Jacobian columns Jc (M,p) + residual rr (M,) ----
         Jc = rr = None
         want_multi = self.multi_ok and (self.s7 or self.s8 or self.s9 or self.s10 or self.s11
-                                         or self.s12 or self.s13 or self.s15 or self.s16 or self.s17 or self.s18)
+                                         or self.s12 or self.s13 or self.s15 or self.s16 or self.s17
+                                         or self.s18 or self.s19)
         if want_multi:
             Jc, out_flat = jac_cols(self.model, th, X)
             rr = (-N * cS).reshape(-1)        # generic residual −N·∂L/∂out: Y−f (MSE), onehot−softmax (CE)
@@ -562,6 +565,20 @@ class Diagnostics:
             if sparse:
                 g3d.update({"i1": i1, "i2": i2, "i3": i3})
             rec["g3d"] = g3d
+
+        # ---- §12 per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity (ground-truth-label output) ----
+        # p HVPs (one basis vector each) form every Q_i, then N eigendecompositions. Small N & p only.
+        if (self.s19 and self.multi_ok and Jc is not None and rr is not None
+                and N <= self.grid3dcap and p <= self.sec12pcap):
+            lblsel12 = (torch.arange(N, device=dev) * outD + Y.reshape(N, outD).argmax(dim=1)) if outD > 1 else None
+            eye = torch.eye(p, device=dev, dtype=dt)
+            cols = []                                          # column l of every Q_a = jac_hvp(e_l)[a]
+            for l in range(p):
+                hv = jac_hvp(self.model, th, X, eye[l])        # (N·outD, p)
+                cols.append(hv[lblsel12] if lblsel12 is not None else hv)
+            Qm12 = torch.stack(cols, dim=2)                    # (N, p, p): Qm12[i,:,l] = l-th column of Q_i
+            r12 = rr[lblsel12] if lblsel12 is not None else rr
+            rec["g4d"] = sec12_payload(Qm12, r12, self.efrac)
 
         # ---- §5 SLQ spectral densities (expensive → ~50 snapshots/run via slqStride) ----
         if self.s5 and slq_tick:
