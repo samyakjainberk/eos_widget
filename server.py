@@ -1739,19 +1739,30 @@ def run_stream(P):
             # ---- §11 3D grids T1=JᵢᵀQⱼJₖ, T2=uⱼuₖT1, T3=rᵢuⱼuₖT1 (multi-sample, small M, SLQ cadence) ----
             g3d = None
             if (s18 and multi_ok and eigTick % g3dstride == 0 and Jc is not None and u1s is not None
-                    and rr is not None and M <= grid3dcap):
-                T1 = torch.zeros(M, M, M, dtype=DTYPE, device=_dev())
-                Gd = torch.zeros_like(Jc)                          # gᵢ = Qᵢ Jᵢ (the diagonal row of each HVP)
-                for kk in range(M):
-                    QJk = jac_hvp(th, X, Jc[kk])                  # (M,p), row j = Qⱼ·Jₖ
-                    T1[:, :, kk] = Jc @ QJk.t()                    # [i,j] = Jᵢ·(Qⱼ Jₖ)
-                    Gd[kk] = QJk[kk]                               # Qₖ Jₖ  (reused → no extra HVP)
-                T2 = T1 * u1s.view(1, M, 1) * u1s.view(1, 1, M)
-                T3 = T2 * rr.view(M, 1, 1)
+                    and rr is not None and N <= grid3dcap):
+                # §11 uses ONE output per sample — the GROUND-TRUTH-LABEL output (argmax of the target). For
+                # single-output this is identity (Ms=N); for multi-output (cifar/sorting) it picks f_i[label_i]
+                # so (i,j,k) range over the N samples, and the cap applies to N (not N·d_out).
+                if outD > 1:
+                    lblsel = torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
+                    Jc11 = Jc[lblsel]; rr11 = rr[lblsel]
+                    Kx, Vx = sym_eig_desc(Jc11 @ Jc11.t()); u11 = pin_sign(Vx[:, 0])   # NTK eigvec over the N label-outputs
+                else:
+                    lblsel = None; Jc11 = Jc; rr11 = rr; u11 = u1s
+                Ms = N
+                T1 = torch.zeros(Ms, Ms, Ms, dtype=DTYPE, device=_dev())
+                Gd = torch.zeros(Ms, Jc11.shape[1], dtype=DTYPE, device=_dev())   # gᵢ = Qᵢ Jᵢ (diagonal row of each HVP)
+                for kk in range(Ms):
+                    QJk = jac_hvp(th, X, Jc11[kk])               # (M,p): {Q_a · J_sel[k]}_a over ALL model outputs
+                    QJr = QJk[lblsel] if lblsel is not None else QJk   # (Ms,p): ground-truth-label Hessian rows
+                    T1[:, :, kk] = Jc11 @ QJr.t()                 # [i,j] = Jᵢ·(Qⱼ Jₖ)
+                    Gd[kk] = QJr[kk]                              # Qₖ Jₖ  (reused → no extra HVP)
+                T2 = T1 * u11.view(1, Ms, 1) * u11.view(1, 1, Ms)
+                T3 = T2 * rr11.view(Ms, 1, 1)
                 # §11 SQUARE — S[i,j] = Jᵢᵀ Qᵢ Jⱼ · rⱼ = (Qᵢ Jᵢ)·Jⱼ · rⱼ (2D over (i,j); classes i=j / i≠j)
-                Smat = (Gd @ Jc.t()) * rr.view(1, M)              # (M,M): [i,j] = gᵢ·Jⱼ · rⱼ
-                jj_ = torch.arange(M, device=_dev())
-                cats = torch.where(jj_.view(M, 1) == jj_.view(1, M), 0, 1).reshape(-1)   # 0:i=j  1:i≠j
+                Smat = (Gd @ Jc11.t()) * rr11.view(1, Ms)        # (Ms,Ms): [i,j] = gᵢ·Jⱼ · rⱼ
+                jj_ = torch.arange(Ms, device=_dev())
+                cats = torch.where(jj_.view(Ms, 1) == jj_.view(1, Ms), 0, 1).reshape(-1)   # 0:i=j  1:i≠j
 
                 def _evs(S):   # per (i=j / i≠j) class: [mean, std, mean|·|]
                     f = S.reshape(-1)
@@ -1763,10 +1774,10 @@ def run_stream(P):
                     return out
                 # Per-class evolution stats — mean ± std over the FULL grid (NOT the sparsified subset) for the 5
                 # diagonal classes of (i,j,k): 0:i=j=k 1:i=j≠k 2:i≠j=k 3:i=k≠j 4:i≠j≠k. Tiny payload → curves vs step.
-                ai = torch.arange(M, device=_dev())
-                eij = ai.view(M, 1, 1) == ai.view(1, M, 1)
-                ejk = ai.view(1, M, 1) == ai.view(1, 1, M)
-                eik = ai.view(M, 1, 1) == ai.view(1, 1, M)
+                ai = torch.arange(Ms, device=_dev())
+                eij = ai.view(Ms, 1, 1) == ai.view(1, Ms, 1)
+                ejk = ai.view(1, Ms, 1) == ai.view(1, 1, Ms)
+                eik = ai.view(Ms, 1, 1) == ai.view(1, 1, Ms)
                 catf = torch.where(eij & ejk, 0, torch.where(eij, 1, torch.where(ejk, 2,
                                    torch.where(eik, 3, 4)))).reshape(-1)
 
@@ -1783,7 +1794,7 @@ def run_stream(P):
 
                 # Once the cube exceeds the render budget, emit a representative subset that SPANS the value range
                 # (top-|value| structure + random bulk) so the colours stay fine-grained. idx = i·M²+j·M+k.
-                sparse = (M * M * M) > G3D_MAXPTS
+                sparse = (Ms * Ms * Ms) > G3D_MAXPTS
 
                 def _pack(T):
                     return _g3d_pack(T.reshape(-1))
@@ -1795,11 +1806,11 @@ def run_stream(P):
                     return ps / den * 100.0 if den > 1e-30 else 0.0
 
                 v1, ix1 = _pack(T1); v2, ix2 = _pack(T2); v3, ix3 = _pack(T3)
-                dd = torch.arange(M, device=_dev())   # i=j=k diagonal values (always sent so the highlighted
+                dd = torch.arange(Ms, device=_dev())   # i=j=k diagonal values (always sent so the highlighted
                 d1 = T1[dd, dd, dd]; d2 = T2[dd, dd, dd]; d3 = T3[dd, dd, dd]   # diagonal is coloured even when sparse
-                sqv, sqi = _g3d_pack(Smat.reshape(-1))   # the square is M² — same span-preserving subset
+                sqv, sqi = _g3d_pack(Smat.reshape(-1))   # the square is Ms² — same span-preserving subset
                 sqsparse = sqi is not None
-                g3d = {"M": M, "sparse": sparse, "t1": v1, "t2": v2, "t3": v3,
+                g3d = {"M": Ms, "sparse": sparse, "t1": v1, "t2": v2, "t3": v3,
                        "d1": d1.cpu().tolist(), "d2": d2.cpu().tolist(), "d3": d3.cpu().tolist(),
                        "pp": [_pospct(T1), _pospct(T2), _pospct(T3)],
                        "ev": {"t1": _ev(T1), "t2": _ev(T2), "t3": _ev(T3)},

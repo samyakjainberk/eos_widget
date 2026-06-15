@@ -1453,18 +1453,27 @@ async function loop(){                                   // drives ST forward; r
         }
         // §11 3D Hessian–NTK grids — T1[i,j,k]=Jᵢᵀ Qⱼ Jₖ, T2=uⱼuₖ·T1, T3=rᵢuⱼuₖ·T1 (u=top NTK eigvec, r=residual).
         // On the SLQ cadence and small M only (M³ points + M jacobian-HVPs). QJk[j]=Q_j·J_k via jacHVP(J_k). Mirrors server §11.
-        if(O.s18&&M>1&&S.eigTick%S.g3dStride===0&&bJc&&u1s&&rrs&&M<=S.grid3dcap){
-          const Mm=M,M2=Mm*Mm,u=u1s,n3=Mm*M2,T1=new Float64Array(n3),T2=new Float64Array(n3),T3=new Float64Array(n3),Gd=[];
+        if(O.s18&&M>1&&S.eigTick%S.g3dStride===0&&bJc&&u1s&&rrs&&N<=S.grid3dcap){
+          // §11 uses ONE output per sample — the GROUND-TRUTH-LABEL output (argmax of the target). Single-output
+          // is identity; multi-output (oD>1) picks f_i[label_i] so (i,j,k) range over the N samples.
+          const oD=Math.round(M/N);let sel=null,bJc11=bJc,rrs11=rrs,u11=u1s;
+          if(oD>1){sel=new Array(N);
+            for(let i=0;i<N;i++){let mx=-Infinity,mi=0;for(let c=0;c<oD;c++){const yv=Y[i*oD+c];if(yv>mx){mx=yv;mi=c;}}sel[i]=i*oD+mi;}
+            bJc11=sel.map(a=>bJc[a]);rrs11=sel.map(a=>rrs[a]);
+            const Km=new Float64Array(N*N);for(let a=0;a<N;a++)for(let b=a;b<N;b++){const v=dot(bJc11[a],bJc11[b]);Km[a*N+b]=v;Km[b*N+a]=v;}
+            const ek=symEigDesc(Km,N);pinSign(ek.vecs[0]);u11=ek.vecs[0];}   // NTK eigvec over the N label-outputs
+          const Mm=N,M2=Mm*Mm,u=u11,n3=Mm*M2,T1=new Float64Array(n3),T2=new Float64Array(n3),T3=new Float64Array(n3),Gd=[];
           for(let k=0;k<Mm;k++){
-            const QJk=jacHVP(S.th,spec,X,N,inDim,p,bJc[k],eps);     // QJk[j]=Q_j·J_k (M vectors length p)
-            Gd[k]=QJk[k];                                           // g_k = Q_k·J_k (reused → no extra HVP)
-            for(let i=0;i<Mm;i++){const ji=bJc[i],ri=rrs[i];for(let j=0;j<Mm;j++){
-              const v=dot(ji,QJk[j]),w=u[j]*u[k],idx=i*M2+j*Mm+k;
+            const QJk=jacHVP(S.th,spec,X,N,inDim,p,bJc11[k],eps);   // {Q_a·J_sel[k]}_a over ALL model outputs
+            const QJr=sel?sel.map(a=>QJk[a]):QJk;                   // ground-truth-label Hessian rows
+            Gd[k]=QJr[k];
+            for(let i=0;i<Mm;i++){const ji=bJc11[i],ri=rrs11[i];for(let j=0;j<Mm;j++){
+              const v=dot(ji,QJr[j]),w=u[j]*u[k],idx=i*M2+j*Mm+k;
               T1[idx]=v;T2[idx]=v*w;T3[idx]=v*w*ri;}}
           }
           // §11 SQUARE — S[i,j] = Jᵢᵀ Qᵢ Jⱼ rⱼ = (Q_i J_i)·J_j · r_j  (2D; classes i=j / i≠j)
           const Sm=new Float64Array(M2);
-          for(let i=0;i<Mm;i++){const gi=Gd[i];for(let j=0;j<Mm;j++)Sm[i*Mm+j]=dot(gi,bJc[j])*rrs[j];}
+          for(let i=0;i<Mm;i++){const gi=Gd[i];for(let j=0;j<Mm;j++)Sm[i*Mm+j]=dot(gi,bJc11[j])*rrs11[j];}
           const scnt=[0,0],ssm=[0,0],ssq2=[0,0],ssa=[0,0];
           for(let i=0;i<Mm;i++)for(let j=0;j<Mm;j++){const c=i===j?0:1,v=Sm[i*Mm+j];scnt[c]++;ssm[c]+=v;ssq2[c]+=v*v;ssa[c]+=Math.abs(v);}
           const sqev=[];for(let c=0;c<2;c++){const n=scnt[c]||1,mn=ssm[c]/n;sqev.push(scnt[c]?[mn,Math.sqrt(Math.max(0,ssq2[c]/n-mn*mn)),ssa[c]/n]:[0,0,0]);}

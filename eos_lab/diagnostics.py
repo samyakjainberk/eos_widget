@@ -472,20 +472,29 @@ class Diagnostics:
         # (u = top NTK eigenvector, r = residual). M³ points + M Hessian-vector products → small M only, on the
         # SLQ cadence (~50 snapshots/run). For each k: jac_hvp(Jₖ)={Qⱼ Jₖ}ⱼ, then T1[:,:,k] = Jc·{Qⱼ Jₖ}ⱼᵀ.
         if (self.s18 and self.multi_ok and Jc is not None and u1s is not None
-                and rr is not None and M <= self.grid3dcap):
-            u = u1s
-            T1 = torch.zeros(M, M, M, dtype=dt, device=dev)
-            Gd = torch.zeros_like(Jc)                             # gᵢ = Qᵢ Jᵢ (diagonal row of each HVP)
-            for k in range(M):
-                QJk = jac_hvp(self.model, th, X, Jc[k])          # (M,p), row j = Qⱼ·Jₖ = ∇²fⱼ·∇fₖ
-                T1[:, :, k] = Jc @ QJk.t()                        # [i,j] = Jᵢ·(Qⱼ Jₖ)
-                Gd[k] = QJk[k]                                    # Qₖ Jₖ (reused → no extra HVP)
-            T2 = T1 * u.view(1, M, 1) * u.view(1, 1, M)           # uⱼ uₖ T1
-            T3 = T2 * rr.view(M, 1, 1)                            # rᵢ uⱼ uₖ T1
+                and rr is not None and N <= self.grid3dcap):
+            # §11 uses ONE output per sample — the GROUND-TRUTH-LABEL output (argmax of the target). Single-output
+            # is identity (Ms=N); multi-output (cifar/sorting) picks f_i[label_i] so (i,j,k) range over N samples.
+            if outD > 1:
+                lblsel = torch.arange(N, device=dev) * outD + Y.reshape(N, outD).argmax(dim=1)
+                Jc11 = Jc[lblsel]; rr11 = rr[lblsel]
+                Kx, Vx = sym_eig_desc(Jc11 @ Jc11.t()); u11 = pin_sign(Vx[:, 0])   # NTK eigvec over the N label-outputs
+            else:
+                lblsel = None; Jc11 = Jc; rr11 = rr; u11 = u1s
+            u = u11; Ms = N
+            T1 = torch.zeros(Ms, Ms, Ms, dtype=dt, device=dev)
+            Gd = torch.zeros(Ms, Jc11.shape[1], dtype=dt, device=dev)   # gᵢ = Qᵢ Jᵢ (diagonal row of each HVP)
+            for k in range(Ms):
+                QJk = jac_hvp(self.model, th, X, Jc11[k])        # (M,p): {Q_a · J_sel[k]}_a over ALL model outputs
+                QJr = QJk[lblsel] if lblsel is not None else QJk  # (Ms,p): ground-truth-label Hessian rows
+                T1[:, :, k] = Jc11 @ QJr.t()                      # [i,j] = Jᵢ·(Qⱼ Jₖ)
+                Gd[k] = QJr[k]                                    # Qₖ Jₖ (reused → no extra HVP)
+            T2 = T1 * u.view(1, Ms, 1) * u.view(1, 1, Ms)        # uⱼ uₖ T1
+            T3 = T2 * rr11.view(Ms, 1, 1)                         # rᵢ uⱼ uₖ T1
             # §11 SQUARE — S[i,j] = Jᵢᵀ Qᵢ Jⱼ · rⱼ = (Qᵢ Jᵢ)·Jⱼ · rⱼ (2D over (i,j); classes i=j / i≠j)
-            Smat = (Gd @ Jc.t()) * rr.view(1, M)                 # (M,M): [i,j] = gᵢ·Jⱼ · rⱼ
-            jj_ = torch.arange(M, device=dev)
-            cats = torch.where(jj_.view(M, 1) == jj_.view(1, M), 0, 1).reshape(-1)   # 0:i=j  1:i≠j
+            Smat = (Gd @ Jc11.t()) * rr11.view(1, Ms)            # (Ms,Ms): [i,j] = gᵢ·Jⱼ · rⱼ
+            jj_ = torch.arange(Ms, device=dev)
+            cats = torch.where(jj_.view(Ms, 1) == jj_.view(1, Ms), 0, 1).reshape(-1)   # 0:i=j  1:i≠j
 
             def _evs(S):   # per (i=j / i≠j) class: [mean, std, mean|·|]
                 f = S.reshape(-1).detach()
@@ -498,10 +507,10 @@ class Diagnostics:
             # Per-class stats (mean/std/mean|·|) + positive-share over the FULL grid for the 5 diagonal classes
             # of (i,j,k): 0:i=j=k 1:i=j≠k 2:i≠j=k 3:i=k≠j 4:i≠j≠k. Computed EVERY tick (tiny) so the evolution /
             # norm-share / abs-norm-share curve panels are dense like the widget.
-            ai = torch.arange(M, device=dev)
-            eij = ai.view(M, 1, 1) == ai.view(1, M, 1)
-            ejk = ai.view(1, M, 1) == ai.view(1, 1, M)
-            eik = ai.view(M, 1, 1) == ai.view(1, 1, M)
+            ai = torch.arange(Ms, device=dev)
+            eij = ai.view(Ms, 1, 1) == ai.view(1, Ms, 1)
+            ejk = ai.view(1, Ms, 1) == ai.view(1, 1, Ms)
+            eik = ai.view(Ms, 1, 1) == ai.view(1, 1, Ms)
             catf = torch.where(eij & ejk, 0, torch.where(eij, 1, torch.where(ejk, 2,
                                torch.where(eik, 3, 4)))).reshape(-1)
 
@@ -522,7 +531,7 @@ class Diagnostics:
                 den = ps - ns
                 return ps / den * 100.0 if den > 1e-30 else 0.0
 
-            g3d = {"M": M, "pp": [_pospct(T1), _pospct(T2), _pospct(T3)],
+            g3d = {"M": Ms, "pp": [_pospct(T1), _pospct(T2), _pospct(T3)],
                    "ev": {"t1": _ev(T1), "t2": _ev(T2), "t3": _ev(T3)},
                    "sqpp": _pospct(Smat), "sqev": _evs(Smat)}
 
@@ -531,13 +540,13 @@ class Diagnostics:
             # Heavy-tailed (~90% near-zero) → keep only the top-|value| points per grid once the cube exceeds the
             # render budget, so M≈100 (M³≈10⁶) stays renderable. idx = i·M² + j·M + k (each grid its own top set).
             if slq_tick:
-                sparse = (M * M * M) > G3D_MAXPTS
+                sparse = (Ms * Ms * Ms) > G3D_MAXPTS
 
                 def _pack(T):
                     return _g3d_pack(T.reshape(-1))
 
                 v1, i1 = _pack(T1); v2, i2 = _pack(T2); v3, i3 = _pack(T3)
-                dd = torch.arange(M, device=dev)           # i=j=k diagonal values (stay coloured even when sparse)
+                dd = torch.arange(Ms, device=dev)           # i=j=k diagonal values (stay coloured even when sparse)
                 d1 = T1[dd, dd, dd]; d2 = T2[dd, dd, dd]; d3 = T3[dd, dd, dd]
                 sqv, sqi = _g3d_pack(Smat.reshape(-1))     # the square is M² — same span-preserving subset
                 sqsparse = sqi is not None
