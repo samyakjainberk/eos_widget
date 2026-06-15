@@ -26,7 +26,8 @@ import torch
 from .models import (grad_sum_f, hvp_F, hvp_L, hvp_S, hvp_G, hvp_G2,
                      jac_cols, jac_hvp, grad_out)
 from .linalg import (lanczos_extreme, lanczos_extreme_vals, slq_density, hutch_trace, sym_eig_desc,
-                     sign_to, pin_sign, pos_subspace, neg_subspace, principal_angles, randn_vec, sec12_payload)
+                     sign_to, pin_sign, pos_subspace, neg_subspace, principal_angles, randn_vec,
+                     sec12_payload, SEC12_KFULL)
 
 # §11 render budget: emit only ≤this many points per grid above this size (mirror server.G3D_MAXPTS).
 G3D_MAXPTS = 10000
@@ -127,7 +128,7 @@ class Diagnostics:
         self.qapprox = max(1, cfg.qapprox)
         self.cubicapprox = max(1, getattr(cfg, "cubicapprox", 10))   # §10 cubic-window length
         self.grid3dcap = max(1, getattr(cfg, "grid3dcap", 30))       # §11 3D-grid size cap (skip when M exceeds it)
-        self.sec12pcap = max(1, getattr(cfg, "sec12pcap", 1200))     # §12 p cap (skip the dense per-sample Hessians)
+        self.sec12ncap = max(1, getattr(cfg, "sec12ncap", 500))      # §12 sample cap (gates N; no p-cap — large p is slow)
         self.qmode = cfg.qmode
         self.tset = cfg.tset
         # Krylov depths (match server.run_stream)
@@ -567,18 +568,25 @@ class Diagnostics:
             rec["g3d"] = g3d
 
         # ---- §12 per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity (ground-truth-label output) ----
-        # p HVPs (one basis vector each) form every Q_i, then N eigendecompositions. Small N & p only.
-        if (self.s19 and self.multi_ok and Jc is not None and rr is not None
-                and N <= self.grid3dcap and p <= self.sec12pcap):
-            lblsel12 = (torch.arange(N, device=dev) * outD + Y.reshape(N, outD).argmax(dim=1)) if outD > 1 else None
-            eye = torch.eye(p, device=dev, dtype=dt)
-            cols = []                                          # column l of every Q_a = jac_hvp(e_l)[a]
-            for l in range(p):
-                hv = jac_hvp(self.model, th, X, eye[l])        # (N·outD, p)
-                cols.append(hv[lblsel12] if lblsel12 is not None else hv)
-            Qm12 = torch.stack(cols, dim=2)                    # (N, p, p): Qm12[i,:,l] = l-th column of Q_i
-            r12 = rr[lblsel12] if lblsel12 is not None else rr
-            rec["g4d"] = sec12_payload(Qm12, r12, self.efrac)
+        # MATRIX-FREE: Lanczos on the per-sample HVP v↦Q_i·v (=hvp_S with a one-hot cotangent) extracts the
+        # top-K12 & bottom-K12 eigenpairs — no p×p Hessian formed, so it scales to any p. Gated on N (≤sec12ncap).
+        if self.s19 and self.multi_ok and Jc is not None and rr is not None and N <= self.sec12ncap:
+            lblsel12 = (torch.arange(N, device=dev) * outD + Y.reshape(N, outD).argmax(dim=1)
+                        if outD > 1 else torch.arange(N, device=dev))
+            K12 = max(1, min(SEC12_KFULL, p // 2))
+            m12 = min(p, max(6 * K12, 64))                      # enough Lanczos steps to converge the K12-th eigenpair
+            TV = []; TW = []; BV = []; BW = []
+            for i in range(N):
+                ci = torch.zeros(N, outD, dtype=dt, device=dev)
+                ci.view(-1)[int(lblsel12[i])] = 1.0            # one-hot at sample i's ground-truth output
+                tv, bv, tval, bval = lanczos_extreme(
+                    lambda v, ci=ci: hvp_S(self.model, th, X, ci, v), p, K12, m12,
+                    (0x5EC12 + i * 7919) & 0x7FFFFFFF, dev, dt)
+                TV.append(torch.stack(tv)); BV.append(torch.stack(bv))
+                TW.append(torch.tensor(tval, dtype=dt, device=dev))
+                BW.append(torch.tensor(bval, dtype=dt, device=dev))
+            rec["g4d"] = sec12_payload(torch.stack(TV), torch.stack(TW), torch.stack(BV), torch.stack(BW),
+                                       rr[lblsel12])
 
         # ---- §5 SLQ spectral densities (expensive → ~50 snapshots/run via slqStride) ----
         if self.s5 and slq_tick:

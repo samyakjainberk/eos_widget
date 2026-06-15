@@ -66,92 +66,72 @@ def _g3d_pack(flat, K=G3D_MAXPTS):
 
 
 # ============================ §12 per-sample Hessian eigenvector cross-similarity ============================
-# For each sample i: Q_i = ∇²f_i (p×p, the ground-truth-label output's Hessian). Eigendecompose it; take the
-# top-k (largest-λ) and bottom-k (most-negative-λ) eigenvectors → 2k unit vectors with eigenvalue signs s.
-# Across sample pairs (i,j) compare Q_i's and Q_j's eigenvectors. Pure & matrix-only so it is unit-testable
-# against a brute-force reference; MIRRORS eos_lab.diagnostics._sec12_payload / index.html sec12Payload.
-def _sec12_payload(Qmats, r, energyfrac):
-    """Qmats:(N,p,p) per-sample Hessians; r:(N,) residual; energyfrac∈(0,1]. Returns the §12 payload dict:
-    p1/p2 (k=2 / k=5): {g:[grid1,grid3,grid5] (N·N each), c:[cub2,cub4,cub6] (N·N·10 each), gm,cm,cs}.
-    p3 (principal angles, k=1,5,10,energy): {g:[4 grids N·N], gm:[4 means]}.
-      grid1 = max_{a,b}|cos(e_i^a,e_j^b)|;  cub2 = the 10 largest |cos| per (i,j).
-      grid3 = signed cos of the argmax pair × sign(λ_i)·sign(λ_j);  cub4 = same for the top-10 pairs.
-      grid5/cub6 = grid3/cub4 × sign(r_i)·sign(r_j).  Panel-3 cell = MEAN principal angle (deg) of the 2k
-      (energy = |λ|-energyfrac) subspaces of Q_i and Q_j.  gm/cm = element means (titles + §12-panel-4
-      evolution); cs = cuboid std (evolution clouds)."""
+# For each sample i, Q_i = ∇²f_i (the ground-truth-label output's Hessian). Its top-K and bottom-K eigenpairs
+# are extracted MATRIX-FREE by Lanczos on the per-sample HVP v ↦ Q_i·v (NO p×p matrix is ever formed — scales
+# to any p, like §1–§3). _sec12_payload then compares those eigenvectors across sample pairs (i,j). Pure &
+# tensor-only so it is unit-testable; MIRRORS eos_lab.linalg.sec12_payload / index.html sec12Payload.
+SEC12_KFULL = 15   # rank of the "full-space" principal-angle plot (top-15 ⊕ bottom-15) — a fixed cap so it,
+                   # too, needs only Lanczos extremes rather than the full spectrum.
+
+
+def _sec12_payload(TV, TW, BV, BW, r, kfull=SEC12_KFULL):
+    """§12 from per-sample Lanczos eigenpairs. TV,BV:(N,K,p) top/bottom eigenVECTORS; TW,BW:(N,K) their
+    eigenVALUES; r:(N,) residual. Returns {M,p1,p2,p3}:
+      p1/p2 (k=2 / k=5): {g:[grid1,grid3,grid5] (N·N), c:[cub2,cub4,cub6] (N·N·10), gm,cm,cs, K}.
+      p3 (principal angles k=1,5,10,kfull): {g:[4 grids N·N], gm:[4 means], kfull}.
+    grid1 = max_{a,b}|cos(e_i^a,e_j^b)| over the 2k top⊕bottom eigenvectors; cub2 = the 10 largest |cos|;
+    grid3 = signed cos of the argmax pair × sign(λ_i)·sign(λ_j); cub4 = same for the top-10 pairs;
+    grid5/cub6 = grid3/cub4 × sign(r_i)·sign(r_j). Panel-3 cell = MEAN principal angle (deg) of the 2k
+    subspaces. Eigenvectors are sign-pinned (largest-|component| positive) so signed cosines are reproducible."""
     import math as _m
-    N, p = int(Qmats.shape[0]), int(Qmats.shape[1])
-    dev, dt = Qmats.device, Qmats.dtype
-    Vd = torch.empty(N, p, p, dtype=dt, device=dev)     # eigenvectors, columns DESCENDING by eigenvalue
-    wd = torch.empty(N, p, dtype=dt, device=dev)        # eigenvalues descending
-    for i in range(N):
-        Qi = 0.5 * (Qmats[i] + Qmats[i].t())            # symmetrize (FD/autograd asymmetry) → real spectrum
-        w, V = torch.linalg.eigh(Qi)                    # ascending
-        wd[i] = w.flip(0); Vi = V.flip(1)
-        # pin each eigenvector's sign (largest-|component| positive) so the SIGNED cosines below are
-        # well-defined & reproducible across backends — eigenvectors are otherwise sign-ambiguous.
-        mx = Vi.abs().argmax(dim=0)                      # (p,) row of the max-|component| of each column
-        sg = torch.sign(Vi[mx, torch.arange(p, device=dev)])
-        Vd[i] = Vi * torch.where(sg == 0, torch.ones_like(sg), sg).view(1, p)
-    rs = torch.sign(r).to(dt)                           # (N,) residual signs
+    N, K, p = int(TV.shape[0]), int(TV.shape[1]), int(TV.shape[2])
+    dt = TV.dtype
+
+    def pin(M):                                         # pin each (N,K) eigenvector's sign → reproducible signed cos
+        idx = M.abs().argmax(dim=2)
+        sg = torch.sign(torch.gather(M, 2, idx.unsqueeze(2)).squeeze(2))
+        return M * torch.where(sg == 0, torch.ones_like(sg), sg).unsqueeze(2)
+    TV = pin(TV); BV = pin(BV)
+    rs = torch.sign(r).to(dt)
 
     def vecset(k):
-        kk = max(1, min(k, p // 2))                     # top-k & bottom-k must be disjoint → k ≤ p/2
-        V2 = torch.cat([Vd[:, :, :kk], Vd[:, :, p - kk:]], dim=2)      # (N,p,2k)
-        wv = torch.cat([wd[:, :kk], wd[:, p - kk:]], dim=1)            # (N,2k) eigenvalues
-        return V2, torch.sign(wv).to(dt)
+        kk = max(1, min(k, K))
+        E = torch.cat([TV[:, :kk, :], BV[:, :kk, :]], dim=1)          # (N, 2k, p)
+        w = torch.cat([TW[:, :kk], BW[:, :kk]], dim=1)                # (N, 2k)
+        return E, torch.sign(w).to(dt)
 
     def cos_panel(k):
         E, s = vecset(k)
-        D = E.shape[2]
-        C = torch.einsum('ipa,jpb->ijab', E, E)         # (N,N,D,D) cos = ⟨e_i^a, e_j^b⟩
+        D = E.shape[1]
+        C = torch.einsum('iap,jbp->ijab', E, E)         # (N,N,D,D) cos = ⟨e_i^a, e_j^b⟩
         Cf = C.reshape(N, N, D * D)
         Sab = torch.einsum('ia,jb->ijab', s, s).reshape(N, N, D * D)   # sign(λ_i^a)·sign(λ_j^b)
-        Mf = Cf * Sab                                   # signed cos × eigenvalue-sign product
+        Mf = Cf * Sab
         absf = Cf.abs()
-        sr = rs.view(N, 1) * rs.view(1, N)              # (N,N) sign(r_i)·sign(r_j)
+        sr = rs.view(N, 1) * rs.view(1, N)
         g1 = absf.amax(dim=2)
-        amax = absf.argmax(dim=2, keepdim=True)
-        g3 = torch.gather(Mf, 2, amax).squeeze(2)
+        g3 = torch.gather(Mf, 2, absf.argmax(dim=2, keepdim=True)).squeeze(2)
         g5 = g3 * sr
-        K = min(10, D * D)
-        tv, ti = torch.topk(absf, K, dim=2)             # 10 largest |cos| per (i,j), descending
-        c2 = tv
-        c4 = torch.gather(Mf, 2, ti)
-        c6 = c4 * sr.unsqueeze(2)
+        KK = min(10, D * D)
+        tv, ti = torch.topk(absf, KK, dim=2)
+        c2 = tv; c4 = torch.gather(Mf, 2, ti); c6 = c4 * sr.unsqueeze(2)
         grids, cubs = [g1, g3, g5], [c2, c4, c6]
         return {"g": [x.reshape(-1).detach().cpu().tolist() for x in grids],
                 "c": [x.reshape(-1).detach().cpu().tolist() for x in cubs],
                 "gm": [float(x.mean()) for x in grids],
                 "cm": [float(x.mean()) for x in cubs],
-                "cs": [float(x.std(unbiased=False)) for x in cubs], "K": K}
+                "cs": [float(x.std(unbiased=False)) for x in cubs], "K": KK}
 
-    def pa_fixed(k):
+    def pa(k):
         E, _ = vecset(k)
-        M = torch.einsum('ipa,jpb->ijab', E, E)
-        sv = torch.linalg.svdvals(M).clamp(-1.0, 1.0)   # (N,N,D) cosines of principal angles
-        return (torch.acos(sv) * (180.0 / _m.pi)).mean(dim=2)         # (N,N) mean angle (deg)
+        sv = torch.linalg.svdvals(torch.einsum('iap,jbp->ijab', E, E)).clamp(-1.0, 1.0)
+        return (torch.acos(sv) * (180.0 / _m.pi)).mean(dim=2)
 
-    def pa_energy():
-        Es = []
-        for i in range(N):
-            aw = wd[i].abs()
-            order = torch.argsort(aw, descending=True)
-            cw = torch.cumsum(aw[order], dim=0)
-            tot = float(cw[-1]) if float(cw[-1]) > 0 else 1.0
-            d = max(1, min(int((cw < energyfrac * tot).sum().item()) + 1, p))   # |λ|-energy subspace dim
-            Es.append(Vd[i][:, order[:d]])
-        G = torch.zeros(N, N, dtype=dt, device=dev)
-        for i in range(N):
-            for j in range(N):
-                sv = torch.linalg.svdvals(Es[i].t() @ Es[j]).clamp(-1.0, 1.0)
-                G[i, j] = (torch.acos(sv) * (180.0 / _m.pi)).mean()
-        return G
-
-    pas = [pa_fixed(1), pa_fixed(5), pa_fixed(10), pa_energy()]
+    kf = max(1, min(kfull, K))
+    pas = [pa(1), pa(5), pa(10), pa(kf)]
     return {"M": N, "p1": cos_panel(2), "p2": cos_panel(5),
             "p3": {"g": [x.reshape(-1).detach().cpu().tolist() for x in pas],
-                   "gm": [float(x.mean()) for x in pas]}}
+                   "gm": [float(x.mean()) for x in pas], "kfull": kf}}
 
 
 def _opt_dir(model, g, opt):
@@ -1385,9 +1365,10 @@ def run_stream(P):
     s16 = P.get("s16", 0)                # §9d-c: §9d predictions vs the full loss-Hessian sharpness
     s17 = P.get("s17", 0)                # §10: CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation)
     s18 = P.get("s18", 0)                # §11: 3D grids T1=JᵢᵀQⱼJₖ, T2=uⱼuₖT1, T3=rᵢuⱼuₖT1 (multi-sample, small M)
-    s19 = P.get("s19", 0)                # §12: per-sample Q_i eigenvector cross-similarity grids/cuboids (small N, small p)
+    s19 = P.get("s19", 0)                # §12: per-sample Q_i eigenvector cross-similarity grids/cuboids (small N)
     grid3dcap = max(1, P.get("grid3dcap", 30))
-    sec12pcap = max(1, P.get("sec12pcap", 1200))   # §12 forms N dense p×p Hessians + eig → skip when p exceeds this
+    sec12ncap = max(1, P.get("sec12ncap", 500))    # §12 sample cap (gates N). NOTE: §12 builds dense p×p Hessians
+                                                    # (p HVPs + O(p³) eig per sample) → large p is SLOW; keep models small.
     if _TL.loss.name == "ce":            # CE: §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) and the generic
         s11 = s12 = s14 = s15 = s16 = s17 = False   # residual r=−∂L/∂z (= softmax−onehot), so they're valid. Off for CE:
                                          #   §4d (sign-groups need a scalar residual) and the whole §9 family
@@ -1923,20 +1904,26 @@ def run_stream(P):
                     g3d.update({"i1": ix1, "i2": ix2, "i3": ix3})
 
             # §12 — per-sample Hessian Q_i = ∇²f_i (ground-truth-label output); eigenvector cross-similarity
-            # grids/cuboids + principal angles over sample pairs (i,j). Heavy: p HVPs (one basis vector each) to
-            # form every Q_i, then N dense eigendecompositions — small N (≤grid3dcap) AND small p (≤sec12pcap).
+            # grids/cuboids + principal angles over sample pairs (i,j). MATRIX-FREE: Lanczos on the per-sample
+            # HVP v↦Q_i·v (= hvpS with a one-hot cotangent) extracts the top-K12 & bottom-K12 eigenpairs — no
+            # p×p Hessian is formed, so this scales to any p (like §1–§3). Gated on N (≤sec12ncap).
             sec12 = None
-            if (s19 and multi_ok and Jc is not None and rr is not None
-                    and N <= grid3dcap and p <= sec12pcap):
-                lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)) if outD > 1 else None
-                eye = torch.eye(p, device=_dev(), dtype=DTYPE)
-                cols = []                                       # column l of every Q_a = jac_hvp(e_l)[a]
-                for l in range(p):
-                    hv = jac_hvp(th, X, eye[l])                 # (N·outD, p): {∇²f_a · e_l}_a
-                    cols.append(hv[lblsel12] if lblsel12 is not None else hv)   # (N, p)
-                Qm12 = torch.stack(cols, dim=2)                 # (N, p, p): Qm12[i, :, l] = l-th column of Q_i
-                r12 = rr[lblsel12] if lblsel12 is not None else rr            # (N,) ground-truth-label residual
-                sec12 = _sec12_payload(Qm12, r12, efrac)
+            if s19 and multi_ok and Jc is not None and rr is not None and N <= sec12ncap:
+                lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
+                            if outD > 1 else torch.arange(N, device=_dev()))
+                K12 = max(1, min(SEC12_KFULL, p // 2))          # top-/bottom-K12 eigenpairs (covers k=1,2,5,10,kfull)
+                m12 = min(p, max(6 * K12, 64))                  # Lanczos steps — enough to converge the K12-th eigenpair
+                TV = []; TW = []; BV = []; BW = []
+                for i in range(N):
+                    ci = torch.zeros(N, outD, dtype=DTYPE, device=_dev())
+                    ci.view(-1)[int(lblsel12[i])] = 1.0         # one-hot at sample i's ground-truth output
+                    tv, bv, tval, bval = lanczos_extreme(
+                        lambda v, ci=ci: hvpS(th, X, v, ci), p, K12, m12, (0x5EC12 + i * 7919) & 0x7FFFFFFF)
+                    TV.append(torch.stack(tv)); BV.append(torch.stack(bv))
+                    TW.append(torch.tensor(tval, dtype=DTYPE, device=_dev()))
+                    BW.append(torch.tensor(bval, dtype=DTYPE, device=_dev()))
+                sec12 = _sec12_payload(torch.stack(TV), torch.stack(TW), torch.stack(BV), torch.stack(BW),
+                                       rr[lblsel12])
 
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness λmax(∇²L) ≈ λmax(GN) = σ₁/N
             thPr = [(x / N if x is not None else None) for x in thP] if thP else None
@@ -2503,9 +2490,9 @@ def _parse_params(q):
         "s16": g("s16", "1") == "1",     # §9d-c: §9d predictions vs full loss-Hessian sharpness
         "s17": g("s17", "0") == "1",     # §10: CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation; OFF by default — heaviest)
         "s18": g("s18", "0") == "1",     # §11: 3D Hessian–NTK grids (multi-sample, small M; OFF by default)
-        "s19": g("s19", "0") == "1",     # §12: per-sample Q_i eigenvector cross-similarity (multi-sample, small N & p; OFF by default)
+        "s19": g("s19", "0") == "1",     # §12: per-sample Q_i eigenvector cross-similarity (multi-sample, small N; OFF by default)
         "grid3dcap": max(1, fi("grid3dcap", 500)),
-        "sec12pcap": max(1, fi("sec12pcap", 1200)),
+        "sec12ncap": max(1, fi("sec12ncap", 500)),
         "gs": g("gson", "1") == "1",
         # surrogate-section panel toggles (loss · resid mean/std · top-n eig · histogram · theory · §4 · §4d)
         "c1": g("c1", "1") == "1", "c2": g("c2", "1") == "1", "c3": g("c3", "1") == "1",

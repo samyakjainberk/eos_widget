@@ -167,7 +167,7 @@
       <div class="ctl"><label title="The heaviest panels (§7 FH-eigvec projections, §8 FH-reshape SVD) compute every N-th diagnostic tick instead of every step, so runs stay responsive. The cheap core (loss/sharpness/eigenvalues/§9 theory/§7a) updates every step. Set 1 to compute everything every step.">heavy every (ticks)</label><input id="heavyevery" type="number" value="4" min="1" max="50" step="1"></div>
       <div class="ctl"><label title="§10 cubic-approximation window: every N steps freeze θ₀, J₀, Q₀ and the 3rd-derivative tensor T, then propagate J & Q over the window to predict the NTK-σ₁ change. Smaller = more frequent re-anchoring and cheaper (cost is O(window²) HVPs).">cubic window</label><input id="cubicapprox" type="number" value="10" min="2" max="50" step="1"></div>
       <div class="ctl"><label title="§11 3D-grid cap: skip the N×N×N Hessian–NTK grids when N·d_out exceeds this. The grid is N³ points and costs N Hessian-vector products, so it is feasible only for small N.">3D-grid cap (N·d_out)</label><input id="grid3dcap" type="number" value="500" min="1" max="600" step="1"></div>
-      <div class="ctl"><label title="§12 per-sample-Hessian cap: skip §12 when the parameter count p exceeds this. §12 forms N dense p×p Hessians (p Hessian-vector products) and eigendecomposes each, so it is feasible only for small models.">§12 p-cap</label><input id="sec12pcap" type="number" value="1200" min="1" max="5000" step="50"></div>
+      <div class="ctl"><label title="§12 sample cap: skip §12 when the number of samples N exceeds this. §12 extracts each sample's top-/bottom-15 Hessian eigenpairs MATRIX-FREE via Lanczos (no p×p matrix is formed), so it scales to large models like §1–§3; the grid is N×N so only N is capped.">§12 N-cap</label><input id="sec12ncap" type="number" value="500" min="1" max="600" step="1"></div>
       <div class="ctl"><label>SLQ probes</label><input id="slqprobes" type="number" value="4" min="1" max="12" step="1"></div>
       <div class="ctl"><label>subspace energy %</label><input id="energyp" type="number" value="99" min="50" max="100" step="1"></div>
       <div class="ctl"><label>G &amp; S spectra</label><select id="gson"><option value="1" selected>on</option><option value="0">off</option></select></div>
@@ -214,7 +214,7 @@
   <label><input type="checkbox" id="en16" checked> 9d-c · self-residual vs full-Hessian sharpness</label>
   <label title="CUBIC approximation (paper §6): Eq-47 (single) / Eq-51 (multi) σ₁ predictions with exact J & Q propagation (3rd-derivative tensor T frozen per window). Two panels: vs the NTK σ₁ and vs the full-Hessian λmax. OFF by default — by far the heaviest section (O(window²) HVPs)."><input type="checkbox" id="en17"> 10 · cubic approximation (Eq-47/51)</label>
   <label title="3D grids over sample indices (i,j,k): T1=JᵢᵀQⱼJₖ, T2=uⱼuₖ·T1, T3=rᵢuⱼuₖ·T1 (u=top NTK eigvec, r=residual). Multi-sample only; OFF by default (N³ points + N Hessian-vector products → small N). Live-updates + scrub past snapshots; drag to rotate."><input type="checkbox" id="en18"> 11 · 3D Hessian–NTK grids</label>
-  <label title="Per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity over sample pairs (i,j): max/top-10 |cos| of top-k⊕bottom-k eigenvectors, with eigenvalue- and residual-sign weightings, plus mean principal angles. Multi-sample only; OFF by default — forms N dense p×p Hessians (p HVPs) + eigendecompositions, so small N AND small p only."><input type="checkbox" id="en19"> 12 · per-sample Hessian eigvec similarity</label>
+  <label title="Per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity over sample pairs (i,j): max/top-10 |cos| of top-k⊕bottom-k eigenvectors, with eigenvalue- and residual-sign weightings, plus mean principal angles. Multi-sample only; OFF by default. Each Q_i's top-/bottom-15 eigenpairs come from matrix-free Lanczos (no p×p Hessian), so it scales to large models; only N is capped."><input type="checkbox" id="en19"> 12 · per-sample Hessian eigvec similarity</label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -249,7 +249,7 @@
 
 <div id="sec_s12" style="display:none">
 <h2>12 · per-sample Hessian eigenvector cross-similarity</h2>
-<p class="cap">For each sample $i$ the per-sample function Hessian $Q_i=\nabla^2 f_i$ (the ground-truth-label output, $p\times p$) is eigendecomposed; its <b>top-$k$</b> and <b>bottom-$k$</b> eigenvectors ($2k$ unit vectors, with eigenvalue $\lambda$) are compared across every sample pair $(i,j)$. Each panel's plot titles carry a running number = the mean over the whole grid/cuboid. <b>Drag to rotate</b> the cuboids; the slider scrubs captured snapshots. Multi-sample only, small $N$ &amp; small $p$ (forms $N$ dense $p\times p$ Hessians + eigendecompositions).</p>
+<p class="cap">For each sample $i$ the per-sample function Hessian $Q_i=\nabla^2 f_i$ (the ground-truth-label output) has its <b>top-15</b> and <b>bottom-15</b> eigenpairs extracted <b>matrix-free by Lanczos</b> (no $p\times p$ matrix is ever formed, so this scales to large models like §1–§3). Its <b>top-$k$</b> and <b>bottom-$k$</b> eigenvectors ($2k$ unit vectors, with eigenvalue $\lambda$) are compared across every sample pair $(i,j)$. Each plot title carries a running number = the mean over the whole grid/cuboid. <b>Drag to rotate</b> the cuboids; the slider scrubs captured snapshots. Multi-sample only; only $N$ is capped (the grid is $N\times N$).</p>
 <div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
   <label style="white-space:nowrap">snapshot</label>
   <input id="s12_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
@@ -261,10 +261,10 @@
 <div class="plotrow row6"><div id="p_s12p1_1" class="plot" style="height:300px"></div><div id="p_s12p1_2" class="plot" style="height:300px"></div><div id="p_s12p1_3" class="plot" style="height:300px"></div><div id="p_s12p1_4" class="plot" style="height:300px"></div><div id="p_s12p1_5" class="plot" style="height:300px"></div><div id="p_s12p1_6" class="plot" style="height:300px"></div></div>
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — $k=5$</h3>
 <div class="plotrow row6"><div id="p_s12p2_1" class="plot" style="height:300px"></div><div id="p_s12p2_2" class="plot" style="height:300px"></div><div id="p_s12p2_3" class="plot" style="height:300px"></div><div id="p_s12p2_4" class="plot" style="height:300px"></div><div id="p_s12p2_5" class="plot" style="height:300px"></div><div id="p_s12p2_6" class="plot" style="height:300px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — mean principal angle (deg) between the $2k$ ($k=1,5,10$) and the $|\lambda|$-energy subspaces of $Q_i,Q_j$</h3>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — mean principal angle (deg) between the top-$k$ ⊕ bottom-$k$ subspaces of $Q_i,Q_j$ for $k=1,5,10,15$</h3>
 <div class="plotrow row4"><div id="p_s12p3_1" class="plot" style="height:300px"></div><div id="p_s12p3_2" class="plot" style="height:300px"></div><div id="p_s12p3_3" class="plot" style="height:300px"></div><div id="p_s12p3_4" class="plot" style="height:300px"></div></div>
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — evolution over training</h3>
-<p class="cap">Cols 1–2: mean ± std (cloud) of panel-1 / panel-2 cuboids (the three cuboids: $|\cos|$, signed, signed$\cdot\mathrm{sgn}\,r$). Cols 3–4: mean principal angle for $k=5$ and the energy subspace.</p>
+<p class="cap">Cols 1–2: mean ± std (cloud) of panel-1 / panel-2 cuboids (the three cuboids: $|\cos|$, signed, signed$\cdot\mathrm{sgn}\,r$). Cols 3–4: mean principal angle for $k=5$ and $k=15$.</p>
 <div class="plotrow row4"><div id="p_s12p4_1" class="plot"></div><div id="p_s12p4_2" class="plot"></div><div id="p_s12p4_3" class="plot"></div><div id="p_s12p4_4" class="plot"></div></div>
 </div>
 
@@ -947,7 +947,7 @@ const S12_P4=['p_s12p4_1','p_s12p4_2','p_s12p4_3','p_s12p4_4'];
 const S12_CUBES=['p_s12p1_2','p_s12p1_4','p_s12p1_6','p_s12p2_2','p_s12p2_4','p_s12p2_6'];
 const S12_KIND=['g','c','g','c','g','c'], S12_SIGN=[false,false,true,true,true,true];   // col layout: grid/cuboid, signed?
 const S12_GT=['max|cos|','top-10 |cos|','signed·sgn σ','signed top-10','signed·sgn σ·sgn r','signed·sgn r top-10'];
-const S12_P3T=['principal angle k=1','principal angle k=5','principal angle k=10','principal angle energy'];
+const S12_P3T=['principal angle k=1','principal angle k=5','principal angle k=10','principal angle k=15'];
 const S12E_COL=['#2563eb','#16a34a','#dc2626'], S12E_LAB=['|cos|','signed','signed·sgn r'];
 let S12_SNAPS=[], S12_N=0, S12_K=0, S12_BUILT=false, S12_RAF=0, S12_PENDING=-1, S12_CAMKEY='', S12E_STEPS=[], S12E_DATA=null;
 function s12AllIds(){return S12_P1.concat(S12_P2,S12_P3,S12_P4);}
@@ -992,7 +992,7 @@ function s12EvoBuild(){
       tr.push({x:[],y:[],mode:'lines',name:S12E_LAB[n],line:{color:S12E_COL[n],width:1.8}});}
     Plotly.newPlot(id,tr,withZero(baseLayout(id===S12_P4[0]?'panel 1 cuboids — mean ± std (k=2)':'panel 2 cuboids — mean ± std (k=5)','value',false)),{responsive:true,displaylogo:false});}
   Plotly.newPlot(S12_P4[2],[{x:[],y:[],mode:'lines',line:{color:'#7c3aed',width:1.9}}],baseLayout('mean principal angle k=5','angle (deg)',false),{responsive:true,displaylogo:false});
-  Plotly.newPlot(S12_P4[3],[{x:[],y:[],mode:'lines',line:{color:'#7c3aed',width:1.9}}],baseLayout('mean principal angle energy','angle (deg)',false),{responsive:true,displaylogo:false});
+  Plotly.newPlot(S12_P4[3],[{x:[],y:[],mode:'lines',line:{color:'#7c3aed',width:1.9}}],baseLayout('mean principal angle k=15','angle (deg)',false),{responsive:true,displaylogo:false});
 }
 function s12EvoAppend(m){
   if(!S12E_DATA)S12E_DATA={p1:[[],[],[]],p1s:[[],[],[]],p2:[[],[],[]],p2s:[[],[],[]],a5:[],aF:[]};
@@ -1023,7 +1023,8 @@ function s12RenderNow(i){
           'marker.size':[f.map(v=>2.6*(0.45+0.55*Math.min(1,Math.abs(v))))]},[0]);
         Plotly.relayout(ids[n],{'title.text':S12_GT[n]+'   μ='+P.cm[idx].toFixed(3)});}}}
   for(let n=0;n<4;n++){Plotly.restyle(S12_P3[n],{z:[s12HeatZ(s.p3.g[n],N)]},[0]);
-    Plotly.relayout(S12_P3[n],{'title.text':S12_P3T[n]+'   μ='+s.p3.gm[n].toFixed(1)+'°'});}
+    const lab=n<3?S12_P3T[n]:('principal angle k='+(s.p3.kfull||15));
+    Plotly.relayout(S12_P3[n],{'title.text':lab+'   μ='+s.p3.gm[n].toFixed(1)+'°'});}
   const sp=document.getElementById('s12_step');if(sp)sp.textContent=`step ${s.t}  ·  snapshot ${i+1}/${S12_SNAPS.length}`;
 }
 function s12Push(m){
@@ -1034,23 +1035,17 @@ function s12Push(m){
   s12RenderIdx(wasLive?S12_SNAPS.length-1:(sl?+sl.value:0));
 }
 // ── §12 browser-mode compute (JS port of server._sec12_payload) ──────────────
+const SEC12_KFULL=15;   // rank of the §12 "full-space" principal-angle plot (top-15 ⊕ bottom-15). MIRRORS server.
 function s12Dot(u,v,p){let d=0;for(let q=0;q<p;q++)d+=u[q]*v[q];return d;}
-function s12Eig(Qi,p){   // symmetrize + eig → {vals(desc), vecs(desc array of Float64Array)}
-  const A=new Float64Array(p*p);
-  for(let a=0;a<p;a++)for(let b=0;b<p;b++)A[a*p+b]=0.5*(Qi[a*p+b]+Qi[b*p+a]);
-  const {vals,V}=jacobiEig(A,p);
-  const ord=Array.from({length:p},(_,q)=>q).sort((x,y)=>vals[y]-vals[x]);
-  const ws=ord.map(q=>vals[q]), vs=ord.map(q=>{const c=new Float64Array(p);for(let a=0;a<p;a++)c[a]=V[a*p+q];return c;});
-  for(const c of vs){let mi=0;for(let a=1;a<p;a++)if(Math.abs(c[a])>Math.abs(c[mi]))mi=a;   // pin sign (largest-|comp| +)
-    if(c[mi]<0)for(let a=0;a<p;a++)c[a]=-c[a];}
-  return {w:ws,v:vs};
-}
-function s12CosPanel(k,EIG,rs,N,p){
-  const K2=Math.max(1,Math.min(k,Math.floor(p/2))),D=2*K2,KK=Math.min(10,D*D);
+function s12PinVecs(VV,p){for(const v of VV){let mi=0;for(let a=1;a<p;a++)if(Math.abs(v[a])>Math.abs(v[mi]))mi=a;   // pin sign
+  if(v[mi]<0)for(let a=0;a<p;a++)v[a]=-v[a];}}
+// TV[i]/BV[i] = arrays of K top/bottom eigenVECTORS (Float64Array p, sign-pinned); TW[i]/BW[i] = their eigenVALUES.
+function s12CosPanel(k,TV,TW,BV,BW,rs,N,p){
+  const K2=Math.max(1,Math.min(k,TV[0].length)),D=2*K2,KK=Math.min(10,D*D);
   const E=[],S=[];
   for(let i=0;i<N;i++){const vv=[],ss=[];
-    for(let a=0;a<K2;a++){vv.push(EIG[i].v[a]);const w=EIG[i].w[a];ss.push(w<0?-1:(w>0?1:0));}
-    for(let a=0;a<K2;a++){const idx=p-K2+a;vv.push(EIG[i].v[idx]);const w=EIG[i].w[idx];ss.push(w<0?-1:(w>0?1:0));}
+    for(let a=0;a<K2;a++){vv.push(TV[i][a]);const w=TW[i][a];ss.push(w<0?-1:(w>0?1:0));}
+    for(let a=0;a<K2;a++){vv.push(BV[i][a]);const w=BW[i][a];ss.push(w<0?-1:(w>0?1:0));}
     E.push(vv);S.push(ss);}
   const g1=new Float64Array(N*N),g3=new Float64Array(N*N),g5=new Float64Array(N*N);
   const c2=new Float64Array(N*N*KK),c4=new Float64Array(N*N*KK),c6=new Float64Array(N*N*KK);
@@ -1067,16 +1062,9 @@ function s12CosPanel(k,EIG,rs,N,p){
   return {g:[Array.from(g1),Array.from(g3),Array.from(g5)],c:[Array.from(c2),Array.from(c4),Array.from(c6)],
     gm:[mean(g1),mean(g3),mean(g5)],cm:[mean(c2),mean(c4),mean(c6)],cs:[std(c2),std(c4),std(c6)],K:KK};
 }
-function s12Angles(EIG,N,p,k,energy,ef){
-  const sub=[];
-  for(let i=0;i<N;i++){let cols;
-    if(energy){const aw=EIG[i].w.map(Math.abs),ord=Array.from({length:p},(_,q)=>q).sort((x,y)=>aw[y]-aw[x]);
-      let tot=0;for(let q=0;q<p;q++)tot+=aw[q];tot=tot>0?tot:1;
-      let cw=0,d=0;while(d<p&&cw<ef*tot){cw+=aw[ord[d]];d++;}d=Math.max(1,Math.min(d,p));
-      cols=ord.slice(0,d).map(q=>EIG[i].v[q]);}
-    else{const K2=Math.max(1,Math.min(k,Math.floor(p/2)));cols=[];
-      for(let a=0;a<K2;a++)cols.push(EIG[i].v[a]);for(let a=0;a<K2;a++)cols.push(EIG[i].v[p-K2+a]);}
-    sub.push(cols);}
+function s12Angles(TV,BV,N,p,k){
+  const K2=Math.max(1,Math.min(k,TV[0].length)),sub=[];
+  for(let i=0;i<N;i++){const cols=[];for(let a=0;a<K2;a++)cols.push(TV[i][a]);for(let a=0;a<K2;a++)cols.push(BV[i][a]);sub.push(cols);}
   const g=new Float64Array(N*N);
   for(let i=0;i<N;i++)for(let j=0;j<N;j++){const A=sub[i],B=sub[j],di=A.length,dj=B.length;
     const Mt=new Float64Array(di*dj);for(let a=0;a<di;a++)for(let b=0;b<dj;b++)Mt[a*dj+b]=s12Dot(A[a],B[b],p);
@@ -1088,11 +1076,12 @@ function s12Angles(EIG,N,p,k,energy,ef){
     g[i*N+j]=ang/n2*180/Math.PI;}
   let s=0;for(let q=0;q<N*N;q++)s+=g[q];return {g:Array.from(g),gm:s/(N*N)};
 }
-function sec12Payload(Q,r,ef,N,p){
-  const EIG=Q.map(Qi=>s12Eig(Qi,p)), rs=r.map(x=>x<0?-1:(x>0?1:0));
-  const pas=[s12Angles(EIG,N,p,1,false,ef),s12Angles(EIG,N,p,5,false,ef),s12Angles(EIG,N,p,10,false,ef),s12Angles(EIG,N,p,0,true,ef)];
-  return {M:N,p1:s12CosPanel(2,EIG,rs,N,p),p2:s12CosPanel(5,EIG,rs,N,p),
-    p3:{g:pas.map(x=>x.g),gm:pas.map(x=>x.gm)}};
+function sec12Payload(TV,TW,BV,BW,r,N,p){
+  for(let i=0;i<N;i++){s12PinVecs(TV[i],p);s12PinVecs(BV[i],p);}   // pin signs in place → reproducible signed cos
+  const rs=r.map(x=>x<0?-1:(x>0?1:0)), K=TV[0].length, kf=Math.max(1,Math.min(SEC12_KFULL,K));
+  const pas=[s12Angles(TV,BV,N,p,1),s12Angles(TV,BV,N,p,5),s12Angles(TV,BV,N,p,10),s12Angles(TV,BV,N,p,kf)];
+  return {M:N,p1:s12CosPanel(2,TV,TW,BV,BW,rs,N,p),p2:s12CosPanel(5,TV,TW,BV,BW,rs,N,p),
+    p3:{g:pas.map(x=>x.g),gm:pas.map(x=>x.gm),kfull:kf}};
 }
 let OPT={s1:true,s2:true,s3:true,s4:true,s5:true,s6:true,gs:true};
 
@@ -1530,7 +1519,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const heavyEvery=Math.max(1,+val('heavyevery')||4);   // §7-proj + §8 throttle (mirror server.run_stream)
   const grid3dcap=Math.max(1,+val('grid3dcap')||30);    // §11 3D-grid cap (skip when M>this)
   const g3dStride=1;   // §11 cadence: update on every diagnostic tick (mirror server; bounded by grid3dcap + sparsification)
-  ST={opt,optim:val('optimizer'),spec,p,X,Y,N,inDim,outDim,M,nResid,th,lr,eps,thr,n,kth,nSub,mF,mV,mSLQ,nProbe,efrac,eigEvery,slqStride,heavyEvery,grid3dcap,sec12pcap:Math.max(1,+val('sec12pcap')||1200),g3dStride,steps,posIdx,negIdx,
+  ST={opt,optim:val('optimizer'),spec,p,X,Y,N,inDim,outDim,M,nResid,th,lr,eps,thr,n,kth,nSub,mF,mV,mSLQ,nProbe,efrac,eigEvery,slqStride,heavyEvery,grid3dcap,sec12ncap:Math.max(1,+val('sec12ncap')||500),g3dStride,steps,posIdx,negIdx,
       needVecs,needVals,prevTop:Array(nSub).fill(null),prevBot:Array(nSub).fill(null),prevPos:null,prevNeg:null,
       pNtk:Array(n).fill(null),pVH:Array(n).fill(null),pUJ:Array(n).fill(null),pM1:[null,null,null,null],pM2:[null,null,null,null],pG2:Array(n).fill(null),
       prevSharp7a:null,prevNtkR7a:null,prevPrevNtkR7a:null,sumGsync:null,sumGlag:null,cntGs:0,cntGl:0,   // §7a Δλ·Δr running products
@@ -1708,17 +1697,19 @@ async function loop(){                                   // drives ST forward; r
           else{msg.t1=Array.from(T1);msg.t2=Array.from(T2);msg.t3=Array.from(T3);}
           g3dPush(msg);
         }
-        // §12 — per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity (ground-truth-label output). Heavy:
-        // p jacobian-HVPs form every Q_i, then N eigendecompositions. Small N AND small p only. Mirrors server.
-        if(O.s19&&M>1&&bJc&&rrs&&N<=S.grid3dcap&&p<=S.sec12pcap){
-          const oD=Math.round(M/N);let sel=null;
-          if(oD>1){sel=new Array(N);for(let i=0;i<N;i++){let mx=-Infinity,mi=0;for(let c=0;c<oD;c++){const yv=Y[i*oD+c];if(yv>mx){mx=yv;mi=c;}}sel[i]=i*oD+mi;}}
-          const Q=[];for(let i=0;i<N;i++)Q.push(new Float64Array(p*p));
-          const e=new Float64Array(p);
-          for(let l=0;l<p;l++){e.fill(0);e[l]=1;const hv=jacHVP(S.th,spec,X,N,inDim,p,e,eps);
-            for(let i=0;i<N;i++){const col=hv[sel?sel[i]:i];for(let m=0;m<p;m++)Q[i][m*p+l]=col[m];}}
-          const r12=sel?sel.map(a=>rrs[a]):Array.from(rrs);
-          s12Push({type:'g4d',t:S.t,...sec12Payload(Q,r12,S.efrac,N,p)});
+        // §12 — per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity (ground-truth-label output).
+        // MATRIX-FREE: Lanczos on the per-sample HVP v↦Q_i·v (=hvpS with a one-hot cotangent) gives the top-/
+        // bottom-K12 eigenpairs — no p×p Hessian formed, scales to any p. Gated on N (≤sec12ncap). Mirrors server.
+        if(O.s19&&M>1&&bJc&&rrs&&N<=S.sec12ncap){
+          const oD=Math.round(M/N), lblsel=new Array(N);
+          for(let i=0;i<N;i++){if(oD>1){let mx=-Infinity,mi=0;for(let c=0;c<oD;c++){const yv=Y[i*oD+c];if(yv>mx){mx=yv;mi=c;}}lblsel[i]=i*oD+mi;}else lblsel[i]=i;}
+          const K12=Math.max(1,Math.min(SEC12_KFULL,Math.floor(p/2))), m12=Math.min(p,Math.max(6*K12,64));
+          const TV=[],TW=[],BV=[],BW=[];
+          for(let i=0;i<N;i++){const c=new Float64Array(M);c[lblsel[i]]=1;   // one-hot cotangent → Q_i·v via hvpS
+            const le=lanczosExtreme(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,c),p,K12,m12,(0x5EC12+i*7919)>>>0);
+            TV.push(le.topVecs);TW.push(le.topVals);BV.push(le.botVecs);BW.push(le.botVals);}
+          const r12=lblsel.map(a=>rrs[a]);
+          s12Push({type:'g4d',t:S.t,...sec12Payload(TV,TW,BV,BW,r12,N,p)});
         }
         // Q[u₁] = Σ_a (u₁)_a ∇²f_a — extreme eigvecs (shared by §4b and §4d), sign-tracked once
         let qe=null;
@@ -1959,7 +1950,7 @@ async function downloadPlots(){
 function backendURL(start){
   const ps=new URLSearchParams();
   ['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
-   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12pcap',
+   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree'].forEach(id=>ps.set(id,val(id)));
   [['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
    ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));

@@ -823,7 +823,7 @@ def plot_section12_angles(hist):
     snaps = [r for r in hist if "g4d" in r]
     if not snaps:
         return None
-    g = snaps[-1]["g4d"]; N = g["M"]; P = g["p3"]; labs = ["k=1", "k=5", "k=10", "energy"]
+    g = snaps[-1]["g4d"]; N = g["M"]; P = g["p3"]; labs = ["k=1", "k=5", "k=10", f"k={P.get('kfull', 15)}"]
     fig = plt.figure(figsize=(16, 3.7))
     for n in range(4):
         ax = fig.add_subplot(1, 4, n + 1)
@@ -853,7 +853,8 @@ def plot_section12_evolution(hist):
             ax.plot(t, m, color=cols[n], label=labs[n]); ax.fill_between(t, m - s, m + s, color=cols[n], alpha=0.18)
         ax.axhline(0, c="k", lw=0.6); ax.set_xlabel("step"); ax.legend(fontsize=8)
         ax.set_title(f"panel {c+1} cuboids mean ± std (k={'2' if which == 'p1' else '5'})", fontsize=10)
-    for c, (idx, lab) in enumerate([(1, "k=5"), (3, "energy")]):
+    kfull = snaps[-1]["g4d"]["p3"].get("kfull", 15)
+    for c, (idx, lab) in enumerate([(1, "k=5"), (3, f"k={kfull}")]):
         ax = axs[2 + c]
         a = np.array([r["g4d"]["p3"]["gm"][idx] for r in snaps])
         ax.plot(t, a, color="#7c3aed"); ax.set_xlabel("step"); ax.set_ylabel("angle (deg)")
