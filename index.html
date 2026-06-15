@@ -164,7 +164,7 @@
       <div class="ctl"><label>n (top/bottom eigs)</label><input id="neig" type="number" value="3" min="1" max="8" step="1"></div>
       <div class="ctl"><label>k (which single eigvec)</label><input id="kth" type="number" value="1" min="1" max="8" step="1"></div>
       <div class="ctl"><label>eig every (steps)</label><input id="eigevery" type="number" value="1" min="1" max="20" step="1"></div>
-      <div class="ctl"><label title="The heaviest panels (§7 FH-eigvec projections, §8 FH-reshape SVD, §12 per-sample Hessian eigenpairs) compute every N-th diagnostic tick instead of every step, so runs stay responsive. The cheap core (loss/sharpness/eigenvalues/§9 theory/§7a) updates every step. Raise this if §12 is making the run slow; set 1 to compute everything every step.">heavy every (ticks)</label><input id="heavyevery" type="number" value="4" min="1" max="50" step="1"></div>
+      <div class="ctl"><label title="The heaviest projection panels (§7 FH-eigvec projections, §8 FH-reshape SVD) compute every N-th diagnostic tick instead of every step, so runs stay responsive. The cheap core (loss/sharpness/eigenvalues/§9 theory/§7a) updates every step. Set 1 to compute everything every step.">heavy every (ticks)</label><input id="heavyevery" type="number" value="4" min="1" max="50" step="1"></div>
       <div class="ctl"><label title="§10 cubic-approximation window: every N steps freeze θ₀, J₀, Q₀ and the 3rd-derivative tensor T, then propagate J & Q over the window to predict the NTK-σ₁ change. Smaller = more frequent re-anchoring and cheaper (cost is O(window²) HVPs).">cubic window</label><input id="cubicapprox" type="number" value="10" min="2" max="50" step="1"></div>
       <div class="ctl"><label title="§11 3D-grid cap: skip the N×N×N Hessian–NTK grids when N·d_out exceeds this. The grid is N³ points and costs N Hessian-vector products, so it is feasible only for small N.">3D-grid cap (N·d_out)</label><input id="grid3dcap" type="number" value="500" min="1" max="600" step="1"></div>
       <div class="ctl"><label title="§12 sample cap: skip §12 when the number of samples N exceeds this. §12 extracts each sample's top-/bottom-15 Hessian eigenpairs MATRIX-FREE via Lanczos (no p×p matrix is formed), so it scales to large models like §1–§3; the grid is N×N so only N is capped.">§12 N-cap</label><input id="sec12ncap" type="number" value="500" min="1" max="600" step="1"></div>
@@ -249,7 +249,7 @@
 
 <div id="sec_s12" style="display:none">
 <h2>12 · per-sample Hessian eigenvector cross-similarity</h2>
-<p class="cap">For each sample $i$ the per-sample function Hessian $Q_i=\nabla^2 f_i$ (the ground-truth-label output) has its <b>top-15</b> and <b>bottom-15</b> eigenpairs extracted <b>matrix-free by Lanczos</b> (no $p\times p$ matrix is ever formed, so this scales to large models like §1–§3). Its <b>top-$k$</b> and <b>bottom-$k$</b> eigenvectors ($2k$ unit vectors, with eigenvalue $\lambda$) are compared across every sample pair $(i,j)$. Each plot title carries a running number = the mean over the whole grid/cuboid. <b>Drag to rotate</b> the cuboids; the slider scrubs captured snapshots. Multi-sample only; only $N$ is capped (the grid is $N\times N$). This is the heaviest section ($N$ Lanczos eigendecompositions per snapshot), so it is computed on the <b>"heavy every"</b> cadence — raise that control if it slows the run, or set it to 1 for every step.</p>
+<p class="cap">For each sample $i$ the per-sample function Hessian $Q_i=\nabla^2 f_i$ (the ground-truth-label output) has its <b>top-15</b> and <b>bottom-15</b> eigenpairs extracted <b>matrix-free by Lanczos</b> (no $p\times p$ matrix is ever formed, so this scales to large models like §1–§3). Its <b>top-$k$</b> and <b>bottom-$k$</b> eigenvectors ($2k$ unit vectors, with eigenvalue $\lambda$) are compared across every sample pair $(i,j)$. Each plot title carries a running number = the mean over the whole grid/cuboid. <b>Drag to rotate</b> the cuboids; the slider scrubs captured snapshots. Multi-sample only; only $N$ is capped (the grid is $N\times N$). Computed every iteration. This is the heaviest section ($N$ Lanczos eigendecompositions per snapshot), so if a run gets slow reduce $N$ or raise "eig every".</p>
 <div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
   <label style="white-space:nowrap">snapshot</label>
   <input id="s12_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
@@ -946,7 +946,7 @@ const S12_P3=['p_s12p3_1','p_s12p3_2','p_s12p3_3','p_s12p3_4'];
 const S12_P4=['p_s12p4_1','p_s12p4_2','p_s12p4_3','p_s12p4_4'];
 const S12_CUBES=['p_s12p1_2','p_s12p1_4','p_s12p1_6','p_s12p2_2','p_s12p2_4','p_s12p2_6'];
 const S12_KIND=['g','c','g','c','g','c'], S12_SIGN=[false,false,true,true,true,true];   // col layout: grid/cuboid, signed?
-const S12_GT=['max|cos|','top-10 |cos|','signed·sgn σ','signed top-10','signed·sgn σ·sgn r','signed·sgn r top-10'];
+const S12_GT=['max|cos|','|cos| top-10','signed','signed top-10','signed·r','signed·r top-10'];   // concise (cells are narrow)
 const S12_P3T=['principal angle k=1','principal angle k=5','principal angle k=10','principal angle k=15'];
 const S12E_COL=['#2563eb','#16a34a','#dc2626'], S12E_LAB=['|cos|','signed','signed·sgn r'];
 let S12_SNAPS=[], S12_N=0, S12_K=0, S12_BUILT=false, S12_RAF=0, S12_PENDING=-1, S12_CAMKEY='', S12E_STEPS=[], S12E_DATA=null;
@@ -959,22 +959,22 @@ function s12Reset(){S12_SNAPS=[];S12_N=0;S12_K=0;S12_BUILT=false;S12_CAMKEY='';S
 function s12HeatZ(flat,N){const z=[];for(let i=0;i<N;i++)z.push(flat.slice(i*N,(i+1)*N));return z;}   // z[i]=row i (j=cols)
 function s12CubeXYZ(N,K){const L=N*N*K,x=new Array(L),y=new Array(L),zz=new Array(L);   // idx=i·(N·K)+j·K+r
   for(let q=0;q<L;q++){const i=Math.floor(q/(N*K)),rem=q-i*N*K,j=Math.floor(rem/K),r=rem-j*K;x[q]=i;y[q]=j;zz[q]=r;}return {x,y,zz};}
-function s12HeatTrace(signed,amax){return signed
-  ? [{type:'heatmap',z:[[0]],colorscale:'RdBu',reversescale:true,zmid:0,zmin:-amax,zmax:amax,colorbar:{thickness:8,len:0.85,tickfont:{size:8}}}]
-  : [{type:'heatmap',z:[[0]],colorscale:'Viridis',zmin:0,zmax:amax,colorbar:{thickness:8,len:0.85,tickfont:{size:8}}}];}
+function s12HeatTrace(signed,amax,N){const z=N?s12HeatZ(new Array(N*N).fill(0),N):[[0]];return signed   // build at N×N (robust resize)
+  ? [{type:'heatmap',z:z,colorscale:'RdBu',reversescale:true,zmid:0,zmin:-amax,zmax:amax,colorbar:{thickness:8,len:0.82,tickfont:{size:8}}}]
+  : [{type:'heatmap',z:z,colorscale:'Viridis',zmin:0,zmax:amax,colorbar:{thickness:8,len:0.82,tickfont:{size:8}}}];}
 function s12CubeTrace(signed){return [{type:'scatter3d',mode:'markers',x:[],y:[],z:[],customdata:[],
   marker:{size:3,color:[],colorscale:signed?'RdBu':'Viridis',reversescale:signed,cmin:signed?-1:0,cmax:1,opacity:0.85,
     colorbar:{thickness:8,len:0.8,tickfont:{size:8}}},hovertemplate:'i=%{x}, j=%{y}, rank=%{z}<br>%{customdata:.3f}<extra></extra>'}];}
-function s12HeatLayout(title,N){const dt=Math.max(1,Math.round(N/8));
-  return {title:{text:title,font:{size:11}},margin:{l:34,r:8,t:26,b:30},uirevision:'s12',
-    xaxis:{title:'j',dtick:dt},yaxis:{title:'i',dtick:dt,autorange:'reversed',scaleanchor:'x',scaleratio:1}};}
+function s12HeatLayout(title,N){const dt=Math.max(1,Math.round(N/8));   // bigger margins + automargin so the plot does not overlap the axes/title
+  return {title:{text:title,font:{size:11},x:0.5,xanchor:'center'},margin:{l:48,r:14,t:42,b:42},uirevision:'s12',
+    xaxis:{title:{text:'j',standoff:6},dtick:dt,automargin:true},yaxis:{title:{text:'i',standoff:6},dtick:dt,autorange:'reversed',automargin:true}};}
 function s12CubeLayout(title,N,K){const dt=Math.max(1,Math.round(N/6));
-  return {title:{text:title,font:{size:11}},margin:{l:0,r:0,t:26,b:0},uirevision:'s12',showlegend:false,
+  return {title:{text:title,font:{size:11},x:0.5,xanchor:'center'},margin:{l:0,r:0,t:36,b:0},uirevision:'s12',showlegend:false,
     scene:{xaxis:{title:'i',dtick:dt,range:[N-1,0]},yaxis:{title:'j',dtick:dt,range:[0,N-1]},zaxis:{title:'rank',range:[0,K-1]},aspectmode:'cube',camera:{eye:{x:1.7,y:1.7,z:1.2}}}};}
 function s12Build(N,K){
   S12_N=N;S12_K=K;S12_BUILT=true;
   for(const ids of [S12_P1,S12_P2]) for(let n=0;n<6;n++){
-    if(S12_KIND[n]==='g'){Plotly.newPlot(ids[n],s12HeatTrace(S12_SIGN[n],1),s12HeatLayout(S12_GT[n],N),{responsive:true,displaylogo:false});}
+    if(S12_KIND[n]==='g'){Plotly.newPlot(ids[n],s12HeatTrace(S12_SIGN[n],1,N),s12HeatLayout(S12_GT[n],N),{responsive:true,displaylogo:false});}
     else{Plotly.newPlot(ids[n],s12CubeTrace(S12_SIGN[n]),s12CubeLayout(S12_GT[n],N,K),{responsive:true,displaylogo:false});
       document.getElementById(ids[n]).on('plotly_relayout',ev=>{   // synced cuboid rotation (mirror §11)
         if(!chk('s12_sync'))return;
@@ -983,7 +983,7 @@ function s12Build(N,K){
         if(!cam)return;const key=JSON.stringify(cam);if(key===S12_CAMKEY)return;S12_CAMKEY=key;
         for(const oid of S12_CUBES)if(oid!==ids[n])Plotly.relayout(oid,{'scene.camera':cam});});}
   }
-  for(let n=0;n<4;n++)Plotly.newPlot(S12_P3[n],s12HeatTrace(false,90),s12HeatLayout(S12_P3T[n],N),{responsive:true,displaylogo:false});
+  for(let n=0;n<4;n++)Plotly.newPlot(S12_P3[n],s12HeatTrace(false,90,N),s12HeatLayout(S12_P3T[n],N),{responsive:true,displaylogo:false});
   s12EvoBuild();
 }
 function s12EvoBuild(){
@@ -1017,14 +1017,14 @@ function s12RenderNow(i){
   for(const pk of ['p1','p2']){const ids=pk==='p1'?S12_P1:S12_P2,P=s[pk];
     for(let n=0;n<6;n++){const idx=Math.floor(n/2);
       if(S12_KIND[n]==='g'){Plotly.restyle(ids[n],{z:[s12HeatZ(P.g[idx],N)]},[0]);
-        Plotly.relayout(ids[n],{'title.text':S12_GT[n]+'   μ='+P.gm[idx].toFixed(3)});}
+        Plotly.relayout(ids[n],{'title.text':S12_GT[n]+'  μ='+P.gm[idx].toFixed(2)});}
       else{const f=P.c[idx];
         Plotly.restyle(ids[n],{x:[cube.x],y:[cube.y],z:[cube.zz],customdata:[f],'marker.color':[f],
           'marker.size':[f.map(v=>2.6*(0.45+0.55*Math.min(1,Math.abs(v))))]},[0]);
-        Plotly.relayout(ids[n],{'title.text':S12_GT[n]+'   μ='+P.cm[idx].toFixed(3)});}}}
+        Plotly.relayout(ids[n],{'title.text':S12_GT[n]+'  μ='+P.cm[idx].toFixed(2)});}}}
   for(let n=0;n<4;n++){Plotly.restyle(S12_P3[n],{z:[s12HeatZ(s.p3.g[n],N)]},[0]);
     const lab=n<3?S12_P3T[n]:('principal angle k='+(s.p3.kfull||15));
-    Plotly.relayout(S12_P3[n],{'title.text':lab+'   μ='+s.p3.gm[n].toFixed(1)+'°'});}
+    Plotly.relayout(S12_P3[n],{'title.text':lab+'  μ='+s.p3.gm[n].toFixed(1)+'°'});}
   const sp=document.getElementById('s12_step');if(sp)sp.textContent=`step ${s.t}  ·  snapshot ${i+1}/${S12_SNAPS.length}`;
 }
 function s12Push(m){
@@ -1700,7 +1700,7 @@ async function loop(){                                   // drives ST forward; r
         // §12 — per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity (ground-truth-label output).
         // MATRIX-FREE: Lanczos on the per-sample HVP v↦Q_i·v (=hvpS with a one-hot cotangent) gives the top-/
         // bottom-K12 eigenpairs — no p×p Hessian formed, scales to any p. Gated on N (≤sec12ncap). Mirrors server.
-        if(O.s19&&M>1&&S.eigTick%S.heavyEvery===0&&bJc&&rrs&&N<=S.sec12ncap){   // throttled like §7/§8 (N Lanczos runs/tick is heavy)
+        if(O.s19&&M>1&&bJc&&rrs&&N<=S.sec12ncap){   // every tick (matrix-free Lanczos)
           const oD=Math.round(M/N), lblsel=new Array(N);
           for(let i=0;i<N;i++){if(oD>1){let mx=-Infinity,mi=0;for(let c=0;c<oD;c++){const yv=Y[i*oD+c];if(yv>mx){mx=yv;mi=c;}}lblsel[i]=i*oD+mi;}else lblsel[i]=i;}
           const K12=Math.max(1,Math.min(SEC12_KFULL,Math.floor(p/2))), m12=Math.min(p,Math.max(6*K12,64));
