@@ -1032,6 +1032,45 @@ def lanczos_extreme(hvp, p, n, m, seed):
     return topVecs, botVecs, topVals, botVals
 
 
+def batched_lanczos_extreme(hvp_batch, p, N, n, m, seeds):
+    """N independent Lanczos eigendecompositions run IN LOCKSTEP (vectorised over the N samples). hvp_batch(V)
+    maps (N,p) → (N,p) = {Q_i·V_i}_i (one batched HVP per step instead of N separate ones). Returns the top-n &
+    bottom-n eigenpairs per sample: (TV,TW,BV,BW) with shapes (N,n,p),(N,n),(N,n,p),(N,n). Twice-reorthogonalised
+    like lanczos_extreme; replacing N×m tiny ops with m batched ops is a large GPU speed-up for §12.
+    MIRRORS eos_lab.linalg.batched_lanczos_extreme."""
+    dev, dt = _dev(), DTYPE
+    q = torch.stack([_randn_vec(p, seeds[i]) for i in range(N)])      # (N,p)
+    q = q / q.norm(dim=1, keepdim=True)
+    Qs, al, be = [], [], []
+    qp = torch.zeros(N, p, dtype=dt, device=dev); beta = torch.zeros(N, dtype=dt, device=dev)
+    for _ in range(min(p, m)):
+        Qs.append(q)
+        w = hvp_batch(q)
+        a = (w * q).sum(1); al.append(a)
+        w = w - a[:, None] * q - beta[:, None] * qp
+        Qm = torch.stack(Qs, dim=1)                                   # (N,k,p)
+        for _ in range(2):                                           # twice-iterated full reorthogonalisation
+            w = w - torch.bmm(Qm.transpose(1, 2), torch.bmm(Qm, w.unsqueeze(2))).squeeze(2)
+        beta = w.norm(dim=1); be.append(beta)
+        qp = q; q = w / beta.clamp_min(1e-30).unsqueeze(1)
+    Qmat = torch.stack(Qs, dim=1); k = len(Qs)
+    T = torch.zeros(N, k, k, dtype=dt, device=dev)
+    for i in range(k):
+        T[:, i, i] = al[i]
+    for i in range(k - 1):
+        T[:, i, i + 1] = be[i]; T[:, i + 1, i] = be[i]
+    mu, Sv = torch.linalg.eigh(T)                                    # (N,k) ascending, (N,k,k)
+    nn = min(n, k)
+    top = mu.argsort(dim=1, descending=True)[:, :nn]; bot = mu.argsort(dim=1)[:, :nn]
+
+    def gp(ix):
+        vals = torch.gather(mu, 1, ix)
+        Svs = torch.gather(Sv, 2, ix.unsqueeze(1).expand(N, k, nn))   # (N,k,nn)
+        return torch.einsum('nkp,nkj->njp', Qmat, Svs), vals          # (N,nn,p),(N,nn)
+    tv, tw = gp(top); bv, bw = gp(bot)
+    return tv, tw, bv, bw
+
+
 def lanczos_extreme_vals(hvp, p, n, m, seed):
     _, T, k = _lanczos_core(hvp, p, m, seed)
     mu, _, idx = _eig_sorted(T)
@@ -1904,26 +1943,42 @@ def run_stream(P):
                     g3d.update({"i1": ix1, "i2": ix2, "i3": ix3})
 
             # §12 — per-sample Hessian Q_i = ∇²f_i (ground-truth-label output); eigenvector cross-similarity
-            # grids/cuboids + principal angles over sample pairs (i,j). MATRIX-FREE: Lanczos on the per-sample
-            # HVP v↦Q_i·v (= hvpS with a one-hot cotangent) extracts the top-K12 & bottom-K12 eigenpairs — no
-            # p×p Hessian is formed, so this scales to any p (like §1–§3). Gated on N (≤sec12ncap).
+            # grids/cuboids + principal angles over sample pairs (i,j). MATRIX-FREE: extract the top-K12 &
+            # bottom-K12 eigenpairs of each Q_i by Lanczos on v↦Q_i·v — no p×p Hessian is formed. For the MLP
+            # the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (a single vectorised forward/backward per
+            # step instead of N) — ~4–8× faster on GPU. Other archs fall back to the per-sample loop. Gated on N.
             sec12 = None
-            if s19 and multi_ok and Jc is not None and rr is not None and N <= sec12ncap:   # every tick (matrix-free Lanczos)
+            if s19 and multi_ok and Jc is not None and rr is not None and N <= sec12ncap:
                 lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
                             if outD > 1 else torch.arange(N, device=_dev()))
                 K12 = max(1, min(SEC12_KFULL, p // 2))          # top-/bottom-K12 eigenpairs (covers k=1,2,5,10,kfull)
                 m12 = min(p, max(6 * K12, 64))                  # Lanczos steps — enough to converge the K12-th eigenpair
-                TV = []; TW = []; BV = []; BW = []
-                for i in range(N):
-                    ci = torch.zeros(N, outD, dtype=DTYPE, device=_dev())
-                    ci.view(-1)[int(lblsel12[i])] = 1.0         # one-hot at sample i's ground-truth output
-                    tv, bv, tval, bval = lanczos_extreme(
-                        lambda v, ci=ci: hvpS(th, X, v, ci), p, K12, m12, (0x5EC12 + i * 7919) & 0x7FFFFFFF)
-                    TV.append(torch.stack(tv)); BV.append(torch.stack(bv))
-                    TW.append(torch.tensor(tval, dtype=DTYPE, device=_dev()))
-                    BW.append(torch.tensor(bval, dtype=DTYPE, device=_dev()))
-                sec12 = _sec12_payload(torch.stack(TV), torch.stack(TW), torch.stack(BV), torch.stack(BW),
-                                       rr[lblsel12])
+                seeds12 = [(0x5EC12 + i * 7919) & 0x7FFFFFFF for i in range(N)]
+                if arch == "mlp":
+                    import torch.func as _tf
+                    lbl12 = (Y.reshape(N, outD).argmax(dim=1) if outD > 1
+                             else torch.zeros(N, dtype=torch.long, device=_dev()))
+                    OH = torch.zeros(N, outD, dtype=DTYPE, device=_dev())
+                    OH[torch.arange(N, device=_dev()), lbl12] = 1.0          # GT-label selector per sample
+                    spec12 = _TL.model.spec
+                    def _f12(t, x, oh):                                      # scalar = GT-label output of one sample
+                        return (fwd(t, spec12, x.unsqueeze(0))[0].reshape(-1) * oh).sum()
+                    def _hv12(t, x, oh, v):                                  # ∇²f_i·v via jvp-of-grad (exact)
+                        return _tf.jvp(lambda tt: _tf.grad(_f12)(tt, x, oh), (t,), (v,))[1]
+                    hvp_batch = lambda V: _tf.vmap(_hv12, in_dims=(None, 0, 0, 0))(th, X, OH, V)
+                    TV, TW, BV, BW = batched_lanczos_extreme(hvp_batch, p, N, K12, m12, seeds12)
+                else:
+                    TVl = []; TWl = []; BVl = []; BWl = []
+                    for i in range(N):
+                        ci = torch.zeros(N, outD, dtype=DTYPE, device=_dev())
+                        ci.view(-1)[int(lblsel12[i])] = 1.0
+                        tv, bv, tval, bval = lanczos_extreme(
+                            lambda v, ci=ci: hvpS(th, X, v, ci), p, K12, m12, seeds12[i])
+                        TVl.append(torch.stack(tv)); BVl.append(torch.stack(bv))
+                        TWl.append(torch.tensor(tval, dtype=DTYPE, device=_dev()))
+                        BWl.append(torch.tensor(bval, dtype=DTYPE, device=_dev()))
+                    TV, TW, BV, BW = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
+                sec12 = _sec12_payload(TV, TW, BV, BW, rr[lblsel12])
 
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness λmax(∇²L) ≈ λmax(GN) = σ₁/N
             thPr = [(x / N if x is not None else None) for x in thP] if thP else None

@@ -85,6 +85,41 @@ def lanczos_extreme(hvp, p, n, m, seed, device, dtype):
     return top_vecs, bot_vecs, top_vals, bot_vals
 
 
+def batched_lanczos_extreme(hvp_batch, p, N, n, m, seeds, device, dtype):
+    """N independent Lanczos eigendecompositions IN LOCKSTEP, vectorised over the N samples. hvp_batch(V:(N,p))
+    → (N,p) = {Q_i·V_i}_i (one batched HVP per step). Returns top-n & bottom-n eigenpairs per sample:
+    (TV,TW,BV,BW) = (N,n,p),(N,n),(N,n,p),(N,n). MIRRORS server.batched_lanczos_extreme (used by §12)."""
+    q = torch.stack([randn_vec(p, seeds[i], device, dtype) for i in range(N)])
+    q = q / q.norm(dim=1, keepdim=True)
+    Qs, al, be = [], [], []
+    qp = torch.zeros(N, p, dtype=dtype, device=device); beta = torch.zeros(N, dtype=dtype, device=device)
+    for _ in range(min(p, m)):
+        Qs.append(q)
+        w = hvp_batch(q)
+        a = (w * q).sum(1); al.append(a)
+        w = w - a[:, None] * q - beta[:, None] * qp
+        Qm = torch.stack(Qs, dim=1)
+        for _ in range(2):
+            w = w - torch.bmm(Qm.transpose(1, 2), torch.bmm(Qm, w.unsqueeze(2))).squeeze(2)
+        beta = w.norm(dim=1); be.append(beta); qp = q; q = w / beta.clamp_min(1e-30).unsqueeze(1)
+    Qmat = torch.stack(Qs, dim=1); k = len(Qs)
+    T = torch.zeros(N, k, k, dtype=dtype, device=device)
+    for i in range(k):
+        T[:, i, i] = al[i]
+    for i in range(k - 1):
+        T[:, i, i + 1] = be[i]; T[:, i + 1, i] = be[i]
+    mu, Sv = torch.linalg.eigh(T)
+    nn = min(n, k)
+    top = mu.argsort(dim=1, descending=True)[:, :nn]; bot = mu.argsort(dim=1)[:, :nn]
+
+    def gp(ix):
+        vals = torch.gather(mu, 1, ix)
+        Svs = torch.gather(Sv, 2, ix.unsqueeze(1).expand(N, k, nn))
+        return torch.einsum('nkp,nkj->njp', Qmat, Svs), vals
+    tv, tw = gp(top); bv, bw = gp(bot)
+    return tv, tw, bv, bw
+
+
 def lanczos_extreme_vals(hvp, p, n, m, seed, device, dtype):
     """Top-n and bottom-n eigenVALUES only (cheaper — no Ritz reconstruction).
     MIRRORS server.lanczos_extreme_vals. Returns (top, bot)."""

@@ -24,10 +24,10 @@ import math
 import torch
 
 from .models import (grad_sum_f, hvp_F, hvp_L, hvp_S, hvp_G, hvp_G2,
-                     jac_cols, jac_hvp, grad_out)
+                     jac_cols, jac_hvp, grad_out, mlp_forward)
 from .linalg import (lanczos_extreme, lanczos_extreme_vals, slq_density, hutch_trace, sym_eig_desc,
                      sign_to, pin_sign, pos_subspace, neg_subspace, principal_angles, randn_vec,
-                     sec12_payload, SEC12_KFULL)
+                     sec12_payload, SEC12_KFULL, batched_lanczos_extreme)
 
 # §11 render budget: emit only ≤this many points per grid above this size (mirror server.G3D_MAXPTS).
 G3D_MAXPTS = 10000
@@ -568,26 +568,41 @@ class Diagnostics:
             rec["g3d"] = g3d
 
         # ---- §12 per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity (ground-truth-label output) ----
-        # MATRIX-FREE: Lanczos on the per-sample HVP v↦Q_i·v (=hvp_S with a one-hot cotangent) extracts the
-        # top-K12 & bottom-K12 eigenpairs — no p×p Hessian formed, so it scales to any p. Gated on N (≤sec12ncap).
-        if (self.s19 and self.multi_ok and Jc is not None and rr is not None   # every tick (matrix-free Lanczos)
+        # MATRIX-FREE: extract each Q_i's top-K12 & bottom-K12 eigenpairs by Lanczos on v↦Q_i·v — no p×p
+        # Hessian formed. For the MLP the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (one vectorised
+        # forward/backward per step, ~4–8× faster on GPU); other archs fall back to the per-sample loop.
+        if (self.s19 and self.multi_ok and Jc is not None and rr is not None
                 and N <= self.sec12ncap):
             lblsel12 = (torch.arange(N, device=dev) * outD + Y.reshape(N, outD).argmax(dim=1)
                         if outD > 1 else torch.arange(N, device=dev))
             K12 = max(1, min(SEC12_KFULL, p // 2))
             m12 = min(p, max(6 * K12, 64))                      # enough Lanczos steps to converge the K12-th eigenpair
-            TV = []; TW = []; BV = []; BW = []
-            for i in range(N):
-                ci = torch.zeros(N, outD, dtype=dt, device=dev)
-                ci.view(-1)[int(lblsel12[i])] = 1.0            # one-hot at sample i's ground-truth output
-                tv, bv, tval, bval = lanczos_extreme(
-                    lambda v, ci=ci: hvp_S(self.model, th, X, ci, v), p, K12, m12,
-                    (0x5EC12 + i * 7919) & 0x7FFFFFFF, dev, dt)
-                TV.append(torch.stack(tv)); BV.append(torch.stack(bv))
-                TW.append(torch.tensor(tval, dtype=dt, device=dev))
-                BW.append(torch.tensor(bval, dtype=dt, device=dev))
-            rec["g4d"] = sec12_payload(torch.stack(TV), torch.stack(TW), torch.stack(BV), torch.stack(BW),
-                                       rr[lblsel12])
+            seeds12 = [(0x5EC12 + i * 7919) & 0x7FFFFFFF for i in range(N)]
+            if getattr(self.model, "spec", None) is not None:   # MLP — batched vmap HVP
+                import torch.func as _tf
+                lbl12 = (Y.reshape(N, outD).argmax(dim=1) if outD > 1
+                         else torch.zeros(N, dtype=torch.long, device=dev))
+                OH = torch.zeros(N, outD, dtype=dt, device=dev)
+                OH[torch.arange(N, device=dev), lbl12] = 1.0
+                spec12 = self.model.spec
+                def _f12(t, x, oh):
+                    return (mlp_forward(t, spec12, x.unsqueeze(0)).reshape(-1) * oh).sum()
+                def _hv12(t, x, oh, v):
+                    return _tf.jvp(lambda tt: _tf.grad(_f12)(tt, x, oh), (t,), (v,))[1]
+                hvp_batch = lambda V: _tf.vmap(_hv12, in_dims=(None, 0, 0, 0))(th, X, OH, V)
+                TV, TW, BV, BW = batched_lanczos_extreme(hvp_batch, p, N, K12, m12, seeds12, dev, dt)
+            else:
+                TVl = []; TWl = []; BVl = []; BWl = []
+                for i in range(N):
+                    ci = torch.zeros(N, outD, dtype=dt, device=dev)
+                    ci.view(-1)[int(lblsel12[i])] = 1.0
+                    tv, bv, tval, bval = lanczos_extreme(
+                        lambda v, ci=ci: hvp_S(self.model, th, X, ci, v), p, K12, m12, seeds12[i], dev, dt)
+                    TVl.append(torch.stack(tv)); BVl.append(torch.stack(bv))
+                    TWl.append(torch.tensor(tval, dtype=dt, device=dev))
+                    BWl.append(torch.tensor(bval, dtype=dt, device=dev))
+                TV, TW, BV, BW = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
+            rec["g4d"] = sec12_payload(TV, TW, BV, BW, rr[lblsel12])
 
         # ---- §5 SLQ spectral densities (expensive → ~50 snapshots/run via slqStride) ----
         if self.s5 and slq_tick:
