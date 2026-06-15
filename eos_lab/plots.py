@@ -752,8 +752,8 @@ def plot_section11_sumnormshare(hist):
 
 
 # ─────────────────────────────── §12 per-sample Hessian eigenvector cross-similarity ───────────────────────
-_S12_GTITLE = ["max|cos|", "signed·sgn σ", "signed·sgn σ·sgn r"]      # grid columns (1,3,5)
-_S12_CTITLE = ["top-10 |cos|", "signed top-10", "signed·sgn r top-10"]  # cuboid columns (2,4,6)
+_S12_GTITLE = ["max|cos|", "sgnλ·|cos|", "sgnλ·sgnr·|cos|"]            # grid columns (1,3,5); sign from λ·r only
+_S12_CTITLE = ["top-10 |cos|", "sgnλ·|cos| top10", "sgnλ·sgnr·|cos| top10"]  # cuboid columns (2,4,6)
 
 
 def _s12_heat(ax, vals, N, title):

@@ -257,7 +257,7 @@
   <label style="white-space:nowrap;font-size:13px"><input type="checkbox" id="s12_sync" checked> sync rotation</label>
 </div>
 <h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — $k=2$ &nbsp; (cols: grid = a single value per pair; cuboid = the 10 largest pairs on $z$)</h3>
-<p class="cap">Col 1: $\max_{a,b}\,|\cos(e_i^a,e_j^b)|$. Col 2: the 10 largest $|\cos|$. Col 3/4: the signed $\cos$ (argmax pair / top-10) $\times\,\mathrm{sgn}\,\lambda_i\,\mathrm{sgn}\,\lambda_j$. Col 5/6: cols 3/4 further $\times\,\mathrm{sgn}\,r_i\,\mathrm{sgn}\,r_j$.</p>
+<p class="cap">Col 1: $\max_{a,b}\,|\cos(e_i^a,e_j^b)|$. Col 2: the 10 largest $|\cos|$. Col 3/4: $|\cos|$ (argmax pair / top-10) $\times\,\mathrm{sgn}\,\lambda_i\,\mathrm{sgn}\,\lambda_j$. Col 5/6: cols 3/4 further $\times\,\mathrm{sgn}\,r_i\,\mathrm{sgn}\,r_j$. The sign is carried <b>only</b> by the gauge-invariant $\mathrm{sgn}\,\lambda\,(\mathrm{sgn}\,r)$ &mdash; the cosine contributes magnitude $|\cos|$ alone, since $\mathrm{sgn}\cos$ between eigenvectors of different $Q_i$ is gauge-dependent (flips with each Ritz vector's arbitrary $\pm$).</p>
 <div class="plotrow row6"><div id="p_s12p1_1" class="plot" style="height:300px"></div><div id="p_s12p1_2" class="plot" style="height:300px"></div><div id="p_s12p1_3" class="plot" style="height:300px"></div><div id="p_s12p1_4" class="plot" style="height:300px"></div><div id="p_s12p1_5" class="plot" style="height:300px"></div><div id="p_s12p1_6" class="plot" style="height:300px"></div></div>
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — $k=5$</h3>
 <div class="plotrow row6"><div id="p_s12p2_1" class="plot" style="height:300px"></div><div id="p_s12p2_2" class="plot" style="height:300px"></div><div id="p_s12p2_3" class="plot" style="height:300px"></div><div id="p_s12p2_4" class="plot" style="height:300px"></div><div id="p_s12p2_5" class="plot" style="height:300px"></div><div id="p_s12p2_6" class="plot" style="height:300px"></div></div>
@@ -946,9 +946,9 @@ const S12_P3=['p_s12p3_1','p_s12p3_2','p_s12p3_3','p_s12p3_4'];
 const S12_P4=['p_s12p4_1','p_s12p4_2','p_s12p4_3','p_s12p4_4'];
 const S12_CUBES=['p_s12p1_2','p_s12p1_4','p_s12p1_6','p_s12p2_2','p_s12p2_4','p_s12p2_6'];
 const S12_KIND=['g','c','g','c','g','c'], S12_SIGN=[false,false,true,true,true,true];   // col layout: grid/cuboid, signed?
-const S12_GT=['max|cos|','|cos| top-10','signed','signed top-10','signed·r','signed·r top-10'];   // concise (cells are narrow)
+const S12_GT=['max|cos|','|cos| top-10','sgnλ·|cos|','sgnλ·|cos| t10','sgnλr·|cos|','sgnλr·|cos| t10'];   // concise (cells are narrow); sign from λ·r only
 const S12_P3T=['principal angle k=1','principal angle k=5','principal angle k=10','principal angle k=15'];
-const S12E_COL=['#2563eb','#16a34a','#dc2626'], S12E_LAB=['|cos|','signed','signed·sgn r'];
+const S12E_COL=['#2563eb','#16a34a','#dc2626'], S12E_LAB=['|cos|','sgnλ·|cos|','sgnλ·sgnr·|cos|'];
 let S12_SNAPS=[], S12_N=0, S12_K=0, S12_BUILT=false, S12_RAF=0, S12_PENDING=-1, S12_CAMKEY='', S12E_STEPS=[], S12E_DATA=null;
 function s12AllIds(){return S12_P1.concat(S12_P2,S12_P3,S12_P4);}
 function s12Reset(){S12_SNAPS=[];S12_N=0;S12_K=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEPS=[];S12E_DATA=null;
@@ -1037,9 +1037,7 @@ function s12Push(m){
 // ── §12 browser-mode compute (JS port of server._sec12_payload) ──────────────
 const SEC12_KFULL=15;   // rank of the §12 "full-space" principal-angle plot (top-15 ⊕ bottom-15). MIRRORS server.
 function s12Dot(u,v,p){let d=0;for(let q=0;q<p;q++)d+=u[q]*v[q];return d;}
-function s12PinVecs(VV,p){for(const v of VV){let mi=0;for(let a=1;a<p;a++)if(Math.abs(v[a])>Math.abs(v[mi]))mi=a;   // pin sign
-  if(v[mi]<0)for(let a=0;a<p;a++)v[a]=-v[a];}}
-// TV[i]/BV[i] = arrays of K top/bottom eigenVECTORS (Float64Array p, sign-pinned); TW[i]/BW[i] = their eigenVALUES.
+// TV[i]/BV[i] = arrays of K top/bottom eigenVECTORS (Float64Array p, raw signs); TW[i]/BW[i] = their eigenVALUES.
 function s12CosPanel(k,TV,TW,BV,BW,rs,N,p){
   const K2=Math.max(1,Math.min(k,TV[0].length)),D=2*K2,KK=Math.min(10,D*D);
   const E=[],S=[];
@@ -1051,7 +1049,7 @@ function s12CosPanel(k,TV,TW,BV,BW,rs,N,p){
   const c2=new Float64Array(N*N*KK),c4=new Float64Array(N*N*KK),c6=new Float64Array(N*N*KK);
   for(let i=0;i<N;i++)for(let j=0;j<N;j++){
     const cos=new Float64Array(D*D),sgn=new Float64Array(D*D);
-    for(let a=0;a<D;a++)for(let b=0;b<D;b++){const d=s12Dot(E[i][a],E[j][b],p);cos[a*D+b]=d;sgn[a*D+b]=d*S[i][a]*S[j][b];}
+    for(let a=0;a<D;a++)for(let b=0;b<D;b++){const d=s12Dot(E[i][a],E[j][b],p);cos[a*D+b]=d;sgn[a*D+b]=Math.abs(d)*S[i][a]*S[j][b];}  // |cos|·sgnλ_i·sgnλ_j (sign from λ only; no gauge-dependent sign(cos))
     let mx=-1,am=0;for(let q=0;q<D*D;q++){const av=Math.abs(cos[q]);if(av>mx){mx=av;am=q;}}
     const sr=rs[i]*rs[j],base=i*N+j;
     g1[base]=mx;g3[base]=sgn[am];g5[base]=sgn[am]*sr;
@@ -1077,7 +1075,7 @@ function s12Angles(TV,BV,N,p,k){
   let s=0;for(let q=0;q<N*N;q++)s+=g[q];return {g:Array.from(g),gm:s/(N*N)};
 }
 function sec12Payload(TV,TW,BV,BW,r,N,p){
-  for(let i=0;i<N;i++){s12PinVecs(TV[i],p);s12PinVecs(BV[i],p);}   // pin signs in place → reproducible signed cos
+  // No sign-pinning: |cos|, sign(λ), sign(r) and the principal angles are all invariant to each eigenvector's ±.
   const rs=r.map(x=>x<0?-1:(x>0?1:0)), K=TV[0].length, kf=Math.max(1,Math.min(SEC12_KFULL,K));
   const pas=[s12Angles(TV,BV,N,p,1),s12Angles(TV,BV,N,p,5),s12Angles(TV,BV,N,p,10),s12Angles(TV,BV,N,p,kf)];
   return {M:N,p1:s12CosPanel(2,TV,TW,BV,BW,rs,N,p),p2:s12CosPanel(5,TV,TW,BV,BW,rs,N,p),

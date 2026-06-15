@@ -80,18 +80,17 @@ def _sec12_payload(TV, TW, BV, BW, r, kfull=SEC12_KFULL):
       p1/p2 (k=2 / k=5): {g:[grid1,grid3,grid5] (N·N), c:[cub2,cub4,cub6] (N·N·10), gm,cm,cs, K}.
       p3 (principal angles k=1,5,10,kfull): {g:[4 grids N·N], gm:[4 means], kfull}.
     grid1 = max_{a,b}|cos(e_i^a,e_j^b)| over the 2k top⊕bottom eigenvectors; cub2 = the 10 largest |cos|;
-    grid3 = signed cos of the argmax pair × sign(λ_i)·sign(λ_j); cub4 = same for the top-10 pairs;
+    grid3 = |cos| of the argmax pair × sign(λ_i)·sign(λ_j); cub4 = same for the top-10 pairs;
     grid5/cub6 = grid3/cub4 × sign(r_i)·sign(r_j). Panel-3 cell = MEAN principal angle (deg) of the 2k
-    subspaces. Eigenvectors are sign-pinned (largest-|component| positive) so signed cosines are reproducible."""
+    subspaces. The SIGN comes purely from sign(λ)·sign(r) (both gauge-invariant); the cosine contributes only
+    its magnitude |cos|. sign(cos) between eigenvectors of two different Q_i is gauge-dependent — it flips with
+    the arbitrary ± of each Ritz vector (e e^T, λ, r do not), so it is NOT used and no sign-pinning is needed."""
     import math as _m
     N, K, p = int(TV.shape[0]), int(TV.shape[1]), int(TV.shape[2])
     dt = TV.dtype
 
-    def pin(M):                                         # pin each (N,K) eigenvector's sign → reproducible signed cos
-        idx = M.abs().argmax(dim=2)
-        sg = torch.sign(torch.gather(M, 2, idx.unsqueeze(2)).squeeze(2))
-        return M * torch.where(sg == 0, torch.ones_like(sg), sg).unsqueeze(2)
-    TV = pin(TV); BV = pin(BV)
+    # No sign-pinning: every quantity below (|cos|, sign(λ), sign(r), principal angles) is invariant to the
+    # arbitrary ± of each eigenvector, so the Ritz vectors are used exactly as Lanczos returns them.
     rs = torch.sign(r).to(dt)
 
     def vecset(k):
@@ -105,12 +104,12 @@ def _sec12_payload(TV, TW, BV, BW, r, kfull=SEC12_KFULL):
         D = E.shape[1]
         C = torch.einsum('iap,jbp->ijab', E, E)         # (N,N,D,D) cos = ⟨e_i^a, e_j^b⟩
         Cf = C.reshape(N, N, D * D)
-        Sab = torch.einsum('ia,jb->ijab', s, s).reshape(N, N, D * D)   # sign(λ_i^a)·sign(λ_j^b)
-        Mf = Cf * Sab
-        absf = Cf.abs()
+        absf = Cf.abs()                                               # |cos| — gauge-invariant
+        Sab = torch.einsum('ia,jb->ijab', s, s).reshape(N, N, D * D)   # sign(λ_i^a)·sign(λ_j^b) — gauge-invariant
+        Mf = absf * Sab                                               # |cos|·sgnλ_i·sgnλ_j  (sign from λ only; no gauge-dependent sign(cos))
         sr = rs.view(N, 1) * rs.view(1, N)
         g1 = absf.amax(dim=2)
-        g3 = torch.gather(Mf, 2, absf.argmax(dim=2, keepdim=True)).squeeze(2)
+        g3 = torch.gather(Mf, 2, absf.argmax(dim=2, keepdim=True)).squeeze(2)   # |cos_argmax|·sgnλ_i·sgnλ_j
         g5 = g3 * sr
         KK = min(10, D * D)
         tv, ti = torch.topk(absf, KK, dim=2)
