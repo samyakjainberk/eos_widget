@@ -718,7 +718,7 @@ function trRender(){if(!TR_STEPS.length)return;if(!TR_BUILT)trBuild();
 // flat C-order index i·M²+j·M+k. Every snapshot is kept so the slider can scrub the whole run;
 // the fixed (i,j,k) marker positions are built once per M, and each snapshot only restyles colour
 // (red +, blue −, symmetric range per snapshot). Dragging one grid rotates all three when synced.
-let G3D_SNAPS=[], G3D_M=0, G3D_BUILT=false, G3D_CAMKEY='', G3D_RAF=0, G3D_PENDING=-1, G3D_MAXSNAPS=1200;
+let G3D_SNAPS=[], G3D_M=0, G3D_BUILT=false, G3D_CAMKEY='', G3D_RAF=0, G3D_PENDING=-1, G3D_MAXSNAPS=1200, G3D_IO=null, G3D_VIS=true;
 const G3D_MAXPTS=10000;   // render budget per grid (mirror server G3D_MAXPTS): above this, emit a subset
 // ≤G3D_MAXPTS indices spanning the value range: half top-|value| (structure) + half random (the near-zero
 // bulk), so the rendered colours show a fine white→saturated gradient instead of only the saturated tail.
@@ -729,10 +729,21 @@ function g3dHybrid(T,n){
 }
 const G3D_IDS=['p_g3d1','p_g3d2','p_g3d3'], G3D_KEYS=['t1','t2','t3'], G3D_IDX=['i1','i2','i3'];
 const G3D_TITLES=['T₁ = Jᵢᵀ Qⱼ Jₖ','T₂ = uⱼ uₖ · Jᵢᵀ Qⱼ Jₖ','T₃ = rᵢ uⱼ uₖ · Jᵢᵀ Qⱼ Jₖ'];
+// §11 lazy: its 3D cubes share the page-wide WebGL context budget with §12/§13, so purge them when sec_g3d
+// scrolls off-screen and rebuild from the current snapshot when it returns (mirrors the §12 lazy scheme).
+function g3dLazyInit(){
+  if(G3D_IO){G3D_IO.disconnect();G3D_IO=null;}
+  const sec=document.getElementById('sec_g3d');if(!sec)return;
+  G3D_IO=new IntersectionObserver(es=>{for(const e of es){G3D_VIS=e.isIntersecting;
+    if(e.isIntersecting){if(G3D_SNAPS.length){const sl=document.getElementById('g3d_slider');g3dRenderIdx(sl?+sl.value:G3D_SNAPS.length-1);}}
+    else{for(const id of G3D_IDS.concat(['p_g3d4'])){try{Plotly.purge(id);}catch(_){}}G3D_BUILT=false;}}},
+    {root:null,rootMargin:'120px',threshold:0});
+  G3D_IO.observe(sec);}
 function g3dReset(){G3D_SNAPS=[];G3D_M=0;G3D_BUILT=false;G3D_CAMKEY='';if(G3D_RAF){cancelAnimationFrame(G3D_RAF);G3D_RAF=0;}G3D_PENDING=-1;
   for(const id of G3D_IDS.concat(['p_g3d4'])){try{Plotly.purge(id);}catch(e){}}   // blank the cubes + square so a Reset / new run doesn't leave stale grids
   const sl=document.getElementById('g3d_slider');if(sl){sl.max=0;sl.value=0;}
   const sp=document.getElementById('g3d_step');if(sp)sp.textContent='—';
+  g3dLazyInit();
   g3deReset();}
 function g3dBuild(M){
   G3D_M=M;G3D_BUILT=true;
@@ -809,6 +820,7 @@ function g3dRenderIdx(i){G3D_PENDING=i;if(G3D_RAF)return;
   G3D_RAF=requestAnimationFrame(()=>{G3D_RAF=0;const j=G3D_PENDING;G3D_PENDING=-1;if(j>=0)g3dRenderNow(j);});}
 function g3dRenderNow(i){
   const snap=G3D_SNAPS[i];if(!snap)return;
+  if(!G3D_VIS)return;   // §11 scrolled off-screen → don't hold a WebGL context (rebuilt on scroll-back)
   if(!G3D_BUILT||G3D_M!==snap.M)g3dBuild(snap.M);
   const fmt=x=>x===0?'0':(x<0?'-':'')+Math.abs(x).toExponential(1);
   for(let g=0;g<3;g++){
@@ -961,10 +973,14 @@ const S12_GLAB={A:'A · m·m',B:'B · signed σ,J',C:'C · signed σ,r,J',D:'D �
 const S12_ANGT=['principal angle k=1','principal angle k=5','principal angle k=10','principal angle k=15'];
 const S12E_COL=['#2563eb','#16a34a','#dc2626'], S12E_LAB=['A','B','C'];
 let S12_SNAPS=[], S12_N=0, S12_BUILT=false, S12_RAF=0, S12_PENDING=-1, S12_CAMKEY='', S12E_STEPS=[], S12E_DATA=null;
+let S12_BUILTSET=new Set(), S12_VISIBLE=new Set(), S12_IO=null, S12_CURIDX=0;   // lazy-WebGL cube state (context budget)
+const s12Mean=a=>{let s=0;for(let q=0;q<a.length;q++)s+=a[q];return a.length?s/a.length:0;};
+function s12RunMean(i,fn){let s=0,c=0;for(let q=0;q<=i&&q<S12_SNAPS.length;q++){const v=fn(S12_SNAPS[q]);if(v!=null&&isFinite(v)){s+=v;c++;}}return c?s/c:NaN;}  // time-running mean over snapshots 0..i
 function s12CubeIds(){const a=[];for(const k of S12_KS)for(const g of S12_GR)a.push('p_s12_'+k+'_'+g);for(const k of S12_KS)a.push('p_s13g1_'+k);return a;}
 function s12AllIds(){const a=s12CubeIds();for(let n=0;n<4;n++)a.push('p_s12ang_'+n);for(const k of S12_KS){a.push('p_s13g2_'+k);a.push('p_s13g3_'+k);}return a.concat(['p_s12evo_2','p_s12evo_5','p_s12evo_a5','p_s12evo_aF']);}
-function s12Reset(){S12_SNAPS=[];S12_N=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEPS=[];S12E_DATA=null;
+function s12Reset(){S12_SNAPS=[];S12_N=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEPS=[];S12E_DATA=null;S12_CURIDX=0;
   if(S12_RAF){cancelAnimationFrame(S12_RAF);S12_RAF=0;}S12_PENDING=-1;
+  if(S12_IO){S12_IO.disconnect();S12_IO=null;}S12_BUILTSET.clear();S12_VISIBLE.clear();
   for(const id of s12AllIds()){try{Plotly.purge(id);}catch(e){}}
   const sl=document.getElementById('s12_slider');if(sl){sl.max=0;sl.value=0;}
   const sp=document.getElementById('s12_step');if(sp)sp.textContent='—';}
@@ -995,7 +1011,7 @@ function s12CubeBuild(id,M,title,signed){
     if(!chk('s12_sync'))return;if(!Object.keys(ev).some(k=>k.indexOf('scene.camera')===0))return;
     const gd=document.getElementById(id),cam=gd&&gd._fullLayout&&gd._fullLayout.scene&&gd._fullLayout.scene.camera;
     if(!cam)return;const key=JSON.stringify(cam);if(key===S12_CAMKEY)return;S12_CAMKEY=key;
-    for(const oid of s12CubeIds())if(oid!==id)Plotly.relayout(oid,{'scene.camera':cam});});}
+    for(const oid of S12_BUILTSET)if(oid!==id)Plotly.relayout(oid,{'scene.camera':cam});});}   // only built (live) cubes
 function s12CubeRender(id,pack,M,title,mode){
   const v=pack.v,idxArr=pack.idx,L=v.length,pos=g3dPos(M,idxArr,L),dv=pack.d;
   const base=Math.max(2.5,Math.min(7,140/Math.max(1,M))),fmt=x=>x===0?'0':(x<0?'-':'')+Math.abs(x).toExponential(1);
@@ -1009,13 +1025,35 @@ function s12CubeRender(id,pack,M,title,mode){
     'marker.cmin':cmin,'marker.cmax':cmax,'marker.colorbar.tickvals':[tickvals],'marker.colorbar.ticktext':[ticktext]},[0]);
   Plotly.restyle(id,{customdata:[dv],'marker.color':[dc],'marker.cmin':cmin,'marker.cmax':cmax},[2]);
   Plotly.relayout(id,{'title.text':title});}
+function s12CubeMeta(id){   // (label, color mode, signed, snapshot→pack) for any cube id
+  if(id.indexOf('p_s13g1_')===0){const k=id.slice(8);return {label:'G1 k='+k,mode:'symlog',signed:true,pack:s=>s.g1[k]};}
+  const m=id.match(/^p_s12_(\d+)_([A-E])$/),k=m[1],g=m[2];
+  return {label:S12_GLAB[g]+' k='+k,mode:S12_GMODE[g],signed:S12_GMODE[g]!=='pos01',pack:s=>s.s12[k][g]};}
+function s12RenderCube(id,i){   // restyle a built cube from snapshot i, with current μ + running ⟨μ⟩ in the title
+  const s=S12_SNAPS[i];if(!s||!s.do3d)return;const meta=s12CubeMeta(id),pk=meta.pack(s);if(!pk)return;
+  const run=s12RunMean(i,sn=>sn.do3d?meta.pack(sn).mn:null);
+  const f=meta.mode==='symlog'?(x=>(isFinite(x)?x.toExponential(1):'?')):(x=>x.toFixed(2));
+  s12CubeRender(id,pk,s.M,meta.label+'  μ='+f(pk.mn)+'  ⟨μ⟩='+f(run),meta.mode);}
+function s12EnsureCube(id){   // build the cube's WebGL plot on demand (if data present) + render it
+  const i=S12_CURIDX,s=S12_SNAPS[i];if(!s||!s.do3d)return;
+  if(!S12_BUILTSET.has(id)){const meta=s12CubeMeta(id);s12CubeBuild(id,s.M,meta.label,meta.signed);S12_BUILTSET.add(id);
+    if(S12_CAMKEY){try{Plotly.relayout(id,{'scene.camera':JSON.parse(S12_CAMKEY)});}catch(e){}}}
+  s12RenderCube(id,i);}
+function s12PurgeCube(id){if(S12_BUILTSET.has(id)){try{Plotly.purge(id);}catch(e){}S12_BUILTSET.delete(id);}}
+// Browsers cap simultaneous WebGL contexts (~16); §11+§12+§13 would need 22. So each 3D cube's gl context is
+// created only while its div is near the viewport and purged when it scrolls away — keeping live contexts low
+// (which also stops §11's cubes from being evicted). The 2D heatmaps/evolution are SVG and stay built.
+function s12LazyInit(){if(S12_IO)return;
+  S12_IO=new IntersectionObserver(ents=>{for(const e of ents){const id=e.target.id;
+    if(e.isIntersecting){S12_VISIBLE.add(id);s12EnsureCube(id);}else{S12_VISIBLE.delete(id);s12PurgeCube(id);}}},
+    {root:null,rootMargin:'120px',threshold:0});
+  for(const id of s12CubeIds()){const el=document.getElementById(id);if(el)S12_IO.observe(el);}}
 function s12Build(N){
   S12_N=N;S12_BUILT=true;
-  for(const k of S12_KS)for(const g of S12_GR)s12CubeBuild('p_s12_'+k+'_'+g,N,S12_GLAB[g]+' k='+k,S12_GMODE[g]!=='pos01');
   for(let n=0;n<4;n++)s12Heat2DBuild('p_s12ang_'+n,N,S12_ANGT[n],false);
-  for(const k of S12_KS)s12CubeBuild('p_s13g1_'+k,N,'G1 k='+k,true);
   for(const k of S12_KS){s12Heat2DBuild('p_s13g2_'+k,N,'G2 k='+k,true);s12Heat2DBuild('p_s13g3_'+k,N,'G3=|G2| k='+k,false);}
   s12EvoBuild();
+  s12LazyInit();   // §12/§13 3D cubes are built lazily by the IntersectionObserver (WebGL context budget)
 }
 function s12EvoBuild(){
   for(const id of ['p_s12evo_2','p_s12evo_5']){const tr=[];
@@ -1042,19 +1080,21 @@ function s12EvoRender(){
   Plotly.restyle('p_s12evo_a5',{x:[t],y:[S12E_DATA.a5]});Plotly.restyle('p_s12evo_aF',{x:[t],y:[S12E_DATA.aF]});
 }
 function s12RenderIdx(i){S12_PENDING=i;if(S12_RAF)return;S12_RAF=requestAnimationFrame(()=>{S12_RAF=0;const j=S12_PENDING;S12_PENDING=-1;if(j>=0)s12RenderNow(j);});}
-function s12Heat2DSnap(id,flat,N,lab,signed,deg){
+function s12Heat2DSnap(id,flat,N,lab,signed,deg,run){
   let mx=0,sm=0;for(const v of flat){sm+=v;mx=Math.max(mx,signed?Math.abs(v):v);}mx=mx||1;
   Plotly.restyle(id,signed?{z:[s12HeatZ(flat,N)],zmin:-mx,zmax:mx}:{z:[s12HeatZ(flat,N)],zmin:0,zmax:mx},[0]);
-  const mn=sm/flat.length;Plotly.relayout(id,{'title.text':lab+'  μ='+(deg?mn.toFixed(1)+'°':mn.toFixed(2))});}
+  const u=deg?(x=>x.toFixed(1)+'°'):(x=>x.toFixed(2)),mn=sm/flat.length;
+  const rs=(run!=null&&isFinite(run))?'  ⟨μ⟩='+u(run):'';
+  Plotly.relayout(id,{'title.text':lab+'  μ='+u(mn)+rs});}
 function s12RenderNow(i){
-  const s=S12_SNAPS[i];if(!s||!s.ang)return;const N=s.M;
+  const s=S12_SNAPS[i];if(!s||!s.ang)return;const N=s.M;S12_CURIDX=i;
   if(!S12_BUILT||S12_N!==N)s12Build(N);
-  for(let n=0;n<4;n++)s12Heat2DSnap('p_s12ang_'+n,s.ang.g[n],N,(n<3?S12_ANGT[n]:'principal angle k='+(s.ang.kfull||15)),false,true);
+  for(let n=0;n<4;n++)s12Heat2DSnap('p_s12ang_'+n,s.ang.g[n],N,(n<3?S12_ANGT[n]:'principal angle k='+(s.ang.kfull||15)),false,true,s12RunMean(i,sn=>sn.ang.gm[n]));
   if(s.do3d){
-    for(const k of S12_KS)for(const g of S12_GR){const pk=s.s12[''+k][g];
-      s12CubeRender('p_s12_'+k+'_'+g,pk,N,S12_GLAB[g]+' k='+k+'  μ='+(pk.mn!=null?pk.mn.toFixed(2):'?'),S12_GMODE[g]);}
-    for(const k of S12_KS){const pk=s.g1[''+k];s12CubeRender('p_s13g1_'+k,pk,N,'G1 k='+k+'  μ='+(pk.mn!=null?pk.mn.toExponential(1):'?'),'symlog');}
-    for(const k of S12_KS){s12Heat2DSnap('p_s13g2_'+k,s.g2[''+k],N,'G2 k='+k,true,false);s12Heat2DSnap('p_s13g3_'+k,s.g3[''+k],N,'G3=|G2| k='+k,false,false);}
+    for(const id of S12_VISIBLE)s12EnsureCube(id);   // (re)render only the cubes currently near the viewport
+    for(const k of S12_KS){
+      s12Heat2DSnap('p_s13g2_'+k,s.g2[''+k],N,'G2 k='+k,true,false,s12RunMean(i,sn=>sn.do3d?s12Mean(sn.g2[''+k]):null));
+      s12Heat2DSnap('p_s13g3_'+k,s.g3[''+k],N,'G3=|G2| k='+k,false,false,s12RunMean(i,sn=>sn.do3d?s12Mean(sn.g3[''+k]):null));}
   }
   const sp=document.getElementById('s12_step');if(sp)sp.textContent=`step ${s.t}  ·  snapshot ${i+1}/${S12_SNAPS.length}`;
 }

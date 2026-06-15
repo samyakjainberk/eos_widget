@@ -791,13 +791,21 @@ def _s12_grid3d(fig, pos, pack, N, title, signed):
     return ax, sc
 
 
-def _s12_grids_fig(g, k0):
-    """One §12 panel (k0=1/2/5): 5 3D grids A,B,C,D,E over (i,j,k)."""
-    N = g["M"]; S = g["s12"][str(k0)]
+def _runmean(snaps, fn):
+    """time-running mean of fn(g4d) over snapshots (skips non-finite)."""
+    import math
+    vs = [fn(r["g4d"]) for r in snaps]
+    vs = [v for v in vs if v is not None and math.isfinite(v)]
+    return sum(vs) / len(vs) if vs else float("nan")
+
+
+def _s12_grids_fig(snaps, k0):
+    """One §12 panel (k0=1/2/5): 5 3D grids A,B,C,D,E over (i,j,k). Title = current μ + running ⟨μ⟩."""
+    g = snaps[-1]["g4d"]; N = g["M"]; S = g["s12"][str(k0)]; key = str(k0)
     fig = plt.figure(figsize=(22, 4.2))
     for n, (nm, lab, signed) in enumerate(_S12_GRIDS):
-        pk = S[nm]
-        ax, sc = _s12_grid3d(fig, (1, 5, n + 1), pk, N, f"{lab}  μ={pk['mn']:.2f}", signed)
+        pk = S[nm]; run = _runmean(snaps, lambda gg: gg["s12"][key][nm]["mn"])
+        ax, sc = _s12_grid3d(fig, (1, 5, n + 1), pk, N, f"{lab}  μ={pk['mn']:.2f}  ⟨μ⟩={run:.2f}", signed)
         fig.colorbar(sc, ax=ax, fraction=0.04, pad=0.06)
     fig.suptitle(f"§12 — per-sample Hessian triple-(i,j,k) grids (k0={k0})", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
@@ -809,15 +817,15 @@ def _s12_3d_snaps(hist):
 
 
 def plot_section12_panel1(hist):
-    s = _s12_3d_snaps(hist); return _s12_grids_fig(s[-1]["g4d"], 1) if s else None
+    s = _s12_3d_snaps(hist); return _s12_grids_fig(s, 1) if s else None
 
 
 def plot_section12_panel2(hist):
-    s = _s12_3d_snaps(hist); return _s12_grids_fig(s[-1]["g4d"], 2) if s else None
+    s = _s12_3d_snaps(hist); return _s12_grids_fig(s, 2) if s else None
 
 
 def plot_section12_panel3(hist):
-    s = _s12_3d_snaps(hist); return _s12_grids_fig(s[-1]["g4d"], 5) if s else None
+    s = _s12_3d_snaps(hist); return _s12_grids_fig(s, 5) if s else None
 
 
 def plot_section12_angles(hist):
@@ -832,7 +840,8 @@ def plot_section12_angles(hist):
         ax = fig.add_subplot(1, 4, n + 1)
         A = np.asarray(P["g"][n], dtype=float).reshape(N, N)
         im = ax.imshow(A, cmap="magma", vmin=0.0, vmax=90.0, origin="upper")
-        ax.set_xlabel("j"); ax.set_ylabel("i"); ax.set_title(f"angle {labs[n]}   μ={P['gm'][n]:.1f}°", fontsize=9)
+        run = _runmean(snaps, lambda gg: gg["ang"]["gm"][n])
+        ax.set_xlabel("j"); ax.set_ylabel("i"); ax.set_title(f"angle {labs[n]}   μ={P['gm'][n]:.1f}°  ⟨μ⟩={run:.1f}°", fontsize=9)
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     fig.suptitle("§12 panel 4 — mean principal angle between Qᵢ,Qⱼ subspaces (deg)", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.92))
@@ -876,8 +885,8 @@ def plot_section13_panel1(hist):
     g = snaps[-1]["g4d"]; N = g["M"]
     fig = plt.figure(figsize=(16, 4.4))
     for n, k0 in enumerate([1, 2, 5]):
-        pk = g["g1"][str(k0)]
-        ax, sc = _s12_grid3d(fig, (1, 3, n + 1), pk, N, f"G1 k0={k0}  μ={pk['mn']:.1e}", True)
+        pk = g["g1"][str(k0)]; run = _runmean(snaps, lambda gg, k=k0: gg["g1"][str(k)]["mn"])
+        ax, sc = _s12_grid3d(fig, (1, 3, n + 1), pk, N, f"G1 k0={k0}  μ={pk['mn']:.1e}  ⟨μ⟩={run:.1e}", True)
         fig.colorbar(sc, ax=ax, fraction=0.04, pad=0.06)
     fig.suptitle("§13 panel 1 — G1 = r_k σ_j (1+r_iσ_i) cos_ij J_i (1+r_kσ_k) cos_jk J_k", fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.92))
@@ -894,7 +903,8 @@ def _s13_2d_fig(hist, key, title):
     for n, k0 in enumerate([1, 2, 5]):
         ax = fig.add_subplot(1, 3, n + 1)
         flat = g[key][str(k0)]
-        im = _s12_heat(ax, flat, N, f"{title} k0={k0}   μ={float(np.mean(flat)):.2f}")
+        run = _runmean(snaps, lambda gg, k=k0: float(np.mean(gg[key][str(k)])))
+        im = _s12_heat(ax, flat, N, f"{title} k0={k0}   μ={float(np.mean(flat)):.2f}  ⟨μ⟩={run:.2f}")
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     fig.suptitle(f"§13 — {title} over (j,k)", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.92))
