@@ -322,6 +322,8 @@
 <h2>5 · Eigen-spectrum (Stochastic Lanczos Quadrature)</h2>
 <p class="cap">Estimated spectral density at the current step (refreshed live) for the function Hessian $H$, Gauss–Newton $G$, residual term $S$, and the full loss Hessian. (x-axis is eigenvalue — not on the shared step-cursor.)</p>
 <div class="plotrow row4"><div id="p_sH" class="plot"></div><div id="p_sG" class="plot"></div><div id="p_sS" class="plot"></div><div id="p_sHL" class="plot"></div></div>
+<p class="cap" style="margin-top:14px"><b>Trace</b> of each operator over training (Hutchinson estimate, $\operatorname{tr}A\approx\tfrac1k\sum_i z_i^\top A z_i$) — the sum of eigenvalues vs iteration. ($\operatorname{tr}H$ is per-sample, ÷N, to match §1; and $\operatorname{tr}G+\operatorname{tr}S\approx\operatorname{tr}(\nabla^2L)$.)</p>
+<div class="plotrow row4"><div id="p_trH" class="plot" style="height:260px"></div><div id="p_trG" class="plot" style="height:260px"></div><div id="p_trS" class="plot" style="height:260px"></div><div id="p_trHL" class="plot" style="height:260px"></div></div>
 </div>
 
 <div id="sec_6">
@@ -480,6 +482,8 @@ function lanczosCore(hvpFn,p,m,q0){
   return {Q,k,T};
 }
 function randVec(p,seed){const rng=mulberry32(seed>>>0);const v=new Float64Array(p);for(let i=0;i<p;i++)v[i]=gauss(rng);return v;}
+// Hutchinson trace: trace(A) ≈ (1/k) Σ zᵀ(A z), z Rademacher ±1 (matrix-free; mirrors server._hutch_trace).
+function hutchTrace(hvpFn,p,nprobe,seed){let s=0;for(let i=0;i<nprobe;i++){const z=randVec(p,(seed+i*7919)>>>0);for(let j=0;j<p;j++)z[j]=z[j]<0?-1:1;s+=dot(z,hvpFn(z));}return s/Math.max(1,nprobe);}
 function lanczosT(hvpFn,p,m,seed){
   const {Q,k,T}=lanczosCore(hvpFn,p,m,randVec(p,seed));
   const {vals,V}=jacobiEig(T,k);
@@ -654,6 +658,24 @@ function oneTrace(name,color){return [{x:[],y:[],mode:'lines',name,line:{color,w
 function refreshSLQ(id,d){Plotly.restyle(id,{x:[d.x],y:[d.y]},[0]);
   const pk=Math.max(1e-12,...d.y.filter(v=>v>0));
   Plotly.relayout(id,{'xaxis.autorange':true,'yaxis.range':[Math.log10(pk)-7,Math.log10(pk)+0.2]});}
+
+// ── §5 trace of each operator over training (Hutchinson; one value per SLQ tick) ─────────────────
+const TR_IDS=['p_trH','p_trG','p_trS','p_trHL'], TR_KEYS=['trH','trG','trS','trHL'],
+      TR_TITLES=['trace H  (÷N)','trace G','trace S','trace ∇²L (loss Hessian)'], TR_COL=['#2563eb','#16a34a','#d35400','#dc2626'];
+let TR_STEPS=[], TR_DATA=[[],[],[],[]], TR_BUILT=false, TR_RAF=0;
+function trReset(){TR_STEPS=[];TR_DATA=[[],[],[],[]];TR_BUILT=false;if(TR_RAF){cancelAnimationFrame(TR_RAF);TR_RAF=0;}
+  for(const id of TR_IDS){try{Plotly.purge(id);}catch(e){}}}
+function trBuild(){TR_BUILT=true;
+  for(let g=0;g<4;g++)newP(TR_IDS[g],[{x:[],y:[],type:'scatter',mode:'lines',line:{color:TR_COL[g],width:1.6}}],
+    {title:{text:TR_TITLES[g],font:{size:12}},margin:{l:56,r:8,t:24,b:34},xaxis:{title:'step'},yaxis:{title:'trace',zeroline:true,zerolinecolor:'#cbd5e1'},showlegend:false});}
+function trPush(m){
+  if(m.trH==null)return;
+  TR_STEPS.push(m.t!=null?m.t:(lastT>=0?lastT:TR_STEPS.length));
+  for(let g=0;g<4;g++)TR_DATA[g].push(m[TR_KEYS[g]]);
+  trRenderSched();}
+function trRenderSched(){if(TR_RAF)return;TR_RAF=requestAnimationFrame(()=>{TR_RAF=0;trRender();});}
+function trRender(){if(!TR_STEPS.length)return;if(!TR_BUILT)trBuild();
+  for(let g=0;g<4;g++)Plotly.restyle(TR_IDS[g],{x:[TR_STEPS],y:[TR_DATA[g]]},[0]);}
 
 // ── §11 3D Hessian–NTK grids ─────────────────────────────────────────────────
 // Three N×N×N tensors over the sample indices (i,j,k): T1=Jᵢᵀ Qⱼ Jₖ, T2=uⱼuₖ·T1,
@@ -913,6 +935,7 @@ function syncSectionVis(multi){
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   resetPlotDecim();   // fresh decimation state for this run (bounds plotted points → no progressive hang)
   g3dReset();   // §11: drop snapshots from the previous run
+  trReset();    // §5: clear the trace-over-iterations curves
   syncSectionVis(multi);   // gate sections by the panel toggles (multi from the actual run)
   const dis=s=>OPT.gs?s:s+'  (off)';
   // §1
@@ -1671,6 +1694,11 @@ async function loop(){                                   // drives ST forward; r
           refreshSLQ('p_sG',slqDensity(v=>hvpG(S.th,spec,X,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x22));
           refreshSLQ('p_sS',slqDensity(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,cS),p,S.nProbe,S.mSLQ,80,0x33));
           refreshSLQ('p_sHL',slqDensity(v=>hvpL(S.th,spec,X,Y,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x44));
+          const ntr=Math.max(S.nProbe,4);   // §5 trace-over-iterations (Hutchinson)
+          trPush({t:S.t,trH:hutchTrace(v=>hvpF(S.th,spec,X,N,inDim,p,v,eps),p,ntr,0x51)/N,
+            trG:hutchTrace(v=>hvpG(S.th,spec,X,N,inDim,p,v,eps),p,ntr,0x52),
+            trS:hutchTrace(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,cS),p,ntr,0x53),
+            trHL:hutchTrace(v=>hvpL(S.th,spec,X,Y,N,inDim,p,v,eps),p,ntr,0x54)});
         }
         S.eigTick++;S.done++;
         const sps=(S.done-segStart)/((performance.now()-t0)/1000);
@@ -1763,7 +1791,7 @@ function openStream(start,resuming){
     }else if(m.type==='step'){if(!META)return;pushPoint(m.t,m,META.n,META.kth,META.nResid);lastT=m.t;
       if(m.sps!=null)sp.textContent=`steps/sec: ${m.sps.toFixed(1)}`;
       st.textContent=`running on ${META.device} … step ${m.t}/${m.steps}  ·  p=${m.p}, 2/lr=${META.thr.toFixed(2)}`;
-    }else if(m.type==='slq'){if(m.sH)refreshSLQ('p_sH',m.sH);if(m.sG)refreshSLQ('p_sG',m.sG);if(m.sS)refreshSLQ('p_sS',m.sS);if(m.sHL)refreshSLQ('p_sHL',m.sHL);
+    }else if(m.type==='slq'){if(m.sH)refreshSLQ('p_sH',m.sH);if(m.sG)refreshSLQ('p_sG',m.sG);if(m.sS)refreshSLQ('p_sS',m.sS);if(m.sHL)refreshSLQ('p_sHL',m.sHL);trPush(m);
     }else if(m.type==='g3d'){g3dPush(m);
     }else if(m.type==='done'){st.textContent=`done — through step ${lastT} · p=${m.p} · 2/lr=${(META?META.thr:0).toFixed(3)}.`;finish();
     }else if(m.type==='error'){st.textContent='backend: '+m.error;finish();}

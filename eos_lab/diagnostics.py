@@ -25,7 +25,7 @@ import torch
 
 from .models import (grad_sum_f, hvp_F, hvp_L, hvp_S, hvp_G, hvp_G2,
                      jac_cols, jac_hvp, grad_out)
-from .linalg import (lanczos_extreme, lanczos_extreme_vals, slq_density, sym_eig_desc,
+from .linalg import (lanczos_extreme, lanczos_extreme_vals, slq_density, hutch_trace, sym_eig_desc,
                      sign_to, pin_sign, pos_subspace, neg_subspace, principal_angles, randn_vec)
 
 # §11 render budget: emit only ≤this many points per grid above this size (mirror server.G3D_MAXPTS).
@@ -568,6 +568,13 @@ class Diagnostics:
             if self.gs:
                 rec["slq_G"] = slq_density(self._hG(th, X), p, self.nprobe, self.mSLQ, ng, SEED_SLQ_G, dev, dt)
                 rec["slq_S"] = slq_density(self._hS(th, X, cS), p, self.nprobe, self.mSLQ, ng, SEED_SLQ_S, dev, dt)
+            # trace of each operator over training (Hutchinson). H is ÷N → per-sample scale (matches §1).
+            ntr = max(self.nprobe, 4)
+            rec["tr_H"] = hutch_trace(self._hF(th, X), p, ntr, 0x51, dev, dt) / self.N
+            rec["tr_HL"] = hutch_trace(self._hL(th, X, Y), p, ntr, 0x54, dev, dt)
+            if self.gs:
+                rec["tr_G"] = hutch_trace(self._hG(th, X), p, ntr, 0x52, dev, dt)
+                rec["tr_S"] = hutch_trace(self._hS(th, X, cS), p, ntr, 0x53, dev, dt)
         return rec
 
     def _theory_step(self, th, X, Y, t, J, out, rr, bEk_vals):

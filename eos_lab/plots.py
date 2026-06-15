@@ -121,6 +121,24 @@ def plot_slq(history, n_samp=1):
     return fig
 
 
+def plot_section5_trace(history):
+    """§5 — trace of each operator over training (Hutchinson). One line per operator vs iteration."""
+    snaps = [r for r in history if "tr_HL" in r]
+    if len(snaps) < 2:
+        return None
+    keys = [("tr_H", "trace H  (÷N)", "#2563eb"), ("tr_G", "trace G", "#16a34a"),
+            ("tr_S", "trace S", "#d35400"), ("tr_HL", "trace ∇²L (loss Hessian)", "#dc2626")]
+    present = [k for k in keys if any(k[0] in r for r in snaps)]
+    fig, axs = plt.subplots(1, len(present), figsize=(4.5 * len(present), 3.2), squeeze=False)
+    for ax, (key, lab, col) in zip(axs[0], present):
+        xs = [r["t"] for r in snaps if key in r]; ys = [r[key] for r in snaps if key in r]
+        ax.plot(xs, ys, color=col); ax.axhline(0, c="k", lw=0.6)
+        ax.set_title(lab, fontsize=10); ax.set_xlabel("step"); ax.set_ylabel("trace")
+    fig.suptitle("§5 — trace of each operator over training (Hutchinson)", fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
+    return fig
+
+
 def _tracks_panel(series, groups, suptitle):
     """Generic multi-subplot panel: `groups` = [(series_key, title), ...]; each present key → one subplot
     with one line per track index. Used for the §4/§7/§8/§4b–d projection panels."""
@@ -740,6 +758,7 @@ def save_panels(results, outdir):
             "section3_bottom_eig": plot_section3(series),
             "section4_J_onto_H": plot_section4(series),
             "section5_slq": plot_slq(hist, meta.get("nsamp", 1)),
+            "section5_trace": plot_section5_trace(hist),
             "section6_rotation": plot_section6(series),
             "section7a_ntk_alignment": plot_section7a(series),
             "section7_ntk_fh_svd": plot_section7(series),

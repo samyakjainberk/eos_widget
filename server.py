@@ -971,6 +971,15 @@ def lanczos_extreme_vals(hvp, p, n, m, seed):
     return top, bot
 
 
+def _hutch_trace(hvp, p, nprobe, seed):
+    """Hutchinson trace estimate: trace(A) ≈ (1/k) Σ zᵀ(A z), z Rademacher ±1 (matrix-free, reuses the HVP)."""
+    s = 0.0
+    for i in range(nprobe):
+        z = torch.sign(_randn_vec(p, (seed + i * 7919) & 0x7FFFFFFF))
+        s += float(z @ hvp(z))
+    return s / max(1, nprobe)
+
+
 def slq_density(hvp, p, nprobe, m, ngrid, seed):
     import numpy as np
     TH = []
@@ -1856,12 +1865,18 @@ def run_stream(P):
             }
 
             if s5 and eigTick % slqStride == 0:
+                ntr = max(nProbe, 4)   # Hutchinson trace probes (a few extra for a smoother trace curve)
                 yield {
-                    "type": "slq",
+                    "type": "slq", "t": t,
                     "sH": slq_density(lambda v: hvpF(th, X, v), p, nProbe, mSLQ, 80, 0x11),
                     "sG": slq_density(lambda v: hvpG(th, X, v), p, nProbe, mSLQ, 80, 0x22),
                     "sS": slq_density(lambda v: hvpS(th, X, v, cS), p, nProbe, mSLQ, 80, 0x33),
                     "sHL": slq_density(lambda v: hvpL(th, X, Y, v), p, nProbe, mSLQ, 80, 0x44),
+                    # trace of each operator vs iteration (Hutchinson). H is ÷N → per-sample scale (matches §1).
+                    "trH": _hutch_trace(lambda v: hvpF(th, X, v), p, ntr, 0x51) / N,
+                    "trG": _hutch_trace(lambda v: hvpG(th, X, v), p, ntr, 0x52),
+                    "trS": _hutch_trace(lambda v: hvpS(th, X, v, cS), p, ntr, 0x53),
+                    "trHL": _hutch_trace(lambda v: hvpL(th, X, Y, v), p, ntr, 0x54),
                 }
             if g3d is not None:
                 yield {"type": "g3d", "t": t, **g3d}     # §11 3D-grid snapshot (browser stores + scrubs these)

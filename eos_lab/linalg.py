@@ -95,6 +95,15 @@ def lanczos_extreme_vals(hvp, p, n, m, seed, device, dtype):
     return top, bot
 
 
+def hutch_trace(hvp, p, nprobe, seed, device, dtype):
+    """Hutchinson trace estimate: trace(A) ≈ (1/k) Σ zᵀ(A z), z Rademacher ±1. MIRRORS server._hutch_trace."""
+    s = 0.0
+    for i in range(nprobe):
+        z = torch.sign(randn_vec(p, (seed + i * 7919) & 0x7FFFFFFF, device, dtype))
+        s += float(z @ hvp(z))
+    return s / max(1, nprobe)
+
+
 def slq_density(hvp, p, nprobe, m, ngrid, seed, device, dtype):
     """Stochastic Lanczos Quadrature estimate of the spectral density (Gaussian-smoothed).
     MIRRORS server.slq_density. Returns {'x': [...], 'y': [...]} (§5)."""
