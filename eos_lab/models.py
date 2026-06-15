@@ -462,6 +462,40 @@ def opt_dir(model, g, opt):
     return g                                    # gd (default)
 
 
+def precond_half(model, g, opt):
+    """P^½ matvec for preconditioned sharpness λmax(P·H)=λmax(P^½ H P^½). P maps the gradient to the
+    optimizer step (P·g = opt_dir), so it is symmetric PSD and λmax(P·H) stays real. MIRRORS
+    server._precond_half / index.html precondHalf.
+      sign     : P=diag(1/|g|)            → P^½=diag(1/√|g|)
+      spectral : per weight block (G=∇W din×dout) P^½:V↦(GGᵀ)^(-1/8)V(GᵀG)^(-1/8) (so P^½·g recovers
+                 half the Muon UVᵀ step); biases / non-matrix params use diag(1/√|g|).
+    A relative floor (1e-6·max|g|) keeps the inverse-square-roots finite near small gradients."""
+    gabs = g.abs()
+    floor = (gabs.max() * 1e-6).clamp_min(1e-30) if gabs.numel() else g.new_tensor(1e-30)
+    d = gabs.clamp_min(floor).rsqrt()           # diag(1/√|g|)
+    if opt == "sign":
+        return lambda v: v * d
+    if opt == "spectral":
+        blocks = []
+        for (din, dout, act, w_off, b_off) in getattr(model, "spec", []):
+            G = g[w_off:w_off + din * dout].view(din, dout)
+            U, S, Vh = torch.linalg.svd(G, full_matrices=False)
+            tol = (S.max() * 1e-6 + 1e-30) if S.numel() else G.new_tensor(1e-30)
+            q = torch.where(S > tol, S.pow(-0.25), torch.zeros_like(S))   # σ^(-1/4): eigvals of (GGᵀ)^(-1/8)
+            A = (U * q) @ U.t()                  # (GGᵀ)^(-1/8)
+            B = (Vh.t() * q) @ Vh                # (GᵀG)^(-1/8)
+            blocks.append((w_off, din, dout, A, B))
+
+        def phalf(v):
+            out = v * d                          # biases / non-matrix slots
+            for (w_off, din, dout, A, B) in blocks:
+                V = v[w_off:w_off + din * dout].view(din, dout)
+                out[w_off:w_off + din * dout] = (A @ V @ B).reshape(-1)
+            return out
+        return phalf
+    return lambda v: v                          # gd: identity (not shown)
+
+
 def _hvp_scalar(model, theta, X, scalar_fn, v):
     """Generic exact HVP of a scalar(θ): (∇² scalar) · v via double-backward (Pearlmutter)."""
     with torch.enable_grad():

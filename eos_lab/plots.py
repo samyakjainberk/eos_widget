@@ -17,8 +17,10 @@ def _finite(xs, ys):
 
 
 def plot_section1(series, meta, ax=None):
-    """§1 — loss (train+test), sharpness vs 2/η, residual rms, spectral edges of H."""
-    fig, axs = plt.subplots(1, 4, figsize=(18, 3.4)) if ax is None else (ax.figure, ax)
+    """§1 — loss (train+test), sharpness vs 2/η, residual rms, spectral edges of H, and (for the adaptive
+    optimizers) the preconditioned sharpness λmax(P·∇²L)."""
+    ncol = 5 if "psharp" in series else 4
+    fig, axs = plt.subplots(1, ncol, figsize=(4.5 * ncol, 3.4)) if ax is None else (ax.figure, ax)
     t = series["t"]
     axs[0].plot(t, series["loss"], label="train")
     if "test_loss" in series:
@@ -43,6 +45,10 @@ def plot_section1(series, meta, ax=None):
         axs[3].plot(t, series["H_edge_min"], label="λ_min(H)")
         axs[3].axhline(0, c="k", lw=0.6); axs[3].set_title("function-Hessian spectral edges")
         axs[3].legend(); axs[3].set_xlabel("step")
+    if "psharp" in series:                  # preconditioned sharpness λmax(P·∇²L) (signed / spectral GD only)
+        axs[4].plot(*_finite(t, series["psharp"]), color="tab:purple", label="precond sharpness")
+        axs[4].axhline(meta["thr"], ls="--", c="r", label="2/η (EoS)")
+        axs[4].set_title("preconditioned sharpness  λmax(P·∇²L)"); axs[4].legend(); axs[4].set_xlabel("step")
     fig.tight_layout()
     return fig
 
@@ -50,7 +56,8 @@ def plot_section1(series, meta, ax=None):
 def _plot_eig_row(series, which, title):
     """§2 (top) / §3 (bottom): eigenvalue tracks of H, loss Hessian, G, S."""
     mats = [("H_" + which, "function Hessian H"), ("lossH_" + which, "loss Hessian (G+S)"),
-            ("G_" + which, "Gauss–Newton G"), ("S_" + which, "residual term S")]
+            ("G_" + which, "Gauss–Newton G"), ("S_" + which, "residual term S"),
+            ("pH_" + which, "preconditioned loss Hessian P^½∇²L P^½")]   # signed / spectral GD only
     present = [(k, lab) for k, lab in mats if k in series]
     if not present:
         return None

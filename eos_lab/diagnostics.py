@@ -24,7 +24,7 @@ import math
 import torch
 
 from .models import (grad_sum_f, hvp_F, hvp_L, hvp_S, hvp_G, hvp_G2,
-                     jac_cols, jac_hvp, grad_out)
+                     jac_cols, jac_hvp, grad_out, grad_loss, precond_half)
 from .linalg import (lanczos_extreme, lanczos_extreme_vals, slq_density, hutch_trace, sym_eig_desc,
                      sign_to, pin_sign, pos_subspace, neg_subspace, principal_angles, randn_vec)
 
@@ -88,6 +88,7 @@ class Diagnostics:
         self.s16 = P.get("s16", 0)          # §9d-c: §9d predictions vs the full loss-Hessian sharpness
         self.s17 = P.get("s17", 0)          # §10: CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation)
         self.s18 = P.get("s18", 0)          # §11: 3D grids T1=JᵢᵀQⱼJₖ, T2=uⱼuₖT1, T3=rᵢuⱼuₖT1 (multi-sample, small M)
+        self.optimizer = getattr(cfg, "optimizer", "gd")   # §1/§2/§3 preconditioned sharpness (sign/spectral only)
         if loss.name == "ce":
             # CE uses the generic residual r = −∂L/∂z = softmax(z)−onehot (the loss-output cotangent). §4
             # (J→H) and §6 (rotation) are model-only; §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) plus
@@ -258,6 +259,13 @@ class Diagnostics:
             hlt, hlb = lanczos_extreme_vals(self._hL(th, X, Y), p, n, self.mV, SEED_L, dev, dt)
             rec["lossH_top"], rec["lossH_bot"] = hlt, hlb
             rec["sharpness"] = hlt[0]
+            # preconditioned sharpness λmax(P·∇²L)=λmax(P^½∇²L P^½) — adaptive optimizers only (P=I for GD)
+            if self.optimizer in ("sign", "spectral"):
+                ph = precond_half(self.model, grad_loss(self.model, self.loss, th, X, Y)[0], self.optimizer)
+                hL = self._hL(th, X, Y)
+                pHlt, pHlb = lanczos_extreme_vals(lambda v: ph(hL(ph(v))), p, n, self.mV, 0x9C0FFEE, dev, dt)
+                rec["pH_top"], rec["pH_bot"] = pHlt, pHlb
+                rec["psharp"] = pHlt[0]
 
         # ---- Gauss–Newton G and residual term S (loss Hessian = G + S) ----
         if (self.s2 or self.s3) and self.gs:
