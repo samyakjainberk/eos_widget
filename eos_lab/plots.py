@@ -799,6 +799,20 @@ def _runmean(snaps, fn):
     return sum(vs) / len(vs) if vs else float("nan")
 
 
+def _s13_diff_mean(snaps, acc):
+    """§13 running mean over snapshots of each snapshot's grid-mean of the per-iteration difference
+    Δ = acc(g4d) − acc(previous g4d) (zeros at the first snapshot)."""
+    import numpy as np, math
+    vals = []
+    for t in range(len(snaps)):
+        cur = np.asarray(acc(snaps[t]["g4d"]), dtype=float)
+        d = cur - np.asarray(acc(snaps[t - 1]["g4d"]), dtype=float) if t >= 1 else np.zeros_like(cur)
+        m = float(np.mean(d))
+        if math.isfinite(m):
+            vals.append(m)
+    return sum(vals) / len(vals) if vals else float("nan")
+
+
 def _s12_grids_fig(snaps, k0):
     """One §12 panel (k0=1/2/5): 5 3D grids A,B,C,D,E over (i,j,k). Title = current μ + running ⟨μ⟩."""
     g = snaps[-1]["g4d"]; N = g["M"]; S = g["s12"][str(k0)]; key = str(k0)
@@ -878,35 +892,46 @@ def plot_section12_evolution(hist):
 
 # ─────────────────────────────── §13 residual-weighted per-sample curvature alignment ───────────────────────
 def plot_section13_panel1(hist):
-    """§13 panel 1 — G1 (3D over i,j,k) for k0=1,2,5."""
+    """§13 panel 1 — ΔG1, the per-iteration difference of G1 (3D over i,j,k), for k0=1,2,5."""
+    import numpy as np
     snaps = _s12_3d_snaps(hist)
     if not snaps:
         return None
-    g = snaps[-1]["g4d"]; N = g["M"]
+    g = snaps[-1]["g4d"]; gp = snaps[-2]["g4d"] if len(snaps) >= 2 else None; N = g["M"]
     fig = plt.figure(figsize=(16, 4.4))
     for n, k0 in enumerate([1, 2, 5]):
-        pk = g["g1"][str(k0)]; run = _runmean(snaps, lambda gg, k=k0: gg["g1"][str(k)]["mn"])
-        ax, sc = _s12_grid3d(fig, (1, 3, n + 1), pk, N, f"G1 k0={k0}  μ={pk['mn']:.1e}  ⟨μ⟩={run:.1e}", True)
+        pk = g["g1"][str(k0)]
+        v = np.asarray(pk["v"], dtype=float); d = np.asarray(pk["d"], dtype=float)
+        if gp is not None:
+            pp = gp["g1"][str(k0)]
+            dv = v - np.asarray(pp["v"], dtype=float); dd = d - np.asarray(pp["d"], dtype=float)
+        else:
+            dv = np.zeros_like(v); dd = np.zeros_like(d)
+        dpk = {"v": dv, "idx": pk.get("idx"), "d": dd}
+        mu = float(np.mean(dv)); run = _s13_diff_mean(snaps, lambda gg, k=k0: gg["g1"][str(k)]["v"])
+        ax, sc = _s12_grid3d(fig, (1, 3, n + 1), dpk, N, f"ΔG1 k0={k0}  μ={mu:.1e}  ⟨μ⟩={run:.1e}", True)
         fig.colorbar(sc, ax=ax, fraction=0.04, pad=0.06)
-    fig.suptitle("§13 panel 1 — G1 = r_k σ_j (1+r_iσ_i) cos_ij J_i (1+r_kσ_k) cos_jk J_k", fontsize=11)
+    fig.suptitle("§13 panel 1 — ΔG1 = per-iteration difference of G1 = r_k σ_j (1+r_iσ_i) cos_ij J_i (1+r_kσ_k) cos_jk J_k", fontsize=10)
     fig.tight_layout(rect=(0, 0, 1, 0.92))
     return fig
 
 
 def _s13_2d_fig(hist, key, title):
+    """§13 2D panel — plots the per-iteration difference Δ = value(last) − value(previous) over (j,k)."""
     import numpy as np
     snaps = _s12_3d_snaps(hist)
     if not snaps:
         return None
-    g = snaps[-1]["g4d"]; N = g["M"]
+    g = snaps[-1]["g4d"]; gp = snaps[-2]["g4d"] if len(snaps) >= 2 else None; N = g["M"]
     fig = plt.figure(figsize=(16, 3.7))
     for n, k0 in enumerate([1, 2, 5]):
         ax = fig.add_subplot(1, 3, n + 1)
-        flat = g[key][str(k0)]
-        run = _runmean(snaps, lambda gg, k=k0: float(np.mean(gg[key][str(k)])))
-        im = _s12_heat(ax, flat, N, f"{title} k0={k0}   μ={float(np.mean(flat)):.2f}  ⟨μ⟩={run:.2f}")
+        cur = np.asarray(g[key][str(k0)], dtype=float)
+        diff = cur - np.asarray(gp[key][str(k0)], dtype=float) if gp is not None else np.zeros_like(cur)
+        run = _s13_diff_mean(snaps, lambda gg, k=k0: gg[key][str(k)])
+        im = _s12_heat(ax, diff, N, f"Δ{title} k0={k0}   μ={float(np.mean(diff)):.2f}  ⟨μ⟩={run:.2f}")
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    fig.suptitle(f"§13 — {title} over (j,k)", fontsize=12)
+    fig.suptitle(f"§13 — Δ{title} (per-iteration difference) over (j,k)", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.92))
     return fig
 

@@ -271,17 +271,17 @@
 
 <div id="sec_s13" style="display:none">
 <h2>13 · residual-weighted per-sample curvature alignment</h2>
-<p class="cap">Same per-pair quantities as §12 (gradient-gauged). <b>Panel 1</b> ($N\times N\times N$ over $i,j,k$): $G_1=r_k\sigma_j(1+r_i\sigma_i)\cos_{ij}J_i\,(1+r_k\sigma_k)\cos_{jk}J_k$ (here $J_i=\langle\nabla f_i,u_i\rangle$ as a value, $\cos$ signed). <b>Panel 2</b> ($N\times N$ over $j,k$): $G_2=r_k\sigma_j(1+r_k\sigma_k)\cos_{jk}J_k$. <b>Panel 3</b>: $G_3=|G_2|$. $k_0=1,2,5$ across the three plots in each panel. Diagonal $i\!=\!j\!=\!k$ highlighted in panel 1. Gated by the §11 3D-grid cap. Each title shows $\mu$ = mean and running $\langle\mu\rangle$.</p>
+<p class="cap">Same per-pair quantities as §12 (gradient-gauged). <b>Panel 1</b> ($N\times N\times N$ over $i,j,k$): $G_1=r_k\sigma_j(1+r_i\sigma_i)\cos_{ij}J_i\,(1+r_k\sigma_k)\cos_{jk}J_k$ (here $J_i=\langle\nabla f_i,u_i\rangle$ as a value, $\cos$ signed). <b>Panel 2</b> ($N\times N$ over $j,k$): $G_2=r_k\sigma_j(1+r_k\sigma_k)\cos_{jk}J_k$. <b>Panel 3</b>: $G_3=|G_2|$. $k_0=1,2,5$ across the three plots in each panel. Diagonal $i\!=\!j\!=\!k$ highlighted in panel 1. Gated by the §11 3D-grid cap. <b>All nine plots show the per-iteration difference $\Delta=\,$value$(t)-\,$value$(t\!-\!1)$</b> (zeros at the first snapshot); $\Delta|G_2|$ is signed. Each title shows $\mu$ = mean of $\Delta$ and running $\langle\mu\rangle$.</p>
 <div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
   <label style="white-space:nowrap">snapshot</label>
   <input id="s13_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
   <span id="s13_step" style="white-space:nowrap;color:#475569;font-size:13px;min-width:120px">—</span>
 </div>
-<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — $G_1$ (3D), $k_0=1,2,5$</h3>
+<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — $\Delta G_1$ (3D), $k_0=1,2,5$</h3>
 <div class="plotrow row3"><div id="p_s13g1_1" class="plot" style="height:320px"></div><div id="p_s13g1_2" class="plot" style="height:320px"></div><div id="p_s13g1_5" class="plot" style="height:320px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — $G_2$ (2D over $j,k$), $k_0=1,2,5$</h3>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — $\Delta G_2$ (2D over $j,k$), $k_0=1,2,5$</h3>
 <div class="plotrow row3"><div id="p_s13g2_1" class="plot" style="height:320px"></div><div id="p_s13g2_2" class="plot" style="height:320px"></div><div id="p_s13g2_5" class="plot" style="height:320px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — $G_3=|G_2|$, $k_0=1,2,5$</h3>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — $\Delta G_3=\Delta|G_2|$, $k_0=1,2,5$</h3>
 <div class="plotrow row3"><div id="p_s13g3_1" class="plot" style="height:320px"></div><div id="p_s13g3_2" class="plot" style="height:320px"></div><div id="p_s13g3_5" class="plot" style="height:320px"></div></div>
 </div>
 
@@ -979,6 +979,10 @@ let S12_SNAPS=[], S12_N=0, S12_BUILT=false, S12_RAF=0, S12_PENDING=-1, S12_CAMKE
 let S12_BUILTSET=new Set(), S12_VISIBLE=new Set(), S12_IO=null, S12_IOT=null, S12_CURIDX=0, S12_EXPORTING=false;   // lazy-WebGL cube state (context budget)
 const s12Mean=a=>{let s=0,c=0;for(let q=0;q<a.length;q++){const v=a[q];if(v!=null&&isFinite(v)){s+=v;c++;}}return c?s/c:0;};   // mean, skipping null/NaN/Inf (sanitised payload)
 function s12RunMean(i,fn){let s=0,c=0;for(let q=0;q<=i&&q<S12_SNAPS.length;q++){const v=fn(S12_SNAPS[q]);if(v!=null&&isFinite(v)){s+=v;c++;}}return c?s/c:NaN;}  // time-running mean over snapshots 0..i
+// §13 plots the per-iteration DIFFERENCE value(i)−value(i−1) (zeros at the first snapshot — no previous). acc maps a
+// snapshot to its flat grid; s13DiffMean is the running mean over 0..i of each snapshot's diff-grid-mean.
+function s13DiffFlat(i,acc){const cur=acc(S12_SNAPS[i]);if(!cur)return null;const p=i>=1?acc(S12_SNAPS[i-1]):null;return p?cur.map((v,q)=>v-p[q]):cur.map(()=>0);}
+function s13DiffMean(i,acc){let s=0,c=0;for(let j=0;j<=i&&j<S12_SNAPS.length;j++){const d=s13DiffFlat(j,acc);if(!d)continue;const m=s12Mean(d);if(isFinite(m)){s+=m;c++;}}return c?s/c:NaN;}
 // adaptive μ formatter: exponential for tiny/huge magnitudes so a small grid-mean shows e.g. 3.2e-3 instead of "0.00"
 const fmtMu=x=>{if(x==null||!isFinite(x))return '–';const a=Math.abs(x);return (a!==0&&(a<0.05||a>=1e4))?x.toExponential(1):x.toFixed(2);};
 function s12CubeIds(){const a=[];for(const k of S12_KS)for(const g of S12_GR)a.push('p_s12_'+k+'_'+g);for(const k of S12_KS)a.push('p_s13g1_'+k);return a;}
@@ -1036,6 +1040,11 @@ function s12CubeMeta(id){   // (label, color mode, signed, snapshot→pack) for 
   return {label:S12_GLAB[g]+' k='+k,mode:S12_GMODE[g],signed:S12_GMODE[g]!=='pos01',pack:s=>s.s12[k][g]};}
 function s12RenderCube(id,i){   // restyle a built cube from snapshot i, with current μ + running ⟨μ⟩ in the title
   const s=S12_SNAPS[i];if(!s||!s.do3d)return;const meta=s12CubeMeta(id),pk=meta.pack(s);if(!pk)return;
+  if(id.indexOf('p_s13g1_')===0){   // §13: plot the per-iteration difference value(i)−value(i−1)
+    const pp=(i>=1&&S12_SNAPS[i-1]&&S12_SNAPS[i-1].do3d)?meta.pack(S12_SNAPS[i-1]):null;
+    const dv=pp?pk.v.map((v,q)=>v-pp.v[q]):pk.v.map(()=>0), dd=pp?pk.d.map((v,q)=>v-pp.d[q]):pk.d.map(()=>0);
+    const drun=s13DiffMean(i,sn=>(sn.do3d&&meta.pack(sn))?meta.pack(sn).v:null), fd=x=>(x!=null&&isFinite(x)?x.toExponential(1):'–');
+    s12CubeRender(id,{v:dv,idx:pk.idx,d:dd},s.M,'Δ'+meta.label+'  μ='+fd(s12Mean(dv))+'  ⟨μ⟩='+fd(drun),meta.mode);return;}
   const run=s12RunMean(i,sn=>sn.do3d?meta.pack(sn).mn:null);
   const f=meta.mode==='symlog'?(x=>(x!=null&&isFinite(x)?x.toExponential(1):'–')):fmtMu;
   s12CubeRender(id,pk,s.M,meta.label+'  μ='+f(pk.mn)+'  ⟨μ⟩='+f(run),meta.mode);}
@@ -1074,7 +1083,7 @@ function s12LazyInit(){if(S12_IO)return;
 function s12Build(N){
   S12_N=N;S12_BUILT=true;
   for(let n=0;n<4;n++)s12Heat2DBuild('p_s12ang_'+n,N,S12_ANGT[n],false);
-  for(const k of S12_KS){s12Heat2DBuild('p_s13g2_'+k,N,'G2 k='+k,true);s12Heat2DBuild('p_s13g3_'+k,N,'G3=|G2| k='+k,false);}
+  for(const k of S12_KS){s12Heat2DBuild('p_s13g2_'+k,N,'ΔG2 k='+k,true);s12Heat2DBuild('p_s13g3_'+k,N,'ΔG3 k='+k,true);}
   s12EvoBuild();
   s12LazyInit();   // §12/§13 3D cubes are built lazily by the IntersectionObserver (WebGL context budget)
 }
@@ -1115,9 +1124,10 @@ function s12RenderNow(i){
   if(s.do3d){
     for(const id of S12_BUILTSET)s12RenderCube(id,i);   // re-render the cubes that are currently built (lazyReconcileAll owns build/purge)
     lazySchedule();                                     // (re)build the right cubes for the current viewport (debounced)
-    for(const k of S12_KS){
-      s12Heat2DSnap('p_s13g2_'+k,s.g2[''+k],N,'G2 k='+k,true,false,s12RunMean(i,sn=>sn.do3d?s12Mean(sn.g2[''+k]):null));
-      s12Heat2DSnap('p_s13g3_'+k,s.g3[''+k],N,'G3=|G2| k='+k,false,false,s12RunMean(i,sn=>sn.do3d?s12Mean(sn.g3[''+k]):null));}
+    for(const k of S12_KS){   // §13 plots the per-iteration difference Δ = value(i)−value(i−1); Δ|G2| is signed
+      const g2d=s13DiffFlat(i,sn=>sn.do3d?sn.g2[''+k]:null),g3d=s13DiffFlat(i,sn=>sn.do3d?sn.g3[''+k]:null);
+      if(g2d)s12Heat2DSnap('p_s13g2_'+k,g2d,N,'ΔG2 k='+k,true,false,s13DiffMean(i,sn=>sn.do3d?sn.g2[''+k]:null));
+      if(g3d)s12Heat2DSnap('p_s13g3_'+k,g3d,N,'ΔG3 k='+k,true,false,s13DiffMean(i,sn=>sn.do3d?sn.g3[''+k]:null));}
   }
   const txt=`step ${s.t}  ·  snapshot ${i+1}/${S12_SNAPS.length}`;
   const sp=document.getElementById('s12_step');if(sp)sp.textContent=txt;
@@ -2115,10 +2125,28 @@ async function _gifPass(files){
   const add=(nm,bytes)=>files.push({name:String(++n).padStart(2,'0')+'_'+_safeName(nm)+'.gif',data:bytes});
   const s12sy=document.getElementById('s12_sync'),g3sy=document.getElementById('g3d_sync');
   const s12w=s12sy&&s12sy.checked,g3w=g3sy&&g3sy.checked;if(s12sy)s12sy.checked=false;if(g3sy)g3sy.checked=false;
-  // ===== §12/§13 (cubes purged up-front so nothing competes for the WebGL budget during export) =====
   const s12cur=S12_CURIDX, s12had=chk('en19')&&S12_SNAPS.length&&S12_SNAPS[s12cur]&&S12_SNAPS[s12cur].do3d;
+  // Free the §12/§13 lazy WebGL cubes up-front: nothing competes for the WebGL budget during export, and the §11 3D
+  // cubes (exported first, below) get a fresh, uncontended budget. Exporting §11 last exhausts headless software-WebGL
+  // after the 29 §12/§13 cube rotations, and its freshly-built gl3d scene then fails to initialise.
+  if(s12had){if(S12_IO){S12_IO.disconnect();S12_IO=null;}if(S12_IOT){clearTimeout(S12_IOT);S12_IOT=null;}S12_VISIBLE.clear();for(const id of [...S12_BUILTSET])s12PurgeCube(id);}
+  const g3on=chk('en18')&&G3D_SNAPS.length,g3sl=document.getElementById('g3d_slider'),g3cur=g3on?(g3sl?+g3sl.value:G3D_SNAPS.length-1):-1;
+  // ===== §11 3D cubes FIRST (rotating GIFs, fresh WebGL budget). The native cubes (built 3-at-a-time by g3dBuild)
+  // fail toImage after the heavy §12 export, so render each in a throwaway on-screen temp div via the robust per-cube
+  // §12 machinery instead — this never touches the native §11 plots (no error-prone gl3d purge; §11 stays intact for
+  // viewing). The temp div is on-screen (a brief top-left overlay) so its WebGL scene initialises. T₁/T₂/T₃ are N³
+  // grids over (i,j,k), the same shape s12CubeRender expects.
+  if(g3on){const snap=G3D_SNAPS[g3cur];
+    for(const [id,tk,ik,dk,lab] of [['p_g3d1','t1','i1','d1','T1 = JᵢᵀQⱼJₖ'],['p_g3d2','t2','i2','d2','T2 = uⱼuₖ·JᵢᵀQⱼJₖ'],['p_g3d3','t3','i3','d3','T3 = rᵢuⱼuₖ·JᵢᵀQⱼJₖ']]){
+      const tmp=document.createElement('div');tmp.id='_s11tmp';tmp.style.cssText='position:fixed;left:0;top:0;width:360px;height:320px;z-index:99999;background:#fff';document.body.appendChild(tmp);
+      try{s12CubeBuild('_s11tmp',snap.M,lab,true);
+        s12CubeRender('_s11tmp',{v:snap[tk],idx:(snap.sparse?snap[ik]:null),d:snap[dk]},snap.M,lab,'symlog');
+        await _raf2();await _raf2();
+        if(tmp._fullLayout&&tmp._fullLayout.scene){if(st)st.textContent='GIF '+id+'…';add(id,await _cubeRotGif(tmp,8));}
+      }catch(e){}
+      try{Plotly.purge('_s11tmp');}catch(e){}tmp.remove();}}
+  // ===== §12/§13 (2D evolution grids + cube rotations) =====
   if(s12had){
-    if(S12_IO){S12_IO.disconnect();S12_IO=null;}if(S12_IOT){clearTimeout(S12_IOT);S12_IOT=null;}S12_VISIBLE.clear();for(const id of [...S12_BUILTSET])s12PurgeCube(id);
     const grids=['p_s12ang_0','p_s12ang_1','p_s12ang_2','p_s12ang_3'];for(const k of [1,2,5])grids.push('p_s13g2_'+k,'p_s13g3_'+k);
     const idxs=_decim(S12_SNAPS.length,14),frm={},dim={};for(const id of grids)frm[id]=[];
     for(const ii of idxs){s12RenderNow(ii);await _raf2();
@@ -2129,27 +2157,12 @@ async function _gifPass(files){
       if(gd&&gd._fullLayout&&gd._fullLayout.scene){if(st)st.textContent='GIF '+id+'…';add(id,await _cubeRotGif(gd,8));}}catch(e){}
       s12PurgeCube(id);}
   }
-  // ===== §11 =====
-  if(chk('en18')&&G3D_SNAPS.length){
-    const sl=document.getElementById('g3d_slider'),cur=sl?+sl.value:G3D_SNAPS.length-1;
-    G3D_VIS=true;g3dRenderNow(cur);await _raf2();
-    {const idxs=_decim(G3D_SNAPS.length,14),frames=[];let W=0,H=0;
-     for(const ii of idxs){g3dRenderNow(ii);await _raf2();const gd=document.getElementById('p_g3d4');if(gd&&gd._fullLayout){const f=await _grabFrame(gd);frames.push(f.data);W=f.W;H=f.H;}}
-     g3dRenderNow(cur);if(frames.length){if(st)st.textContent='GIF §11 square…';add('s11_square_S',_gifBytes(frames,W,H,30));}}
-    // §11 3D cubes: rotating GIFs. The native cubes (built 3-at-a-time by g3dBuild) fail toImage after the heavy
-    // §12 export, so re-render each through the robust per-cube §12 machinery instead (build fresh → rotate → purge,
-    // ISOLATED — others purged). §11's T₁/T₂/T₃ are N³ grids over (i,j,k), the same shape s12CubeRender expects.
-    {const snap=G3D_SNAPS[cur];
-     for(const id of ['p_g3d1','p_g3d2','p_g3d3','p_g3d4'])try{Plotly.purge(id);}catch(e){}   // isolate: no other §11 gl plot alive during a cube's toImage
-     for(const [id,tk,ik,dk,lab] of [['p_g3d1','t1','i1','d1','T1 = JᵢᵀQⱼJₖ'],['p_g3d2','t2','i2','d2','T2 = uⱼuₖ·JᵢᵀQⱼJₖ'],['p_g3d3','t3','i3','d3','T3 = rᵢuⱼuₖ·JᵢᵀQⱼJₖ']]){
-       try{s12CubeBuild(id,snap.M,lab,true);
-         s12CubeRender(id,{v:snap[tk],idx:(snap.sparse?snap[ik]:null),d:snap[dk]},snap.M,lab,'symlog');
-         await _raf2();
-         const gd=document.getElementById(id);
-         if(gd&&gd._fullLayout&&gd._fullLayout.scene){if(st)st.textContent='GIF '+id+'…';add(id,await _cubeRotGif(gd,8));}
-       }catch(e){}
-       try{Plotly.purge(id);}catch(e){}}
-     G3D_BUILT=false;}   // §11 cubes purged for export → force a rebuild when §11 is next viewed
+  // ===== §11 square (2D evolution) =====
+  if(g3on){
+    G3D_VIS=true;g3dRenderNow(g3cur);await _raf2();
+    const idxs=_decim(G3D_SNAPS.length,14),frames=[];let W=0,H=0;
+    for(const ii of idxs){g3dRenderNow(ii);await _raf2();const gd=document.getElementById('p_g3d4');if(gd&&gd._fullLayout){const f=await _grabFrame(gd);frames.push(f.data);W=f.W;H=f.H;}}
+    g3dRenderNow(g3cur);if(frames.length){if(st)st.textContent='GIF §11 square…';add('s11_square_S',_gifBytes(frames,W,H,30));}
   }
   S12_EXPORTING=false;
   if(s12had){s12LazyInit();s12RenderNow(s12cur);}
