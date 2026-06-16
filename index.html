@@ -186,7 +186,7 @@
       <button id="stop" class="btn-stop" disabled>Stop</button>
       <button id="resume" class="btn-resume" disabled>Resume</button>
       <button id="reset" class="btn-reset">Reset</button>
-      <button id="dlzip" class="btn-reset" title="Download every visible plot as a PNG (plus the run config) in one zip">⬇ plots (zip)</button>
+      <button id="dlzip" class="btn-reset" title="Download every visible plot in one zip: time-series as PNG, and the §11/§12/§13 3D cubes (rotating) + 2D grids (animated over snapshots) as GIFs, plus the run config. The GIF rendering takes a little while — watch the status line.">⬇ plots (zip)</button>
       <span class="parambadge" id="parambadge" title="Number of trainable parameters in the model, computed live from the current controls. Exact for the in-browser synthetic MLP; for the GPU-backend conv/transformer archs it shows the value reported by the backend on the last run.">params: —</span>
       <span class="steps" id="sps">steps/sec: —</span>
     </div>
@@ -271,7 +271,12 @@
 
 <div id="sec_s13" style="display:none">
 <h2>13 · residual-weighted per-sample curvature alignment</h2>
-<p class="cap">Same per-pair quantities as §12 (gradient-gauged). <b>Panel 1</b> ($N\times N\times N$ over $i,j,k$): $G_1=r_k\sigma_j(1+r_i\sigma_i)\cos_{ij}J_i\,(1+r_k\sigma_k)\cos_{jk}J_k$ (here $J_i=\langle\nabla f_i,u_i\rangle$ as a value, $\cos$ signed). <b>Panel 2</b> ($N\times N$ over $j,k$): $G_2=r_k\sigma_j(1+r_k\sigma_k)\cos_{jk}J_k$. <b>Panel 3</b>: $G_3=|G_2|$. $k_0=1,2,5$ across the three plots in each panel. Diagonal $i\!=\!j\!=\!k$ highlighted in panel 1. Gated by the §11 3D-grid cap. Each title shows $\mu$ = mean.</p>
+<p class="cap">Same per-pair quantities as §12 (gradient-gauged). <b>Panel 1</b> ($N\times N\times N$ over $i,j,k$): $G_1=r_k\sigma_j(1+r_i\sigma_i)\cos_{ij}J_i\,(1+r_k\sigma_k)\cos_{jk}J_k$ (here $J_i=\langle\nabla f_i,u_i\rangle$ as a value, $\cos$ signed). <b>Panel 2</b> ($N\times N$ over $j,k$): $G_2=r_k\sigma_j(1+r_k\sigma_k)\cos_{jk}J_k$. <b>Panel 3</b>: $G_3=|G_2|$. $k_0=1,2,5$ across the three plots in each panel. Diagonal $i\!=\!j\!=\!k$ highlighted in panel 1. Gated by the §11 3D-grid cap. Each title shows $\mu$ = mean and running $\langle\mu\rangle$.</p>
+<div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
+  <label style="white-space:nowrap">snapshot</label>
+  <input id="s13_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
+  <span id="s13_step" style="white-space:nowrap;color:#475569;font-size:13px;min-width:120px">—</span>
+</div>
 <h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — $G_1$ (3D), $k_0=1,2,5$</h3>
 <div class="plotrow row3"><div id="p_s13g1_1" class="plot" style="height:320px"></div><div id="p_s13g1_2" class="plot" style="height:320px"></div><div id="p_s13g1_5" class="plot" style="height:320px"></div></div>
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — $G_2$ (2D over $j,k$), $k_0=1,2,5$</h3>
@@ -1096,12 +1101,16 @@ function s12RenderNow(i){
       s12Heat2DSnap('p_s13g2_'+k,s.g2[''+k],N,'G2 k='+k,true,false,s12RunMean(i,sn=>sn.do3d?s12Mean(sn.g2[''+k]):null));
       s12Heat2DSnap('p_s13g3_'+k,s.g3[''+k],N,'G3=|G2| k='+k,false,false,s12RunMean(i,sn=>sn.do3d?s12Mean(sn.g3[''+k]):null));}
   }
-  const sp=document.getElementById('s12_step');if(sp)sp.textContent=`step ${s.t}  ·  snapshot ${i+1}/${S12_SNAPS.length}`;
+  const txt=`step ${s.t}  ·  snapshot ${i+1}/${S12_SNAPS.length}`;
+  const sp=document.getElementById('s12_step');if(sp)sp.textContent=txt;
+  const sp3=document.getElementById('s13_step');if(sp3)sp3.textContent=txt;   // keep the §13 scrub bar in sync
+  const a=document.getElementById('s12_slider'),b=document.getElementById('s13_slider');if(a&&+a.value!==i)a.value=i;if(b&&+b.value!==i)b.value=i;
 }
 function s12Push(m){
   if(!m.ang)return;const sl=document.getElementById('s12_slider'),wasLive=!sl||(+sl.value>=+sl.max);
   S12_SNAPS.push(m);
   if(sl){sl.max=S12_SNAPS.length-1;if(wasLive)sl.value=sl.max;}
+  {const sl3=document.getElementById('s13_slider');if(sl3){sl3.max=S12_SNAPS.length-1;if(wasLive)sl3.value=sl3.max;}}   // §13 shares §12's snapshots
   if(!S12_BUILT||S12_N!==m.M)s12Build(m.M);   // build synchronously so the evolution restyle targets exist
   s12EvoAppend(m);s12EvoRender();
   s12RenderIdx(wasLive?S12_SNAPS.length-1:(sl?+sl.value:0));
@@ -2031,6 +2040,89 @@ function _cfgText(){const ids=['preset','compute','dataset','arch','loss','chmul
   L.push('panels: '+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19'].map(id=>id+'='+(chk(id)?1:0)).join(' '));
   const stt=document.getElementById('status');if(stt&&stt.textContent)L.push('status: '+stt.textContent);
   return 'EoS / Progressive-Sharpening — run configuration\n\n'+L.join('\n')+'\n';}
+// ---- self-contained animated-GIF export of the §11/§12/§13 cubes (rotating) + 2D grids (over snapshots) ----
+// No external dependency: median-cut global palette + variable-width LZW (GIF89a), matching this file's hand-rolled
+// _zip. 3D cubes spin (a static 3D scatter is unreadable); 2D grids animate through the captured snapshots.
+function _gifQuantize(frames,W,H){
+  const samp=[],step=Math.max(1,Math.floor((W*H*frames.length)/40000));
+  for(const fr of frames)for(let p=0;p<W*H;p+=step){const o=p*4;samp.push([fr[o],fr[o+1],fr[o+2]]);}
+  if(!samp.length)samp.push([255,255,255]);
+  const mkbox=px=>{let r0=255,r1=0,g0=255,g1=0,b0=255,b1=0;for(const c of px){if(c[0]<r0)r0=c[0];if(c[0]>r1)r1=c[0];if(c[1]<g0)g0=c[1];if(c[1]>g1)g1=c[1];if(c[2]<b0)b0=c[2];if(c[2]>b1)b1=c[2];}return {px,r:r1-r0,g:g1-g0,b:b1-b0};};
+  let boxes=[mkbox(samp)];
+  while(boxes.length<256){let bi=-1,br=-1;for(let i=0;i<boxes.length;i++){const b=boxes[i],m=Math.max(b.r,b.g,b.b);if(b.px.length>1&&m>br){br=m;bi=i;}}if(bi<0)break;
+    const b=boxes[bi],ch=b.r>=b.g&&b.r>=b.b?0:(b.g>=b.b?1:2);b.px.sort((x,y)=>x[ch]-y[ch]);const mid=b.px.length>>1;boxes.splice(bi,1,mkbox(b.px.slice(0,mid)),mkbox(b.px.slice(mid)));}
+  const pal=boxes.map(b=>{let r=0,g=0,bb=0;for(const c of b.px){r+=c[0];g+=c[1];bb+=c[2];}const n=b.px.length||1;return [Math.round(r/n),Math.round(g/n),Math.round(bb/n)];});
+  while(pal.length<256)pal.push([0,0,0]);
+  const LUT=new Int16Array(32768).fill(-1);
+  const near=(R,G,B)=>{let best=0,bd=1e12;for(let i=0;i<pal.length;i++){const dr=R-pal[i][0],dg=G-pal[i][1],db=B-pal[i][2],d=dr*dr+dg*dg+db*db;if(d<bd){bd=d;best=i;}}return best;};
+  const idx=frames.map(fr=>{const a=new Uint8Array(W*H);for(let p=0;p<W*H;p++){const o=p*4,key=((fr[o]>>3)<<10)|((fr[o+1]>>3)<<5)|(fr[o+2]>>3);let v=LUT[key];if(v<0){v=near((fr[o]&~7)|4,(fr[o+1]&~7)|4,(fr[o+2]&~7)|4);LUT[key]=v;}a[p]=v;}return a;});
+  return {pal,idx};
+}
+function _gifLZW(idx){const clear=256,eoi=257;let codeSize=9,dict=new Map(),next=eoi+1;const out=[];let cur=0,bits=0;
+  const emit=c=>{cur|=c<<bits;bits+=codeSize;while(bits>=8){out.push(cur&255);cur>>>=8;bits-=8;}};
+  const reset=()=>{dict=new Map();next=eoi+1;codeSize=9;};
+  emit(clear);reset();let prev=idx[0];
+  for(let i=1;i<idx.length;i++){const k=idx[i],key=(prev<<8)|k,got=dict.get(key);
+    if(got!==undefined){prev=got;}else{emit(prev);if(next<4096){dict.set(key,next++);if(next>(1<<codeSize)&&codeSize<12)codeSize++;}else{emit(clear);reset();}prev=k;}}
+  emit(prev);emit(eoi);if(bits>0)out.push(cur&255);return out;}
+function _gifBytes(frames,W,H,delayCs){
+  const {pal,idx}=_gifQuantize(frames,W,H);const b=[];const u16=v=>{b.push(v&255,(v>>8)&255);};
+  for(const ch of 'GIF89a')b.push(ch.charCodeAt(0));u16(W);u16(H);b.push(0xF7,0,0);
+  for(let i=0;i<256;i++)b.push(pal[i][0],pal[i][1],pal[i][2]);
+  b.push(0x21,0xFF,0x0B);for(const ch of 'NETSCAPE2.0')b.push(ch.charCodeAt(0));b.push(0x03,0x01,0,0,0);
+  for(const frame of idx){b.push(0x21,0xF9,0x04,0x04);u16(delayCs);b.push(0,0);b.push(0x2C);u16(0);u16(0);u16(W);u16(H);b.push(0);b.push(8);
+    const data=_gifLZW(frame);for(let i=0;i<data.length;i+=255){const c=data.slice(i,i+255);b.push(c.length);for(const x of c)b.push(x);}b.push(0);}
+  b.push(0x3B);return new Uint8Array(b);
+}
+const _raf2=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+function _decim(n,mx){if(n<=mx)return Array.from({length:n},(_,i)=>i);const out=[];for(let i=0;i<mx;i++)out.push(Math.round(i*(n-1)/(mx-1)));return out;}
+function _safeName(s){return String(s).replace(/<[^>]*>/g,'').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,56)||'plot';}
+async function _grabFrame(gd){const w=Math.round((gd._fullLayout&&gd._fullLayout.width)||360),h=Math.round((gd._fullLayout&&gd._fullLayout.height)||320);
+  const durl=await Plotly.toImage(gd,{format:'png',width:w,height:h});
+  const img=new Image();await new Promise(r=>{img.onload=r;img.src=durl;});
+  const cv=document.createElement('canvas');cv.width=w;cv.height=h;const ctx=cv.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.drawImage(img,0,0,w,h);
+  return {data:ctx.getImageData(0,0,w,h).data,W:w,H:h};}
+async function _cubeRotGif(gd,nframes){
+  const cam=gd._fullLayout.scene&&gd._fullLayout.scene.camera,e0=(cam&&cam.eye)||{x:1.7,y:1.7,z:1.2};
+  const rad=Math.hypot(e0.x,e0.y)||2.4,z=e0.z,ph0=Math.atan2(e0.y,e0.x);const frames=[];let W=0,H=0;
+  for(let f=0;f<nframes;f++){const ph=ph0+2*Math.PI*f/nframes;
+    await Plotly.relayout(gd,{'scene.camera.eye':{x:rad*Math.cos(ph),y:rad*Math.sin(ph),z:z}});await _raf2();
+    const fr=await _grabFrame(gd);frames.push(fr.data);W=fr.W;H=fr.H;}
+  try{await Plotly.relayout(gd,{'scene.camera.eye':e0});}catch(e){}
+  return _gifBytes(frames,W,H,8);
+}
+async function _gifPass(files){
+  const st=document.getElementById('status');let n=files.length;
+  const add=(nm,bytes)=>files.push({name:String(++n).padStart(2,'0')+'_'+_safeName(nm)+'.gif',data:bytes});
+  const s12sy=document.getElementById('s12_sync'),g3sy=document.getElementById('g3d_sync');
+  const s12w=s12sy&&s12sy.checked,g3w=g3sy&&g3sy.checked;if(s12sy)s12sy.checked=false;if(g3sy)g3sy.checked=false;
+  // ===== §12/§13 (cubes purged up-front so nothing competes for the WebGL budget during export) =====
+  const s12cur=S12_CURIDX, s12had=chk('en19')&&S12_SNAPS.length&&S12_SNAPS[s12cur]&&S12_SNAPS[s12cur].do3d;
+  if(s12had){
+    if(S12_IO){S12_IO.disconnect();S12_IO=null;}S12_VISIBLE.clear();for(const id of [...S12_BUILTSET])s12PurgeCube(id);
+    const grids=['p_s12ang_0','p_s12ang_1','p_s12ang_2','p_s12ang_3'];for(const k of [1,2,5])grids.push('p_s13g2_'+k,'p_s13g3_'+k);
+    const idxs=_decim(S12_SNAPS.length,14),frm={},dim={};for(const id of grids)frm[id]=[];
+    for(const ii of idxs){s12RenderNow(ii);await _raf2();
+      for(const id of grids){const gd=document.getElementById(id);if(!gd||!gd._fullLayout)continue;const f=await _grabFrame(gd);frm[id].push(f.data);dim[id]=[f.W,f.H];}}
+    s12RenderNow(s12cur);
+    for(const id of grids)if(frm[id].length){if(st)st.textContent='GIF '+id+'…';add(id,_gifBytes(frm[id],dim[id][0],dim[id][1],30));}
+    for(const id of s12CubeIds()){try{s12EnsureCube(id);const gd=document.getElementById(id);
+      if(gd&&gd._fullLayout&&gd._fullLayout.scene){if(st)st.textContent='GIF '+id+'…';add(id,await _cubeRotGif(gd,10));}}catch(e){}
+      s12PurgeCube(id);}
+  }
+  // ===== §11 =====
+  if(chk('en18')&&G3D_SNAPS.length){
+    const sl=document.getElementById('g3d_slider'),cur=sl?+sl.value:G3D_SNAPS.length-1;
+    G3D_VIS=true;g3dRenderNow(cur);await _raf2();
+    {const idxs=_decim(G3D_SNAPS.length,14),frames=[];let W=0,H=0;
+     for(const ii of idxs){g3dRenderNow(ii);await _raf2();const gd=document.getElementById('p_g3d4');if(gd&&gd._fullLayout){const f=await _grabFrame(gd);frames.push(f.data);W=f.W;H=f.H;}}
+     g3dRenderNow(cur);if(frames.length){if(st)st.textContent='GIF §11 square…';add('s11_square_S',_gifBytes(frames,W,H,30));}}
+    for(const id of ['p_g3d1','p_g3d2','p_g3d3']){const gd=document.getElementById(id);
+      if(gd&&gd._fullLayout&&gd._fullLayout.scene){if(st)st.textContent='GIF '+id+'…';try{add(id,await _cubeRotGif(gd,10));}catch(e){}}}
+  }
+  if(s12had){s12LazyInit();s12RenderNow(s12cur);}
+  if(s12sy)s12sy.checked=s12w;if(g3sy)g3sy.checked=g3w;
+}
 async function downloadPlots(){
   const st=document.getElementById('status'),prev=st?st.textContent:'';
   const files=[];let i=1;
@@ -2042,6 +2134,7 @@ async function downloadPlots(){
     try{const durl=await Plotly.toImage(gd,{format:'png',scale:2,width:gd._fullLayout.width||640,height:gd._fullLayout.height||320});
       files.push({name:String(i).padStart(2,'0')+'_'+t+'.png',data:_b64bytes(durl)});i++;}catch(e){}
   }
+  try{if(st)st.textContent='rendering animated grids…';await _gifPass(files);}catch(e){console.warn('GIF export failed:',e);}
   if(!files.length){if(st)st.textContent='no visible plots to export — run something first.';return;}
   files.push({name:'config.txt',data:new TextEncoder().encode(_cfgText())});
   const a=document.createElement('a');a.href=URL.createObjectURL(_zip(files));
@@ -2150,6 +2243,7 @@ document.getElementById('preset').addEventListener('change',e=>{if(e.target.valu
 ['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
 {const sl=document.getElementById('g3d_slider');if(sl)sl.addEventListener('input',function(){g3dRenderIdx(+this.value);});}   // §11 scrub past snapshots
 {const sl=document.getElementById('s12_slider');if(sl)sl.addEventListener('input',function(){s12RenderIdx(+this.value);});}   // §12 scrub past snapshots
+{const sl=document.getElementById('s13_slider');if(sl)sl.addEventListener('input',function(){s12RenderIdx(+this.value);});}   // §13 scrub (shares §12 snapshots; s12RenderNow re-syncs both sliders)
 document.getElementById('run').addEventListener('click',run);
 document.getElementById('stop').addEventListener('click',stopRun);
 document.getElementById('resume').addEventListener('click',resumeRun);
