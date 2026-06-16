@@ -2126,7 +2126,7 @@ async function _gifPass(files){
     s12RenderNow(s12cur);
     for(const id of grids)if(frm[id].length){if(st)st.textContent='GIF '+id+'…';add(id,_gifBytes(frm[id],dim[id][0],dim[id][1],30));}
     for(const id of s12CubeIds()){try{s12EnsureCube(id);const gd=document.getElementById(id);
-      if(gd&&gd._fullLayout&&gd._fullLayout.scene){if(st)st.textContent='GIF '+id+'…';add(id,await _cubeRotGif(gd,10));}}catch(e){}
+      if(gd&&gd._fullLayout&&gd._fullLayout.scene){if(st)st.textContent='GIF '+id+'…';add(id,await _cubeRotGif(gd,8));}}catch(e){}
       s12PurgeCube(id);}
   }
   // ===== §11 =====
@@ -2136,10 +2136,20 @@ async function _gifPass(files){
     {const idxs=_decim(G3D_SNAPS.length,14),frames=[];let W=0,H=0;
      for(const ii of idxs){g3dRenderNow(ii);await _raf2();const gd=document.getElementById('p_g3d4');if(gd&&gd._fullLayout){const f=await _grabFrame(gd);frames.push(f.data);W=f.W;H=f.H;}}
      g3dRenderNow(cur);if(frames.length){if(st)st.textContent='GIF §11 square…';add('s11_square_S',_gifBytes(frames,W,H,30));}}
-    // §11 3D cubes: rotating GIFs. NOTE: Plotly's toImage can throw (removeChild) for these after the heavy §12/§13
-    // export churns its clone container; if so they're skipped gracefully (the §11 square + all §12/§13 still export).
-    for(const id of ['p_g3d1','p_g3d2','p_g3d3']){const gd=document.getElementById(id);
-      if(gd&&gd._fullLayout&&gd._fullLayout.scene){if(st)st.textContent='GIF '+id+'…';try{add(id,await _cubeRotGif(gd,10));}catch(e){}}}
+    // §11 3D cubes: rotating GIFs. The native cubes (built 3-at-a-time by g3dBuild) fail toImage after the heavy
+    // §12 export, so re-render each through the robust per-cube §12 machinery instead (build fresh → rotate → purge,
+    // ISOLATED — others purged). §11's T₁/T₂/T₃ are N³ grids over (i,j,k), the same shape s12CubeRender expects.
+    {const snap=G3D_SNAPS[cur];
+     for(const id of ['p_g3d1','p_g3d2','p_g3d3','p_g3d4'])try{Plotly.purge(id);}catch(e){}   // isolate: no other §11 gl plot alive during a cube's toImage
+     for(const [id,tk,ik,dk,lab] of [['p_g3d1','t1','i1','d1','T1 = JᵢᵀQⱼJₖ'],['p_g3d2','t2','i2','d2','T2 = uⱼuₖ·JᵢᵀQⱼJₖ'],['p_g3d3','t3','i3','d3','T3 = rᵢuⱼuₖ·JᵢᵀQⱼJₖ']]){
+       try{s12CubeBuild(id,snap.M,lab,true);
+         s12CubeRender(id,{v:snap[tk],idx:(snap.sparse?snap[ik]:null),d:snap[dk]},snap.M,lab,'symlog');
+         await _raf2();
+         const gd=document.getElementById(id);
+         if(gd&&gd._fullLayout&&gd._fullLayout.scene){if(st)st.textContent='GIF '+id+'…';add(id,await _cubeRotGif(gd,8));}
+       }catch(e){}
+       try{Plotly.purge(id);}catch(e){}}
+     G3D_BUILT=false;}   // §11 cubes purged for export → force a rebuild when §11 is next viewed
   }
   S12_EXPORTING=false;
   if(s12had){s12LazyInit();s12RenderNow(s12cur);}
