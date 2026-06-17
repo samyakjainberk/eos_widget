@@ -1550,7 +1550,7 @@ function sec14Payload(TV,TW,BV,BW,r,Jg,N,p,lr,grid3dcap,rhist){
       for(let a=0;a<kk;a++){dirs.push(BV[i][a]);vals.push(BW[i][a]);}
       const Ei=[],Ji=new Float64Array(D),Wi=new Float64Array(D),bi=new Float64Array(D),ci=new Float64Array(D);
       for(let dd=0;dd<D;dd++){const g=dotp(Jg[i],dirs[dd]),s=g>=0?1:-1,e=new Float64Array(p);
-        for(let q=0;q<p;q++)e[q]=s*dirs[dd][q];Ei.push(e);Ji[dd]=s*g;Wi[dd]=vals[dd];bi[dd]=vals[dd]*Ji[dd];ci[dd]=1+lr*vals[dd]*r[i];}
+        for(let q=0;q<p;q++)e[q]=s*dirs[dd][q];Ei.push(e);Ji[dd]=s*g;Wi[dd]=vals[dd];bi[dd]=vals[dd]*Ji[dd];ci[dd]=1+(lr/N)*vals[dd]*r[i];}   // η/N = 1/N-normalized GD step (matches §13)
       E.push(Ei);Ju.push(Ji);W.push(Wi);b.push(bi);c.push(ci);
     }
     const dfac=[];for(let j=0;j<N;j++){const dj=[];for(let m=0;m<D;m++){const dm=new Float64Array(N);for(let k=0;k<N;k++)dm[k]=dotp(E[j][m],Jg[k]);dj.push(dm);}dfac.push(dj);}
@@ -1581,7 +1581,7 @@ function sec14Payload(TV,TW,BV,BW,r,Jg,N,p,lr,grid3dcap,rhist){
     const S=y;if(rhist.length<S){ratio.push(null);continue;}
     const sig=sigSel[sel][''+y],prod=new Float64Array(N3).fill(1);
     for(let z=rhist.length-S;z<rhist.length;z++){const rt=rhist[z];
-      for(let i=0;i<N;i++)for(let j=0;j<N;j++){const rj=rt[j];for(let k=0;k<N;k++){const off=(i*N+j)*N+k;prod[off]*=(1+lr*sig[off]*rj);}}}
+      for(let i=0;i<N;i++)for(let j=0;j<N;j++){const rj=rt[j];for(let k=0;k<N;k++){const off=(i*N+j)*N+k;prod[off]*=(1+(lr/N)*sig[off]*rj);}}}   // η/N (matches §13)
     ratio.push(s14Pack3d(prod,N));
   }
   out.ratio=ratio;return out;

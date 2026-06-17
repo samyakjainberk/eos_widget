@@ -300,7 +300,7 @@ def sec14_payload(TV, TW, BV, BW, r, Jg, lr, grid3dcap, rhist):
         Ju = torch.einsum('ip,idp->id', Jg, E)
         a = torch.einsum('ilp,jmp->ijlm', E, E)
         b = W * Ju
-        c = 1.0 + lr * W * r.view(N, 1)
+        c = 1.0 + (lr / N) * W * r.view(N, 1)   # 1+(η/N)σ_{j,p}r_j ; η/N = 1/N-normalized GD step (matches §13). MIRRORS server.
         d = torch.einsum('jmp,kp->jmk', E, Jg)
         e = r
         T = (a.unsqueeze(2) * b.view(N, 1, 1, D, 1) * c.view(1, N, 1, 1, D)
@@ -343,7 +343,7 @@ def sec14_payload(TV, TW, BV, BW, r, Jg, lr, grid3dcap, rhist):
             sig = sig_sel[sel][str(y)]
             prod = torch.ones(N, N, N, device=dev, dtype=TV.dtype)
             for rt in rhist[-S:]:
-                prod = prod * (1.0 + lr * sig * rt.view(1, N, 1))
+                prod = prod * (1.0 + (lr / N) * sig * rt.view(1, N, 1))   # η/N (1/N-normalized GD step; matches §13)
             ratios.append(pack14(prod))
     out["ratio"] = ratios
     return out

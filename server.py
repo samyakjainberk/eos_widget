@@ -237,7 +237,7 @@ def _sec14_payload(TV, TW, BV, BW, r, Jg, lr, grid3dcap, rhist):
         Ju = torch.einsum('ip,idp->id', Jg, E)                        # ⟨∇f_i, u⟩ ≥ 0
         a = torch.einsum('ilp,jmp->ijlm', E, E)                       # (N,N,D,D)  u_{i,ℓ}·u_{j,p}
         b = W * Ju                                                    # (N,D)      σ_{i,ℓ}(J_i·u_{i,ℓ})
-        c = 1.0 + lr * W * r.view(N, 1)                               # (N,D)      1+η σ_{j,p} r_j  (sample j)
+        c = 1.0 + (lr / N) * W * r.view(N, 1)                         # (N,D)  1+(η/N)σ_{j,p}r_j ; η/N = the 1/N-normalized GD step (matches §13)
         d = torch.einsum('jmp,kp->jmk', E, Jg)                        # (N,D,N)    u_{j,p}·J_k
         e = r                                                         # (N,)       r_k
         T = (a.unsqueeze(2) * b.view(N, 1, 1, D, 1) * c.view(1, N, 1, 1, D)
@@ -282,7 +282,7 @@ def _sec14_payload(TV, TW, BV, BW, r, Jg, lr, grid3dcap, rhist):
             sig = sig_sel[sel][str(y)]
             prod = torch.ones(N, N, N, device=dev, dtype=DTYPE)
             for rt in rhist[-S:]:
-                prod = prod * (1.0 + lr * sig * rt.view(1, N, 1))
+                prod = prod * (1.0 + (lr / N) * sig * rt.view(1, N, 1))   # η/N (1/N-normalized GD step; matches §13)
             ratios.append(pack14(prod))
     out["ratio"] = ratios
     return out
