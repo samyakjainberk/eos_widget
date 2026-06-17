@@ -104,71 +104,61 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
     out = {"M": N, "do3d": False, "ks": [1, 2, 5],
            "ang": {"g": [x.reshape(-1).detach().cpu().tolist() for x in pas],
                    "gm": [float(x.mean()) for x in pas], "kfull": kf}}
-    if N > grid3dcap:                                     # 3D grids are N³ — only for small N (like §11)
-        return out
-    out["do3d"] = True
-    dg = torch.arange(N, device=dev)
+    return out   # §12 now needs only the principal angles; the old §12 cube grids / §13 g1,g2,g3 are gone (see _sec13_stats)
 
-    def per_pair(k0):
-        """gradient-gauged per ordered pair (a,b): m,c (max|cos| & signed cos @argmax), σ_a,σ_b,J_a,J_b."""
+
+SEC13_KS = (2, 5)   # §13 top⊕bottom ranks k₀ compared against the exact reference
+SEC13_DOMS = ("ndist", "ijeq", "diag")   # i≠j≠k ; i=j≠k ; i=j=k  (the three (i,j,k) classes plotted)
+
+
+def _sec13_stats(cur, prev, ref, lr):
+    """§13 — approximations G1/G2/G3 of the exact reference J_iᵀQ_jJ_k·r_k, from per-sample Lanczos eigenpairs.
+    For triple (i,j,k) and rank k₀ (D=2k₀ top⊕bottom dirs x,y,z of Q_i,Q_j,Q_k):
+      G1 = Σ_{x,y,z} r_{k,t}σ_{j,y}·(1+r_{i,t-1}ησ_{i,x})cos_{(i,x)(j,y)}J'(x)_{i,t-1}·(1+r_{k,t-1}ησ_{k,z})cos_{(j,y)(k,z)}J'(z)_{k,t-1}
+      G2 = Σ_{y,z}   r_{k,t}σ_{j,y}·(J_{i,t}·u_{j,y})·(1+r_{k,t-1}ησ_{k,z})cos_{(j,y)(k,z)}J'(z)_{k,t-1}      (i-side → J_{i,t}·u_{j,y})
+      G3 = Σ_{x,y}   r_{k,t}σ_{j,y}·(1+r_{i,t-1}ησ_{i,x})cos_{(i,x)(j,y)}J'(x)_{i,t-1}·(J_{k,t}·u_{j,y})       (k-side → J_{k,t}·u_{j,y})
+    Q_j (σ_{j,y}, u_{j,y}) is taken at step t; Q_i and Q_k (σ, u, J', r) at step t-1; r_{k,t} & σ_{j,y} at t. cos_{(a)(b)}
+    are signed dot products of unit eigenvectors (cross-time for i↔j and j↔k). J'(x)_{i,t-1}=⟨J_{i,t-1},u_{i,x}^{t-1}⟩.
+    cur/prev = {TV,TW,BV,BW,r,Jg}. ref=(N,N,N) exact J_iᵀQ_jJ_k·r_k at t. Returns mean/std over ALL (i,j,k) and over
+    i≠j≠k for ref and each (G,k₀). MIRRORS eos_lab.linalg.sec13_stats / index.html sec13Stats."""
+    TV, TW, BV, BW = cur["TV"], cur["TW"], cur["BV"], cur["BW"]
+    pTV, pTW, pBV, pBW = prev["TV"], prev["TW"], prev["BV"], prev["BW"]
+    N, K = int(TV.shape[0]), int(TV.shape[1]); dev = TV.device
+    rt, Jt, pr, pJ = cur["r"], cur["Jg"], prev["r"], prev["Jg"]
+    ai = torch.arange(N, device=dev)
+    I, Jx, Kx = ai.view(N, 1, 1), ai.view(1, N, 1), ai.view(1, 1, N)
+    masks = {"ndist": ((I != Jx) & (Jx != Kx) & (I != Kx)).reshape(-1),   # i≠j≠k (all distinct)
+             "ijeq":  ((I == Jx) & (Jx != Kx)).reshape(-1),               # i=j≠k
+             "diag":  ((I == Jx) & (Jx == Kx)).reshape(-1)}               # i=j=k (self-triple diagonal)
+
+    def stats(T):
+        f = T.reshape(-1)
+        return {nm: ([float(f[mk].mean()), float(f[mk].std(unbiased=False))] if int(mk.sum()) else [0.0, 0.0])
+                for nm, mk in masks.items()}
+
+    out = {"ref": stats(ref), "g1": {}, "g2": {}, "g3": {}}
+    for k0 in SEC13_KS:
         kk = max(1, min(k0, K))
-        E = torch.cat([TV[:, :kk, :], BV[:, :kk, :]], dim=1)          # (N,D,p)
-        w = torch.cat([TW[:, :kk], BW[:, :kk]], dim=1)                # (N,D) signed eigenvalues
-        D = E.shape[1]
-        gE = torch.einsum('ip,iap->ia', Jg, E)                       # ⟨∇f_i, E[i,a]⟩
-        E = E * torch.where(gE >= 0, torch.ones_like(gE), -torch.ones_like(gE)).unsqueeze(2)  # GRADIENT GAUGE
-        C = torch.einsum('iap,jbp->ijab', E, E).reshape(N, N, D * D)  # signed cos
-        absC = C.abs()
-        idx = absC.argmax(dim=2)
-        astar = (idx // D).clone(); bstar = (idx % D).clone()
-        astar[dg, dg] = 0; bstar[dg, dg] = 0                          # canonical self-pair = top-1
-        flat = astar * D + bstar
-        m = torch.gather(absC, 2, flat.unsqueeze(2)).squeeze(2)
-        c = torch.gather(C, 2, flat.unsqueeze(2)).squeeze(2)
-        m[dg, dg] = 1.0; c[dg, dg] = 1.0
-        Ju = torch.einsum('ip,iap->ia', Jg, E)                       # ⟨∇f_i, oriented E[i,a]⟩ (≥0)
-        sigA = torch.gather(w.unsqueeze(1).expand(N, N, D), 2, astar.unsqueeze(2)).squeeze(2)
-        sigB = torch.gather(w.unsqueeze(0).expand(N, N, D), 2, bstar.unsqueeze(2)).squeeze(2)
-        JA = torch.gather(Ju.unsqueeze(1).expand(N, N, D), 2, astar.unsqueeze(2)).squeeze(2)
-        JB = torch.gather(Ju.unsqueeze(0).expand(N, N, D), 2, bstar.unsqueeze(2)).squeeze(2)
-        return m, c, sigA, sigB, JA, JB
-
-    def grids(k0):
-        m, c, sigA, sigB, JA, JB = per_pair(k0)
-        sgn = torch.sign
-        r3i = r.view(N, 1, 1); r3l = r.view(1, 1, N)
-        mij, mjl = m.unsqueeze(2), m.unsqueeze(0)
-        cij, cjl = c.unsqueeze(2), c.unsqueeze(0)
-        sAij, sAjl, sBjl = sigA.unsqueeze(2), sigA.unsqueeze(0), sigB.unsqueeze(0)
-        JAij, JBjl = JA.unsqueeze(2), JB.unsqueeze(0)
-        A = mij * mjl
-        B = cij * cjl * sgn(sAij * sAjl * sBjl) * sgn(JAij) * sgn(JBjl)
-        Cg = sgn(r3l * sAjl) * cij * cjl * sgn(sAij * sBjl * r3i * r3l) * sgn(JAij) * sgn(JBjl)
-        Dd = cij * cjl * sAjl
-        Ee = cij * cjl * r3l * sAjl
-        G1 = r3l * sAjl * (1 + r3i * sAij) * cij * JAij * (1 + r3l * sBjl) * cjl * JBjl
-        rl = r.view(1, N)
-        G2 = rl * sigA * (1 + rl * sigB) * c * JB
-        return A, B, Cg, Dd, Ee, G1, G2, G2.abs()
-
-    def pack3d(T):                                        # ≤G3D_MAXPTS span-preserving subset + full diagonal + mean + +share%
-        v, idx = _g3d_pack(T.reshape(-1))
-        f = T.reshape(-1); ps = float(f[f > 0].sum()); ns = float(f[f < 0].sum()); den = ps - ns
-        return {"v": v, "idx": idx, "d": T[dg, dg, dg].detach().cpu().tolist(), "mn": float(f.mean()),
-                "pp": (ps / den * 100.0 if den > 1e-30 else 0.0)}
-
-    s12 = {}; g1 = {}; g2 = {}; g3 = {}; ev = {}
-    for k0 in (1, 2, 5):
-        A, B, Cg, Dd, Ee, G1, G2, G3 = grids(k0)
+        Uj = torch.cat([TV[:, :kk], BV[:, :kk]], dim=1)              # (N,D,p) eigvecs of Q_j at t
+        Wj = torch.cat([TW[:, :kk], BW[:, :kk]], dim=1)              # (N,D) eigvals σ_{j,y} at t
+        Up = torch.cat([pTV[:, :kk], pBV[:, :kk]], dim=1)            # (N,D,p) eigvecs of Q_i/Q_k at t-1
+        Wp = torch.cat([pTW[:, :kk], pBW[:, :kk]], dim=1)            # (N,D) eigvals at t-1
+        Jp = torch.einsum('ip,iap->ia', pJ, Up)                     # J'(x)_{i,t-1} = ⟨J_{t-1},u^{t-1}⟩
+        Cij = torch.einsum('ixp,jyp->ijxy', Up, Uj)                 # cos_{(i,x)(j,y)} = u_i^{t-1}·u_j^{t}
+        Cjk = torch.einsum('jyp,kzp->jkyz', Uj, Up)                 # cos_{(j,y)(k,z)} = u_j^{t}·u_k^{t-1}
+        P = (1.0 + pr.view(N, 1) * lr * Wp) * Jp                    # (1+r_{t-1}ησ_{t-1})·J'_{t-1}  (i- & k-side)
+        a = torch.einsum('ix,ijxy->ijy', P, Cij)                    # i-side sum over x
+        b = torch.einsum('kz,jkyz->jky', P, Cjk)                    # k-side sum over z
+        av = a * Wj.unsqueeze(0)                                    # σ_{j,y}·a
+        Jiu = torch.einsum('ip,jyp->ijy', Jt, Uj)                   # J_{i,t}·u_{j,y}^{t}  (G2 i-side)
+        Jku = torch.einsum('kp,jyp->jky', Jt, Uj)                   # J_{k,t}·u_{j,y}^{t}  (G3 k-side)
+        Jiuv = Jiu * Wj.unsqueeze(0)
+        rk = rt.view(1, 1, N)
+        G1 = rk * torch.einsum('ijy,jky->ijk', av, b)
+        G2 = rk * torch.einsum('ijy,jky->ijk', Jiuv, b)
+        G3 = rk * torch.einsum('ijy,jky->ijk', av, Jku)
         key = str(k0)
-        s12[key] = {"A": pack3d(A), "B": pack3d(B), "C": pack3d(Cg), "D": pack3d(Dd), "E": pack3d(Ee)}
-        g1[key] = pack3d(G1)
-        g2[key] = G2.reshape(-1).detach().cpu().tolist()
-        g3[key] = G3.reshape(-1).detach().cpu().tolist()
-        if k0 in (2, 5):                                  # evolution panel tracks the 3 bounded grids A,B,C
-            ev[key] = {nm: [float(g.mean()), float(g.std(unbiased=False))]
-                       for nm, g in (("A", A), ("B", B), ("C", Cg))}
-    out.update({"s12": s12, "g1": g1, "g2": g2, "g3": g3, "ev": ev})
+        out["g1"][key] = stats(G1); out["g2"][key] = stats(G2); out["g3"][key] = stats(G3)
     return out
 
 
@@ -1605,6 +1595,7 @@ def run_stream(P):
     eigTick = 0
     done = 0
     sec14_rhist = []          # §14: per-sample residual history (last ≤5 eig-ticks) for the eq-③ multi-step ratio
+    sec13_prev = None         # §13: previous eig-tick's per-sample {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
     prevTop = [None] * nSub
     prevBot = [None] * nSub
     prevPos = None
@@ -2089,7 +2080,7 @@ def run_stream(P):
             # bottom-K12 eigenpairs of each Q_i by Lanczos on v↦Q_i·v — no p×p Hessian is formed. For the MLP
             # the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (a single vectorised forward/backward per
             # step instead of N) — ~4–8× faster on GPU. Other archs fall back to the per-sample loop. Gated on N.
-            sec12 = None; sec14 = None
+            sec12 = None; sec14 = None; sec13 = None
             if (s19 or s20) and multi_ok and Jc is not None and rr is not None and N <= sec12ncap:
                 lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
                             if outD > 1 else torch.arange(N, device=_dev()))
@@ -2123,6 +2114,17 @@ def run_stream(P):
                 r12 = rr[lblsel12]; Jg12 = Jc[lblsel12]
                 if s19:
                     sec12 = _sec12_payload(TV, TW, BV, BW, r12, Jg12, grid3dcap)
+                    if N <= grid3dcap:                        # §13: exact ref J_iᵀQ_jJ_k·r_k (N HVPs, §11's tool) + G1/G2/G3
+                        T1_13 = torch.zeros(N, N, N, dtype=DTYPE, device=_dev())
+                        for kk in range(N):
+                            QJk = jac_hvp(th, X, Jg12[kk])                  # (M,p) = {Q_a·J_k}_a over all outputs
+                            QJr = QJk[lblsel12] if outD > 1 else QJk        # (N,p) GT-label rows = {Q_j·J_k}_j
+                            T1_13[:, :, kk] = Jg12 @ QJr.t()                # [i,j] = J_i·(Q_j J_k)
+                        ref13 = T1_13 * r12.view(1, 1, N)                   # exact reference · r_k
+                        cur13 = {"TV": TV, "TW": TW, "BV": BV, "BW": BW, "r": r12, "Jg": Jg12}
+                        if sec13_prev is not None:             # need t-1 for Q_i/Q_k & J',r → skip the first eig-tick
+                            sec13 = _sec13_stats(cur13, sec13_prev, ref13, lr)
+                        sec13_prev = {kk_: vv_.detach() for kk_, vv_ in cur13.items()}
                 if s20:                                       # §14 shares §12's per-sample eigenpairs
                     sec14_rhist.append(r12.detach())
                     if len(sec14_rhist) > 5:
@@ -2180,6 +2182,8 @@ def run_stream(P):
                 yield {"type": "g3d", "t": t, **g3d}     # §11 3D-grid snapshot (browser stores + scrubs these)
             if sec12 is not None:
                 yield {"type": "g4d", "t": t, **sec12}   # §12 Hessian-eigvec cross-similarity snapshot
+            if sec13 is not None:
+                yield {"type": "g13", "t": t, **sec13}   # §13 G1/G2/G3 approximations vs exact J_iᵀQ_jJ_k·r_k
             if sec14 is not None:
                 yield {"type": "g14", "t": t, **sec14}   # §14 Tr(ΔNTK) per-triplet decomposition snapshot
             eigTick += 1
