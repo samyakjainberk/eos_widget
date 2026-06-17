@@ -149,6 +149,7 @@ def hutch_trace(hvp, p, nprobe, seed, device, dtype):
 
 
 SEC12_KFULL = 15   # rank of the §12 "full-space" principal-angle plot (top-15 ⊕ bottom-15) — MIRRORS server.
+SEC12_RATIO_EPS = 0.1   # §12 panel-4/5 residual floor: clamp |r_i| ≥ SEC12_RATIO_EPS·RMS(r) so proj_i/r_i can't spike. MIRRORS server.
 
 
 def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
@@ -195,10 +196,13 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
         proj_mag = jdot.abs() * sig                              # |⟨J_i,u⟩|·σ  → magnitude ratio
         proj_sgn = jdot * sig                                    # ⟨J_i,u⟩·σ (signed) → sign-ratio
         nz = r != 0
-        rat = proj_mag[nz] / r[nz]
+        rnz = r[nz]
+        eps = SEC12_RATIO_EPS * torch.sqrt((rnz ** 2).mean()) if rnz.numel() else None   # residual floor = REL·RMS(r)
+        r_safe = torch.sign(rnz) * torch.clamp(rnz.abs(), min=float(eps)) if eps is not None else rnz   # |r| floored (sign kept)
+        rat = proj_mag[nz] / r_safe
         fin = torch.isfinite(rat)
         rat = rat[fin]
-        srat = torch.sign(proj_sgn[nz][fin]) * torch.sign(r[nz][fin])   # sgn(⟨J,u⟩·σ / r_i), per sample then aggregated
+        srat = torch.sign(proj_sgn[nz][fin]) * torch.sign(rnz[fin])    # sign-ratio uses the RAW residual sign (correction is magnitude-only)
         def ms(x):
             return [float(x.mean()), float(x.std(unbiased=False))] if x.numel() else [0.0, 0.0]
         return {"ratio": ms(rat), "sratio": ms(srat),                   # rvals/svals = per-sample values for the panel-4/5 histograms

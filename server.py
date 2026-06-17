@@ -72,6 +72,8 @@ def _g3d_pack(flat, K=G3D_MAXPTS):
 # tensor-only so it is unit-testable; MIRRORS eos_lab.linalg.sec12_payload / index.html sec12Payload.
 SEC12_KFULL = 15   # rank of the "full-space" principal-angle plot (top-15 ⊕ bottom-15) — a fixed cap so it,
                    # too, needs only Lanczos extremes rather than the full spectrum.
+SEC12_RATIO_EPS = 0.1   # §12 panel-4/5 residual floor: clamp |r_i| ≥ SEC12_RATIO_EPS·RMS(r) before forming proj_i/r_i,
+                        # so the ratio (and its histogram) can't spike when a residual crosses zero.
 
 
 def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
@@ -83,7 +85,8 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
         used by the panel-2/3 evolution curves; ang.ks lists the k per index.
       proj = panels 4/5, for u = the TOP eigvec u_{i,1} (largest signed eigenvalue, → proj.top) and the BOTTOM
         eigvec u_{i,-1} (most-negative, → proj.bot) of Q_i. Each carries {ratio:[mean,std], sratio:[mean,std]}:
-        the magnitude ratio uses |⟨J_i,u⟩|·σ / r_i; the SIGN-ratio uses sgn(⟨J_i,u⟩·σ / r_i) — the SIGNED
+        the magnitude ratio uses |⟨J_i,u⟩|·σ / r_i (with |r_i| floored at SEC12_RATIO_EPS·RMS(r) to kill spikes when a
+        residual crosses zero, sign kept); the SIGN-ratio uses sgn(⟨J_i,u⟩·σ / r_i) — the SIGNED
         projection so its sign varies per sample (|proj|·σ has constant sign sgn(σ) → sign-ratio would collapse to
         ±sgn(r_i)). Per-sample ratio FIRST, then mean/std over samples; r_i=0 dropped. MIRRORS
         eos_lab.linalg.sec12_payload / index.html sec1213Payload."""
@@ -120,13 +123,16 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
     def ratio_stats(jdot, sig):
         # magnitude ratio uses |⟨J,u⟩|·σ (as specified); the SIGN-ratio uses the SIGNED ⟨J,u⟩·σ so its sign varies
         # per sample (otherwise |proj|·σ has a constant sign = sgn(σ) and the sign-ratio collapses to ±sgn(r_i)).
-        proj_mag = jdot.abs() * sig                              # |⟨J_i,u⟩|·σ  → ratio
+        proj_mag = jdot.abs() * sig                              # |⟨J_i,u⟩|·σ  → magnitude ratio
         proj_sgn = jdot * sig                                    # ⟨J_i,u⟩·σ (signed) → sign-ratio
         nz = r != 0
-        rat = proj_mag[nz] / r[nz]
+        rnz = r[nz]
+        eps = SEC12_RATIO_EPS * torch.sqrt((rnz ** 2).mean()) if rnz.numel() else None   # residual floor = REL·RMS(r)
+        r_safe = torch.sign(rnz) * torch.clamp(rnz.abs(), min=float(eps)) if eps is not None else rnz   # |r| floored (sign kept)
+        rat = proj_mag[nz] / r_safe
         fin = torch.isfinite(rat)
         rat = rat[fin]
-        srat = torch.sign(proj_sgn[nz][fin]) * torch.sign(r[nz][fin])   # sgn(⟨J,u⟩·σ / r_i), per sample then aggregated
+        srat = torch.sign(proj_sgn[nz][fin]) * torch.sign(rnz[fin])    # sign-ratio uses the RAW residual sign (correction is magnitude-only)
         def ms(x):
             return [float(x.mean()), float(x.std(unbiased=False))] if x.numel() else [0.0, 0.0]
         return {"ratio": ms(rat), "sratio": ms(srat),                   # rvals/svals = per-sample values for the panel-4/5 histograms

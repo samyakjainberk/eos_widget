@@ -267,7 +267,7 @@
 <div class="plotrow row3"><div id="p_s12evo_mn_1" class="plot" style="height:280px"></div><div id="p_s12evo_mx_1" class="plot" style="height:280px"></div><div id="p_s12evo_me_1" class="plot" style="height:280px"></div></div>
 <div class="plotrow row3"><div id="p_s12evo_mn_2" class="plot" style="height:280px"></div><div id="p_s12evo_mx_2" class="plot" style="height:280px"></div><div id="p_s12evo_me_2" class="plot" style="height:280px"></div></div>
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — ratio $\text{proj}_i/r_i$ for the TOP eigenvector $u_{i,1}$ (largest signed eigenvalue)</h3>
-<p class="cap">$u_{i,1}$ = eigenvector of the <b>largest</b> signed eigenvalue of $Q_i$. The <b>per-sample ratio is formed first, then aggregated across samples</b> ($r_i=0$ dropped). 2D vs step: (1) mean $\langle\text{proj}/r\rangle$ and (2) std of the <b>magnitude</b> ratio $\text{proj}_i/r_i$ with $\text{proj}_i=|\langle J_i,u_{i,1}\rangle|\cdot\sigma_{i,1}$ (|projection|·signed eigenvalue); (3) mean and (4) std of the <b>sign-ratio</b> $\operatorname{sgn}\!\big(\langle J_i,u_{i,1}\rangle\,\sigma_{i,1}/r_i\big)$ — using the <b>signed</b> projection so its sign actually varies across samples.</p>
+<p class="cap">$u_{i,1}$ = eigenvector of the <b>largest</b> signed eigenvalue of $Q_i$. The <b>per-sample ratio is formed first, then aggregated across samples</b> ($r_i=0$ dropped). 2D vs step: (1) mean $\langle\text{proj}/r\rangle$ and (2) std of the <b>magnitude</b> ratio $\text{proj}_i/r_i$ with $\text{proj}_i=|\langle J_i,u_{i,1}\rangle|\cdot\sigma_{i,1}$ (|projection|·signed eigenvalue); (3) mean and (4) std of the <b>sign-ratio</b> $\operatorname{sgn}\!\big(\langle J_i,u_{i,1}\rangle\,\sigma_{i,1}/r_i\big)$ — using the <b>signed</b> projection so its sign actually varies across samples. To avoid spikes when a residual crosses zero, $|r_i|$ is <b>floored at $0.1\cdot\mathrm{RMS}(r)$</b> before dividing (sign kept; the sign-ratio uses the raw residual sign).</p>
 <div class="plotrow row4"><div id="p_s12proj_top0" class="plot" style="height:290px"></div><div id="p_s12proj_top1" class="plot" style="height:290px"></div><div id="p_s12proj_top2" class="plot" style="height:290px"></div><div id="p_s12proj_top3" class="plot" style="height:290px"></div></div>
 <p class="cap" style="margin-top:6px">Histograms over the $N$ samples at the <b>current iteration</b> (redrawn every step): the per-sample ratio $\text{proj}_i/r_i$ and its sign-ratio for the top eigenvector.</p>
 <div class="plotrow row2"><div id="p_s12hist_top_val" class="plot" style="height:250px"></div><div id="p_s12hist_top_sgn" class="plot" style="height:250px"></div></div>
@@ -1399,6 +1399,7 @@ function s12Push(m){
 }
 // ── §12 browser-mode compute (JS port of server._sec12_payload) ──────────────
 const SEC12_KFULL=15;   // rank of the §12 "full-space" principal-angle plot (top-15 ⊕ bottom-15). MIRRORS server.
+const SEC12_RATIO_EPS=0.1;   // §12 panel-4/5 residual floor: clamp |r_i| ≥ SEC12_RATIO_EPS·RMS(r) so proj_i/r_i can't spike. MIRRORS server.
 function s12Dot(u,v,p){let d=0;for(let q=0;q<p;q++)d+=u[q]*v[q];return d;}
 // TV[i]/BV[i] = arrays of K top/bottom eigenVECTORS (Float64Array p, raw signs); TW[i]/BW[i] = their eigenVALUES.
 const S12_SGN=x=>(x>0?1:(x<0?-1:0));
@@ -1481,8 +1482,11 @@ function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap){   // §12: principal an
     jb[i]=s12Dot(Jg[i],BV[i][ib],p);sb[i]=BW[i][ib];}
   const ms=arr=>{if(!arr.length)return [0,0];let s=0;for(let q=0;q<arr.length;q++)s+=arr[q];const m=s/arr.length;let v=0;for(let q=0;q<arr.length;q++){const d=arr[q]-m;v+=d*d;}return [m,Math.sqrt(v/arr.length)];};
   const ratioStats=(jdot,sig)=>{const rat=[],srat=[];   // ratio uses |⟨J,u⟩|·σ; sign-ratio uses SIGNED ⟨J,u⟩·σ
-    for(let i=0;i<N;i++){if(r[i]!==0){const pmag=Math.abs(jdot[i])*sig[i],psgn=jdot[i]*sig[i],q=pmag/r[i];
-      if(isFinite(q)){rat.push(q);srat.push(sgn(psgn)*sgn(r[i]));}}}
+    let s2=0,c=0;for(let i=0;i<N;i++)if(r[i]!==0){s2+=r[i]*r[i];c++;}
+    const eps=c?SEC12_RATIO_EPS*Math.sqrt(s2/c):0;   // residual floor = REL·RMS(r): clamp |r| so proj/r can't spike
+    for(let i=0;i<N;i++){if(r[i]!==0){const pmag=Math.abs(jdot[i])*sig[i],psgn=jdot[i]*sig[i];
+      const rsafe=(r[i]<0?-1:1)*Math.max(Math.abs(r[i]),eps), q=pmag/rsafe;   // |r| floored (sign kept)
+      if(isFinite(q)){rat.push(q);srat.push(sgn(psgn)*sgn(r[i]));}}}   // sign-ratio uses RAW residual sign
     return {ratio:ms(rat),sratio:ms(srat),rvals:rat,svals:srat};};   // rvals/svals = per-sample values for the histograms
   return {M:N,do3d:false,ks:[1,2,5],ang:ang,proj:{top:ratioStats(jt,st),bot:ratioStats(jb,sb)}};
 }
