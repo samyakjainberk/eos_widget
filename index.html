@@ -288,11 +288,10 @@
 
 <div id="sec_s14" style="display:none">
 <h2>14 · per-triplet $(i,j,k)$ decomposition of $\mathrm{Tr}(\Delta\mathrm{NTK})$</h2>
-<p class="cap">$\mathrm{Tr}(\Delta\mathrm{NTK})_t=\sum_{\ell,p} a\,b\,c\,d\,e$ with $a=u_{i,\ell}^\top u_{j,p}$, $b=\sigma_{i,\ell}\,J_{i}^\top u_{i,\ell}$, $c=1+\eta\sigma_{j,p}r_{j}$, $d=u_{j,p}^\top J_{k}$, $e=r_{k}$. Each $Q$ is rank-$2y$ approximated ($y$ top$^+$ ⊕ $y$ bottom$^-$ eigenpairs, gradient-gauged); the $(2y)^2$ terms $T=abcde$ are sorted signed-descending per cell $(i,j,k)$. Panels per $y\in\{1,2,5\}$: <b>aggregates</b> [max, min, Σtop-y, Σbot-y, Σall] of the sorted list; <b>max</b>/<b>min</b> the five sub-products $a,\,b{\cdot}d,\,a{\cdot}b{\cdot}d,\,a{\cdot}b{\cdot}d{\cdot}e,\,a{\cdot}e$ at the argmax/argmin $(\ell,p)$. Panel 10 is the eq-③ multi-step product over the residual <b>history</b>. Every cube is $N{\times}N{\times}N$ over $(i,j,k)$ (as in §11); titles show $\mu$, $\mu^+$ (mean of positive cells), $\mu^-$ (mean of negative cells). Lanczos eigenpairs reuse §12. Gated by the §11 3D-grid cap.</p>
-<div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
-  <label style="white-space:nowrap">snapshot</label>
-  <input id="s14_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
-  <span id="s14_step" style="white-space:nowrap;color:#475569;font-size:13px;min-width:120px">—</span>
+<p class="cap">$\mathrm{Tr}(\Delta\mathrm{NTK})_t=\sum_{\ell,p} a\,b\,c\,d\,e$ with $a=u_{i,\ell}^\top u_{j,p}$, $b=\sigma_{i,\ell}\,J_{i}^\top u_{i,\ell}$, $c=1+\eta\sigma_{j,p}r_{j}$, $d=u_{j,p}^\top J_{k}$, $e=r_{k}$. Each $Q$ is rank-$2y$ approximated ($y$ top$^+$ ⊕ $y$ bottom$^-$ eigenpairs, gradient-gauged); the $(2y)^2$ terms $T=abcde$ are sorted signed-descending per cell $(i,j,k)$. Panels per $y\in\{1,2,5\}$: <b>aggregates</b> [max, min, Σtop-y, Σbot-y, Σall] of the sorted list; <b>max</b>/<b>min</b> the five sub-products $a,\,b{\cdot}d,\,a{\cdot}b{\cdot}d,\,a{\cdot}b{\cdot}d{\cdot}e,\,a{\cdot}e$ at the argmax/argmin $(\ell,p)$. Panel 10 is the eq-③ multi-step product over the residual <b>history</b>. Each $N{\times}N{\times}N$ grid over $(i,j,k)$ is shown as a <b>time-series</b> vs training step: its top-3 and bottom-3 values over the off-diagonal cells ($i\neq j\neq k$), plus the mean / mean$^+$ / mean$^-$ over the whole grid (9 lines — see the legend above). Lanczos eigenpairs reuse §12. Gated by the §11 3D-grid cap.</p>
+<div class="ctl" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin:6px 0;max-width:1100px">
+  <span id="s14_step" style="white-space:nowrap;color:#475569;font-size:13px">—</span>
+  <span style="color:#94a3b8;font-size:12px">lines (vs step): top-1/2/3 <b style="color:#2ca02c">▬</b><b style="color:#ff7f0e">▬</b><b style="color:#9467bd">▬</b> solid · bottom-1/2/3 same colours dotted · mean <b>▬</b> · mean⁺ <b style="color:#1f77b4">▬</b> · mean⁻ <b style="color:#d62728">▬</b> &nbsp;(top-3/bottom-3 over the off-diagonal $i\neq j\neq k$)</span>
 </div>
 <div id="s14_empty" style="margin:8px 0;padding:10px 14px;background:#fef9c3;border:1px solid #fde047;border-radius:6px;color:#713f12;font-size:13px;max-width:980px">
   <b>No §14 data for the current run yet.</b> §14 needs: the <b>14</b> toggle on; <b>multi-sample</b> (number_of_samples × outdim &gt; 1); and N ≤ the <b>§11 “3D-grid cap”</b> (it builds N×N×N cubes). On the <b>GPU backend</b>, restart <code>server.py</code> after updating the repo, then hard-refresh this page (Cmd/Ctrl+Shift+R). The cubes also build lazily — scroll a panel into view.
@@ -1109,70 +1108,50 @@ function s14Meta(id){   // §14 cube id → {label, color mode, signed, snapshot
   m=id.match(/^p_s14r_(\d)$/);const i=+m[1];
   return {label:'ratio '+S14_RLAB[i],mode:'symlog',signed:true,pack:s=>(s.ratio?s.ratio[i]:null)};}
 function s14Reset(){
-  if(typeof S14_INTERACTIVE!=='undefined'&&S14_INTERACTIVE){try{Plotly.purge(S14_INTERACTIVE);}catch(e){}S14_INTERACTIVE=null;}
-  for(const id of s14CubeIds()){const d=document.getElementById(id);if(d){d._s14cv=null;d.innerHTML='';d.style.backgroundImage='';}}   // drop canvases from the previous run
+  for(const id of s14CubeIds()){try{Plotly.purge(id);}catch(e){}const d=document.getElementById(id);if(d)d.innerHTML='';delete S14_SERIES[id];}   // drop plots + series from the previous run
   S14_SNAPS=[];S14_CURIDX=0;if(typeof S14_RHIST_JS!=='undefined')S14_RHIST_JS=[];
-  const sl=document.getElementById('s14_slider');if(sl){sl.max=0;sl.value=0;}const st=document.getElementById('s14_step');if(st)st.textContent='—';
+  const st=document.getElementById('s14_step');if(st)st.textContent='—';
   const em=document.getElementById('s14_empty');if(em)em.style.display='';}   // show the "no data" hint until §14 snapshots arrive
-// ── §14 cubes render to a plain 2D CANVAS (isometric projection) — NO WebGL, so there is no context limit and
-//    nothing can vanish, no matter how many panels are shown. Click a cube to make it a live drag-to-rotate 3D
-//    plot (one at a time); double-click it (or click again) to return to the static canvas. ──
-const S14_FMT=x=>(x!=null&&isFinite(x))?x.toExponential(1):'–'; let S14_INTERACTIVE=null;
-function s14projRaw(i,j,k,c0){const X=i-c0,Y=j-c0,Z=k-c0;return [X*0.86-Y*0.86, X*0.5+Y*0.5-Z];}   // isometric (i↘ j↙ k↑)
-function s14DivColor(c,cm){const t=Math.max(-1,Math.min(1,c/(cm||1)));let r,g,b;   // diverging: +→red, −→blue, 0→white
-  if(t>=0){r=255-77*t;g=255-231*t;b=255-212*t;}else{const u=-t;r=255-222*u;g=255-153*u;b=255-83*u;}
-  return 'rgb('+(r|0)+','+(g|0)+','+(b|0)+')';}
-function s14CanvasOf(id){const div=document.getElementById(id);if(!div)return null;let cv=div._s14cv;
-  if(!cv){div.innerHTML='';cv=document.createElement('canvas');cv.style.cssText='width:100%;height:100%;display:block;cursor:pointer';
-    cv.title='click to rotate (3D); double-click to return';div.appendChild(cv);div._s14cv=cv;cv.addEventListener('click',()=>s14ToggleInteractive(id));}
-  return cv;}
-function s14CanvasClear(id){const div=document.getElementById(id),cv=div&&div._s14cv;if(cv)cv.getContext('2d').clearRect(0,0,cv.width,cv.height);}
-function s14CanvasRender(id,pack,M,title){
-  const div=document.getElementById(id);if(!div)return;const W=div.clientWidth,Hh=div.clientHeight;if(!W||!Hh)return;   // hidden panel ⇒ skip
-  const cv=s14CanvasOf(id);if(!cv)return;const dpr=window.devicePixelRatio||1;cv.width=Math.round(W*dpr);cv.height=Math.round(Hh*dpr);
-  const ctx=cv.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,Hh);
-  const v=pack.v,L=v.length,pos=g3dPos(M,pack.idx,L),g=g3dColor(v),c0=(M-1)/2;
-  let mnx=1e9,mxx=-1e9,mny=1e9,mxy=-1e9;
-  for(let a=0;a<2;a++)for(let b=0;b<2;b++)for(let c=0;c<2;c++){const p=s14projRaw(a*(M-1),b*(M-1),c*(M-1),c0);
-    mnx=Math.min(mnx,p[0]);mxx=Math.max(mxx,p[0]);mny=Math.min(mny,p[1]);mxy=Math.max(mxy,p[1]);}
-  const padT=20,padB=6,padX=6,sc=Math.min((W-2*padX)/((mxx-mnx)||1),(Hh-padT-padB)/((mxy-mny)||1))*0.94;
-  const ox=padX+(W-2*padX-(mxx-mnx)*sc)/2-mnx*sc, oy=padT+(Hh-padT-padB-(mxy-mny)*sc)/2-mny*sc;
-  const P=(i,j,k)=>{const p=s14projRaw(i,j,k,c0);return [ox+p[0]*sc, oy+p[1]*sc];};
-  ctx.strokeStyle='rgba(60,60,70,0.13)';ctx.lineWidth=1;
-  const cn=[[0,0,0],[M-1,0,0],[M-1,M-1,0],[0,M-1,0],[0,0,M-1],[M-1,0,M-1],[M-1,M-1,M-1],[0,M-1,M-1]].map(q=>P(q[0],q[1],q[2]));
-  for(const e of [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]]){ctx.beginPath();ctx.moveTo(cn[e[0]][0],cn[e[0]][1]);ctx.lineTo(cn[e[1]][0],cn[e[1]][1]);ctx.stroke();}
-  const base=Math.max(1.6,Math.min(5,100/Math.max(1,M))),cm=g.cm||1,pts=[];
-  for(let q=0;q<L;q++){const i=pos.x[q],j=pos.y[q],k=pos.z[q],s=P(i,j,k);pts.push([s[0],s[1],i+j-k,g.c[q]]);}
-  pts.sort((a,b)=>a[2]-b[2]);ctx.globalAlpha=0.82;
-  for(const p of pts){ctx.beginPath();ctx.fillStyle=s14DivColor(p[3],cm);ctx.arc(p[0],p[1],base*(0.5+0.5*Math.abs(p[3])/cm),0,6.283);ctx.fill();}
-  ctx.globalAlpha=1;const dv=pack.d;
-  if(dv)for(let i=0;i<M;i++){const s=P(i,i,i),cc=(dv[i]<0?-1:1)*Math.log1p(Math.abs(dv[i])/g.lin);
-    ctx.beginPath();ctx.fillStyle=s14DivColor(cc,cm);ctx.arc(s[0],s[1],base*1.5,0,6.283);ctx.fill();ctx.lineWidth=1;ctx.strokeStyle='#111';ctx.stroke();}
-  ctx.fillStyle='#334155';ctx.font='11px sans-serif';ctx.textBaseline='top';ctx.fillText(title.length>56?title.slice(0,56)+'…':title,5,3);
-  ctx.fillStyle='#94a3b8';ctx.font='10px sans-serif';const li=P(M-1,0,0),lj=P(0,M-1,0),lk=P(0,0,M-1);
-  ctx.fillText('i',li[0]+3,li[1]);ctx.fillText('j',lj[0]-9,lj[1]);ctx.fillText('k',lk[0]-3,lk[1]-12);}
-function s14ToggleInteractive(id){   // swap a canvas cube ↔ a live WebGL 3D plot (rotatable); only one live at a time
-  const revert=pid=>{try{Plotly.purge(pid);}catch(e){}const d=document.getElementById(pid);if(d)d._s14cv=null;};
-  if(S14_INTERACTIVE===id){revert(id);S14_INTERACTIVE=null;s14RenderNow(S14_CURIDX);return;}
-  if(S14_INTERACTIVE){const p=S14_INTERACTIVE;S14_INTERACTIVE=null;revert(p);}
-  const s=S14_SNAPS[S14_CURIDX];if(!s||!s.do3d){s14RenderNow(S14_CURIDX);return;}const meta=s14Meta(id),pk=meta.pack(s);if(!pk){s14RenderNow(S14_CURIDX);return;}
-  const div=document.getElementById(id);if(div){div._s14cv=null;div.innerHTML='';}
-  S14_INTERACTIVE=id;s12CubeBuild(id,s.M,meta.label,true);s12RenderCube(id,S14_CURIDX);
-  const gd=document.getElementById(id);if(gd)gd.addEventListener('dblclick',()=>s14ToggleInteractive(id));}
-function s14RenderNow(i){   // draw ALL §14 cubes to canvas (the one being rotated stays live WebGL)
-  const s=S14_SNAPS[i];S14_CURIDX=i;if(!s||!s.do3d)return;
-  for(const id of s14CubeIds()){
-    if(S14_INTERACTIVE===id){s12RenderCube(id,i);continue;}
-    const meta=s14Meta(id),pk=meta.pack(s);
-    if(pk)s14CanvasRender(id,pk,s.M,meta.label+'  μ='+S14_FMT(pk.mn)+'  μ⁺='+S14_FMT(pk.mp)+'  μ⁻='+S14_FMT(pk.mng));
-    else s14CanvasClear(id);}
-  const st=document.getElementById('s14_step');if(st)st.textContent=`step ${s.t}  ·  snapshot ${i+1}/${S14_SNAPS.length}`;
-  const sl=document.getElementById('s14_slider');if(sl&&+sl.value!==i)sl.value=i;}
+// ── §14 grids are shown as TIME-SERIES (dynamics) line plots — plain 2D SVG (NO WebGL, no context limit, nothing
+//    vanishes). Each plot has 9 lines vs training step: top-3 & bottom-3 values over the OFF-DIAGONAL cells (i≠j≠k),
+//    plus mean / mean⁺ / mean⁻ over the whole grid. Ranked top-r solid & bottom-r dotted in the same colour; the six
+//    ranked lines use green/orange/purple; mean=black, mean⁺=blue, mean⁻=red. ──
+const S14_C3=['#2ca02c','#ff7f0e','#9467bd'];   // top/bottom 1,2,3 colours (distinct from black/blue/red)
+const S14_SERIES={};   // id → {xs, t:[[],[],[]], b:[[],[],[]], mean, mpos, mneg, label}
+function s14GridStats(snap,meta){   // top-3 / bottom-3 over i≠j≠k + mean/mean⁺/mean⁻ (whole grid) for one grid at one snapshot
+  const pk=(snap&&snap.do3d)?meta.pack(snap):null;
+  if(!pk)return {top:[null,null,null],bot:[null,null,null],mean:null,mpos:null,mneg:null};
+  const N=snap.M,N2=N*N,v=pk.v,idx=pk.idx,off=[];
+  for(let q=0;q<v.length;q++){const p=idx?idx[q]:q,i=(p/N2)|0,j=((p%N2)/N)|0,k=p%N;
+    if(i!==j&&j!==k&&i!==k)off.push(v[q]);}                       // off-diagonal: all three indices distinct
+  off.sort((a,b)=>b-a);const L=off.length,gv=a=>(a==null?null:a);
+  return {top:[gv(off[0]),gv(off[1]),gv(off[2])],bot:[gv(off[L-1]),gv(off[L-2]),gv(off[L-3])],
+          mean:pk.mn,mpos:pk.mp,mneg:pk.mng};}
+function s14SeriesAppend(snap){   // push one snapshot's stats onto every grid's series
+  for(const id of s14CubeIds()){let S=S14_SERIES[id];
+    if(!S)S=S14_SERIES[id]={xs:[],t:[[],[],[]],b:[[],[],[]],mean:[],mpos:[],mneg:[],label:s14Meta(id).label};
+    const st=s14GridStats(snap,s14Meta(id));S.xs.push(snap.t);
+    for(let r=0;r<3;r++){S.t[r].push(st.top[r]);S.b[r].push(st.bot[r]);}
+    S.mean.push(st.mean);S.mpos.push(st.mpos);S.mneg.push(st.mneg);}}
+function s14SeriesDraw(id){   // (re)draw one grid's 9-line time-series plot — visible panels only
+  const div=document.getElementById(id);if(!div||div.offsetParent===null)return;const S=S14_SERIES[id];if(!S||!S.xs.length)return;
+  const mk=(y,name,color,dash,w)=>({x:S.xs.slice(),y:y.slice(),type:'scatter',mode:'lines',name:name,line:{color:color,width:w||1.5,dash:dash||'solid'},connectgaps:false});   // fresh arrays so Plotly.react sees the appended points
+  const tr=[mk(S.t[0],'top-1',S14_C3[0]),mk(S.t[1],'top-2',S14_C3[1]),mk(S.t[2],'top-3',S14_C3[2]),
+    mk(S.b[0],'bot-1',S14_C3[0],'dot'),mk(S.b[1],'bot-2',S14_C3[1],'dot'),mk(S.b[2],'bot-3',S14_C3[2],'dot'),
+    mk(S.mean,'mean','#000000','solid',1.9),mk(S.mpos,'mean⁺','#1f77b4','solid',1.6),mk(S.mneg,'mean⁻','#d62728','solid',1.6)];
+  const lay={margin:{l:46,r:6,t:18,b:22},title:{text:S.label,font:{size:10.5,color:'#475569'},x:0.03,xanchor:'left',y:0.99},
+    showlegend:false,hovermode:'x unified',xaxis:{title:{text:'step',font:{size:9}},tickfont:{size:8},zeroline:false,autorange:true},
+    yaxis:{tickfont:{size:8},zeroline:true,zerolinecolor:'#e2e8f0',autorange:true},font:{size:9}};   // autorange so Plotly.react re-fits the growing series
+  Plotly.react(id,tr,lay,{responsive:true,displaylogo:false});}
+function s14RenderNow(i){   // redraw the §14 time-series (the slider doesn't scrub these — the full history is shown)
+  S14_CURIDX=i;for(const id of s14CubeIds())s14SeriesDraw(id);
+  const st=document.getElementById('s14_step');if(st&&S14_SNAPS.length)st.textContent=`${S14_SNAPS.length} snapshots · latest step ${S14_SNAPS[S14_SNAPS.length-1].t}`;}
 function s14Push(m){
-  if(!m.p14&&!m.ratio)return;const sl=document.getElementById('s14_slider'),wasLive=!sl||(+sl.value>=+sl.max);
-  S14_SNAPS.push(m);if(sl){sl.max=S14_SNAPS.length-1;if(wasLive)sl.value=sl.max;}
+  if(!m.p14&&!m.ratio)return;
+  S14_SNAPS.push(m);
   {const em=document.getElementById('s14_empty');if(em)em.style.display='none';}   // §14 data arrived — hide the hint
-  s14RenderNow(wasLive?S14_SNAPS.length-1:(sl?+sl.value:0));}   // §14 cubes are 2D-canvas (no lazy WebGL budget)
+  s14SeriesAppend(m);for(const id of s14CubeIds())s14SeriesDraw(id);               // append this snapshot + redraw the visible time-series
+  const st=document.getElementById('s14_step');if(st)st.textContent=`${S14_SNAPS.length} snapshots · latest step ${m.t}`;}
 function s14ApplyPanelFilter(){   // show/hide §14 panels per the selector; a panel (y,group) shows iff both its rank
   const on=id=>{const e=document.getElementById(id);return !e||e.checked;};   // and group are checked (ratio: its own box)
   const yOn={'1':on('s14f_y1'),'2':on('s14f_y2'),'5':on('s14f_y5')}, gOn={'agg':on('s14f_agg'),'max':on('s14f_max'),'min':on('s14f_min')};
@@ -2391,13 +2370,13 @@ async function _gifPass(files){
       if(gd&&gd._fullLayout&&gd._fullLayout.scene){if(st)st.textContent='GIF '+id+'…';add(id,await _cubeRotGif(gd,8));}}catch(e){}
       s12PurgeCube(id);}
   }
-  // ===== §14 (2D-canvas cubes → static PNGs; reveal all selector-hidden panels so every cube exports) =====
-  if(s14had){if(S14_INTERACTIVE)s14ToggleInteractive(S14_INTERACTIVE);
+  // ===== §14 (time-series line plots → PNGs; reveal all selector-hidden panels so every plot exports) =====
+  if(s14had){
     const s14hidden=[...document.querySelectorAll('#sec_s14 .s14panel')].filter(e=>e.style.display==='none');
     for(const e of s14hidden)e.style.display='';
     s14RenderNow(s14cur);await _raf2();
-    for(const id of s14CubeIds()){const d=document.getElementById(id),cv=d&&d._s14cv;
-      if(cv&&d.clientWidth){if(st)st.textContent='img '+id+'…';n++;files.push({name:String(n).padStart(2,'0')+'_'+_safeName(id)+'.png',data:_b64bytes(cv.toDataURL('image/png'))});}}
+    for(const id of s14CubeIds()){const gd=document.getElementById(id);
+      if(gd&&gd._fullLayout){try{if(st)st.textContent='img '+id+'…';n++;files.push({name:String(n).padStart(2,'0')+'_'+_safeName(id)+'.png',data:_b64bytes(await Plotly.toImage(gd,{format:'png',width:gd._fullLayout.width||360,height:gd._fullLayout.height||300}))});}catch(e){}}}
     for(const e of s14hidden)e.style.display='none';s14RenderNow(s14cur);
   }
   // ===== §11 square (2D evolution) =====
