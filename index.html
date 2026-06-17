@@ -1120,15 +1120,17 @@ function s14Reset(){
 //    ranked lines use green/orange/purple; mean=black, mean⁺=blue, mean⁻=red. ──
 const S14_C3=['#2ca02c','#ff7f0e','#9467bd'];   // top/bottom 1,2,3 colours (distinct from black/blue/red)
 const S14_SERIES={}, S14_RSERIES={};   // S14_SERIES: grid id → {xs,t,b,mean,mpos,mneg,label}.  S14_RSERIES: y → {xs,first,last} (Panel 10)
-function s14GridStats(snap,meta){   // top-3 / bottom-3 over i≠j≠k + mean/mean⁺/mean⁻ (whole grid) for one grid at one snapshot
-  const pk=(snap&&snap.do3d)?meta.pack(snap):null;
+function s14GridStats(snap,meta){   // ALL 9 stats over the SAME off-diagonal cells (i≠j≠k): top-3, bottom-3, and
+  const pk=(snap&&snap.do3d)?meta.pack(snap):null;                //   mean / mean⁺ (mean of +cells) / mean⁻ (mean of −cells)
   if(!pk)return {top:[null,null,null],bot:[null,null,null],mean:null,mpos:null,mneg:null};
   const N=snap.M,N2=N*N,v=pk.v,idx=pk.idx,off=[];
   for(let q=0;q<v.length;q++){const p=idx?idx[q]:q,i=(p/N2)|0,j=((p%N2)/N)|0,k=p%N;
     if(i!==j&&j!==k&&i!==k)off.push(v[q]);}                       // off-diagonal: all three indices distinct
   off.sort((a,b)=>b-a);const L=off.length,gv=a=>(a==null?null:a);
+  let s=0,c=0,sp=0,cp=0,sn=0,cn=0;                               // mean is the count-weighted (n⁺·mean⁺+n⁻·mean⁻)/N, NOT (mean⁺+mean⁻)/2
+  for(const x of off){if(x!=null&&isFinite(x)){s+=x;c++;if(x>0){sp+=x;cp++;}else if(x<0){sn+=x;cn++;}}}
   return {top:[gv(off[0]),gv(off[1]),gv(off[2])],bot:[gv(off[L-1]),gv(off[L-2]),gv(off[L-3])],
-          mean:pk.mn,mpos:pk.mp,mneg:pk.mng};}
+          mean:c?s/c:null,mpos:cp?sp/cp:null,mneg:cn?sn/cn:null};}
 function s14SeriesAppend(snap){   // push one snapshot's stats onto every grid's series
   for(const id of s14CubeIds()){let S=S14_SERIES[id];
     if(!S)S=S14_SERIES[id]={xs:[],t:[[],[],[]],b:[[],[],[]],mean:[],mpos:[],mneg:[],label:s14Meta(id).label};
