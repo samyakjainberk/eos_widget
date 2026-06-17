@@ -1052,6 +1052,7 @@ function s12Reset(){S12_SNAPS=[];S12_N=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEP
   if(S12_RAF){cancelAnimationFrame(S12_RAF);S12_RAF=0;}S12_PENDING=-1;
   if(S12_IO){S12_IO.disconnect();S12_IO=null;}if(S12_IOT){clearTimeout(S12_IOT);S12_IOT=null;}S12_BUILTSET.clear();S12_VISIBLE.clear();
   for(const id of s12AllIds()){try{Plotly.purge(id);}catch(e){}}
+  for(const id of s12CubeIds()){if(typeof S12_IMG!=='undefined')S12_IMG.delete(id);s12HideImg(id);}   // drop frozen images from the previous run
   const sl=document.getElementById('s12_slider');if(sl){sl.max=0;sl.value=0;}
   const sp=document.getElementById('s12_step');if(sp)sp.textContent='—';}
 function s12HeatZ(flat,N){const z=[];for(let i=0;i<N;i++)z.push(flat.slice(i*N,(i+1)*N));return z;}
@@ -1107,7 +1108,9 @@ function s14Meta(id){   // §14 cube id → {label, color mode, signed, snapshot
     return {label:(g==='agg'?'':g+'·')+lab+' y='+y,mode:'symlog',signed:true,pack:s=>(s.p14&&s.p14[y]&&s.p14[y][g])?s.p14[y][g][n]:null};}
   m=id.match(/^p_s14r_(\d)$/);const i=+m[1];
   return {label:'ratio '+S14_RLAB[i],mode:'symlog',signed:true,pack:s=>(s.ratio?s.ratio[i]:null)};}
-function s14Reset(){for(const id of [...S12_BUILTSET])if(s14IsId(id))s12PurgeCube(id);S14_SNAPS=[];S14_CURIDX=0;if(typeof S14_RHIST_JS!=='undefined')S14_RHIST_JS=[];
+function s14Reset(){for(const id of [...S12_BUILTSET])if(s14IsId(id))s12PurgeCube(id);
+  for(const id of s14CubeIds()){S12_IMG.delete(id);s12HideImg(id);}   // drop frozen images from the previous run
+  S14_SNAPS=[];S14_CURIDX=0;if(typeof S14_RHIST_JS!=='undefined')S14_RHIST_JS=[];
   const sl=document.getElementById('s14_slider');if(sl){sl.max=0;sl.value=0;}const st=document.getElementById('s14_step');if(st)st.textContent='—';
   const em=document.getElementById('s14_empty');if(em)em.style.display='';}   // show the "no data" hint until §14 snapshots arrive
 function s14RenderNow(i){   // restyle the built §14 cubes from snapshot i (μ / μ⁺ / μ⁻ in the title)
@@ -1145,12 +1148,28 @@ function s12RenderCube(id,i){   // restyle a built cube from snapshot i, with cu
   const run=s12RunMean(i,sn=>sn.do3d?meta.pack(sn).mn:null);
   const f=meta.mode==='symlog'?(x=>(x!=null&&isFinite(x)?x.toExponential(1):'–')):fmtMu;
   s12CubeRender(id,pk,s.M,meta.label+'  μ='+f(pk.mn)+'  ⟨μ⟩='+f(run),meta.mode);}
+// ── static-image fallback: a cube freezes to a PNG of its last frame whenever its WebGL context is purged
+//    (scrolled away / over budget) or LOST by the browser — so cubes NEVER flash blank. S12_GLCAP self-lowers to
+//    the browser's real simultaneous-context limit when a loss is seen. ──
+const S12_IMG=new Map(); let S12_GLCAP=12;   // conservative start (under most browsers' simultaneous-context limit); self-lowers further if a loss is still seen
+function s12ShowImg(id){const gd=document.getElementById(id),u=S12_IMG.get(id);
+  if(gd&&u){gd.style.backgroundImage='url('+u+')';gd.style.backgroundSize='contain';gd.style.backgroundRepeat='no-repeat';gd.style.backgroundPosition='center';}}
+function s12HideImg(id){const gd=document.getElementById(id);if(gd)gd.style.backgroundImage='';}
+function s12CaptureImg(id,force){const gd=document.getElementById(id);
+  if(!gd||!gd._fullLayout||!gd._fullLayout.scene||S12_EXPORTING)return;
+  const t=performance.now();if(!force&&gd._capT&&t-gd._capT<2500)return;gd._capT=t;
+  try{Plotly.toImage(gd,{format:'png',width:Math.round(gd._fullLayout.width)||300,height:Math.round(gd._fullLayout.height)||300})
+    .then(u=>{S12_IMG.set(id,u);if(!S12_BUILTSET.has(id))s12ShowImg(id);}).catch(()=>{});}catch(e){}}
+function s12HookLost(id){const gd=document.getElementById(id),cv=gd&&gd.querySelector&&gd.querySelector('canvas');
+  if(cv&&!cv._lostHook){cv._lostHook=1;cv.addEventListener('webglcontextlost',function(e){e.preventDefault();   // browser dropped this context
+    S12_GLCAP=Math.max(4,S12_BUILTSET.size-1);S12_BUILTSET.delete(id);s12ShowImg(id);lazySchedule();},false);}}
 function s12EnsureCube(id){   // build the cube's WebGL plot on demand (if data present) + render it
   const f14=s14IsId(id),i=f14?S14_CURIDX:S12_CURIDX,s=f14?S14_SNAPS[i]:S12_SNAPS[i];if(!s||!s.do3d)return;
-  if(!S12_BUILTSET.has(id)){const meta=f14?s14Meta(id):s12CubeMeta(id);s12CubeBuild(id,s.M,meta.label,meta.signed);S12_BUILTSET.add(id);
-    if(S12_CAMKEY){try{Plotly.relayout(id,{'scene.camera':JSON.parse(S12_CAMKEY)});}catch(e){}}}
+  if(!S12_BUILTSET.has(id)){const meta=f14?s14Meta(id):s12CubeMeta(id);s12HideImg(id);s12CubeBuild(id,s.M,meta.label,meta.signed);S12_BUILTSET.add(id);
+    if(S12_CAMKEY){try{Plotly.relayout(id,{'scene.camera':JSON.parse(S12_CAMKEY)});}catch(e){}}
+    s12HookLost(id);s12RenderCube(id,i);if(!S12_EXPORTING)setTimeout(()=>{s12HookLost(id);s12CaptureImg(id,true);},800);return;}   // hook context-loss + capture once after first build
   s12RenderCube(id,i);}
-function s12PurgeCube(id){if(S12_BUILTSET.has(id)){try{Plotly.purge(id);}catch(e){}S12_BUILTSET.delete(id);}}
+function s12PurgeCube(id){if(S12_BUILTSET.has(id)){try{Plotly.purge(id);}catch(e){}S12_BUILTSET.delete(id);s12ShowImg(id);}}   // free the context; show the frozen image (captured at build) instead of blank
 // Browsers cap simultaneous WebGL contexts (~16); §11+§12+§13 would need 22. So each 3D cube's gl context is
 // created only while its div is near the viewport and purged when it scrolls away — keeping live contexts low
 // (which also stops §11's cubes from being evicted). The 2D heatmaps/evolution are SVG and stay built.
@@ -1161,10 +1180,10 @@ function lazyReconcileAll(){
   // Keep-set = the cubes nearest the viewport centre. The budget ADAPTS to the number of cubes actually in the
   // viewport (+2 just-off-screen for smooth scroll-in) so cubes in view are never left blank — capped at the
   // browser's ~16 simultaneous WebGL-context ceiling (reserve 3 for §11's gl3d cubes when §11 is on-screen).
-  const vh=window.innerHeight, cy=vh/2, cap=(G3D_VIS&&G3D_SNAPS.length)?13:16, vis=[]; let inView=0;
+  const vh=window.innerHeight, cy=vh/2, cap=(G3D_VIS&&G3D_SNAPS.length)?Math.max(4,S12_GLCAP-3):S12_GLCAP, vis=[]; let inView=0;
   for(const id of S12_VISIBLE){const el=document.getElementById(id);if(el){const r=el.getBoundingClientRect();
     vis.push([id,Math.abs((r.top+r.bottom)/2-cy)]); if(r.top<vh&&r.bottom>0&&r.height>0)inView++;}}
-  const room=Math.min(cap, inView+2);
+  const room=Math.min(cap, inView+2);   // cubes beyond the live budget keep their frozen image (never blank)
   vis.sort((a,b)=>a[1]-b[1]); const keep=new Set(vis.slice(0,Math.max(0,room)).map(x=>x[0]));
   // PURGE everything not kept (off-screen / over-cap) FIRST — frees gl contexts before any build
   if(!G3D_VIS&&G3D_BUILT){for(const id of G3D_IDS.concat(['p_g3d4'])){try{Plotly.purge(id);}catch(_){}}G3D_BUILT=false;}
