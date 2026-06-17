@@ -944,6 +944,51 @@ def plot_section13_panel3(hist):
     return _s13_2d_fig(hist, "g3", "G3 = |G2|")
 
 
+# ── §14: per-triplet (i,j,k) decomposition of Tr(ΔNTK). 10 panels of N×N×N cubes (μ / μ⁺ / μ⁻ titles). ──
+_S14_AGG = ["max", "min", "Σtop-y", "Σbot-y", "Σall"]
+_S14_SUB = ["a", "b·d", "a·b·d", "a·b·d·e", "a·e"]
+_S14_RLAB = ["y1·first", "y2·first", "y5·first", "y1·last", "y2·last", "y5·last"]
+
+
+def _s14_snaps(hist):
+    return [r for r in hist if "g14" in r and r["g14"].get("do3d")]
+
+
+def _s14_fig(packs, labels, N, suptitle):
+    ncol = len(packs)
+    fig = plt.figure(figsize=(3.5 * ncol, 4.1))
+    for n, (pk, lab) in enumerate(zip(packs, labels)):
+        if pk is None:
+            ax = fig.add_subplot(1, ncol, n + 1, projection="3d"); ax.set_title(lab + "\n(n/a)", fontsize=8); continue
+        ax, sc = _s12_grid3d(fig, (1, ncol, n + 1), pk, N,
+                             f"{lab}\nμ={pk['mn']:.1e} μ⁺={pk['mp']:.1e} μ⁻={pk['mng']:.1e}", True)
+        fig.colorbar(sc, ax=ax, fraction=0.04, pad=0.06)
+    fig.suptitle(suptitle, fontsize=11); fig.tight_layout(rect=(0, 0, 1, 0.9))
+    return fig
+
+
+def plot_section14(hist, y, grp):
+    """§14 panel for rank-2y and group ∈ {agg, max, min} (5 cubes)."""
+    snaps = _s14_snaps(hist)
+    if not snaps:
+        return None
+    g = snaps[-1]["g14"]; N = g["M"]
+    P = g["p14"][str(y)][grp]
+    labs = _S14_AGG if grp == "agg" else _S14_SUB
+    title = {"agg": "sorted-term aggregates", "max": "MAX-element sub-products",
+             "min": "MIN-element sub-products"}[grp]
+    return _s14_fig(P, labs, N, f"§14  y={y} — {title}")
+
+
+def plot_section14_ratio(hist):
+    """§14 panel 10 — eq-③ multi-step ratio over the residual history (first/last × y, S=y; 6 cubes)."""
+    snaps = _s14_snaps(hist)
+    if not snaps:
+        return None
+    g = snaps[-1]["g14"]; N = g["M"]
+    return _s14_fig(g["ratio"], _S14_RLAB, N, "§14 panel 10 — eq-③ multi-step ratio (first/last × y, S=y)")
+
+
 def save_section12_panel_gif(hist, k0, path, frames=30, fps=12, dpi=60):
     """A §12 grid panel as a rotating GIF (the 3D (i,j,k) grids spin so the structure is readable)."""
     from matplotlib.animation import FuncAnimation, PillowWriter
@@ -1000,7 +1045,17 @@ def save_panels(results, outdir):
             "section12_panel5_evolution": plot_section12_evolution(hist),
             "section13_panel1_G1": plot_section13_panel1(hist),
             "section13_panel2_G2": plot_section13_panel2(hist),
-            "section13_panel3_G3": plot_section13_panel3(hist)}
+            "section13_panel3_G3": plot_section13_panel3(hist),
+            "section14_y1_agg": plot_section14(hist, 1, "agg"),
+            "section14_y1_max": plot_section14(hist, 1, "max"),
+            "section14_y1_min": plot_section14(hist, 1, "min"),
+            "section14_y2_agg": plot_section14(hist, 2, "agg"),
+            "section14_y2_max": plot_section14(hist, 2, "max"),
+            "section14_y2_min": plot_section14(hist, 2, "min"),
+            "section14_y5_agg": plot_section14(hist, 5, "agg"),
+            "section14_y5_max": plot_section14(hist, 5, "max"),
+            "section14_y5_min": plot_section14(hist, 5, "min"),
+            "section14_ratio": plot_section14_ratio(hist)}
     written = []
     for name, fig in figs.items():
         if fig is None:

@@ -240,6 +240,84 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
     return out
 
 
+SEC14_YS = (1, 2, 5)
+
+
+def sec14_payload(TV, TW, BV, BW, r, Jg, lr, grid3dcap, rhist):
+    """§14 — per-triplet (i,j,k) decomposition of Tr(ΔNTK)=Σ_{ℓ,p} a·b·c·d·e (a=u_{i,ℓ}·u_{j,p}, b=σ_{i,ℓ}J_i·u_{i,ℓ},
+    c=1+ησ_{j,p}r_j, d=u_{j,p}·J_k, e=r_k). Rank-2y, gradient-gauged; the (2y)² terms are sorted signed-descending
+    per cell. Panels per y∈{1,2,5}: agg=[max,min,Σtop-y,Σbot-y,Σall]; max/min=[a,b·d,a·b·d,a·b·d·e,a·e] at the
+    argmax/argmin. Panel 10: ∏_{z=1}^{S}(1+ησ_{j,p}r_{j,t-S+z}) (S=y) over the residual history, first/last × y.
+    DENSE here (no SSE); values parity-match server._sec14_payload. MIRRORS server / index.html sec14Payload."""
+    N, K, p = int(TV.shape[0]), int(TV.shape[1]), int(TV.shape[2])
+    out = {"M": N, "do3d": False}
+    if N > grid3dcap:
+        return out
+    out["do3d"] = True
+    dev = TV.device
+    dg = torch.arange(N, device=dev)
+
+    def pack14(T):
+        f = T.reshape(-1); pos = f[f > 0]; neg = f[f < 0]
+        return {"v": f.detach().cpu().tolist(), "idx": None, "d": T[dg, dg, dg].detach().cpu().tolist(),
+                "mn": float(f.mean()), "mp": float(pos.mean()) if pos.numel() else 0.0,
+                "mng": float(neg.mean()) if neg.numel() else 0.0}
+
+    def factors(y):
+        kk = max(1, min(y, K)); D = 2 * kk
+        E = torch.cat([TV[:, :kk, :], BV[:, :kk, :]], dim=1)
+        W = torch.cat([TW[:, :kk], BW[:, :kk]], dim=1)
+        gE = torch.einsum('ip,idp->id', Jg, E)
+        E = E * torch.where(gE >= 0, torch.ones_like(gE), -torch.ones_like(gE)).unsqueeze(2)   # gradient gauge
+        Ju = torch.einsum('ip,idp->id', Jg, E)
+        a = torch.einsum('ilp,jmp->ijlm', E, E)
+        b = W * Ju
+        c = 1.0 + lr * W * r.view(N, 1)
+        d = torch.einsum('jmp,kp->jmk', E, Jg)
+        e = r
+        T = (a.unsqueeze(2) * b.view(N, 1, 1, D, 1) * c.view(1, N, 1, 1, D)
+             * d.permute(0, 2, 1).reshape(1, N, N, 1, D) * e.view(1, 1, N, 1, 1))
+        return a, b, d, e, W, T, D, kk
+
+    p14 = {}; sig_sel = {"first": {}, "last": {}}
+    for y in SEC14_YS:
+        a, b, d, e, W, T, D, kk = factors(y)
+        Tf = T.reshape(N, N, N, D * D)
+        Ts, _ = torch.sort(Tf, dim=3, descending=True)
+        agg = [Ts[..., 0], Ts[..., -1], Ts[..., :kk].sum(3), Ts[..., D * D - kk:].sum(3), Tf.sum(3)]
+        imax = Tf.argmax(3); imin = Tf.argmin(3)
+
+        def subprods(idx):
+            lst = idx // D; mst = idx % D
+            a_sel = a.reshape(N, N, D * D).unsqueeze(2).expand(N, N, N, D * D).gather(3, idx.unsqueeze(3)).squeeze(3)
+            b_sel = b.view(N, 1, 1, D).expand(N, N, N, D).gather(3, lst.unsqueeze(3)).squeeze(3)
+            d_sel = d.permute(0, 2, 1).reshape(1, N, N, D).expand(N, N, N, D).gather(3, mst.unsqueeze(3)).squeeze(3)
+            e_sel = e.view(1, 1, N).expand(N, N, N)
+            return [a_sel, b_sel * d_sel, a_sel * b_sel * d_sel, a_sel * b_sel * d_sel * e_sel, a_sel * e_sel], mst
+        sub_max, mst_max = subprods(imax)
+        sub_min, mst_min = subprods(imin)
+        p14[str(y)] = {"agg": [pack14(x) for x in agg], "max": [pack14(x) for x in sub_max],
+                       "min": [pack14(x) for x in sub_min]}
+        Wj = W.view(1, N, 1, D).expand(N, N, N, D)
+        sig_sel["first"][str(y)] = Wj.gather(3, mst_max.unsqueeze(3)).squeeze(3)
+        sig_sel["last"][str(y)] = Wj.gather(3, mst_min.unsqueeze(3)).squeeze(3)
+    out["p14"] = p14
+
+    ratios = []
+    for sel in ("first", "last"):
+        for y in SEC14_YS:
+            S = y
+            if len(rhist) < S:
+                ratios.append(None); continue
+            sig = sig_sel[sel][str(y)]
+            prod = torch.ones(N, N, N, device=dev, dtype=TV.dtype)
+            for rt in rhist[-S:]:
+                prod = prod * (1.0 + lr * sig * rt.view(1, N, 1))
+            ratios.append(pack14(prod))
+    out["ratio"] = ratios
+    return out
+
+
 def slq_density(hvp, p, nprobe, m, ngrid, seed, device, dtype):
     """Stochastic Lanczos Quadrature estimate of the spectral density (Gaussian-smoothed).
     MIRRORS server.slq_density. Returns {'x': [...], 'y': [...]} (§5)."""

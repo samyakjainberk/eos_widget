@@ -172,6 +172,92 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
     return out
 
 
+SEC14_YS = (1, 2, 5)
+
+
+def _sec14_payload(TV, TW, BV, BW, r, Jg, lr, grid3dcap, rhist):
+    """§14 — per-triplet (i,j,k) decomposition of Tr(ΔNTK)=Σ_{ℓ,p} a·b·c·d·e, with (gradient-gauged eigvecs
+    u of the per-sample function Hessians Q): a=u_{i,ℓ}·u_{j,p}; b=σ_{i,ℓ}(J_i·u_{i,ℓ}); c=1+ησ_{j,p}r_j;
+    d=u_{j,p}·J_k; e=r_k. For rank-2y (y top⁺ ⊕ y bottom⁻ eigenpairs of Q_i / Q_j) the (2y)² terms are
+    SORTED signed-descending per cell. The full term T is gauge-invariant; the sub-products a, b·d, a·e are
+    NOT, so every eigenvector is gradient-gauged first (flipped so ⟨∇f_i,u⟩≥0) — reproducible across backends.
+    Panels per y∈{1,2,5}: AGG=[max, min, Σtop-y, Σbot-y, Σall]; MAX/MIN=[a, b·d, a·b·d, a·b·d·e, a·e] at the
+    argmax/argmin (ℓ,p). Panel 10 (eq-③): ratio ∏_{z=1}^{S}(1+ησ_{j,p}r_{j,t-S+z}) over the residual HISTORY
+    (S=y; t→t-S so only the last S residuals are needed), for {first,last} element × y∈{1,2,5}. Each grid is
+    packed (sparse + diagonal + μ/μ⁺/μ⁻). Gated N≤grid3dcap (N³ like §11). MIRRORS index.html sec14Payload /
+    eos_lab.linalg.sec14_payload."""
+    N, K, p = int(TV.shape[0]), int(TV.shape[1]), int(TV.shape[2])
+    out = {"M": N, "do3d": False}
+    if N > grid3dcap:
+        return out
+    out["do3d"] = True
+    dev = TV.device
+    dg = torch.arange(N, device=dev)
+
+    def pack14(T):                                       # sparse subset + full diagonal + μ / μ⁺ / μ⁻
+        v, idx = _g3d_pack(T.reshape(-1))
+        f = T.reshape(-1); pos = f[f > 0]; neg = f[f < 0]
+        return {"v": v, "idx": idx, "d": T[dg, dg, dg].detach().cpu().tolist(), "mn": float(f.mean()),
+                "mp": float(pos.mean()) if pos.numel() else 0.0, "mng": float(neg.mean()) if neg.numel() else 0.0}
+
+    def factors(y):
+        """gauged factors a (N,N,D,D), b (N,D), c (N,D), d (N,D,N), e (N,), W (N,D σ), and the full
+        term T (N,N,N,D,D) for rank-2y (D=2·min(y,K) directions: y top⁺ ⊕ y bottom⁻ eigvecs of each Q)."""
+        kk = max(1, min(y, K)); D = 2 * kk
+        E = torch.cat([TV[:, :kk, :], BV[:, :kk, :]], dim=1)          # (N,D,p) eigenvectors
+        W = torch.cat([TW[:, :kk], BW[:, :kk]], dim=1)                # (N,D) signed eigenvalues σ
+        gE = torch.einsum('ip,idp->id', Jg, E)
+        E = E * torch.where(gE >= 0, torch.ones_like(gE), -torch.ones_like(gE)).unsqueeze(2)   # GRADIENT GAUGE
+        Ju = torch.einsum('ip,idp->id', Jg, E)                        # ⟨∇f_i, u⟩ ≥ 0
+        a = torch.einsum('ilp,jmp->ijlm', E, E)                       # (N,N,D,D)  u_{i,ℓ}·u_{j,p}
+        b = W * Ju                                                    # (N,D)      σ_{i,ℓ}(J_i·u_{i,ℓ})
+        c = 1.0 + lr * W * r.view(N, 1)                               # (N,D)      1+η σ_{j,p} r_j  (sample j)
+        d = torch.einsum('jmp,kp->jmk', E, Jg)                        # (N,D,N)    u_{j,p}·J_k
+        e = r                                                         # (N,)       r_k
+        T = (a.unsqueeze(2) * b.view(N, 1, 1, D, 1) * c.view(1, N, 1, 1, D)
+             * d.permute(0, 2, 1).reshape(1, N, N, 1, D) * e.view(1, 1, N, 1, 1))   # (N,N,N,D,D)
+        return a, b, d, e, W, T, D, kk
+
+    p14 = {}; sig_sel = {"first": {}, "last": {}}
+    for y in SEC14_YS:
+        a, b, d, e, W, T, D, kk = factors(y)
+        Tf = T.reshape(N, N, N, D * D)
+        Ts, _ = torch.sort(Tf, dim=3, descending=True)
+        agg = [Ts[..., 0], Ts[..., -1], Ts[..., :kk].sum(3), Ts[..., D * D - kk:].sum(3), Tf.sum(3)]
+        imax = Tf.argmax(3); imin = Tf.argmin(3)
+
+        def subprods(idx):                               # 5 sub-products at the per-cell selected (ℓ*,p*); returns m* too
+            lst = idx // D; mst = idx % D
+            a_sel = a.reshape(N, N, D * D).unsqueeze(2).expand(N, N, N, D * D).gather(3, idx.unsqueeze(3)).squeeze(3)
+            b_sel = b.view(N, 1, 1, D).expand(N, N, N, D).gather(3, lst.unsqueeze(3)).squeeze(3)
+            d_sel = d.permute(0, 2, 1).reshape(1, N, N, D).expand(N, N, N, D).gather(3, mst.unsqueeze(3)).squeeze(3)
+            e_sel = e.view(1, 1, N).expand(N, N, N)
+            return [a_sel, b_sel * d_sel, a_sel * b_sel * d_sel, a_sel * b_sel * d_sel * e_sel, a_sel * e_sel], mst
+        sub_max, mst_max = subprods(imax)
+        sub_min, mst_min = subprods(imin)
+        p14[str(y)] = {"agg": [pack14(x) for x in agg], "max": [pack14(x) for x in sub_max],
+                       "min": [pack14(x) for x in sub_min]}
+        Wj = W.view(1, N, 1, D).expand(N, N, N, D)                    # σ_{j,p} at the selected mode for panel 10
+        sig_sel["first"][str(y)] = Wj.gather(3, mst_max.unsqueeze(3)).squeeze(3)
+        sig_sel["last"][str(y)] = Wj.gather(3, mst_min.unsqueeze(3)).squeeze(3)
+    out["p14"] = p14
+
+    # panel 10 — multi-step ratio over the residual history; order: y∈{1,2,5} for FIRST element, then for LAST.
+    ratios = []
+    for sel in ("first", "last"):
+        for y in SEC14_YS:
+            S = y
+            if len(rhist) < S:
+                ratios.append(None); continue
+            sig = sig_sel[sel][str(y)]
+            prod = torch.ones(N, N, N, device=dev, dtype=DTYPE)
+            for rt in rhist[-S:]:
+                prod = prod * (1.0 + lr * sig * rt.view(1, N, 1))
+            ratios.append(pack14(prod))
+    out["ratio"] = ratios
+    return out
+
+
 def _opt_dir(model, g, opt):
     """Update DIRECTION from the raw gradient g (NO momentum). The actual θ step is θ ← θ − lr·dir.
       gd       → g                       (plain full-batch gradient descent)
@@ -1455,6 +1541,7 @@ def run_stream(P):
     s17 = P.get("s17", 0)                # §10: CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation)
     s18 = P.get("s18", 0)                # §11: 3D grids T1=JᵢᵀQⱼJₖ, T2=uⱼuₖT1, T3=rᵢuⱼuₖT1 (multi-sample, small M)
     s19 = P.get("s19", 0)                # §12: per-sample Q_i eigenvector cross-similarity grids/cuboids (small N)
+    s20 = P.get("s20", 0)                # §14: Tr(ΔNTK) per-triplet (i,j,k) decomposition cubes (small N; shares §12 eigenpairs)
     grid3dcap = max(1, P.get("grid3dcap", 30))
     sec12ncap = max(1, P.get("sec12ncap", 500))    # §12 sample cap (gates N). NOTE: §12 builds dense p×p Hessians
                                                     # (p HVPs + O(p³) eig per sample) → large p is SLOW; keep models small.
@@ -1513,6 +1600,7 @@ def run_stream(P):
     t0 = time.time()
     eigTick = 0
     done = 0
+    sec14_rhist = []          # §14: per-sample residual history (last ≤5 eig-ticks) for the eq-③ multi-step ratio
     prevTop = [None] * nSub
     prevBot = [None] * nSub
     prevPos = None
@@ -1997,8 +2085,8 @@ def run_stream(P):
             # bottom-K12 eigenpairs of each Q_i by Lanczos on v↦Q_i·v — no p×p Hessian is formed. For the MLP
             # the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (a single vectorised forward/backward per
             # step instead of N) — ~4–8× faster on GPU. Other archs fall back to the per-sample loop. Gated on N.
-            sec12 = None
-            if s19 and multi_ok and Jc is not None and rr is not None and N <= sec12ncap:
+            sec12 = None; sec14 = None
+            if (s19 or s20) and multi_ok and Jc is not None and rr is not None and N <= sec12ncap:
                 lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
                             if outD > 1 else torch.arange(N, device=_dev()))
                 K12 = max(1, min(SEC12_KFULL, p // 2))          # top-/bottom-K12 eigenpairs (covers k=1,2,5,10,kfull)
@@ -2028,7 +2116,14 @@ def run_stream(P):
                         TWl.append(torch.tensor(tval, dtype=DTYPE, device=_dev()))
                         BWl.append(torch.tensor(bval, dtype=DTYPE, device=_dev()))
                     TV, TW, BV, BW = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
-                sec12 = _sec12_payload(TV, TW, BV, BW, rr[lblsel12], Jc[lblsel12], grid3dcap)
+                r12 = rr[lblsel12]; Jg12 = Jc[lblsel12]
+                if s19:
+                    sec12 = _sec12_payload(TV, TW, BV, BW, r12, Jg12, grid3dcap)
+                if s20:                                       # §14 shares §12's per-sample eigenpairs
+                    sec14_rhist.append(r12.detach())
+                    if len(sec14_rhist) > 5:
+                        sec14_rhist.pop(0)
+                    sec14 = _sec14_payload(TV, TW, BV, BW, r12, Jg12, lr, grid3dcap, sec14_rhist)
 
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness λmax(∇²L) ≈ λmax(GN) = σ₁/N
             thPr = [(x / N if x is not None else None) for x in thP] if thP else None
@@ -2081,6 +2176,8 @@ def run_stream(P):
                 yield {"type": "g3d", "t": t, **g3d}     # §11 3D-grid snapshot (browser stores + scrubs these)
             if sec12 is not None:
                 yield {"type": "g4d", "t": t, **sec12}   # §12 Hessian-eigvec cross-similarity snapshot
+            if sec14 is not None:
+                yield {"type": "g14", "t": t, **sec14}   # §14 Tr(ΔNTK) per-triplet decomposition snapshot
             eigTick += 1
             done += 1
 
@@ -2596,6 +2693,7 @@ def _parse_params(q):
         "s17": g("s17", "0") == "1",     # §10: CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation; OFF by default — heaviest)
         "s18": g("s18", "0") == "1",     # §11: 3D Hessian–NTK grids (multi-sample, small M; OFF by default)
         "s19": g("s19", "0") == "1",     # §12: per-sample Q_i eigenvector cross-similarity (multi-sample, small N; OFF by default)
+        "s20": g("s20", "0") == "1",     # §14: Tr(ΔNTK) per-triplet decomposition cubes (multi-sample, small N; OFF by default)
         "grid3dcap": max(1, fi("grid3dcap", 500)),
         "sec12ncap": max(1, fi("sec12ncap", 500)),
         "gs": g("gson", "1") == "1",

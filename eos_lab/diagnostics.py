@@ -27,7 +27,7 @@ from .models import (grad_sum_f, hvp_F, hvp_L, hvp_S, hvp_G, hvp_G2,
                      jac_cols, jac_hvp, grad_out, mlp_forward)
 from .linalg import (lanczos_extreme, lanczos_extreme_vals, slq_density, hutch_trace, sym_eig_desc,
                      sign_to, pin_sign, pos_subspace, neg_subspace, principal_angles, randn_vec,
-                     sec12_payload, SEC12_KFULL, batched_lanczos_extreme)
+                     sec12_payload, sec14_payload, SEC12_KFULL, batched_lanczos_extreme)
 
 # §11 render budget: emit only ≤this many points per grid above this size (mirror server.G3D_MAXPTS).
 G3D_MAXPTS = 10000
@@ -90,6 +90,8 @@ class Diagnostics:
         self.s17 = P.get("s17", 0)          # §10: CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation)
         self.s18 = P.get("s18", 0)          # §11: 3D grids T1=JᵢᵀQⱼJₖ, T2=uⱼuₖT1, T3=rᵢuⱼuₖT1 (multi-sample, small M)
         self.s19 = P.get("s19", 0)          # §12: per-sample Q_i eigenvector cross-similarity (multi-sample, small N & p)
+        self.s20 = P.get("s20", 0)          # §14: Tr(ΔNTK) per-triplet decomposition cubes (shares §12 eigenpairs)
+        self._sec14_rhist = []              # §14: per-sample residual history (last ≤5 ticks) for the eq-③ ratio
         if loss.name == "ce":
             # CE uses the generic residual r = −∂L/∂z = softmax(z)−onehot (the loss-output cotangent). §4
             # (J→H) and §6 (rotation) are model-only; §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) plus
@@ -571,7 +573,7 @@ class Diagnostics:
         # MATRIX-FREE: extract each Q_i's top-K12 & bottom-K12 eigenpairs by Lanczos on v↦Q_i·v — no p×p
         # Hessian formed. For the MLP the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (one vectorised
         # forward/backward per step, ~4–8× faster on GPU); other archs fall back to the per-sample loop.
-        if (self.s19 and self.multi_ok and Jc is not None and rr is not None
+        if ((self.s19 or self.s20) and self.multi_ok and Jc is not None and rr is not None
                 and N <= self.sec12ncap):
             lblsel12 = (torch.arange(N, device=dev) * outD + Y.reshape(N, outD).argmax(dim=1)
                         if outD > 1 else torch.arange(N, device=dev))
@@ -602,7 +604,14 @@ class Diagnostics:
                     TWl.append(torch.tensor(tval, dtype=dt, device=dev))
                     BWl.append(torch.tensor(bval, dtype=dt, device=dev))
                 TV, TW, BV, BW = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
-            rec["g4d"] = sec12_payload(TV, TW, BV, BW, rr[lblsel12], Jc[lblsel12], self.grid3dcap)
+            r12 = rr[lblsel12]; Jg12 = Jc[lblsel12]
+            if self.s19:
+                rec["g4d"] = sec12_payload(TV, TW, BV, BW, r12, Jg12, self.grid3dcap)
+            if self.s20:                                       # §14 shares §12's per-sample eigenpairs
+                self._sec14_rhist.append(r12.detach())
+                if len(self._sec14_rhist) > 5:
+                    self._sec14_rhist.pop(0)
+                rec["g14"] = sec14_payload(TV, TW, BV, BW, r12, Jg12, self.lr, self.grid3dcap, self._sec14_rhist)
 
         # ---- §5 SLQ spectral densities (expensive → ~50 snapshots/run via slqStride) ----
         if self.s5 and slq_tick:
