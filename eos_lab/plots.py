@@ -829,46 +829,81 @@ def plot_section12_panel3(hist):
 
 
 def plot_section12_angles(hist):
-    """§12 panel 1 — four (i,j) grids of the MEAN principal angle between Qᵢ,Qⱼ subspaces (k=1,5,10,kfull)."""
+    """§12 panel 1 — four (i,j) grids of the MEAN principal angle between Qᵢ,Qⱼ subspaces (k=1,5,10,kfull).
+    ang.g now has 5 grids (k=1,2,5,10,kfull); panel 1 shows k=1,5,10,kfull → grid indices [0,2,3,4] (skip k=2)."""
     import numpy as np
     snaps = [r for r in hist if "g4d" in r]
     if not snaps:
         return None
-    g = snaps[-1]["g4d"]; N = g["M"]; P = g["ang"]; labs = ["k=1", "k=5", "k=10", f"k={P.get('kfull', 15)}"]
+    g = snaps[-1]["g4d"]; N = g["M"]; P = g["ang"]
+    idxs = [0, 2, 3, 4]; labs = ["k=1", "k=5", "k=10", f"k={P.get('kfull', 15)}"]   # skip index 1 (k=2)
     fig = plt.figure(figsize=(16, 3.7))
-    for n in range(4):
+    for n, idx in enumerate(idxs):
         ax = fig.add_subplot(1, 4, n + 1)
-        A = np.asarray(P["g"][n], dtype=float).reshape(N, N)
+        A = np.asarray(P["g"][idx], dtype=float).reshape(N, N)
         im = ax.imshow(A, cmap="magma", vmin=0.0, vmax=90.0, origin="upper")
-        run = _runmean(snaps, lambda gg: gg["ang"]["gm"][n])
-        ax.set_xlabel("j"); ax.set_ylabel("i"); ax.set_title(f"angle {labs[n]}   μ={P['gm'][n]:.1f}°  ⟨μ⟩={run:.1f}°", fontsize=9)
+        run = _runmean(snaps, lambda gg, i=idx: gg["ang"]["gm"][i])
+        ax.set_xlabel("j"); ax.set_ylabel("i"); ax.set_title(f"angle {labs[n]}   μ={P['gm'][idx]:.1f}°  ⟨μ⟩={run:.1f}°", fontsize=9)
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     fig.suptitle("§12 panel 1 — mean principal angle between Qᵢ,Qⱼ subspaces (deg)", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.92))
     return fig
 
 
+# §12 panels 2/3 — principal-angle evolution over OFF-DIAGONAL pairs (i≠j). ang.{mn,mx,me} per grid index.
+_S12_KIDX = {1: 0, 2: 1, 5: 2, 10: 3, 15: 4}            # k → ang grid index (15 = kfull slot, index 4)
+_S12_EVO_KS = [5, 15, 1, 2]                              # row order
+_S12_EVO_STATS = [("mn", "min", "#dc2626"), ("mx", "max", "#2563eb"), ("me", "mean", "#16a34a")]
+
+
 def plot_section12_evolution(hist):
-    """§12 panel 2 — cols 1/2: MAX principal angle over sample pairs for k=1,5; cols 3/4: MEAN principal angle k=5/kfull."""
+    """§12 panels 2/3 — min/max/mean principal angle over OFF-DIAGONAL pairs (i≠j) vs step. 4×3 grid:
+    rows = k∈[5,15,1,2], cols = [min,max,mean]. Reads ang.{mn,mx,me}[idx] across §12 records."""
     import numpy as np
     snaps = [r for r in hist if "g4d" in r]   # angles exist for every snapshot (not gated by the 3D-grid cap)
     if len(snaps) < 2:
         return None
     t = [r["t"] for r in snaps]
-    kfull = snaps[-1]["g4d"]["ang"].get("kfull", 15)
-    fig, axs = plt.subplots(1, 4, figsize=(18, 3.7))
-    for c, (gidx, lab, col) in enumerate([(0, "k=1", "#dc2626"), (1, "k=5", "#ea580c")]):   # g[0..3] = k=1,5,10,kfull
-        ax = axs[c]
-        a = np.array([float(np.max(np.asarray(r["g4d"]["ang"]["g"][gidx], dtype=float))) for r in snaps])
-        ax.plot(t, a, color=col); ax.set_xlabel("step"); ax.set_ylabel("angle (deg)")
-        ax.set_title(f"max principal angle {lab}", fontsize=10)
-    for c, (idx, lab, col) in enumerate([(1, "k=5", "#7c3aed"), (3, f"k={kfull}", "#2563eb")]):   # gm[1]=mean k=5, gm[3]=mean kfull
-        ax = axs[2 + c]
-        a = np.array([r["g4d"]["ang"]["gm"][idx] for r in snaps])
-        ax.plot(t, a, color=col); ax.set_xlabel("step"); ax.set_ylabel("angle (deg)")
-        ax.set_title(f"mean principal angle {lab}", fontsize=10)
-    fig.suptitle("§12 panel 2 — evolution of principal angles (max over pairs & mean)", fontsize=12)
-    fig.tight_layout(rect=(0, 0, 1, 0.92))
+    fig, axs = plt.subplots(4, 3, figsize=(14, 12))
+    for ri, k in enumerate(_S12_EVO_KS):
+        idx = _S12_KIDX[k]
+        for ci, (sk, slab, col) in enumerate(_S12_EVO_STATS):
+            ax = axs[ri, ci]
+            a = np.array([r["g4d"]["ang"][sk][idx] for r in snaps], dtype=float)
+            ax.plot(t, a, color=col)
+            ax.set_xlabel("step"); ax.set_ylabel("angle (deg)")
+            ax.set_title(f"{slab} principal angle  k={k}", fontsize=10)
+    fig.suptitle("§12 panels 2/3 — principal-angle evolution over off-diagonal pairs (i≠j)", fontsize=13)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    return fig
+
+
+def plot_section12_proj(hist):
+    """§12 panel 4 — residual↔proj correlation as a trajectory over training (one point per step, coloured by
+    step). 4 subplots: (1) x=proj mean,y=r mean; (2) x=proj std,y=r std; (3) x=sproj mean,y=sr mean;
+    (4) x=sproj std,y=sr std. Reads proj.{proj,r,sproj,sr}=[mean,std]. Returns None if <2 records."""
+    import numpy as np
+    recs = [r for r in hist if "g4d" in r and r["g4d"].get("proj") is not None]
+    if len(recs) < 2:
+        return None
+    t = list(range(len(recs)))
+    P = [r["g4d"]["proj"] for r in recs]
+    # (proj-key, proj-stat-idx, resid-key, resid-stat-idx, xlabel, ylabel, title)
+    specs = [("proj", 0, "r", 0, "mean proj", "mean residual", "mean: ⟨r⟩ vs ⟨proj⟩"),
+             ("proj", 1, "r", 1, "std proj", "std residual", "std: σ(r) vs σ(proj)"),
+             ("sproj", 0, "sr", 0, "mean sign(proj)", "mean sign(resid)", "sign mean: ⟨r/|r|⟩ vs ⟨proj/|proj|⟩"),
+             ("sproj", 1, "sr", 1, "std sign(proj)", "std sign(resid)", "sign std: σ(r/|r|) vs σ(proj/|proj|)")]
+    fig, axs = plt.subplots(1, 4, figsize=(20, 4.4))
+    for n, (xk, xi, yk, yi, xl, yl, ti) in enumerate(specs):
+        ax = axs[n]
+        x = np.array([p[xk][xi] for p in P], dtype=float)
+        y = np.array([p[yk][yi] for p in P], dtype=float)
+        ax.plot(x, y, color="#cbd5e1", lw=1, zorder=1)
+        sc = ax.scatter(x, y, c=t, cmap="viridis", s=28, zorder=2)
+        ax.set_xlabel(xl); ax.set_ylabel(yl); ax.set_title(ti, fontsize=10)
+        fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04, label="step")
+    fig.suptitle("§12 panel 4 — residual ↔ proj correlation (trajectory over training)", fontsize=13)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
     return fig
 
 
@@ -1025,6 +1060,7 @@ def save_panels(results, outdir):
             "section11_sumnormshare": plot_section11_sumnormshare(hist),
             "section12_panel1_angles": plot_section12_angles(hist),
             "section12_panel2_evolution": plot_section12_evolution(hist),
+            "section12_panel4_proj": plot_section12_proj(hist),
             "section13_panel1_G1": plot_section13_panel1(hist),
             "section13_panel2_G2": plot_section13_panel2(hist),
             "section13_panel3_G3": plot_section13_panel3(hist),
