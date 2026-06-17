@@ -81,10 +81,11 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
       ang.g = the principal-angle (i,j) grids for k=1,2,5,10,kfull (deg); ang.gm = whole-grid means (panel-1
         titles); ang.mn/mx/me = min/max/MEAN over the OFF-DIAGONAL pairs (i≠j; the i=i diagonal angle is 0),
         used by the panel-2/3 evolution curves; ang.ks lists the k per index.
-      proj = panel-4 proj↔residual correlation. proj_i = |⟨J_i,u_{i,l*}⟩|·σ_{i,l*} (|projection|·SIGNED eigenvalue),
-        l* = argmax_l |⟨J_i,u_{i,l}⟩|·|σ_{i,l}| over the top-5⊕bottom-5 eigenpairs of Q_i. proj/{r,sproj,sr} carry
-        [mean,std] over samples of proj_i, r_i, sgn(proj_i), sgn(r_i). MIRRORS eos_lab.linalg.sec12_payload /
-        index.html sec1213Payload."""
+      proj = panels 4/5. proj_i = |⟨J_i,u⟩|·σ (|projection|·SIGNED eigenvalue) for u = the TOP eigvec u_{i,1}
+        (largest signed eigenvalue, → proj.top) and the BOTTOM eigvec u_{i,-1} (most-negative, → proj.bot) of Q_i.
+        Each carries {ratio:[mean,std], sratio:[mean,std]} of the PER-SAMPLE ratio proj_i/r_i and sign-ratio
+        sgn(proj_i)/sgn(r_i) (ratio computed per sample first, then mean/std; r_i=0 dropped). MIRRORS
+        eos_lab.linalg.sec12_payload / index.html sec1213Payload."""
     import math as _m
     N, K, p = int(TV.shape[0]), int(TV.shape[1]), int(TV.shape[2])
     dev = TV.device
@@ -107,19 +108,26 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
     ang = {"g": [x.reshape(-1).detach().cpu().tolist() for x in pas], "gm": [float(x.mean()) for x in pas],
            "mn": [o[0] for o in om], "mx": [o[1] for o in om], "me": [o[2] for o in om], "ks": ks_ang, "kfull": kf}
 
-    # ---- panel-4: proj_i = |⟨J_i,u_{i,l*}⟩|·σ_{i,l*}; l* maximises |proj|·|σ| over top-5⊕bottom-5 of Q_i ----
-    k5 = max(1, min(5, K))
-    E5 = torch.cat([TV[:, :k5, :], BV[:, :k5, :]], dim=1)          # (N,2k5,p)
-    w5 = torch.cat([TW[:, :k5], BW[:, :k5]], dim=1)                # (N,2k5)
-    pj = torch.einsum('ip,iap->ia', Jg, E5)                       # ⟨J_i,u_l⟩
-    lstar = (pj.abs() * w5.abs()).argmax(dim=1)                   # argmax_l |proj|·|σ|
+    # ---- panels 4/5: proj_i = |⟨J_i,u⟩|·σ for the TOP eigvec u_{i,1} (largest signed eigenvalue) and the
+    #      BOTTOM eigvec u_{i,-1} (most-negative eigenvalue) of Q_i. Plotted = the per-sample RATIO proj_i/r_i,
+    #      then mean/std over samples; plus the sign-ratio sgn(proj_i)/sgn(r_i). Samples with r_i=0 are dropped. ----
     ai = torch.arange(N, device=dev)
-    proj = pj[ai, lstar].abs() * w5[ai, lstar]                    # |⟨J,u⟩| · σ (signed eigenvalue)
+    it = TW.argmax(dim=1); ib = BW.argmin(dim=1)                  # top = largest eigenvalue ; bottom = most negative
+    proj_top = (Jg * TV[ai, it]).sum(dim=1).abs() * TW[ai, it]    # |⟨J_i,u_{i,1}⟩| · σ_{i,1} (signed)
+    proj_bot = (Jg * BV[ai, ib]).sum(dim=1).abs() * BW[ai, ib]    # |⟨J_i,u_{i,-1}⟩| · σ_{i,-1} (signed)
 
-    def ms(x):
-        return [float(x.mean()), float(x.std(unbiased=False))]
+    def ratio_stats(proj_e):                                      # per-sample ratio proj_i/r_i FIRST, then mean/std over samples
+        nz = r != 0
+        rat = proj_e[nz] / r[nz]
+        fin = torch.isfinite(rat)
+        rat = rat[fin]
+        srat = torch.sign(proj_e[nz][fin]) * torch.sign(r[nz][fin])   # sgn(proj_i)/sgn(r_i) = (proj/|proj|)/(r/|r|)
+        def ms(x):
+            return [float(x.mean()), float(x.std(unbiased=False))] if x.numel() else [0.0, 0.0]
+        return {"ratio": ms(rat), "sratio": ms(srat)}
+
     out = {"M": N, "do3d": False, "ks": [1, 2, 5], "ang": ang,
-           "proj": {"proj": ms(proj), "r": ms(r), "sproj": ms(torch.sign(proj)), "sr": ms(torch.sign(r))}}
+           "proj": {"top": ratio_stats(proj_top), "bot": ratio_stats(proj_bot)}}
     return out
 
 
@@ -162,7 +170,7 @@ def _sec13_stats(cur, prev, ref, lr):
         Jp = torch.einsum('ip,iap->ia', pJ, Up)                     # J'(x)_{i,t-1} = ⟨J_{t-1},u^{t-1}⟩
         Cij = torch.einsum('ixp,jyp->ijxy', Up, Uj)                 # cos_{(i,x)(j,y)} = u_i^{t-1}·u_j^{t}
         Cjk = torch.einsum('jyp,kzp->jkyz', Uj, Up)                 # cos_{(j,y)(k,z)} = u_j^{t}·u_k^{t-1}
-        P = (1.0 + pr.view(N, 1) * lr * Wp) * Jp                    # (1+r_{t-1}ησ_{t-1})·J'_{t-1}  (i- & k-side)
+        P = (1.0 + pr.view(N, 1) * (lr / N) * Wp) * Jp              # (1+r_{t-1}·(η/N)·σ_{t-1})·J'_{t-1}  (η/N = the 1/N-normalized GD step; i- & k-side)
         a = torch.einsum('ix,ijxy->ijy', P, Cij)                    # i-side sum over x
         b = torch.einsum('kz,jkyz->jky', P, Cjk)                    # k-side sum over z
         av = a * Wj.unsqueeze(0)                                    # σ_{j,y}·a

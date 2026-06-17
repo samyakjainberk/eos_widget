@@ -266,9 +266,12 @@
 <p class="cap">Same as Panel 2 (min / max / mean over $i\neq j$ vs step) but for $k=1$ and $k=2$.</p>
 <div class="plotrow row3"><div id="p_s12evo_mn_1" class="plot" style="height:280px"></div><div id="p_s12evo_mx_1" class="plot" style="height:280px"></div><div id="p_s12evo_me_1" class="plot" style="height:280px"></div></div>
 <div class="plotrow row3"><div id="p_s12evo_mn_2" class="plot" style="height:280px"></div><div id="p_s12evo_mx_2" class="plot" style="height:280px"></div><div id="p_s12evo_me_2" class="plot" style="height:280px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — residual ↔ proj evolution (3D)</h3>
-<p class="cap">Per sample $i$: $\text{proj}_i=|\langle J_i,u_{i,l^*}\rangle|\cdot\sigma_{i,l^*}$ (|projection|·<b>signed</b> eigenvalue), with $l^*=\arg\max_l|\langle J_i,u_{i,l}\rangle|\cdot|\sigma_{i,l}|$ over the top-5⊕bottom-5 eigenpairs of $Q_i$. Each plot is a <b>3D trajectory</b> — axes (<b>step $t$</b>, proj statistic, residual statistic), both statistics taken across samples; colour = step. <b>Drag to rotate.</b> Plots: (1) mean ⟨proj⟩,⟨r⟩ ; (2) std ; (3) mean of signs $\text{proj}/|\text{proj}|,\,r/|r|$ ; (4) std of signs.</p>
-<div class="plotrow row4"><div id="p_s12proj_0" class="plot" style="height:340px"></div><div id="p_s12proj_1" class="plot" style="height:340px"></div><div id="p_s12proj_2" class="plot" style="height:340px"></div><div id="p_s12proj_3" class="plot" style="height:340px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — ratio $\text{proj}_i/r_i$ for the TOP eigenvector $u_{i,1}$ (largest signed eigenvalue)</h3>
+<p class="cap">Per sample $i$: $\text{proj}_i=|\langle J_i,u_{i,1}\rangle|\cdot\sigma_{i,1}$ (|projection|·<b>signed</b> eigenvalue) with $u_{i,1}$ the eigenvector of the <b>largest</b> signed eigenvalue of $Q_i$. The <b>per-sample ratio $\text{proj}_i/r_i$ is formed first, then aggregated across samples</b> (samples with $r_i=0$ dropped). 2D vs step: (1) mean $\langle\text{proj}/r\rangle$ ; (2) std ; (3) mean of the sign-ratio $\frac{\text{proj}/|\text{proj}|}{r/|r|}$ ; (4) std of the sign-ratio.</p>
+<div class="plotrow row4"><div id="p_s12proj_top0" class="plot" style="height:290px"></div><div id="p_s12proj_top1" class="plot" style="height:290px"></div><div id="p_s12proj_top2" class="plot" style="height:290px"></div><div id="p_s12proj_top3" class="plot" style="height:290px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 5 — ratio $\text{proj}_i/r_i$ for the BOTTOM eigenvector $u_{i,-1}$ (most-negative eigenvalue)</h3>
+<p class="cap">Same as Panel 4 but with $u_{i,-1}$ the eigenvector of the <b>most-negative</b> eigenvalue of $Q_i$ (so $\sigma_{i,-1}<0$): $\text{proj}_i=|\langle J_i,u_{i,-1}\rangle|\cdot\sigma_{i,-1}$, ratio $\text{proj}_i/r_i$ per sample then aggregated. 2D vs step: (1) mean ; (2) std ; (3) mean sign-ratio ; (4) std sign-ratio.</p>
+<div class="plotrow row4"><div id="p_s12proj_bot0" class="plot" style="height:290px"></div><div id="p_s12proj_bot1" class="plot" style="height:290px"></div><div id="p_s12proj_bot2" class="plot" style="height:290px"></div><div id="p_s12proj_bot3" class="plot" style="height:290px"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -1051,7 +1054,8 @@ function s13DiffMean(i,acc){let s=0,c=0;for(let j=0;j<=i&&j<S12_SNAPS.length;j++
 // adaptive μ formatter: exponential for tiny/huge magnitudes so a small grid-mean shows e.g. 3.2e-3 instead of "0.00"
 const fmtMu=x=>{if(x==null||!isFinite(x))return '–';const a=Math.abs(x);return (a!==0&&(a<0.05||a>=1e4))?x.toExponential(1):x.toFixed(2);};
 function s12CubeIds(){return [];}   // §12/§13 no longer have any WebGL cubes (§12 angles+evolution only; §13 is time-series)
-function s12AllIds(){const a=[];for(let n=0;n<4;n++)a.push('p_s12ang_'+n);for(let n=0;n<4;n++)a.push('p_s12proj_'+n);return a.concat(s12EvoIds());}
+function s12ProjIds(){const a=[];for(const g of ['top','bot'])for(let n=0;n<4;n++)a.push('p_s12proj_'+g+n);return a;}
+function s12AllIds(){const a=[];for(let n=0;n<4;n++)a.push('p_s12ang_'+n);return a.concat(s12ProjIds()).concat(s12EvoIds());}
 // ── §13 — G1/G2/G3 approximations vs the exact reference J_iᵀQ_jJ_k·r_k (time-series mean±std clouds) ──
 const S13_GS=[1,2,3], S13_KS=[2,5], S13_DOMS=['ndist','ijeq','diag'];
 const S13_DOMLAB={ndist:'i≠j≠k',ijeq:'i=j≠k',diag:'i=j=k'}, S13_GLAB={1:'G₁',2:'G₂',3:'G₃'};
@@ -1319,37 +1323,28 @@ function s12EvoRender(){
 }
 // panel 4: residual ↔ proj correlation — trajectories over training (x=proj stat, y=residual stat; colour=step)
 // Panel 4: 3D evolution trajectories — x=step t, y=proj statistic, z=residual statistic (colour=step)
-const S12P_TITLE=['mean ⟨proj⟩,⟨r⟩ vs t','std σ(proj),σ(r) vs t','sign-mean ⟨proj/|proj|⟩,⟨r/|r|⟩ vs t','sign-std σ(proj/|proj|),σ(r/|r|) vs t'];
-const S12P_PL=['⟨proj⟩','σ(proj)','⟨proj/|proj|⟩','σ(proj/|proj|)'];     // y-axis: proj statistic
-const S12P_RL=['⟨r⟩','σ(r)','⟨r/|r|⟩','σ(r/|r|)'];                       // z-axis: residual statistic
-const S12P_KEYS=[['pm','rm'],['ps','rs'],['spm','srm'],['sps','srs']];   // [proj-stat key (y), resid-stat key (z)] per plot
+// Panels 4 (top eigvec) & 5 (bottom eigvec): per-sample ratio proj_i/r_i, 2D vs step. 4 plots/panel:
+// mean ratio, std ratio, mean sign-ratio, std sign-ratio. proj.{top,bot}.{ratio,sratio}=[mean,std].
+const S12P_TITLE=['mean ⟨proj/r⟩','std σ(proj/r)','mean sign-ratio ⟨(proj/|proj|)/(r/|r|)⟩','std sign-ratio'];
+const S12P_YL=['⟨proj/r⟩','σ(proj/r)','⟨sign-ratio⟩','σ(sign-ratio)'];
+const S12P_STAT=[['ratio',0],['ratio',1],['sratio',0],['sratio',1]];   // [key, stat-index] per plot
+const S12P_GRP=[['top','p_s12proj_top','#2563eb'],['bot','p_s12proj_bot','#dc2626']];   // panel 4 (top, blue) / panel 5 (bottom, red)
 function s12ProjBuild(){
-  for(let n=0;n<4;n++){
-    const lay={title:{text:S12P_TITLE[n],font:{size:11,color:'#1c1e21'},x:0.02,xanchor:'left',y:0.98,yanchor:'top'},
-      margin:{l:0,r:0,t:24,b:0},showlegend:false,paper_bgcolor:'#fff',font:{family:'system-ui',size:9,color:'#374151'},
-      scene:{xaxis:{title:{text:'step t',font:{size:9}},gridcolor:'#e6e8ec'},
-             yaxis:{title:{text:S12P_PL[n],font:{size:9}},gridcolor:'#e6e8ec'},
-             zaxis:{title:{text:S12P_RL[n],font:{size:9}},gridcolor:'#e6e8ec'},
-             camera:{eye:{x:1.7,y:1.65,z:1.1}}}};
-    Plotly.newPlot('p_s12proj_'+n,[{x:[],y:[],z:[],type:'scatter3d',mode:'lines+markers',
-      line:{color:[],colorscale:'Viridis',width:4},
-      marker:{size:3,color:[],colorscale:'Viridis',showscale:n===3,colorbar:{title:'step',thickness:8,len:0.7}}}],
-      lay,{responsive:false,displaylogo:false});}
+  for(const [grp,pre,col] of S12P_GRP)for(let n=0;n<4;n++)
+    Plotly.newPlot(pre+n,[{x:[],y:[],mode:'lines+markers',line:{color:col,width:1.8},marker:{size:4,color:col}}],
+      withZero(baseLayout(S12P_TITLE[n],S12P_YL[n],false)),{responsive:true,displaylogo:false});
 }
 function s12ProjAppend(m){
-  if(!m.proj)return;
-  if(!S12P_DATA)S12P_DATA={steps:[],pm:[],ps:[],rm:[],rs:[],spm:[],sps:[],srm:[],srs:[]};
+  if(!m.proj||!m.proj.top)return;
+  if(!S12P_DATA){S12P_DATA={steps:[]};for(const [grp] of S12P_GRP)S12P_DATA[grp]=[[],[],[],[]];}
   S12P_DATA.steps.push(m.t);
-  S12P_DATA.pm.push(m.proj.proj[0]);S12P_DATA.ps.push(m.proj.proj[1]);
-  S12P_DATA.rm.push(m.proj.r[0]);S12P_DATA.rs.push(m.proj.r[1]);
-  S12P_DATA.spm.push(m.proj.sproj[0]);S12P_DATA.sps.push(m.proj.sproj[1]);
-  S12P_DATA.srm.push(m.proj.sr[0]);S12P_DATA.srs.push(m.proj.sr[1]);
+  for(const [grp] of S12P_GRP){const e=m.proj[grp]||{ratio:[0,0],sratio:[0,0]};
+    for(let n=0;n<4;n++){const[k,si]=S12P_STAT[n];S12P_DATA[grp][n].push((e[k]||[0,0])[si]);}}
 }
 function s12ProjRender(){
-  if(!S12P_DATA||!S12P_DATA.steps.length)return;const st=S12P_DATA.steps;
-  for(let n=0;n<4;n++){const[yk,zk]=S12P_KEYS[n];   // y = proj stat, z = residual stat, x = step
-    Plotly.restyle('p_s12proj_'+n,{x:[st.slice()],y:[S12P_DATA[yk].slice()],z:[S12P_DATA[zk].slice()],
-      'line.color':[st.slice()],'marker.color':[st.slice()]});}
+  if(!S12P_DATA||!S12P_DATA.steps.length)return;const t=S12P_DATA.steps;
+  for(const [grp,pre] of S12P_GRP)for(let n=0;n<4;n++)
+    Plotly.restyle(pre+n,{x:[t.slice()],y:[S12P_DATA[grp][n].slice()]});
 }
 function s12RenderIdx(i){S12_PENDING=i;if(S12_RAF)return;S12_RAF=requestAnimationFrame(()=>{S12_RAF=0;const j=S12_PENDING;S12_PENDING=-1;if(j>=0)s12RenderNow(j);});}
 function s12Heat2DSnap(id,flat,N,lab,signed,deg,run){
@@ -1450,16 +1445,19 @@ function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap){   // §12: principal an
   const K=TV[0].length, kf=Math.max(1,Math.min(SEC12_KFULL,K)), ks=[1,2,5,10,kf];
   const pas=ks.map(k=>s12Angles(TV,BV,N,p,k)), om=pas.map(x=>s12OffStats(x.g,N));
   const ang={g:pas.map(x=>x.g),gm:pas.map(x=>x.gm),mn:om.map(o=>o[0]),mx:om.map(o=>o[1]),me:om.map(o=>o[2]),ks:ks,kfull:kf};
-  // panel-4 proj: proj_i = |⟨J_i,u_{l*}⟩|·σ_{l*}, l* = argmax_l |⟨J_i,u_l⟩|·|σ_l| over top-5⊕bottom-5 of Q_i
-  const k5=Math.max(1,Math.min(5,K)), proj=new Float64Array(N);
-  for(let i=0;i<N;i++){let best=-1,bp=0,bw=0;
-    for(let a=0;a<k5;a++){const pjt=s12Dot(Jg[i],TV[i][a],p),sc=Math.abs(pjt)*Math.abs(TW[i][a]);if(sc>best){best=sc;bp=pjt;bw=TW[i][a];}}
-    for(let a=0;a<k5;a++){const pjt=s12Dot(Jg[i],BV[i][a],p),sc=Math.abs(pjt)*Math.abs(BW[i][a]);if(sc>best){best=sc;bp=pjt;bw=BW[i][a];}}
-    proj[i]=Math.abs(bp)*bw;}
+  // panels 4/5 proj: proj_i = |⟨J_i,u⟩|·σ for the TOP eigvec u_{i,1} (largest signed eigval) & BOTTOM u_{i,-1}
+  //   (most-negative). Plotted = per-sample ratio proj_i/r_i (then mean/std) + sign-ratio sgn(proj)/sgn(r).
   const sgn=x=>(x>0?1:(x<0?-1:0));
-  const ms=arr=>{let s=0;for(let q=0;q<arr.length;q++)s+=arr[q];const m=s/arr.length;let v=0;for(let q=0;q<arr.length;q++){const d=arr[q]-m;v+=d*d;}return [m,Math.sqrt(v/arr.length)];};
-  const rA=Array.from(r),pA=Array.from(proj);
-  return {M:N,do3d:false,ks:[1,2,5],ang:ang,proj:{proj:ms(pA),r:ms(rA),sproj:ms(pA.map(sgn)),sr:ms(rA.map(sgn))}};
+  const argext=(w,mode)=>{let bi=0,bv=w[0];for(let a=1;a<w.length;a++){if(mode==='max'?w[a]>bv:w[a]<bv){bv=w[a];bi=a;}}return bi;};
+  const projTop=new Float64Array(N), projBot=new Float64Array(N);
+  for(let i=0;i<N;i++){const it=argext(TW[i],'max'), ib=argext(BW[i],'min');   // top=largest eigval, bottom=most negative
+    projTop[i]=Math.abs(s12Dot(Jg[i],TV[i][it],p))*TW[i][it];
+    projBot[i]=Math.abs(s12Dot(Jg[i],BV[i][ib],p))*BW[i][ib];}
+  const ms=arr=>{if(!arr.length)return [0,0];let s=0;for(let q=0;q<arr.length;q++)s+=arr[q];const m=s/arr.length;let v=0;for(let q=0;q<arr.length;q++){const d=arr[q]-m;v+=d*d;}return [m,Math.sqrt(v/arr.length)];};
+  const ratioStats=proje=>{const rat=[],srat=[];
+    for(let i=0;i<N;i++){if(r[i]!==0){const q=proje[i]/r[i];if(isFinite(q)){rat.push(q);srat.push(sgn(proje[i])*sgn(r[i]));}}}
+    return {ratio:ms(rat),sratio:ms(srat)};};
+  return {M:N,do3d:false,ks:[1,2,5],ang:ang,proj:{top:ratioStats(projTop),bot:ratioStats(projBot)}};
 }
 // §13 — G1/G2/G3 rank-k₀ approximations vs the exact reference J_iᵀQ_jJ_k·r_k. MIRRORS server._sec13_stats.
 // cur/prev = {TV,TW,BV,BW,r,Jg}: TV[i][a]=Float64Array(p) a-th top eigvec of Q_i, TW[i][a]=eigval, r[i], Jg[i].
@@ -1482,7 +1480,7 @@ function sec13Stats(cur,prev,ref,N,lr){
       for(let a=0;a<k0;a++){uj.push(cur.BV[i][a]);wj.push(cur.BW[i][a]);up.push(prev.BV[i][a]);wp.push(prev.BW[i][a]);}
       Uj.push(uj);Wj.push(wj);Up.push(up);Wp.push(wp);}
     const P=[];   // P[i][x] = (1+r_{i,t-1}·η·σ_{i,x}^{t-1})·⟨J_{i,t-1},u_{i,x}^{t-1}⟩
-    for(let i=0;i<N;i++){const pi=new Float64Array(D);for(let x=0;x<D;x++)pi[x]=(1+prev.r[i]*lr*Wp[i][x])*s13Dot(prev.Jg[i],Up[i][x]);P.push(pi);}
+    for(let i=0;i<N;i++){const pi=new Float64Array(D);for(let x=0;x<D;x++)pi[x]=(1+prev.r[i]*(lr/N)*Wp[i][x])*s13Dot(prev.Jg[i],Up[i][x]);P.push(pi);}   // η/N = 1/N-normalized GD step
     const JuC=[];  // JuC[i][j][y] = ⟨J_{i,t},u_{j,y}^{t}⟩
     for(let i=0;i<N;i++){const row=[];for(let j=0;j<N;j++){const dy=new Float64Array(D);for(let y=0;y<D;y++)dy[y]=s13Dot(cur.Jg[i],Uj[j][y]);row.push(dy);}JuC.push(row);}
     const A=[];   // A[i][j][y] = Σ_x P[i][x]·cos_{(i,x)(j,y)}   (cos = u_i^{t-1}·u_j^{t})
@@ -2509,7 +2507,7 @@ async function _gifPass(files){
       for(const id of grids){const gd=document.getElementById(id);if(!gd||!gd._fullLayout)continue;const f=await _grabFrame(gd);frm[id].push(f.data);dim[id]=[f.W,f.H];}}
     s12RenderNow(s12cur);
     for(const id of grids)if(frm[id].length){if(st)st.textContent='GIF '+id+'…';add(id,_gifBytes(frm[id],dim[id][0],dim[id][1],30));}
-    for(const id of s12EvoIds().concat(['p_s12proj_0','p_s12proj_1','p_s12proj_2','p_s12proj_3'])){const gd=document.getElementById(id);
+    for(const id of s12EvoIds().concat(s12ProjIds())){const gd=document.getElementById(id);
       if(gd&&gd._fullLayout){try{n++;files.push({name:String(n).padStart(2,'0')+'_'+_safeName(id)+'.png',data:_b64bytes(await Plotly.toImage(gd,{format:'png',width:gd._fullLayout.width||360,height:gd._fullLayout.height||300}))});}catch(e){}}}
   }
   // ===== §13 (approximation-comparison time-series → PNGs) =====

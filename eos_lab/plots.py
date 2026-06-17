@@ -879,32 +879,31 @@ def plot_section12_evolution(hist):
 
 
 def plot_section12_proj(hist):
-    """§12 panel 4 — residual↔proj as 3D trajectories over training: axes (step t, proj statistic, residual
-    statistic), both statistics across samples; colour = step. 4 subplots: (1) mean ⟨proj⟩,⟨r⟩; (2) std;
-    (3) sign-mean of proj/|proj|, r/|r|; (4) sign-std. Reads proj.{proj,r,sproj,sr}=[mean,std]. None if <2 recs."""
+    """§12 panels 4/5 — per-sample ratio proj_i/r_i over training, 2D. proj_i = |⟨J_i,u⟩|·σ for the TOP eigvec
+    u_{i,1} (row 0 = panel 4) and the BOTTOM eigvec u_{i,-1} (row 1 = panel 5). 4 cols: mean ratio, std ratio,
+    mean sign-ratio, std sign-ratio. Reads proj.{top,bot}.{ratio,sratio}=[mean,std]. None if <2 records."""
     import numpy as np
-    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (registers the 3d projection)
-    recs = [r for r in hist if "g4d" in r and r["g4d"].get("proj") is not None]
+    recs = [r for r in hist if "g4d" in r and r["g4d"].get("proj") is not None
+            and "top" in r["g4d"]["proj"]]
     if len(recs) < 2:
         return None
     t = list(range(len(recs)))
     P = [r["g4d"]["proj"] for r in recs]
-    # (proj-key, stat-idx, resid-key, proj-axis-label (y), resid-axis-label (z), title)
-    specs = [("proj", 0, "r", "⟨proj⟩", "⟨r⟩", "mean ⟨proj⟩,⟨r⟩ vs t"),
-             ("proj", 1, "r", "σ(proj)", "σ(r)", "std σ(proj),σ(r) vs t"),
-             ("sproj", 0, "sr", "⟨proj/|proj|⟩", "⟨r/|r|⟩", "sign-mean vs t"),
-             ("sproj", 1, "sr", "σ(proj/|proj|)", "σ(r/|r|)", "sign-std vs t")]
-    fig = plt.figure(figsize=(20, 5))
-    for n, (pk, si, rk, yl, zl, ti) in enumerate(specs):
-        ax = fig.add_subplot(1, 4, n + 1, projection="3d")
-        y = np.array([p[pk][si] for p in P], dtype=float)   # proj statistic
-        z = np.array([p[rk][si] for p in P], dtype=float)   # residual statistic
-        ax.plot(t, y, z, color="#cbd5e1", lw=1, zorder=1)
-        sc = ax.scatter(t, y, z, c=t, cmap="viridis", s=22, zorder=2)
-        ax.set_xlabel("step t"); ax.set_ylabel(yl); ax.set_zlabel(zl); ax.set_title(ti, fontsize=10)
-        fig.colorbar(sc, ax=ax, fraction=0.03, pad=0.08, label="step")
-    fig.suptitle("§12 panel 4 — residual ↔ proj evolution (3D)", fontsize=13)
-    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    cols = [("ratio", 0, "⟨proj/r⟩"), ("ratio", 1, "σ(proj/r)"),
+            ("sratio", 0, "⟨sign-ratio⟩"), ("sratio", 1, "σ(sign-ratio)")]
+    rows = [("top", "Panel 4 — top eigvec u_{i,1}", "#2563eb"),
+            ("bot", "Panel 5 — bottom eigvec u_{i,-1}", "#dc2626")]
+    fig, axs = plt.subplots(2, 4, figsize=(20, 8))
+    for ri, (grp, rlab, col) in enumerate(rows):
+        for ci, (key, si, yl) in enumerate(cols):
+            ax = axs[ri][ci]
+            y = np.array([p[grp][key][si] for p in P], dtype=float)
+            ax.axhline(0, c="#d1d5db", lw=0.8)
+            ax.plot(t, y, color=col, marker="o", ms=3, lw=1.4)
+            ax.set_xlabel("step"); ax.set_ylabel(yl)
+            ax.set_title((rlab + " · " if ci == 0 else "") + yl, fontsize=9)
+    fig.suptitle("§12 panels 4/5 — ratio proj_i/r_i (top row: u_{i,1}; bottom row: u_{i,-1})", fontsize=13)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
     return fig
 
 
