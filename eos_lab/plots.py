@@ -879,30 +879,31 @@ def plot_section12_evolution(hist):
 
 
 def plot_section12_proj(hist):
-    """§12 panel 4 — residual↔proj correlation as a trajectory over training (one point per step, coloured by
-    step). 4 subplots: (1) x=proj mean,y=r mean; (2) x=proj std,y=r std; (3) x=sproj mean,y=sr mean;
-    (4) x=sproj std,y=sr std. Reads proj.{proj,r,sproj,sr}=[mean,std]. Returns None if <2 records."""
+    """§12 panel 4 — residual↔proj as 3D trajectories over training: axes (step t, proj statistic, residual
+    statistic), both statistics across samples; colour = step. 4 subplots: (1) mean ⟨proj⟩,⟨r⟩; (2) std;
+    (3) sign-mean of proj/|proj|, r/|r|; (4) sign-std. Reads proj.{proj,r,sproj,sr}=[mean,std]. None if <2 recs."""
     import numpy as np
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (registers the 3d projection)
     recs = [r for r in hist if "g4d" in r and r["g4d"].get("proj") is not None]
     if len(recs) < 2:
         return None
     t = list(range(len(recs)))
     P = [r["g4d"]["proj"] for r in recs]
-    # (proj-key, proj-stat-idx, resid-key, resid-stat-idx, xlabel, ylabel, title)
-    specs = [("proj", 0, "r", 0, "mean proj", "mean residual", "mean: ⟨r⟩ vs ⟨proj⟩"),
-             ("proj", 1, "r", 1, "std proj", "std residual", "std: σ(r) vs σ(proj)"),
-             ("sproj", 0, "sr", 0, "mean sign(proj)", "mean sign(resid)", "sign mean: ⟨r/|r|⟩ vs ⟨proj/|proj|⟩"),
-             ("sproj", 1, "sr", 1, "std sign(proj)", "std sign(resid)", "sign std: σ(r/|r|) vs σ(proj/|proj|)")]
-    fig, axs = plt.subplots(1, 4, figsize=(20, 4.4))
-    for n, (xk, xi, yk, yi, xl, yl, ti) in enumerate(specs):
-        ax = axs[n]
-        x = np.array([p[xk][xi] for p in P], dtype=float)
-        y = np.array([p[yk][yi] for p in P], dtype=float)
-        ax.plot(x, y, color="#cbd5e1", lw=1, zorder=1)
-        sc = ax.scatter(x, y, c=t, cmap="viridis", s=28, zorder=2)
-        ax.set_xlabel(xl); ax.set_ylabel(yl); ax.set_title(ti, fontsize=10)
-        fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04, label="step")
-    fig.suptitle("§12 panel 4 — residual ↔ proj correlation (trajectory over training)", fontsize=13)
+    # (proj-key, stat-idx, resid-key, proj-axis-label (y), resid-axis-label (z), title)
+    specs = [("proj", 0, "r", "⟨proj⟩", "⟨r⟩", "mean ⟨proj⟩,⟨r⟩ vs t"),
+             ("proj", 1, "r", "σ(proj)", "σ(r)", "std σ(proj),σ(r) vs t"),
+             ("sproj", 0, "sr", "⟨proj/|proj|⟩", "⟨r/|r|⟩", "sign-mean vs t"),
+             ("sproj", 1, "sr", "σ(proj/|proj|)", "σ(r/|r|)", "sign-std vs t")]
+    fig = plt.figure(figsize=(20, 5))
+    for n, (pk, si, rk, yl, zl, ti) in enumerate(specs):
+        ax = fig.add_subplot(1, 4, n + 1, projection="3d")
+        y = np.array([p[pk][si] for p in P], dtype=float)   # proj statistic
+        z = np.array([p[rk][si] for p in P], dtype=float)   # residual statistic
+        ax.plot(t, y, z, color="#cbd5e1", lw=1, zorder=1)
+        sc = ax.scatter(t, y, z, c=t, cmap="viridis", s=22, zorder=2)
+        ax.set_xlabel("step t"); ax.set_ylabel(yl); ax.set_zlabel(zl); ax.set_title(ti, fontsize=10)
+        fig.colorbar(sc, ax=ax, fraction=0.03, pad=0.08, label="step")
+    fig.suptitle("§12 panel 4 — residual ↔ proj evolution (3D)", fontsize=13)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     return fig
 

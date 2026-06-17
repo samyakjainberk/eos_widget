@@ -266,9 +266,9 @@
 <p class="cap">Same as Panel 2 (min / max / mean over $i\neq j$ vs step) but for $k=1$ and $k=2$.</p>
 <div class="plotrow row3"><div id="p_s12evo_mn_1" class="plot" style="height:280px"></div><div id="p_s12evo_mx_1" class="plot" style="height:280px"></div><div id="p_s12evo_me_1" class="plot" style="height:280px"></div></div>
 <div class="plotrow row3"><div id="p_s12evo_mn_2" class="plot" style="height:280px"></div><div id="p_s12evo_mx_2" class="plot" style="height:280px"></div><div id="p_s12evo_me_2" class="plot" style="height:280px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — residual ↔ proj correlation</h3>
-<p class="cap">Per sample $i$: $\text{proj}_i=|\langle J_i,u_{i,l^*}\rangle|\cdot\sigma_{i,l^*}$ (|projection|·<b>signed</b> eigenvalue), with $l^*=\arg\max_l|\langle J_i,u_{i,l}\rangle|\cdot|\sigma_{i,l}|$ over the top-5⊕bottom-5 eigenpairs of $Q_i$. Each plot is a <b>trajectory over training</b> (one point per step; colour = step): the residual statistic (y) vs the proj statistic (x), taken across samples. Plots: (1) mean, (2) std, (3) mean of signs $r/|r|,\,\text{proj}/|\text{proj}|$, (4) std of signs.</p>
-<div class="plotrow row4"><div id="p_s12proj_0" class="plot" style="height:300px"></div><div id="p_s12proj_1" class="plot" style="height:300px"></div><div id="p_s12proj_2" class="plot" style="height:300px"></div><div id="p_s12proj_3" class="plot" style="height:300px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — residual ↔ proj evolution (3D)</h3>
+<p class="cap">Per sample $i$: $\text{proj}_i=|\langle J_i,u_{i,l^*}\rangle|\cdot\sigma_{i,l^*}$ (|projection|·<b>signed</b> eigenvalue), with $l^*=\arg\max_l|\langle J_i,u_{i,l}\rangle|\cdot|\sigma_{i,l}|$ over the top-5⊕bottom-5 eigenpairs of $Q_i$. Each plot is a <b>3D trajectory</b> — axes (<b>step $t$</b>, proj statistic, residual statistic), both statistics taken across samples; colour = step. <b>Drag to rotate.</b> Plots: (1) mean ⟨proj⟩,⟨r⟩ ; (2) std ; (3) mean of signs $\text{proj}/|\text{proj}|,\,r/|r|$ ; (4) std of signs.</p>
+<div class="plotrow row4"><div id="p_s12proj_0" class="plot" style="height:340px"></div><div id="p_s12proj_1" class="plot" style="height:340px"></div><div id="p_s12proj_2" class="plot" style="height:340px"></div><div id="p_s12proj_3" class="plot" style="height:340px"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -1318,15 +1318,23 @@ function s12EvoRender(){
   for(const id of s12EvoIds())Plotly.restyle(id,{x:[t],y:[S12E_DATA[id]]});
 }
 // panel 4: residual ↔ proj correlation — trajectories over training (x=proj stat, y=residual stat; colour=step)
-const S12P_TITLE=['mean: ⟨r⟩ vs ⟨proj⟩','std: σ(r) vs σ(proj)','sign mean: ⟨r/|r|⟩ vs ⟨proj/|proj|⟩','sign std: σ(r/|r|) vs σ(proj/|proj|)'];
-const S12P_XL=['mean proj','std proj','mean sign(proj)','std sign(proj)'], S12P_YL=['mean residual','std residual','mean sign(resid)','std sign(resid)'];
-const S12P_KEYS=[['pm','rm'],['ps','rs'],['spm','srm'],['sps','srs']];   // [proj-stat, resid-stat] per plot
+// Panel 4: 3D evolution trajectories — x=step t, y=proj statistic, z=residual statistic (colour=step)
+const S12P_TITLE=['mean ⟨proj⟩,⟨r⟩ vs t','std σ(proj),σ(r) vs t','sign-mean ⟨proj/|proj|⟩,⟨r/|r|⟩ vs t','sign-std σ(proj/|proj|),σ(r/|r|) vs t'];
+const S12P_PL=['⟨proj⟩','σ(proj)','⟨proj/|proj|⟩','σ(proj/|proj|)'];     // y-axis: proj statistic
+const S12P_RL=['⟨r⟩','σ(r)','⟨r/|r|⟩','σ(r/|r|)'];                       // z-axis: residual statistic
+const S12P_KEYS=[['pm','rm'],['ps','rs'],['spm','srm'],['sps','srs']];   // [proj-stat key (y), resid-stat key (z)] per plot
 function s12ProjBuild(){
-  for(let n=0;n<4;n++){const lay=baseLayout(S12P_TITLE[n],S12P_YL[n],false);
-    lay.xaxis.title.text=S12P_XL[n];lay.showlegend=false;
-    Plotly.newPlot('p_s12proj_'+n,[{x:[],y:[],mode:'lines+markers',line:{color:'#cbd5e1',width:1},
-      marker:{size:6,color:[],colorscale:'Viridis',showscale:n===3,colorbar:{title:'step',thickness:8,len:0.85}}}],
-      lay,{responsive:true,displaylogo:false});}
+  for(let n=0;n<4;n++){
+    const lay={title:{text:S12P_TITLE[n],font:{size:11,color:'#1c1e21'},x:0.02,xanchor:'left',y:0.98,yanchor:'top'},
+      margin:{l:0,r:0,t:24,b:0},showlegend:false,paper_bgcolor:'#fff',font:{family:'system-ui',size:9,color:'#374151'},
+      scene:{xaxis:{title:{text:'step t',font:{size:9}},gridcolor:'#e6e8ec'},
+             yaxis:{title:{text:S12P_PL[n],font:{size:9}},gridcolor:'#e6e8ec'},
+             zaxis:{title:{text:S12P_RL[n],font:{size:9}},gridcolor:'#e6e8ec'},
+             camera:{eye:{x:1.7,y:1.65,z:1.1}}}};
+    Plotly.newPlot('p_s12proj_'+n,[{x:[],y:[],z:[],type:'scatter3d',mode:'lines+markers',
+      line:{color:[],colorscale:'Viridis',width:4},
+      marker:{size:3,color:[],colorscale:'Viridis',showscale:n===3,colorbar:{title:'step',thickness:8,len:0.7}}}],
+      lay,{responsive:false,displaylogo:false});}
 }
 function s12ProjAppend(m){
   if(!m.proj)return;
@@ -1339,8 +1347,9 @@ function s12ProjAppend(m){
 }
 function s12ProjRender(){
   if(!S12P_DATA||!S12P_DATA.steps.length)return;const st=S12P_DATA.steps;
-  for(let n=0;n<4;n++){const[xk,yk]=S12P_KEYS[n];
-    Plotly.restyle('p_s12proj_'+n,{x:[S12P_DATA[xk].slice()],y:[S12P_DATA[yk].slice()],'marker.color':[st.slice()]});}
+  for(let n=0;n<4;n++){const[yk,zk]=S12P_KEYS[n];   // y = proj stat, z = residual stat, x = step
+    Plotly.restyle('p_s12proj_'+n,{x:[st.slice()],y:[S12P_DATA[yk].slice()],z:[S12P_DATA[zk].slice()],
+      'line.color':[st.slice()],'marker.color':[st.slice()]});}
 }
 function s12RenderIdx(i){S12_PENDING=i;if(S12_RAF)return;S12_RAF=requestAnimationFrame(()=>{S12_RAF=0;const j=S12_PENDING;S12_PENDING=-1;if(j>=0)s12RenderNow(j);});}
 function s12Heat2DSnap(id,flat,N,lab,signed,deg,run){
