@@ -182,26 +182,29 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
     ang = {"g": [x.reshape(-1).detach().cpu().tolist() for x in pas], "gm": [float(x.mean()) for x in pas],
            "mn": [o[0] for o in om], "mx": [o[1] for o in om], "me": [o[2] for o in om], "ks": ks_ang, "kfull": kf}
 
-    # ---- panels 4/5: proj_i = |⟨J_i,u⟩|·σ for the TOP eigvec u_{i,1} (largest signed eigenvalue) and the
-    #      BOTTOM eigvec u_{i,-1} (most-negative) of Q_i. Plotted = per-sample ratio proj_i/r_i (then mean/std)
-    #      + sign-ratio sgn(proj_i)/sgn(r_i). Samples with r_i=0 are dropped. ----
+    # ---- panels 4/5: TOP eigvec u_{i,1} (largest signed eigenvalue) and BOTTOM u_{i,-1} (most-negative) of Q_i.
+    #      Magnitude ratio uses |⟨J,u⟩|·σ / r_i; the SIGN-ratio uses the SIGNED ⟨J,u⟩·σ so its sign varies per
+    #      sample (|proj|·σ has a constant sign = sgn(σ) → the sign-ratio would collapse to ±sgn(r_i)). Per-sample
+    #      ratio FIRST, then mean/std over samples; r_i=0 dropped. ----
     ai = torch.arange(N, device=dev)
     it = TW.argmax(dim=1); ib = BW.argmin(dim=1)                  # top = largest eigenvalue ; bottom = most negative
-    proj_top = (Jg * TV[ai, it]).sum(dim=1).abs() * TW[ai, it]    # |⟨J_i,u_{i,1}⟩| · σ_{i,1} (signed)
-    proj_bot = (Jg * BV[ai, ib]).sum(dim=1).abs() * BW[ai, ib]    # |⟨J_i,u_{i,-1}⟩| · σ_{i,-1} (signed)
+    jt = (Jg * TV[ai, it]).sum(dim=1); jb = (Jg * BV[ai, ib]).sum(dim=1)   # ⟨J_i,u⟩ SIGNED projection
+    st = TW[ai, it]; sb = BW[ai, ib]                             # σ_top, σ_bot (signed)
 
-    def ratio_stats(proj_e):                                      # per-sample ratio proj_i/r_i FIRST, then mean/std over samples
+    def ratio_stats(jdot, sig):
+        proj_mag = jdot.abs() * sig                              # |⟨J_i,u⟩|·σ  → magnitude ratio
+        proj_sgn = jdot * sig                                    # ⟨J_i,u⟩·σ (signed) → sign-ratio
         nz = r != 0
-        rat = proj_e[nz] / r[nz]
+        rat = proj_mag[nz] / r[nz]
         fin = torch.isfinite(rat)
         rat = rat[fin]
-        srat = torch.sign(proj_e[nz][fin]) * torch.sign(r[nz][fin])
+        srat = torch.sign(proj_sgn[nz][fin]) * torch.sign(r[nz][fin])   # sgn(⟨J,u⟩·σ / r_i), per sample then aggregated
         def ms(x):
             return [float(x.mean()), float(x.std(unbiased=False))] if x.numel() else [0.0, 0.0]
         return {"ratio": ms(rat), "sratio": ms(srat)}
 
     out = {"M": N, "do3d": False, "ks": [1, 2, 5], "ang": ang,
-           "proj": {"top": ratio_stats(proj_top), "bot": ratio_stats(proj_bot)}}
+           "proj": {"top": ratio_stats(jt, st), "bot": ratio_stats(jb, sb)}}
     return out
 
 

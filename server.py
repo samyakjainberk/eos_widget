@@ -81,10 +81,11 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
       ang.g = the principal-angle (i,j) grids for k=1,2,5,10,kfull (deg); ang.gm = whole-grid means (panel-1
         titles); ang.mn/mx/me = min/max/MEAN over the OFF-DIAGONAL pairs (i≠j; the i=i diagonal angle is 0),
         used by the panel-2/3 evolution curves; ang.ks lists the k per index.
-      proj = panels 4/5. proj_i = |⟨J_i,u⟩|·σ (|projection|·SIGNED eigenvalue) for u = the TOP eigvec u_{i,1}
-        (largest signed eigenvalue, → proj.top) and the BOTTOM eigvec u_{i,-1} (most-negative, → proj.bot) of Q_i.
-        Each carries {ratio:[mean,std], sratio:[mean,std]} of the PER-SAMPLE ratio proj_i/r_i and sign-ratio
-        sgn(proj_i)/sgn(r_i) (ratio computed per sample first, then mean/std; r_i=0 dropped). MIRRORS
+      proj = panels 4/5, for u = the TOP eigvec u_{i,1} (largest signed eigenvalue, → proj.top) and the BOTTOM
+        eigvec u_{i,-1} (most-negative, → proj.bot) of Q_i. Each carries {ratio:[mean,std], sratio:[mean,std]}:
+        the magnitude ratio uses |⟨J_i,u⟩|·σ / r_i; the SIGN-ratio uses sgn(⟨J_i,u⟩·σ / r_i) — the SIGNED
+        projection so its sign varies per sample (|proj|·σ has constant sign sgn(σ) → sign-ratio would collapse to
+        ±sgn(r_i)). Per-sample ratio FIRST, then mean/std over samples; r_i=0 dropped. MIRRORS
         eos_lab.linalg.sec12_payload / index.html sec1213Payload."""
     import math as _m
     N, K, p = int(TV.shape[0]), int(TV.shape[1]), int(TV.shape[2])
@@ -113,21 +114,25 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
     #      then mean/std over samples; plus the sign-ratio sgn(proj_i)/sgn(r_i). Samples with r_i=0 are dropped. ----
     ai = torch.arange(N, device=dev)
     it = TW.argmax(dim=1); ib = BW.argmin(dim=1)                  # top = largest eigenvalue ; bottom = most negative
-    proj_top = (Jg * TV[ai, it]).sum(dim=1).abs() * TW[ai, it]    # |⟨J_i,u_{i,1}⟩| · σ_{i,1} (signed)
-    proj_bot = (Jg * BV[ai, ib]).sum(dim=1).abs() * BW[ai, ib]    # |⟨J_i,u_{i,-1}⟩| · σ_{i,-1} (signed)
+    jt = (Jg * TV[ai, it]).sum(dim=1); jb = (Jg * BV[ai, ib]).sum(dim=1)   # ⟨J_i,u⟩ SIGNED projection
+    st = TW[ai, it]; sb = BW[ai, ib]                             # σ_top, σ_bot (signed)
 
-    def ratio_stats(proj_e):                                      # per-sample ratio proj_i/r_i FIRST, then mean/std over samples
+    def ratio_stats(jdot, sig):
+        # magnitude ratio uses |⟨J,u⟩|·σ (as specified); the SIGN-ratio uses the SIGNED ⟨J,u⟩·σ so its sign varies
+        # per sample (otherwise |proj|·σ has a constant sign = sgn(σ) and the sign-ratio collapses to ±sgn(r_i)).
+        proj_mag = jdot.abs() * sig                              # |⟨J_i,u⟩|·σ  → ratio
+        proj_sgn = jdot * sig                                    # ⟨J_i,u⟩·σ (signed) → sign-ratio
         nz = r != 0
-        rat = proj_e[nz] / r[nz]
+        rat = proj_mag[nz] / r[nz]
         fin = torch.isfinite(rat)
         rat = rat[fin]
-        srat = torch.sign(proj_e[nz][fin]) * torch.sign(r[nz][fin])   # sgn(proj_i)/sgn(r_i) = (proj/|proj|)/(r/|r|)
+        srat = torch.sign(proj_sgn[nz][fin]) * torch.sign(r[nz][fin])   # sgn(⟨J,u⟩·σ / r_i), per sample then aggregated
         def ms(x):
             return [float(x.mean()), float(x.std(unbiased=False))] if x.numel() else [0.0, 0.0]
         return {"ratio": ms(rat), "sratio": ms(srat)}
 
     out = {"M": N, "do3d": False, "ks": [1, 2, 5], "ang": ang,
-           "proj": {"top": ratio_stats(proj_top), "bot": ratio_stats(proj_bot)}}
+           "proj": {"top": ratio_stats(jt, st), "bot": ratio_stats(jb, sb)}}
     return out
 
 

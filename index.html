@@ -267,10 +267,10 @@
 <div class="plotrow row3"><div id="p_s12evo_mn_1" class="plot" style="height:280px"></div><div id="p_s12evo_mx_1" class="plot" style="height:280px"></div><div id="p_s12evo_me_1" class="plot" style="height:280px"></div></div>
 <div class="plotrow row3"><div id="p_s12evo_mn_2" class="plot" style="height:280px"></div><div id="p_s12evo_mx_2" class="plot" style="height:280px"></div><div id="p_s12evo_me_2" class="plot" style="height:280px"></div></div>
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — ratio $\text{proj}_i/r_i$ for the TOP eigenvector $u_{i,1}$ (largest signed eigenvalue)</h3>
-<p class="cap">Per sample $i$: $\text{proj}_i=|\langle J_i,u_{i,1}\rangle|\cdot\sigma_{i,1}$ (|projection|·<b>signed</b> eigenvalue) with $u_{i,1}$ the eigenvector of the <b>largest</b> signed eigenvalue of $Q_i$. The <b>per-sample ratio $\text{proj}_i/r_i$ is formed first, then aggregated across samples</b> (samples with $r_i=0$ dropped). 2D vs step: (1) mean $\langle\text{proj}/r\rangle$ ; (2) std ; (3) mean of the sign-ratio $\frac{\text{proj}/|\text{proj}|}{r/|r|}$ ; (4) std of the sign-ratio.</p>
+<p class="cap">$u_{i,1}$ = eigenvector of the <b>largest</b> signed eigenvalue of $Q_i$. The <b>per-sample ratio is formed first, then aggregated across samples</b> ($r_i=0$ dropped). 2D vs step: (1) mean $\langle\text{proj}/r\rangle$ and (2) std of the <b>magnitude</b> ratio $\text{proj}_i/r_i$ with $\text{proj}_i=|\langle J_i,u_{i,1}\rangle|\cdot\sigma_{i,1}$ (|projection|·signed eigenvalue); (3) mean and (4) std of the <b>sign-ratio</b> $\operatorname{sgn}\!\big(\langle J_i,u_{i,1}\rangle\,\sigma_{i,1}/r_i\big)$ — using the <b>signed</b> projection so its sign actually varies across samples.</p>
 <div class="plotrow row4"><div id="p_s12proj_top0" class="plot" style="height:290px"></div><div id="p_s12proj_top1" class="plot" style="height:290px"></div><div id="p_s12proj_top2" class="plot" style="height:290px"></div><div id="p_s12proj_top3" class="plot" style="height:290px"></div></div>
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 5 — ratio $\text{proj}_i/r_i$ for the BOTTOM eigenvector $u_{i,-1}$ (most-negative eigenvalue)</h3>
-<p class="cap">Same as Panel 4 but with $u_{i,-1}$ the eigenvector of the <b>most-negative</b> eigenvalue of $Q_i$ (so $\sigma_{i,-1}<0$): $\text{proj}_i=|\langle J_i,u_{i,-1}\rangle|\cdot\sigma_{i,-1}$, ratio $\text{proj}_i/r_i$ per sample then aggregated. 2D vs step: (1) mean ; (2) std ; (3) mean sign-ratio ; (4) std sign-ratio.</p>
+<p class="cap">Same as Panel 4 but with $u_{i,-1}$ = eigenvector of the <b>most-negative</b> eigenvalue of $Q_i$ (so $\sigma_{i,-1}<0$). (1) mean and (2) std of the magnitude ratio $|\langle J_i,u_{i,-1}\rangle|\,\sigma_{i,-1}/r_i$ ; (3) mean and (4) std of the sign-ratio $\operatorname{sgn}\!\big(\langle J_i,u_{i,-1}\rangle\,\sigma_{i,-1}/r_i\big)$ (signed projection). Per sample first, then aggregated.</p>
 <div class="plotrow row4"><div id="p_s12proj_bot0" class="plot" style="height:290px"></div><div id="p_s12proj_bot1" class="plot" style="height:290px"></div><div id="p_s12proj_bot2" class="plot" style="height:290px"></div><div id="p_s12proj_bot3" class="plot" style="height:290px"></div></div>
 </div>
 
@@ -1044,6 +1044,7 @@ const S12_ANGI={1:0,2:1,5:2,10:3,15:4};   // angle k → ang.{g,mn,mx,me} index 
 const S12_EVO_KS=[5,15,1,2];   // evolution k's (panel 2: 5,15 ; panel 3: 1,2)
 const S12_EVO_STATS=[['mn','min','#dc2626'],['mx','max','#2563eb'],['me','mean','#16a34a']];   // off-diagonal stat → id/label/colour
 let S12_SNAPS=[], S12_N=0, S12_BUILT=false, S12_RAF=0, S12_PENDING=-1, S12_CAMKEY='', S12E_STEPS=[], S12E_DATA=null, S12P_DATA=null;
+const S12_MAXSNAPS=2000;   // bound §12 snapshot memory on long runs (decimate ×2 when exceeded; mirrors §11's G3D_MAXSNAPS)
 let S12_BUILTSET=new Set(), S12_VISIBLE=new Set(), S12_IO=null, S12_IOT=null, S12_CURIDX=0, S12_EXPORTING=false;   // lazy-WebGL cube state (context budget)
 const s12Mean=a=>{let s=0,c=0;for(let q=0;q<a.length;q++){const v=a[q];if(v!=null&&isFinite(v)){s+=v;c++;}}return c?s/c:0;};   // mean, skipping null/NaN/Inf (sanitised payload)
 function s12RunMean(i,fn){let s=0,c=0;for(let q=0;q<=i&&q<S12_SNAPS.length;q++){const v=fn(S12_SNAPS[q]);if(v!=null&&isFinite(v)){s+=v;c++;}}return c?s/c:NaN;}  // time-running mean over snapshots 0..i
@@ -1145,6 +1146,8 @@ function s12CubeRender(id,pack,M,title,mode){
   Plotly.relayout(id,{'title.text':title});}
 // ===== §14: Tr(ΔNTK) per-triplet (i,j,k) decomposition. Own snapshots; the cubes reuse the §12 lazy/WebGL machinery. =====
 let S14_SNAPS=[], S14_CURIDX=0;
+const S14_MAXSNAPS=400;   // §14 snapshots hold N³ cubes (large); the plots use S14_SERIES (time-series), so the
+                          // full snapshots are only needed for the GIF export — decimate aggressively to avoid OOM
 const S14_YS=[1,2,5], S14_AGGLAB=['max','min','Σtop-y','Σbot-y','Σall'], S14_SUBLAB=['a','b·d','a·b·d','a·b·d·e','a·e'],
       S14_RLAB=['y1·first','y2·first','y5·first','y1·last','y2·last','y5·last'];
 function s14IsId(id){return id.indexOf('p_s14')===0;}
@@ -1218,6 +1221,7 @@ function s14RenderNow(i){   // redraw the §14 time-series (the slider doesn't s
 function s14Push(m){
   if(!m.p14&&!m.ratio)return;
   S14_SNAPS.push(m);
+  if(S14_SNAPS.length>S14_MAXSNAPS){S14_SNAPS=S14_SNAPS.filter((_,ix)=>ix%2===0);if(S14_CURIDX>=S14_SNAPS.length)S14_CURIDX=S14_SNAPS.length-1;}   // decimate (plots use S14_SERIES, not these) to bound memory
   {const em=document.getElementById('s14_empty');if(em)em.style.display='none';}   // §14 data arrived — hide the hint
   s14SeriesAppend(m);for(const id of s14CubeIds())s14SeriesDraw(id);for(const y of S14_YS)s14RatioDraw(y);   // append this snapshot + redraw the visible time-series + Panel-10 ratios
   const st=document.getElementById('s14_step');if(st)st.textContent=`${S14_SNAPS.length} snapshots · latest step ${m.t}`;}
@@ -1365,6 +1369,7 @@ function s12RenderNow(i){
 function s12Push(m){
   if(!m.ang)return;const sl=document.getElementById('s12_slider'),wasLive=!sl||(+sl.value>=+sl.max);
   S12_SNAPS.push(m);
+  if(S12_SNAPS.length>S12_MAXSNAPS){S12_SNAPS=S12_SNAPS.filter((_,ix)=>ix%2===0);if(S12_CURIDX>=S12_SNAPS.length)S12_CURIDX=S12_SNAPS.length-1;}   // decimate to bound memory
   if(sl){sl.max=S12_SNAPS.length-1;if(wasLive)sl.value=sl.max;}
   {const sl3=document.getElementById('s13_slider');if(sl3){sl3.max=S12_SNAPS.length-1;if(wasLive)sl3.value=sl3.max;}}   // §13 shares §12's snapshots
   if(!S12_BUILT||S12_N!==m.M)s12Build(m.M);   // build synchronously so the evolution restyle targets exist
@@ -1449,15 +1454,16 @@ function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap){   // §12: principal an
   //   (most-negative). Plotted = per-sample ratio proj_i/r_i (then mean/std) + sign-ratio sgn(proj)/sgn(r).
   const sgn=x=>(x>0?1:(x<0?-1:0));
   const argext=(w,mode)=>{let bi=0,bv=w[0];for(let a=1;a<w.length;a++){if(mode==='max'?w[a]>bv:w[a]<bv){bv=w[a];bi=a;}}return bi;};
-  const projTop=new Float64Array(N), projBot=new Float64Array(N);
+  const jt=new Float64Array(N),st=new Float64Array(N),jb=new Float64Array(N),sb=new Float64Array(N);
   for(let i=0;i<N;i++){const it=argext(TW[i],'max'), ib=argext(BW[i],'min');   // top=largest eigval, bottom=most negative
-    projTop[i]=Math.abs(s12Dot(Jg[i],TV[i][it],p))*TW[i][it];
-    projBot[i]=Math.abs(s12Dot(Jg[i],BV[i][ib],p))*BW[i][ib];}
+    jt[i]=s12Dot(Jg[i],TV[i][it],p);st[i]=TW[i][it];   // ⟨J,u⟩ SIGNED projection + σ
+    jb[i]=s12Dot(Jg[i],BV[i][ib],p);sb[i]=BW[i][ib];}
   const ms=arr=>{if(!arr.length)return [0,0];let s=0;for(let q=0;q<arr.length;q++)s+=arr[q];const m=s/arr.length;let v=0;for(let q=0;q<arr.length;q++){const d=arr[q]-m;v+=d*d;}return [m,Math.sqrt(v/arr.length)];};
-  const ratioStats=proje=>{const rat=[],srat=[];
-    for(let i=0;i<N;i++){if(r[i]!==0){const q=proje[i]/r[i];if(isFinite(q)){rat.push(q);srat.push(sgn(proje[i])*sgn(r[i]));}}}
+  const ratioStats=(jdot,sig)=>{const rat=[],srat=[];   // ratio uses |⟨J,u⟩|·σ; sign-ratio uses SIGNED ⟨J,u⟩·σ
+    for(let i=0;i<N;i++){if(r[i]!==0){const pmag=Math.abs(jdot[i])*sig[i],psgn=jdot[i]*sig[i],q=pmag/r[i];
+      if(isFinite(q)){rat.push(q);srat.push(sgn(psgn)*sgn(r[i]));}}}
     return {ratio:ms(rat),sratio:ms(srat)};};
-  return {M:N,do3d:false,ks:[1,2,5],ang:ang,proj:{top:ratioStats(projTop),bot:ratioStats(projBot)}};
+  return {M:N,do3d:false,ks:[1,2,5],ang:ang,proj:{top:ratioStats(jt,st),bot:ratioStats(jb,sb)}};
 }
 // §13 — G1/G2/G3 rank-k₀ approximations vs the exact reference J_iᵀQ_jJ_k·r_k. MIRRORS server._sec13_stats.
 // cur/prev = {TV,TW,BV,BW,r,Jg}: TV[i][a]=Float64Array(p) a-th top eigvec of Q_i, TW[i][a]=eigval, r[i], Jg[i].
