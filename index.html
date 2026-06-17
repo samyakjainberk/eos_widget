@@ -297,26 +297,53 @@
 <div id="s14_empty" style="margin:8px 0;padding:10px 14px;background:#fef9c3;border:1px solid #fde047;border-radius:6px;color:#713f12;font-size:13px;max-width:980px">
   <b>No §14 data for the current run yet.</b> §14 needs: the <b>14</b> toggle on; <b>multi-sample</b> (number_of_samples × outdim &gt; 1); and N ≤ the <b>§11 “3D-grid cap”</b> (it builds N×N×N cubes). On the <b>GPU backend</b>, restart <code>server.py</code> after updating the repo, then hard-refresh this page (Cmd/Ctrl+Shift+R). The cubes also build lazily — scroll a panel into view.
 </div>
+<div class="ctl" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin:8px 0;max-width:980px;font-size:13px;color:#475569">
+  <b>Show panels:</b>
+  <span>rank&nbsp; <label><input type="checkbox" id="s14f_y1" checked> y=1</label> <label><input type="checkbox" id="s14f_y2" checked> y=2</label> <label><input type="checkbox" id="s14f_y5" checked> y=5</label></span>
+  <span>group&nbsp; <label><input type="checkbox" id="s14f_agg" checked> aggregates</label> <label><input type="checkbox" id="s14f_max"> max-element</label> <label><input type="checkbox" id="s14f_min"> min-element</label></span>
+  <label><input type="checkbox" id="s14f_ratio" checked> ratio</label>
+  <span style="color:#94a3b8">— fewer panels = lighter (each is N×N×N WebGL cubes)</span>
+</div>
+<div class="s14panel" data-y="1" data-grp="agg">
 <h3 style="margin:12px 0 2px;font-size:14px;color:#475569">Panel 1 — $y=1$ · aggregates over the sorted $(\ell,p)$ terms [max · min · Σtop-y · Σbot-y · Σall]</h3>
 <div class="plotrow row5"><div id="p_s14_1_agg_0" class="plot" style="height:300px"></div><div id="p_s14_1_agg_1" class="plot" style="height:300px"></div><div id="p_s14_1_agg_2" class="plot" style="height:300px"></div><div id="p_s14_1_agg_3" class="plot" style="height:300px"></div><div id="p_s14_1_agg_4" class="plot" style="height:300px"></div></div>
+</div>
+<div class="s14panel" data-y="1" data-grp="max">
 <h3 style="margin:12px 0 2px;font-size:14px;color:#475569">Panel 2 — $y=1$ · sub-products at the MAX element [a · b·d · a·b·d · a·b·d·e · a·e]</h3>
 <div class="plotrow row5"><div id="p_s14_1_max_0" class="plot" style="height:300px"></div><div id="p_s14_1_max_1" class="plot" style="height:300px"></div><div id="p_s14_1_max_2" class="plot" style="height:300px"></div><div id="p_s14_1_max_3" class="plot" style="height:300px"></div><div id="p_s14_1_max_4" class="plot" style="height:300px"></div></div>
+</div>
+<div class="s14panel" data-y="1" data-grp="min">
 <h3 style="margin:12px 0 2px;font-size:14px;color:#475569">Panel 3 — $y=1$ · sub-products at the MIN element [a · b·d · a·b·d · a·b·d·e · a·e]</h3>
 <div class="plotrow row5"><div id="p_s14_1_min_0" class="plot" style="height:300px"></div><div id="p_s14_1_min_1" class="plot" style="height:300px"></div><div id="p_s14_1_min_2" class="plot" style="height:300px"></div><div id="p_s14_1_min_3" class="plot" style="height:300px"></div><div id="p_s14_1_min_4" class="plot" style="height:300px"></div></div>
+</div>
+<div class="s14panel" data-y="2" data-grp="agg">
 <h3 style="margin:12px 0 2px;font-size:14px;color:#475569">Panel 4 — $y=2$ · aggregates over the sorted $(\ell,p)$ terms [max · min · Σtop-y · Σbot-y · Σall]</h3>
 <div class="plotrow row5"><div id="p_s14_2_agg_0" class="plot" style="height:300px"></div><div id="p_s14_2_agg_1" class="plot" style="height:300px"></div><div id="p_s14_2_agg_2" class="plot" style="height:300px"></div><div id="p_s14_2_agg_3" class="plot" style="height:300px"></div><div id="p_s14_2_agg_4" class="plot" style="height:300px"></div></div>
+</div>
+<div class="s14panel" data-y="2" data-grp="max">
 <h3 style="margin:12px 0 2px;font-size:14px;color:#475569">Panel 5 — $y=2$ · sub-products at the MAX element [a · b·d · a·b·d · a·b·d·e · a·e]</h3>
 <div class="plotrow row5"><div id="p_s14_2_max_0" class="plot" style="height:300px"></div><div id="p_s14_2_max_1" class="plot" style="height:300px"></div><div id="p_s14_2_max_2" class="plot" style="height:300px"></div><div id="p_s14_2_max_3" class="plot" style="height:300px"></div><div id="p_s14_2_max_4" class="plot" style="height:300px"></div></div>
+</div>
+<div class="s14panel" data-y="2" data-grp="min">
 <h3 style="margin:12px 0 2px;font-size:14px;color:#475569">Panel 6 — $y=2$ · sub-products at the MIN element [a · b·d · a·b·d · a·b·d·e · a·e]</h3>
 <div class="plotrow row5"><div id="p_s14_2_min_0" class="plot" style="height:300px"></div><div id="p_s14_2_min_1" class="plot" style="height:300px"></div><div id="p_s14_2_min_2" class="plot" style="height:300px"></div><div id="p_s14_2_min_3" class="plot" style="height:300px"></div><div id="p_s14_2_min_4" class="plot" style="height:300px"></div></div>
+</div>
+<div class="s14panel" data-y="5" data-grp="agg">
 <h3 style="margin:12px 0 2px;font-size:14px;color:#475569">Panel 7 — $y=5$ · aggregates over the sorted $(\ell,p)$ terms [max · min · Σtop-y · Σbot-y · Σall]</h3>
 <div class="plotrow row5"><div id="p_s14_5_agg_0" class="plot" style="height:300px"></div><div id="p_s14_5_agg_1" class="plot" style="height:300px"></div><div id="p_s14_5_agg_2" class="plot" style="height:300px"></div><div id="p_s14_5_agg_3" class="plot" style="height:300px"></div><div id="p_s14_5_agg_4" class="plot" style="height:300px"></div></div>
+</div>
+<div class="s14panel" data-y="5" data-grp="max">
 <h3 style="margin:12px 0 2px;font-size:14px;color:#475569">Panel 8 — $y=5$ · sub-products at the MAX element [a · b·d · a·b·d · a·b·d·e · a·e]</h3>
 <div class="plotrow row5"><div id="p_s14_5_max_0" class="plot" style="height:300px"></div><div id="p_s14_5_max_1" class="plot" style="height:300px"></div><div id="p_s14_5_max_2" class="plot" style="height:300px"></div><div id="p_s14_5_max_3" class="plot" style="height:300px"></div><div id="p_s14_5_max_4" class="plot" style="height:300px"></div></div>
+</div>
+<div class="s14panel" data-y="5" data-grp="min">
 <h3 style="margin:12px 0 2px;font-size:14px;color:#475569">Panel 9 — $y=5$ · sub-products at the MIN element [a · b·d · a·b·d · a·b·d·e · a·e]</h3>
 <div class="plotrow row5"><div id="p_s14_5_min_0" class="plot" style="height:300px"></div><div id="p_s14_5_min_1" class="plot" style="height:300px"></div><div id="p_s14_5_min_2" class="plot" style="height:300px"></div><div id="p_s14_5_min_3" class="plot" style="height:300px"></div><div id="p_s14_5_min_4" class="plot" style="height:300px"></div></div>
+</div>
+<div class="s14panel" data-grp="ratio">
 <h3 style="margin:12px 0 2px;font-size:14px;color:#475569">Panel 10 — eq-③ multi-step ratio $\big[\prod_{z=0}^{S}(1+\eta\sigma_{j,p}r_{j,t-S+z})\big]/(1+\eta\sigma_{j,p}r_{j,t-S})$, $S=y$ · first/last element × $y$</h3>
 <div class="plotrow row6"><div id="p_s14r_0" class="plot" style="height:300px"></div><div id="p_s14r_1" class="plot" style="height:300px"></div><div id="p_s14r_2" class="plot" style="height:300px"></div><div id="p_s14r_3" class="plot" style="height:300px"></div><div id="p_s14r_4" class="plot" style="height:300px"></div><div id="p_s14r_5" class="plot" style="height:300px"></div></div>
+</div>
 </div>
 
 <div id="sec_2">
@@ -1094,6 +1121,12 @@ function s14Push(m){
   {const em=document.getElementById('s14_empty');if(em)em.style.display='none';}   // §14 data arrived — hide the hint
   s12LazyInit();   // ensure the IntersectionObserver also watches the §14 cube divs
   s14RenderNow(wasLive?S14_SNAPS.length-1:(sl?+sl.value:0));lazySchedule();}
+function s14ApplyPanelFilter(){   // show/hide §14 panels per the selector; a panel (y,group) shows iff both its rank
+  const on=id=>{const e=document.getElementById(id);return !e||e.checked;};   // and group are checked (ratio: its own box)
+  const yOn={'1':on('s14f_y1'),'2':on('s14f_y2'),'5':on('s14f_y5')}, gOn={'agg':on('s14f_agg'),'max':on('s14f_max'),'min':on('s14f_min')};
+  for(const el of document.querySelectorAll('#sec_s14 .s14panel')){const y=el.getAttribute('data-y'),g=el.getAttribute('data-grp');
+    el.style.display=(g==='ratio'?on('s14f_ratio'):(yOn[y]&&gOn[g]))?'':'none';}
+  lazySchedule();}   // purge cubes of newly-hidden panels + build the now-visible ones
 function s12CubeMeta(id){   // (label, color mode, signed, snapshot→pack) for any cube id
   if(s14IsId(id))return s14Meta(id);
   if(id.indexOf('p_s13g1_')===0){const k=id.slice(8);return {label:'G1 k='+k,mode:'symlog',signed:true,pack:s=>s.g1[k]};}
@@ -2426,6 +2459,8 @@ function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic'
 document.getElementById('loss').addEventListener('change',syncLossPanels);
 document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
 ['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
+['s14f_y1','s14f_y2','s14f_y5','s14f_agg','s14f_max','s14f_min','s14f_ratio'].forEach(id=>{const e=document.getElementById(id);if(e)e.addEventListener('change',s14ApplyPanelFilter);});
+if(typeof s14ApplyPanelFilter==='function')s14ApplyPanelFilter();   // apply the default §14 panel selection on load
 {const sl=document.getElementById('g3d_slider');if(sl)sl.addEventListener('input',function(){g3dRenderIdx(+this.value);});}   // §11 scrub past snapshots
 {const sl=document.getElementById('s12_slider');if(sl)sl.addEventListener('input',function(){s12RenderIdx(+this.value);});}   // §12 scrub past snapshots
 {const sl=document.getElementById('s13_slider');if(sl)sl.addEventListener('input',function(){s12RenderIdx(+this.value);});}   // §13 scrub (shares §12 snapshots; s12RenderNow re-syncs both sliders)
