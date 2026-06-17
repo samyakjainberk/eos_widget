@@ -1108,28 +1108,77 @@ function s14Meta(id){   // §14 cube id → {label, color mode, signed, snapshot
     return {label:(g==='agg'?'':g+'·')+lab+' y='+y,mode:'symlog',signed:true,pack:s=>(s.p14&&s.p14[y]&&s.p14[y][g])?s.p14[y][g][n]:null};}
   m=id.match(/^p_s14r_(\d)$/);const i=+m[1];
   return {label:'ratio '+S14_RLAB[i],mode:'symlog',signed:true,pack:s=>(s.ratio?s.ratio[i]:null)};}
-function s14Reset(){for(const id of [...S12_BUILTSET])if(s14IsId(id))s12PurgeCube(id);
-  for(const id of s14CubeIds()){S12_IMG.delete(id);s12HideImg(id);}   // drop frozen images from the previous run
+function s14Reset(){
+  if(typeof S14_INTERACTIVE!=='undefined'&&S14_INTERACTIVE){try{Plotly.purge(S14_INTERACTIVE);}catch(e){}S14_INTERACTIVE=null;}
+  for(const id of s14CubeIds()){const d=document.getElementById(id);if(d){d._s14cv=null;d.innerHTML='';d.style.backgroundImage='';}}   // drop canvases from the previous run
   S14_SNAPS=[];S14_CURIDX=0;if(typeof S14_RHIST_JS!=='undefined')S14_RHIST_JS=[];
   const sl=document.getElementById('s14_slider');if(sl){sl.max=0;sl.value=0;}const st=document.getElementById('s14_step');if(st)st.textContent='—';
   const em=document.getElementById('s14_empty');if(em)em.style.display='';}   // show the "no data" hint until §14 snapshots arrive
-function s14RenderNow(i){   // restyle the built §14 cubes from snapshot i (μ / μ⁺ / μ⁻ in the title)
-  const s=S14_SNAPS[i];if(!s)return;S14_CURIDX=i;
-  for(const id of S12_BUILTSET)if(s14IsId(id))s12RenderCube(id,i);
+// ── §14 cubes render to a plain 2D CANVAS (isometric projection) — NO WebGL, so there is no context limit and
+//    nothing can vanish, no matter how many panels are shown. Click a cube to make it a live drag-to-rotate 3D
+//    plot (one at a time); double-click it (or click again) to return to the static canvas. ──
+const S14_FMT=x=>(x!=null&&isFinite(x))?x.toExponential(1):'–'; let S14_INTERACTIVE=null;
+function s14projRaw(i,j,k,c0){const X=i-c0,Y=j-c0,Z=k-c0;return [X*0.86-Y*0.86, X*0.5+Y*0.5-Z];}   // isometric (i↘ j↙ k↑)
+function s14DivColor(c,cm){const t=Math.max(-1,Math.min(1,c/(cm||1)));let r,g,b;   // diverging: +→red, −→blue, 0→white
+  if(t>=0){r=255-77*t;g=255-231*t;b=255-212*t;}else{const u=-t;r=255-222*u;g=255-153*u;b=255-83*u;}
+  return 'rgb('+(r|0)+','+(g|0)+','+(b|0)+')';}
+function s14CanvasOf(id){const div=document.getElementById(id);if(!div)return null;let cv=div._s14cv;
+  if(!cv){div.innerHTML='';cv=document.createElement('canvas');cv.style.cssText='width:100%;height:100%;display:block;cursor:pointer';
+    cv.title='click to rotate (3D); double-click to return';div.appendChild(cv);div._s14cv=cv;cv.addEventListener('click',()=>s14ToggleInteractive(id));}
+  return cv;}
+function s14CanvasClear(id){const div=document.getElementById(id),cv=div&&div._s14cv;if(cv)cv.getContext('2d').clearRect(0,0,cv.width,cv.height);}
+function s14CanvasRender(id,pack,M,title){
+  const div=document.getElementById(id);if(!div)return;const W=div.clientWidth,Hh=div.clientHeight;if(!W||!Hh)return;   // hidden panel ⇒ skip
+  const cv=s14CanvasOf(id);if(!cv)return;const dpr=window.devicePixelRatio||1;cv.width=Math.round(W*dpr);cv.height=Math.round(Hh*dpr);
+  const ctx=cv.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,Hh);
+  const v=pack.v,L=v.length,pos=g3dPos(M,pack.idx,L),g=g3dColor(v),c0=(M-1)/2;
+  let mnx=1e9,mxx=-1e9,mny=1e9,mxy=-1e9;
+  for(let a=0;a<2;a++)for(let b=0;b<2;b++)for(let c=0;c<2;c++){const p=s14projRaw(a*(M-1),b*(M-1),c*(M-1),c0);
+    mnx=Math.min(mnx,p[0]);mxx=Math.max(mxx,p[0]);mny=Math.min(mny,p[1]);mxy=Math.max(mxy,p[1]);}
+  const padT=20,padB=6,padX=6,sc=Math.min((W-2*padX)/((mxx-mnx)||1),(Hh-padT-padB)/((mxy-mny)||1))*0.94;
+  const ox=padX+(W-2*padX-(mxx-mnx)*sc)/2-mnx*sc, oy=padT+(Hh-padT-padB-(mxy-mny)*sc)/2-mny*sc;
+  const P=(i,j,k)=>{const p=s14projRaw(i,j,k,c0);return [ox+p[0]*sc, oy+p[1]*sc];};
+  ctx.strokeStyle='rgba(60,60,70,0.13)';ctx.lineWidth=1;
+  const cn=[[0,0,0],[M-1,0,0],[M-1,M-1,0],[0,M-1,0],[0,0,M-1],[M-1,0,M-1],[M-1,M-1,M-1],[0,M-1,M-1]].map(q=>P(q[0],q[1],q[2]));
+  for(const e of [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]]){ctx.beginPath();ctx.moveTo(cn[e[0]][0],cn[e[0]][1]);ctx.lineTo(cn[e[1]][0],cn[e[1]][1]);ctx.stroke();}
+  const base=Math.max(1.6,Math.min(5,100/Math.max(1,M))),cm=g.cm||1,pts=[];
+  for(let q=0;q<L;q++){const i=pos.x[q],j=pos.y[q],k=pos.z[q],s=P(i,j,k);pts.push([s[0],s[1],i+j-k,g.c[q]]);}
+  pts.sort((a,b)=>a[2]-b[2]);ctx.globalAlpha=0.82;
+  for(const p of pts){ctx.beginPath();ctx.fillStyle=s14DivColor(p[3],cm);ctx.arc(p[0],p[1],base*(0.5+0.5*Math.abs(p[3])/cm),0,6.283);ctx.fill();}
+  ctx.globalAlpha=1;const dv=pack.d;
+  if(dv)for(let i=0;i<M;i++){const s=P(i,i,i),cc=(dv[i]<0?-1:1)*Math.log1p(Math.abs(dv[i])/g.lin);
+    ctx.beginPath();ctx.fillStyle=s14DivColor(cc,cm);ctx.arc(s[0],s[1],base*1.5,0,6.283);ctx.fill();ctx.lineWidth=1;ctx.strokeStyle='#111';ctx.stroke();}
+  ctx.fillStyle='#334155';ctx.font='11px sans-serif';ctx.textBaseline='top';ctx.fillText(title.length>56?title.slice(0,56)+'…':title,5,3);
+  ctx.fillStyle='#94a3b8';ctx.font='10px sans-serif';const li=P(M-1,0,0),lj=P(0,M-1,0),lk=P(0,0,M-1);
+  ctx.fillText('i',li[0]+3,li[1]);ctx.fillText('j',lj[0]-9,lj[1]);ctx.fillText('k',lk[0]-3,lk[1]-12);}
+function s14ToggleInteractive(id){   // swap a canvas cube ↔ a live WebGL 3D plot (rotatable); only one live at a time
+  const revert=pid=>{try{Plotly.purge(pid);}catch(e){}const d=document.getElementById(pid);if(d)d._s14cv=null;};
+  if(S14_INTERACTIVE===id){revert(id);S14_INTERACTIVE=null;s14RenderNow(S14_CURIDX);return;}
+  if(S14_INTERACTIVE){const p=S14_INTERACTIVE;S14_INTERACTIVE=null;revert(p);}
+  const s=S14_SNAPS[S14_CURIDX];if(!s||!s.do3d){s14RenderNow(S14_CURIDX);return;}const meta=s14Meta(id),pk=meta.pack(s);if(!pk){s14RenderNow(S14_CURIDX);return;}
+  const div=document.getElementById(id);if(div){div._s14cv=null;div.innerHTML='';}
+  S14_INTERACTIVE=id;s12CubeBuild(id,s.M,meta.label,true);s12RenderCube(id,S14_CURIDX);
+  const gd=document.getElementById(id);if(gd)gd.addEventListener('dblclick',()=>s14ToggleInteractive(id));}
+function s14RenderNow(i){   // draw ALL §14 cubes to canvas (the one being rotated stays live WebGL)
+  const s=S14_SNAPS[i];S14_CURIDX=i;if(!s||!s.do3d)return;
+  for(const id of s14CubeIds()){
+    if(S14_INTERACTIVE===id){s12RenderCube(id,i);continue;}
+    const meta=s14Meta(id),pk=meta.pack(s);
+    if(pk)s14CanvasRender(id,pk,s.M,meta.label+'  μ='+S14_FMT(pk.mn)+'  μ⁺='+S14_FMT(pk.mp)+'  μ⁻='+S14_FMT(pk.mng));
+    else s14CanvasClear(id);}
   const st=document.getElementById('s14_step');if(st)st.textContent=`step ${s.t}  ·  snapshot ${i+1}/${S14_SNAPS.length}`;
   const sl=document.getElementById('s14_slider');if(sl&&+sl.value!==i)sl.value=i;}
 function s14Push(m){
   if(!m.p14&&!m.ratio)return;const sl=document.getElementById('s14_slider'),wasLive=!sl||(+sl.value>=+sl.max);
   S14_SNAPS.push(m);if(sl){sl.max=S14_SNAPS.length-1;if(wasLive)sl.value=sl.max;}
   {const em=document.getElementById('s14_empty');if(em)em.style.display='none';}   // §14 data arrived — hide the hint
-  s12LazyInit();   // ensure the IntersectionObserver also watches the §14 cube divs
-  s14RenderNow(wasLive?S14_SNAPS.length-1:(sl?+sl.value:0));lazySchedule();}
+  s14RenderNow(wasLive?S14_SNAPS.length-1:(sl?+sl.value:0));}   // §14 cubes are 2D-canvas (no lazy WebGL budget)
 function s14ApplyPanelFilter(){   // show/hide §14 panels per the selector; a panel (y,group) shows iff both its rank
   const on=id=>{const e=document.getElementById(id);return !e||e.checked;};   // and group are checked (ratio: its own box)
   const yOn={'1':on('s14f_y1'),'2':on('s14f_y2'),'5':on('s14f_y5')}, gOn={'agg':on('s14f_agg'),'max':on('s14f_max'),'min':on('s14f_min')};
   for(const el of document.querySelectorAll('#sec_s14 .s14panel')){const y=el.getAttribute('data-y'),g=el.getAttribute('data-grp');
     el.style.display=(g==='ratio'?on('s14f_ratio'):(yOn[y]&&gOn[g]))?'':'none';}
-  lazySchedule();}   // purge cubes of newly-hidden panels + build the now-visible ones
+  if(S14_SNAPS.length)s14RenderNow(S14_CURIDX);}   // redraw canvases of the now-visible panels
 function s12CubeMeta(id){   // (label, color mode, signed, snapshot→pack) for any cube id
   if(s14IsId(id))return s14Meta(id);
   if(id.indexOf('p_s13g1_')===0){const k=id.slice(8);return {label:'G1 k='+k,mode:'symlog',signed:true,pack:s=>s.g1[k]};}
@@ -1198,7 +1247,7 @@ function lazySchedule(){if(S12_EXPORTING)return;if(S12_IOT)clearTimeout(S12_IOT)
 function s12LazyInit(){
   if(!S12_IO)S12_IO=new IntersectionObserver(ents=>{for(const e of ents){const id=e.target.id;if(e.isIntersecting)S12_VISIBLE.add(id);else S12_VISIBLE.delete(id);}lazySchedule();},
     {root:null,rootMargin:'120px',threshold:0});
-  for(const id of s12CubeIds().concat(s14CubeIds())){const el=document.getElementById(id);if(el&&!el._s12obs){el._s12obs=1;S12_IO.observe(el);}}}   // §12/§13 + §14 cubes
+  for(const id of s12CubeIds()){const el=document.getElementById(id);if(el&&!el._s12obs){el._s12obs=1;S12_IO.observe(el);}}}   // §12/§13 cubes only (§14 cubes are 2D-canvas, not WebGL)
 function s12Build(N){
   S12_N=N;S12_BUILT=true;
   for(let n=0;n<4;n++)s12Heat2DBuild('p_s12ang_'+n,N,S12_ANGT[n],false);
@@ -1417,7 +1466,8 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_g3d');if(el)el.style.display=(chk('en18')&&multi)?'':'none';}   // §11 3D Hessian–NTK grids (s18, multi-only)
   {const el=document.getElementById('sec_s12');if(el)el.style.display=(chk('en19')&&multi)?'':'none';}   // §12 per-sample Hessian eigvec similarity (s19, multi-only)
   {const el=document.getElementById('sec_s13');if(el)el.style.display=(chk('en19')&&multi)?'':'none';}   // §13 residual-weighted curvature alignment (shares the §12 toggle/compute)
-  {const el=document.getElementById('sec_s14');if(el)el.style.display=(chk('en20')&&multi)?'':'none';}   // §14 Tr(ΔNTK) per-triplet decomposition (s20, multi-only)
+  {const el=document.getElementById('sec_s14');if(el){const vis=(chk('en20')&&multi);el.style.display=vis?'':'none';   // §14 Tr(ΔNTK) per-triplet decomposition (s20, multi-only)
+    if(vis&&typeof S14_SNAPS!=='undefined'&&S14_SNAPS.length)requestAnimationFrame(()=>s14RenderNow(S14_CURIDX));}}   // redraw canvases now that the divs have size
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
 }
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
@@ -2341,11 +2391,14 @@ async function _gifPass(files){
       if(gd&&gd._fullLayout&&gd._fullLayout.scene){if(st)st.textContent='GIF '+id+'…';add(id,await _cubeRotGif(gd,8));}}catch(e){}
       s12PurgeCube(id);}
   }
-  // ===== §14 (cube rotations — one built/rotated/purged at a time, same as §12) =====
-  if(s14had){S14_CURIDX=s14cur;
-    for(const id of s14CubeIds()){try{s12EnsureCube(id);const gd=document.getElementById(id);
-      if(gd&&gd._fullLayout&&gd._fullLayout.scene){if(st)st.textContent='GIF '+id+'…';add(id,await _cubeRotGif(gd,8));}}catch(e){}
-      s12PurgeCube(id);}
+  // ===== §14 (2D-canvas cubes → static PNGs; reveal all selector-hidden panels so every cube exports) =====
+  if(s14had){if(S14_INTERACTIVE)s14ToggleInteractive(S14_INTERACTIVE);
+    const s14hidden=[...document.querySelectorAll('#sec_s14 .s14panel')].filter(e=>e.style.display==='none');
+    for(const e of s14hidden)e.style.display='';
+    s14RenderNow(s14cur);await _raf2();
+    for(const id of s14CubeIds()){const d=document.getElementById(id),cv=d&&d._s14cv;
+      if(cv&&d.clientWidth){if(st)st.textContent='img '+id+'…';n++;files.push({name:String(n).padStart(2,'0')+'_'+_safeName(id)+'.png',data:_b64bytes(cv.toDataURL('image/png'))});}}
+    for(const e of s14hidden)e.style.display='none';s14RenderNow(s14cur);
   }
   // ===== §11 square (2D evolution) =====
   if(g3on){
