@@ -285,7 +285,10 @@ def sec14_payload(TV, TW, BV, BW, r, Jg, lr, grid3dcap, rhist):
         Tf = T.reshape(N, N, N, D * D)
         Ts, _ = torch.sort(Tf, dim=3, descending=True)
         agg = [Ts[..., 0], Ts[..., -1], Ts[..., :kk].sum(3), Ts[..., D * D - kk:].sum(3), Tf.sum(3)]
-        imax = Tf.argmax(3); imin = Tf.argmin(3)
+        # FIRST (ℓ,p) on ties (deterministic) — matches the browser/server flat-order scan (cross-backend parity)
+        ar = torch.arange(D * D, device=dev).view(1, 1, 1, D * D); big = torch.full((), D * D, device=dev, dtype=ar.dtype)
+        imax = torch.where(Tf == Tf.amax(3, keepdim=True), ar, big).amin(3).clamp_(max=D * D - 1)   # clamp: NaN cell ⇒ no match ⇒ big
+        imin = torch.where(Tf == Tf.amin(3, keepdim=True), ar, big).amin(3).clamp_(max=D * D - 1)
 
         def subprods(idx):
             lst = idx // D; mst = idx % D

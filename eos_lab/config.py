@@ -114,6 +114,8 @@ class Config:
     s19: int = 0    # §12 per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity grids/cuboids + principal
                     #   angles over sample pairs (i,j). OFF by default; forms N dense p×p Hessians (p HVPs) + N
                     #   eigendecompositions — small N (≤grid3dcap) AND small p (≤sec12pcap) only.
+    s20: int = 0    # §14 Tr(ΔNTK) per-triplet (i,j,k) decomposition cubes — reuses §12's per-sample Lanczos
+                    #   eigenpairs; small N (≤grid3dcap). OFF by default.
 
     # ---- test set (held-out) ----
     n_test: int = 0                # held-out test points (0 ⇒ default: max(nsamp, 256), capped per dataset)

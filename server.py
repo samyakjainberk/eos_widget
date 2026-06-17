@@ -224,7 +224,11 @@ def _sec14_payload(TV, TW, BV, BW, r, Jg, lr, grid3dcap, rhist):
         Tf = T.reshape(N, N, N, D * D)
         Ts, _ = torch.sort(Tf, dim=3, descending=True)
         agg = [Ts[..., 0], Ts[..., -1], Ts[..., :kk].sum(3), Ts[..., D * D - kk:].sum(3), Tf.sum(3)]
-        imax = Tf.argmax(3); imin = Tf.argmin(3)
+        # FIRST (ℓ,p) on ties (deterministic; torch.argmax ties are impl-defined, esp. on CUDA) — matches the
+        # browser/eos_lab which scan in flat ℓ·D+p order, so the sub-product panels agree across backends.
+        ar = torch.arange(D * D, device=dev).view(1, 1, 1, D * D); big = torch.full((), D * D, device=dev, dtype=ar.dtype)
+        imax = torch.where(Tf == Tf.amax(3, keepdim=True), ar, big).amin(3).clamp_(max=D * D - 1)   # clamp: NaN cell ⇒ no match ⇒ big
+        imin = torch.where(Tf == Tf.amin(3, keepdim=True), ar, big).amin(3).clamp_(max=D * D - 1)
 
         def subprods(idx):                               # 5 sub-products at the per-cell selected (ℓ*,p*); returns m* too
             lst = idx // D; mst = idx % D
@@ -1703,7 +1707,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if multi_ok and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19):
+            if multi_ok and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20):
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
