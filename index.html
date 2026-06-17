@@ -269,9 +269,13 @@
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — ratio $\text{proj}_i/r_i$ for the TOP eigenvector $u_{i,1}$ (largest signed eigenvalue)</h3>
 <p class="cap">$u_{i,1}$ = eigenvector of the <b>largest</b> signed eigenvalue of $Q_i$. The <b>per-sample ratio is formed first, then aggregated across samples</b> ($r_i=0$ dropped). 2D vs step: (1) mean $\langle\text{proj}/r\rangle$ and (2) std of the <b>magnitude</b> ratio $\text{proj}_i/r_i$ with $\text{proj}_i=|\langle J_i,u_{i,1}\rangle|\cdot\sigma_{i,1}$ (|projection|·signed eigenvalue); (3) mean and (4) std of the <b>sign-ratio</b> $\operatorname{sgn}\!\big(\langle J_i,u_{i,1}\rangle\,\sigma_{i,1}/r_i\big)$ — using the <b>signed</b> projection so its sign actually varies across samples.</p>
 <div class="plotrow row4"><div id="p_s12proj_top0" class="plot" style="height:290px"></div><div id="p_s12proj_top1" class="plot" style="height:290px"></div><div id="p_s12proj_top2" class="plot" style="height:290px"></div><div id="p_s12proj_top3" class="plot" style="height:290px"></div></div>
+<p class="cap" style="margin-top:6px">Histograms over the $N$ samples at the <b>current iteration</b> (redrawn every step): the per-sample ratio $\text{proj}_i/r_i$ and its sign-ratio for the top eigenvector.</p>
+<div class="plotrow row2"><div id="p_s12hist_top_val" class="plot" style="height:250px"></div><div id="p_s12hist_top_sgn" class="plot" style="height:250px"></div></div>
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 5 — ratio $\text{proj}_i/r_i$ for the BOTTOM eigenvector $u_{i,-1}$ (most-negative eigenvalue)</h3>
 <p class="cap">Same as Panel 4 but with $u_{i,-1}$ = eigenvector of the <b>most-negative</b> eigenvalue of $Q_i$ (so $\sigma_{i,-1}<0$). (1) mean and (2) std of the magnitude ratio $|\langle J_i,u_{i,-1}\rangle|\,\sigma_{i,-1}/r_i$ ; (3) mean and (4) std of the sign-ratio $\operatorname{sgn}\!\big(\langle J_i,u_{i,-1}\rangle\,\sigma_{i,-1}/r_i\big)$ (signed projection). Per sample first, then aggregated.</p>
 <div class="plotrow row4"><div id="p_s12proj_bot0" class="plot" style="height:290px"></div><div id="p_s12proj_bot1" class="plot" style="height:290px"></div><div id="p_s12proj_bot2" class="plot" style="height:290px"></div><div id="p_s12proj_bot3" class="plot" style="height:290px"></div></div>
+<p class="cap" style="margin-top:6px">Histograms over the $N$ samples at the <b>current iteration</b> (redrawn every step): the per-sample ratio $\text{proj}_i/r_i$ and its sign-ratio for the bottom eigenvector.</p>
+<div class="plotrow row2"><div id="p_s12hist_bot_val" class="plot" style="height:250px"></div><div id="p_s12hist_bot_sgn" class="plot" style="height:250px"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -1056,7 +1060,8 @@ function s13DiffMean(i,acc){let s=0,c=0;for(let j=0;j<=i&&j<S12_SNAPS.length;j++
 const fmtMu=x=>{if(x==null||!isFinite(x))return '–';const a=Math.abs(x);return (a!==0&&(a<0.05||a>=1e4))?x.toExponential(1):x.toFixed(2);};
 function s12CubeIds(){return [];}   // §12/§13 no longer have any WebGL cubes (§12 angles+evolution only; §13 is time-series)
 function s12ProjIds(){const a=[];for(const g of ['top','bot'])for(let n=0;n<4;n++)a.push('p_s12proj_'+g+n);return a;}
-function s12AllIds(){const a=[];for(let n=0;n<4;n++)a.push('p_s12ang_'+n);return a.concat(s12ProjIds()).concat(s12EvoIds());}
+function s12HistIds(){return ['p_s12hist_top_val','p_s12hist_top_sgn','p_s12hist_bot_val','p_s12hist_bot_sgn'];}
+function s12AllIds(){const a=[];for(let n=0;n<4;n++)a.push('p_s12ang_'+n);return a.concat(s12ProjIds()).concat(s12HistIds()).concat(s12EvoIds());}
 // ── §13 — G1/G2/G3 approximations vs the exact reference J_iᵀQ_jJ_k·r_k (time-series mean±std clouds) ──
 const S13_GS=[1,2,3], S13_KS=[2,5], S13_DOMS=['ndist','ijeq','diag'];
 const S13_DOMLAB={ndist:'i≠j≠k',ijeq:'i=j≠k',diag:'i=j=k'}, S13_GLAB={1:'G₁',2:'G₂',3:'G₃'};
@@ -1350,6 +1355,21 @@ function s12ProjRender(){
   for(const [grp,pre] of S12P_GRP)for(let n=0;n<4;n++)
     Plotly.restyle(pre+n,{x:[t.slice()],y:[S12P_DATA[grp][n].slice()]});
 }
+function s12HistDraw(i){   // panels 4/5 histograms over samples at the CURRENT snapshot i (redrawn each render)
+  const s=S12_SNAPS[i];if(!s||!s.proj)return;
+  const draw=(id,vals,title,color,sign)=>{const div=document.getElementById(id);if(!div)return;
+    const tr={x:(vals||[]).slice(),type:'histogram',marker:{color:color,line:{color:'#fff',width:0.5}}};
+    if(sign)tr.xbins={start:-1.5,end:1.5,size:1};   // sign-ratio ∈ {-1,0,+1}: one bin each
+    Plotly.react(id,[tr],{title:{text:title,font:{size:10.5,color:'#475569'},x:0.04,xanchor:'left',y:0.98},
+      margin:{l:38,r:8,t:22,b:28},bargap:0.06,paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{size:9,color:'#374151'},
+      xaxis:{gridcolor:'#eef0f3',zeroline:true,zerolinecolor:'#d1d5db'},yaxis:{title:{text:'count',font:{size:9}},gridcolor:'#eef0f3'},showlegend:false},
+      {responsive:true,displaylogo:false});};
+  const tp=s.proj.top||{},bt=s.proj.bot||{};
+  draw('p_s12hist_top_val',tp.rvals,'top · proj/r  (step '+s.t+')','#2563eb',false);
+  draw('p_s12hist_top_sgn',tp.svals,'top · sign-ratio','#2563eb',true);
+  draw('p_s12hist_bot_val',bt.rvals,'bottom · proj/r  (step '+s.t+')','#dc2626',false);
+  draw('p_s12hist_bot_sgn',bt.svals,'bottom · sign-ratio','#dc2626',true);
+}
 function s12RenderIdx(i){S12_PENDING=i;if(S12_RAF)return;S12_RAF=requestAnimationFrame(()=>{S12_RAF=0;const j=S12_PENDING;S12_PENDING=-1;if(j>=0)s12RenderNow(j);});}
 function s12Heat2DSnap(id,flat,N,lab,signed,deg,run){
   let mx=0;for(const v of flat){if(v==null||!isFinite(v))continue;mx=Math.max(mx,signed?Math.abs(v):v);}mx=mx||1;
@@ -1361,6 +1381,7 @@ function s12RenderNow(i){
   if(!S12_BUILT||S12_N!==N)s12Build(N);
   for(let n=0;n<4;n++){const gi=S12_ANGHEAT[n];   // ang grids are k=1,2,5,10,kfull → panel-1 shows 1,5,10,kfull
     s12Heat2DSnap('p_s12ang_'+n,s.ang.g[gi],N,(n<3?S12_ANGT[n]:'principal angle k='+(s.ang.kfull||15)),false,true,s12RunMean(i,sn=>sn.ang.gm[gi]));}
+  s12HistDraw(i);   // panels 4/5 sample histograms at this snapshot
   const txt=`step ${s.t}  ·  snapshot ${i+1}/${S12_SNAPS.length}`;
   const sp=document.getElementById('s12_step');if(sp)sp.textContent=txt;
   const sp3=document.getElementById('s13_step');if(sp3)sp3.textContent=txt;   // keep the §13 scrub bar in sync
@@ -1462,7 +1483,7 @@ function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap){   // §12: principal an
   const ratioStats=(jdot,sig)=>{const rat=[],srat=[];   // ratio uses |⟨J,u⟩|·σ; sign-ratio uses SIGNED ⟨J,u⟩·σ
     for(let i=0;i<N;i++){if(r[i]!==0){const pmag=Math.abs(jdot[i])*sig[i],psgn=jdot[i]*sig[i],q=pmag/r[i];
       if(isFinite(q)){rat.push(q);srat.push(sgn(psgn)*sgn(r[i]));}}}
-    return {ratio:ms(rat),sratio:ms(srat)};};
+    return {ratio:ms(rat),sratio:ms(srat),rvals:rat,svals:srat};};   // rvals/svals = per-sample values for the histograms
   return {M:N,do3d:false,ks:[1,2,5],ang:ang,proj:{top:ratioStats(jt,st),bot:ratioStats(jb,sb)}};
 }
 // §13 — G1/G2/G3 rank-k₀ approximations vs the exact reference J_iᵀQ_jJ_k·r_k. MIRRORS server._sec13_stats.
@@ -2513,7 +2534,7 @@ async function _gifPass(files){
       for(const id of grids){const gd=document.getElementById(id);if(!gd||!gd._fullLayout)continue;const f=await _grabFrame(gd);frm[id].push(f.data);dim[id]=[f.W,f.H];}}
     s12RenderNow(s12cur);
     for(const id of grids)if(frm[id].length){if(st)st.textContent='GIF '+id+'…';add(id,_gifBytes(frm[id],dim[id][0],dim[id][1],30));}
-    for(const id of s12EvoIds().concat(s12ProjIds())){const gd=document.getElementById(id);
+    for(const id of s12EvoIds().concat(s12ProjIds()).concat(s12HistIds())){const gd=document.getElementById(id);
       if(gd&&gd._fullLayout){try{n++;files.push({name:String(n).padStart(2,'0')+'_'+_safeName(id)+'.png',data:_b64bytes(await Plotly.toImage(gd,{format:'png',width:gd._fullLayout.width||360,height:gd._fullLayout.height||300}))});}catch(e){}}}
   }
   // ===== §13 (approximation-comparison time-series → PNGs) =====

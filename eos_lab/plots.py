@@ -907,6 +907,31 @@ def plot_section12_proj(hist):
     return fig
 
 
+def plot_section12_hist(hist):
+    """§12 panels 4/5 histograms over the N samples at the LAST snapshot: per-sample ratio proj_i/r_i and its
+    sign-ratio, for the top (row 0) and bottom (row 1) eigenvectors. Reads proj.{top,bot}.{rvals,svals}."""
+    import numpy as np
+    recs = [r for r in hist if "g4d" in r and r["g4d"].get("proj") is not None
+            and "rvals" in r["g4d"]["proj"].get("top", {})]
+    if not recs:
+        return None
+    P = recs[-1]["g4d"]["proj"]; step = recs[-1].get("t", len(recs) - 1)
+    rows = [("top", "#2563eb"), ("bot", "#dc2626")]
+    fig, axs = plt.subplots(2, 2, figsize=(11, 7))
+    for ri, (grp, col) in enumerate(rows):
+        rv = np.asarray(P[grp].get("rvals", []), dtype=float)
+        sv = np.asarray(P[grp].get("svals", []), dtype=float)
+        axs[ri][0].hist(rv, bins=min(20, max(5, rv.size)), color=col, edgecolor="white")
+        axs[ri][0].set_title(f"{grp} · proj/r over samples (step {step})", fontsize=10)
+        axs[ri][0].set_xlabel("proj_i/r_i"); axs[ri][0].set_ylabel("count")
+        axs[ri][1].hist(sv, bins=[-1.5, -0.5, 0.5, 1.5], color=col, edgecolor="white")
+        axs[ri][1].set_title(f"{grp} · sign-ratio", fontsize=10)
+        axs[ri][1].set_xlabel("sgn(proj_i·σ/r_i)"); axs[ri][1].set_ylabel("count"); axs[ri][1].set_xticks([-1, 0, 1])
+    fig.suptitle("§12 panels 4/5 — per-sample histograms at the last iteration", fontsize=13)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    return fig
+
+
 # ─────────────────── §13 G1/G2/G3 approximations of the exact reference J_iᵀQ_jJ_k·r_k ───────────────────
 # TIME-SERIES of mean±std over classes of triples (i,j,k): the EXACT reference (per-sample HVPs, §11's tool)
 # vs each rank-k₀ approximation G1/G2/G3 (built from the per-sample Lanczos top-k₀⊕bottom-k₀ eigenpairs).
@@ -1061,6 +1086,7 @@ def save_panels(results, outdir):
             "section12_panel1_angles": plot_section12_angles(hist),
             "section12_panel2_evolution": plot_section12_evolution(hist),
             "section12_panel4_proj": plot_section12_proj(hist),
+            "section12_panel45_hist": plot_section12_hist(hist),
             "section13_panel1_G1": plot_section13_panel1(hist),
             "section13_panel2_G2": plot_section13_panel2(hist),
             "section13_panel3_G3": plot_section13_panel3(hist),

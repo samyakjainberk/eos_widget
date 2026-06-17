@@ -129,7 +129,8 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
         srat = torch.sign(proj_sgn[nz][fin]) * torch.sign(r[nz][fin])   # sgn(⟨J,u⟩·σ / r_i), per sample then aggregated
         def ms(x):
             return [float(x.mean()), float(x.std(unbiased=False))] if x.numel() else [0.0, 0.0]
-        return {"ratio": ms(rat), "sratio": ms(srat)}
+        return {"ratio": ms(rat), "sratio": ms(srat),                   # rvals/svals = per-sample values for the panel-4/5 histograms
+                "rvals": rat.detach().cpu().tolist(), "svals": srat.detach().cpu().tolist()}
 
     out = {"M": N, "do3d": False, "ks": [1, 2, 5], "ang": ang,
            "proj": {"top": ratio_stats(jt, st), "bot": ratio_stats(jb, sb)}}
