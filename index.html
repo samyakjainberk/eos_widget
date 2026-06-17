@@ -294,6 +294,9 @@
   <input id="s14_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
   <span id="s14_step" style="white-space:nowrap;color:#475569;font-size:13px;min-width:120px">—</span>
 </div>
+<div id="s14_empty" style="margin:8px 0;padding:10px 14px;background:#fef9c3;border:1px solid #fde047;border-radius:6px;color:#713f12;font-size:13px;max-width:980px">
+  <b>No §14 data for the current run yet.</b> §14 needs: the <b>14</b> toggle on; <b>multi-sample</b> (number_of_samples × outdim &gt; 1); and N ≤ the <b>§11 “3D-grid cap”</b> (it builds N×N×N cubes). On the <b>GPU backend</b>, restart <code>server.py</code> after updating the repo, then hard-refresh this page (Cmd/Ctrl+Shift+R). The cubes also build lazily — scroll a panel into view.
+</div>
 <h3 style="margin:12px 0 2px;font-size:14px;color:#475569">Panel 1 — $y=1$ · aggregates over the sorted $(\ell,p)$ terms [max · min · Σtop-y · Σbot-y · Σall]</h3>
 <div class="plotrow row5"><div id="p_s14_1_agg_0" class="plot" style="height:300px"></div><div id="p_s14_1_agg_1" class="plot" style="height:300px"></div><div id="p_s14_1_agg_2" class="plot" style="height:300px"></div><div id="p_s14_1_agg_3" class="plot" style="height:300px"></div><div id="p_s14_1_agg_4" class="plot" style="height:300px"></div></div>
 <h3 style="margin:12px 0 2px;font-size:14px;color:#475569">Panel 2 — $y=1$ · sub-products at the MAX element [a · b·d · a·b·d · a·b·d·e · a·e]</h3>
@@ -1078,7 +1081,8 @@ function s14Meta(id){   // §14 cube id → {label, color mode, signed, snapshot
   m=id.match(/^p_s14r_(\d)$/);const i=+m[1];
   return {label:'ratio '+S14_RLAB[i],mode:'symlog',signed:true,pack:s=>(s.ratio?s.ratio[i]:null)};}
 function s14Reset(){for(const id of [...S12_BUILTSET])if(s14IsId(id))s12PurgeCube(id);S14_SNAPS=[];S14_CURIDX=0;if(typeof S14_RHIST_JS!=='undefined')S14_RHIST_JS=[];
-  const sl=document.getElementById('s14_slider');if(sl){sl.max=0;sl.value=0;}const st=document.getElementById('s14_step');if(st)st.textContent='—';}
+  const sl=document.getElementById('s14_slider');if(sl){sl.max=0;sl.value=0;}const st=document.getElementById('s14_step');if(st)st.textContent='—';
+  const em=document.getElementById('s14_empty');if(em)em.style.display='';}   // show the "no data" hint until §14 snapshots arrive
 function s14RenderNow(i){   // restyle the built §14 cubes from snapshot i (μ / μ⁺ / μ⁻ in the title)
   const s=S14_SNAPS[i];if(!s)return;S14_CURIDX=i;
   for(const id of S12_BUILTSET)if(s14IsId(id))s12RenderCube(id,i);
@@ -1087,6 +1091,7 @@ function s14RenderNow(i){   // restyle the built §14 cubes from snapshot i (μ 
 function s14Push(m){
   if(!m.p14&&!m.ratio)return;const sl=document.getElementById('s14_slider'),wasLive=!sl||(+sl.value>=+sl.max);
   S14_SNAPS.push(m);if(sl){sl.max=S14_SNAPS.length-1;if(wasLive)sl.value=sl.max;}
+  {const em=document.getElementById('s14_empty');if(em)em.style.display='none';}   // §14 data arrived — hide the hint
   s12LazyInit();   // ensure the IntersectionObserver also watches the §14 cube divs
   s14RenderNow(wasLive?S14_SNAPS.length-1:(sl?+sl.value:0));lazySchedule();}
 function s12CubeMeta(id){   // (label, color mode, signed, snapshot→pack) for any cube id
