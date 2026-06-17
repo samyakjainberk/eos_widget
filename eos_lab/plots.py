@@ -843,7 +843,7 @@ def plot_section12_panel3(hist):
 
 
 def plot_section12_angles(hist):
-    """§12 panel 4 — four (i,j) grids of the MEAN principal angle between Qᵢ,Qⱼ subspaces (k=1,5,10,kfull)."""
+    """§12 panel 1 — four (i,j) grids of the MEAN principal angle between Qᵢ,Qⱼ subspaces (k=1,5,10,kfull)."""
     import numpy as np
     snaps = [r for r in hist if "g4d" in r]
     if not snaps:
@@ -857,35 +857,31 @@ def plot_section12_angles(hist):
         run = _runmean(snaps, lambda gg: gg["ang"]["gm"][n])
         ax.set_xlabel("j"); ax.set_ylabel("i"); ax.set_title(f"angle {labs[n]}   μ={P['gm'][n]:.1f}°  ⟨μ⟩={run:.1f}°", fontsize=9)
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    fig.suptitle("§12 panel 4 — mean principal angle between Qᵢ,Qⱼ subspaces (deg)", fontsize=12)
+    fig.suptitle("§12 panel 1 — mean principal angle between Qᵢ,Qⱼ subspaces (deg)", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.92))
     return fig
 
 
 def plot_section12_evolution(hist):
-    """§12 panel 5 — cols 1/2: mean±std of grids A,B,C over training (k0=2,5); cols 3/4: mean principal angle k=5/kfull."""
+    """§12 panel 2 — cols 1/2: MAX principal angle over sample pairs for k=1,5; cols 3/4: MEAN principal angle k=5/kfull."""
     import numpy as np
-    snaps = _s12_3d_snaps(hist)
+    snaps = [r for r in hist if "g4d" in r]   # angles exist for every snapshot (not gated by the 3D-grid cap)
     if len(snaps) < 2:
         return None
     t = [r["t"] for r in snaps]
-    fig, axs = plt.subplots(1, 4, figsize=(18, 3.7))
-    labs = ["A", "B", "C"]; cols = ["#2563eb", "#16a34a", "#dc2626"]
-    for c, k0 in enumerate(["2", "5"]):
-        ax = axs[c]
-        for n, nm in enumerate(["A", "B", "C"]):
-            m = np.array([r["g4d"]["ev"][k0][nm][0] for r in snaps])
-            s = np.array([r["g4d"]["ev"][k0][nm][1] for r in snaps])
-            ax.plot(t, m, color=cols[n], label=labs[n]); ax.fill_between(t, m - s, m + s, color=cols[n], alpha=0.18)
-        ax.axhline(0, c="k", lw=0.6); ax.set_xlabel("step"); ax.legend(fontsize=8)
-        ax.set_title(f"grids A,B,C mean ± std (k0={k0})", fontsize=10)
     kfull = snaps[-1]["g4d"]["ang"].get("kfull", 15)
-    for c, (idx, lab) in enumerate([(1, "k=5"), (3, f"k={kfull}")]):
+    fig, axs = plt.subplots(1, 4, figsize=(18, 3.7))
+    for c, (gidx, lab, col) in enumerate([(0, "k=1", "#dc2626"), (1, "k=5", "#ea580c")]):   # g[0..3] = k=1,5,10,kfull
+        ax = axs[c]
+        a = np.array([float(np.max(np.asarray(r["g4d"]["ang"]["g"][gidx], dtype=float))) for r in snaps])
+        ax.plot(t, a, color=col); ax.set_xlabel("step"); ax.set_ylabel("angle (deg)")
+        ax.set_title(f"max principal angle {lab}", fontsize=10)
+    for c, (idx, lab, col) in enumerate([(1, "k=5", "#7c3aed"), (3, f"k={kfull}", "#2563eb")]):   # gm[1]=mean k=5, gm[3]=mean kfull
         ax = axs[2 + c]
         a = np.array([r["g4d"]["ang"]["gm"][idx] for r in snaps])
-        ax.plot(t, a, color="#7c3aed"); ax.set_xlabel("step"); ax.set_ylabel("angle (deg)")
+        ax.plot(t, a, color=col); ax.set_xlabel("step"); ax.set_ylabel("angle (deg)")
         ax.set_title(f"mean principal angle {lab}", fontsize=10)
-    fig.suptitle("§12 panel 5 — evolution of grid statistics and principal angles", fontsize=12)
+    fig.suptitle("§12 panel 2 — evolution of principal angles (max over pairs & mean)", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.92))
     return fig
 
@@ -1038,11 +1034,8 @@ def save_panels(results, outdir):
             "section11_sumevolution": plot_section11_sumevolution(hist),
             "section11_normshare": plot_section11_normshare(hist),
             "section11_sumnormshare": plot_section11_sumnormshare(hist),
-            "section12_panel1_k1": plot_section12_panel1(hist),
-            "section12_panel2_k2": plot_section12_panel2(hist),
-            "section12_panel3_k5": plot_section12_panel3(hist),
-            "section12_panel4_angles": plot_section12_angles(hist),
-            "section12_panel5_evolution": plot_section12_evolution(hist),
+            "section12_panel1_angles": plot_section12_angles(hist),
+            "section12_panel2_evolution": plot_section12_evolution(hist),
             "section13_panel1_G1": plot_section13_panel1(hist),
             "section13_panel2_G2": plot_section13_panel2(hist),
             "section13_panel3_G3": plot_section13_panel3(hist),
@@ -1069,14 +1062,6 @@ def save_panels(results, outdir):
                         ("section11_evolution", save_section11_evolution_gif)):
         try:
             p = saver(hist, os.path.join(outdir, name + ".gif"))
-            if p:
-                written.append(p)
-        except Exception as e:
-            print(f"  [{name}] GIF failed: {e}")
-    # §12 cuboid panels as rotating GIFs (the 3D (i,j,rank) cuboids are hard to read static)
-    for name, k0 in (("section12_panel1_k1", 1), ("section12_panel2_k2", 2), ("section12_panel3_k5", 5)):
-        try:
-            p = save_section12_panel_gif(hist, k0, os.path.join(outdir, name + ".gif"))
             if p:
                 written.append(p)
         except Exception as e:

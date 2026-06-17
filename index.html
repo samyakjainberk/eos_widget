@@ -249,25 +249,18 @@
 </div>
 
 <div id="sec_s12" style="display:none">
-<h2>12 · per-sample Hessian eigenvector cross-similarity — triple $(i,j,k)$ grids</h2>
-<p class="cap">For each sample $i$, $Q_i=\nabla^2 f_i$ (ground-truth-label output) has its <b>top-15 ⊕ bottom-15</b> eigenpairs extracted <b>matrix-free by Lanczos</b>. For a triple $(i,j,k)$ and the top-$k_0$ ⊕ bottom-$k_0$ dirs: $\max\cos_{ij}=\max_{a,b}|\cos(e_i^a,e_j^b)|$ with $(u_i,u_j)$ the argmax pair (eigenvalue $\sigma$), likewise $\max\cos_{jk}$; $J_i=\langle\nabla f_i,u_i\rangle$, $r_i=y_i-f_i$. Every eigenvector is <b>gradient-gauged</b> (oriented so $\langle\nabla f,u\rangle\ge0$) so all signs are gauge-invariant & reproducible. The 5 grids (signed $\cos$ used, not $|\cos|$): <b>A</b>$=\max\cos_{ij}\cdot\max\cos_{jk}$; <b>B</b>$=\cos_{ij}\cos_{jk}\,\mathrm{sgn}(\sigma_i\sigma_j\sigma_k)\,\mathrm{sgn}(J_i)\mathrm{sgn}(J_k)$; <b>C</b>$=\mathrm{sgn}(r_k\sigma_j)\cos_{ij}\cos_{jk}\,\mathrm{sgn}(\sigma_i\sigma_k r_i r_k)\mathrm{sgn}(J_i)\mathrm{sgn}(J_k)$; <b>D</b>$=\cos_{ij}\cos_{jk}\,\sigma_j$; <b>E</b>$=\cos_{ij}\cos_{jk}\,r_k\sigma_j$. $\sigma_j$ from the $(j,k)$ match. Panels 1–3: $k_0=1,2,5$. The $i\!=\!j\!=\!k$ diagonal is highlighted (ringed). Each title shows $\mu$ = mean over the grid. <b>Drag to rotate</b>; slider scrubs snapshots. 3D grids ($N^3$) are gated by the §11 <b>3D-grid cap</b> (small $N$).</p>
+<h2>12 · per-sample Hessian eigenvector subspace alignment — principal angles</h2>
+<p class="cap">For each sample $i$, $Q_i=\nabla^2 f_i$ (ground-truth-label output) has its <b>top-15 ⊕ bottom-15</b> eigenpairs extracted <b>matrix-free by Lanczos</b>. <b>Panel 1</b>: for every sample pair $(i,j)$, the mean <b>principal angle</b> (degrees) between the top-$k$ ⊕ bottom-$k$ eigen-subspaces of $Q_i$ and $Q_j$, for $k=1,5,10,15$ (0° = identical subspace, 90° = orthogonal). <b>Panel 2</b>: its evolution over training. Slider scrubs snapshots.</p>
 <div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
   <label style="white-space:nowrap">snapshot</label>
   <input id="s12_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
   <span id="s12_step" style="white-space:nowrap;color:#475569;font-size:13px;min-width:120px">—</span>
-  <label style="white-space:nowrap;font-size:13px"><input type="checkbox" id="s12_sync" checked> sync rotation</label>
 </div>
-<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — $k_0=1$ &nbsp; (A,B,C,D,E)</h3>
-<div class="plotrow row5"><div id="p_s12_1_A" class="plot" style="height:300px"></div><div id="p_s12_1_B" class="plot" style="height:300px"></div><div id="p_s12_1_C" class="plot" style="height:300px"></div><div id="p_s12_1_D" class="plot" style="height:300px"></div><div id="p_s12_1_E" class="plot" style="height:300px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — $k_0=2$</h3>
-<div class="plotrow row5"><div id="p_s12_2_A" class="plot" style="height:300px"></div><div id="p_s12_2_B" class="plot" style="height:300px"></div><div id="p_s12_2_C" class="plot" style="height:300px"></div><div id="p_s12_2_D" class="plot" style="height:300px"></div><div id="p_s12_2_E" class="plot" style="height:300px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — $k_0=5$</h3>
-<div class="plotrow row5"><div id="p_s12_5_A" class="plot" style="height:300px"></div><div id="p_s12_5_B" class="plot" style="height:300px"></div><div id="p_s12_5_C" class="plot" style="height:300px"></div><div id="p_s12_5_D" class="plot" style="height:300px"></div><div id="p_s12_5_E" class="plot" style="height:300px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — mean principal angle (deg) between top-$k$ ⊕ bottom-$k$ subspaces of $Q_i,Q_j$ ($k=1,5,10,15$)</h3>
+<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — mean principal angle (deg) between top-$k$ ⊕ bottom-$k$ subspaces of $Q_i,Q_j$ ($k=1,5,10,15$)</h3>
 <div class="plotrow row4"><div id="p_s12ang_0" class="plot" style="height:300px"></div><div id="p_s12ang_1" class="plot" style="height:300px"></div><div id="p_s12ang_2" class="plot" style="height:300px"></div><div id="p_s12ang_3" class="plot" style="height:300px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 5 — evolution over training</h3>
-<p class="cap">Cols 1–2: mean ± std (over the grid) of grids <b>A,B,C</b> for $k_0=2$ and $k_0=5$. Cols 3–4: mean principal angle for $k=5$ and $k=15$.</p>
-<div class="plotrow row4"><div id="p_s12evo_2" class="plot"></div><div id="p_s12evo_5" class="plot"></div><div id="p_s12evo_a5" class="plot"></div><div id="p_s12evo_aF" class="plot"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — evolution over training</h3>
+<p class="cap">Cols 1–2: <b>max</b> principal angle over sample pairs for $k=1$ and $k=5$. Cols 3–4: <b>mean</b> principal angle for $k=5$ and $k=15$. (degrees, vs step)</p>
+<div class="plotrow row4"><div id="p_s12evo_ax1" class="plot"></div><div id="p_s12evo_ax5" class="plot"></div><div id="p_s12evo_a5" class="plot"></div><div id="p_s12evo_aF" class="plot"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -1045,8 +1038,8 @@ function s13DiffFlat(i,acc){const cur=acc(S12_SNAPS[i]);if(!cur)return null;cons
 function s13DiffMean(i,acc){let s=0,c=0;for(let j=0;j<=i&&j<S12_SNAPS.length;j++){const d=s13DiffFlat(j,acc);if(!d)continue;const m=s12Mean(d);if(isFinite(m)){s+=m;c++;}}return c?s/c:NaN;}
 // adaptive μ formatter: exponential for tiny/huge magnitudes so a small grid-mean shows e.g. 3.2e-3 instead of "0.00"
 const fmtMu=x=>{if(x==null||!isFinite(x))return '–';const a=Math.abs(x);return (a!==0&&(a<0.05||a>=1e4))?x.toExponential(1):x.toFixed(2);};
-function s12CubeIds(){const a=[];for(const k of S12_KS)for(const g of S12_GR)a.push('p_s12_'+k+'_'+g);for(const k of S12_KS)a.push('p_s13g1_'+k);return a;}
-function s12AllIds(){const a=s12CubeIds();for(let n=0;n<4;n++)a.push('p_s12ang_'+n);for(const k of S12_KS){a.push('p_s13g2_'+k);a.push('p_s13g3_'+k);}return a.concat(['p_s12evo_2','p_s12evo_5','p_s12evo_a5','p_s12evo_aF']);}
+function s12CubeIds(){const a=[];for(const k of S12_KS)a.push('p_s13g1_'+k);return a;}   // §13 G1 cubes only (§12 A–E cube grids removed)
+function s12AllIds(){const a=s12CubeIds();for(let n=0;n<4;n++)a.push('p_s12ang_'+n);for(const k of S12_KS){a.push('p_s13g2_'+k);a.push('p_s13g3_'+k);}return a.concat(['p_s12evo_ax1','p_s12evo_ax5','p_s12evo_a5','p_s12evo_aF']);}
 function s12Reset(){S12_SNAPS=[];S12_N=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEPS=[];S12E_DATA=null;S12_CURIDX=0;
   if(S12_RAF){cancelAnimationFrame(S12_RAF);S12_RAF=0;}S12_PENDING=-1;
   if(S12_IO){S12_IO.disconnect();S12_IO=null;}if(S12_IOT){clearTimeout(S12_IOT);S12_IOT=null;}S12_BUILTSET.clear();S12_VISIBLE.clear();
@@ -1078,7 +1071,8 @@ function s12CubeBuild(id,M,title,signed){
     scene:{xaxis:{title:'i',dtick:dt,range:[rmax,0]},yaxis:{title:'j',dtick:dt,range:[0,rmax]},zaxis:{title:'k',dtick:dt,range:[0,rmax]},aspectmode:'cube',camera:{eye:{x:1.7,y:1.7,z:1.2}}}};
   Plotly.newPlot(id,tr,lay,{responsive:false,displaylogo:false});   // no ResizeObserver → 0 scroll-time gl errors (cube rebuilt at correct size on scroll-in)
   document.getElementById(id).on('plotly_relayout',ev=>{
-    if(!chk('s12_sync'))return;if(!Object.keys(ev).some(k=>k.indexOf('scene.camera')===0))return;
+    {const _ss=document.getElementById('s12_sync');if(_ss&&!_ss.checked)return;}   // sync §13 cube cameras (default on; the §12 toggle was removed)
+    if(!Object.keys(ev).some(k=>k.indexOf('scene.camera')===0))return;
     const gd=document.getElementById(id),cam=gd&&gd._fullLayout&&gd._fullLayout.scene&&gd._fullLayout.scene.camera;
     if(!cam)return;const key=JSON.stringify(cam);if(key===S12_CAMKEY)return;S12_CAMKEY=key;
     for(const oid of S12_BUILTSET)if(oid!==id)Plotly.relayout(oid,{'scene.camera':cam});});}   // only built (live) cubes
@@ -1256,28 +1250,28 @@ function s12Build(N){
   s12LazyInit();   // §12/§13 3D cubes are built lazily by the IntersectionObserver (WebGL context budget)
 }
 function s12EvoBuild(){
-  for(const id of ['p_s12evo_2','p_s12evo_5']){const tr=[];
-    for(let n=0;n<3;n++){tr.push({x:[],y:[],fill:'toself',fillcolor:S12E_COL[n]+'22',line:{width:0},hoverinfo:'skip',showlegend:false});
-      tr.push({x:[],y:[],mode:'lines',name:S12E_LAB[n],line:{color:S12E_COL[n],width:1.8}});}
-    Plotly.newPlot(id,tr,withZero(baseLayout(id==='p_s12evo_2'?'grids A,B,C — mean ± std (k=2)':'grids A,B,C — mean ± std (k=5)','value',false)),{responsive:true,displaylogo:false});}
-  Plotly.newPlot('p_s12evo_a5',[{x:[],y:[],mode:'lines',line:{color:'#7c3aed',width:1.9}}],baseLayout('mean principal angle k=5','angle (deg)',false),{responsive:true,displaylogo:false});
-  Plotly.newPlot('p_s12evo_aF',[{x:[],y:[],mode:'lines',line:{color:'#7c3aed',width:1.9}}],baseLayout('mean principal angle k=15','angle (deg)',false),{responsive:true,displaylogo:false});
+  const mk=(id,title,color)=>Plotly.newPlot(id,[{x:[],y:[],mode:'lines',line:{color:color,width:1.9}}],baseLayout(title,'angle (deg)',false),{responsive:true,displaylogo:false});
+  mk('p_s12evo_ax1','max principal angle k=1','#dc2626');   // max over sample pairs (i,j)
+  mk('p_s12evo_ax5','max principal angle k=5','#ea580c');
+  mk('p_s12evo_a5','mean principal angle k=5','#7c3aed');    // mean over sample pairs (retained)
+  mk('p_s12evo_aF','mean principal angle k=15','#2563eb');
 }
+function s12MaxArr(a){let m=-Infinity;for(let q=0;q<a.length;q++){const v=a[q];if(v!=null&&isFinite(v)&&v>m)m=v;}return isFinite(m)?m:null;}
 function s12EvoAppend(m){
-  if(!m.do3d||!m.ev)return;
-  if(!S12E_DATA)S12E_DATA={k2:[[],[],[]],k2s:[[],[],[]],k5:[[],[],[]],k5s:[[],[],[]],a5:[],aF:[]};
-  S12E_STEPS.push(m.t);const G=['A','B','C'];
-  for(let n=0;n<3;n++){S12E_DATA.k2[n].push(m.ev['2'][G[n]][0]);S12E_DATA.k2s[n].push(m.ev['2'][G[n]][1]);
-    S12E_DATA.k5[n].push(m.ev['5'][G[n]][0]);S12E_DATA.k5s[n].push(m.ev['5'][G[n]][1]);}
-  S12E_DATA.a5.push(m.ang.gm[1]);S12E_DATA.aF.push(m.ang.gm[3]);
+  if(!m.ang)return;
+  if(!S12E_DATA)S12E_DATA={ax1:[],ax5:[],a5:[],aF:[]};
+  S12E_STEPS.push(m.t);
+  S12E_DATA.ax1.push(s12MaxArr(m.ang.g[0]));   // max principal angle over pairs, k=1  (g[0..3]=k=1,5,10,15)
+  S12E_DATA.ax5.push(s12MaxArr(m.ang.g[1]));   // max, k=5
+  S12E_DATA.a5.push(m.ang.gm[1]);              // mean principal angle k=5
+  S12E_DATA.aF.push(m.ang.gm[3]);              // mean principal angle k=15
 }
 function s12EvoRender(){
-  if(!S12E_DATA||!S12E_STEPS.length)return;const t=S12E_STEPS, tr=t.concat(t.slice().reverse());
-  for(const [id,key,skey] of [['p_s12evo_2','k2','k2s'],['p_s12evo_5','k5','k5s']]){const X=[],Y=[];
-    for(let n=0;n<3;n++){const m=S12E_DATA[key][n],s=S12E_DATA[skey][n];
-      X.push(tr);Y.push(m.map((v,q)=>v+s[q]).concat(m.map((v,q)=>v-s[q]).reverse()));X.push(t);Y.push(m);}
-    Plotly.restyle(id,{x:X,y:Y});}
-  Plotly.restyle('p_s12evo_a5',{x:[t],y:[S12E_DATA.a5]});Plotly.restyle('p_s12evo_aF',{x:[t],y:[S12E_DATA.aF]});
+  if(!S12E_DATA||!S12E_STEPS.length)return;const t=S12E_STEPS;
+  Plotly.restyle('p_s12evo_ax1',{x:[t],y:[S12E_DATA.ax1]});
+  Plotly.restyle('p_s12evo_ax5',{x:[t],y:[S12E_DATA.ax5]});
+  Plotly.restyle('p_s12evo_a5',{x:[t],y:[S12E_DATA.a5]});
+  Plotly.restyle('p_s12evo_aF',{x:[t],y:[S12E_DATA.aF]});
 }
 function s12RenderIdx(i){S12_PENDING=i;if(S12_RAF)return;S12_RAF=requestAnimationFrame(()=>{S12_RAF=0;const j=S12_PENDING;S12_PENDING=-1;if(j>=0)s12RenderNow(j);});}
 function s12Heat2DSnap(id,flat,N,lab,signed,deg,run){
