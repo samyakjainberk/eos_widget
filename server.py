@@ -75,36 +75,52 @@ SEC12_KFULL = 15   # rank of the "full-space" principal-angle plot (top-15 ⊕ b
 
 
 def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
-    """§12 (triple-(i,j,l) 3D grids, 5 plots × k0∈{1,2,5}) + §13, from per-sample Lanczos eigenpairs.
+    """§12 per-sample Hessian eigenvector diagnostics, from per-sample Lanczos eigenpairs.
     TV,BV:(N,K,p) top/bottom eigenVECTORS; TW,BW:(N,K) eigenVALUES; r:(N,) residual; Jg:(N,p) per-sample
-    GT-label gradients ∇f_i. Every eigenvector is GRADIENT-GAUGED first (flipped so ⟨∇f_i,u⟩≥0) → the signed
-    cosines, J·u and all grids are gauge-invariant (reproducible across backends; fixes the i-, j- AND l-side).
-    Per ordered pair (a,b) at top/bottom count k0 (D=2·k0 dirs): (a*,b*)=argmax|cos| over the D×D dir pairs;
-    m=|cos|@argmax; c=signed cos@argmax; σ=eigenvalue & J=⟨∇f,u⟩ of the matched dirs. SELF-pair (a==a) is
-    canonicalised to the top-1 dir (c=1, σ=top eigval) so the highlighted diagonal is deterministic.
-    For triple (i,j,l): pair(i,j)→m_ij,c_ij,σ_i,J_i ; pair(j,l)→m_jl,c_jl,σ_j(=a-side of (j,l)),σ_l,J_l.
-      §12 grids:  A=m_ij·m_jl ; B=c_ij·c_jl·sgn(σ_iσ_jσ_l)·sgn(J_i)·sgn(J_l) ;
-        C=sgn(r_lσ_j)·c_ij·c_jl·sgn(σ_iσ_l r_i r_l)·sgn(J_i)·sgn(J_l) ; D=c_ij·c_jl·σ_j ; E=c_ij·c_jl·r_l·σ_j .
-      §13:  G1=r_lσ_j(1+r_iσ_i)c_ij J_i(1+r_lσ_l)c_jl J_l (3D) ; G2=r_lσ_j(1+r_lσ_l)c_jl J_l (2D j,l) ; G3=|G2|.
-    Returns {M,do3d,ks,ang[,s12,g1,g2,g3,ev]}. ang = panel-4 principal angles (over all N≤sec12ncap). The 3D
-    grids (panels 1-3, §13-p1) are gated on N≤grid3dcap (N³ like §11). MIRRORS eos_lab.linalg.sec12_payload /
-    index.html sec1213Payload."""
+    GT-label gradients ∇f_i. Returns {M,do3d,ks,ang,proj}:
+      ang.g = the principal-angle (i,j) grids for k=1,2,5,10,kfull (deg); ang.gm = whole-grid means (panel-1
+        titles); ang.mn/mx/me = min/max/MEAN over the OFF-DIAGONAL pairs (i≠j; the i=i diagonal angle is 0),
+        used by the panel-2/3 evolution curves; ang.ks lists the k per index.
+      proj = panel-4 proj↔residual correlation. proj_i = |⟨J_i,u_{i,l*}⟩|·σ_{i,l*} (|projection|·SIGNED eigenvalue),
+        l* = argmax_l |⟨J_i,u_{i,l}⟩|·|σ_{i,l}| over the top-5⊕bottom-5 eigenpairs of Q_i. proj/{r,sproj,sr} carry
+        [mean,std] over samples of proj_i, r_i, sgn(proj_i), sgn(r_i). MIRRORS eos_lab.linalg.sec12_payload /
+        index.html sec1213Payload."""
     import math as _m
     N, K, p = int(TV.shape[0]), int(TV.shape[1]), int(TV.shape[2])
     dev = TV.device
+    offm = ~torch.eye(N, dtype=torch.bool, device=dev)   # off-diagonal (i≠j) mask
 
-    # ---- panel 4: principal angles over all N (gauge-free: svdvals is invariant to eigenvector ±) ----
+    # ---- principal angles (gauge-free: svdvals is invariant to eigenvector ±) for k = 1,2,5,10,kfull ----
     def pa(k):
         kk = max(1, min(k, K))
         E = torch.cat([TV[:, :kk, :], BV[:, :kk, :]], dim=1)
         sv = torch.linalg.svdvals(torch.einsum('iap,jbp->ijab', E, E)).clamp(-1.0, 1.0)
         return (torch.acos(sv) * (180.0 / _m.pi)).mean(dim=2)
     kf = max(1, min(kfull, K))
-    pas = [pa(1), pa(5), pa(10), pa(kf)]
-    out = {"M": N, "do3d": False, "ks": [1, 2, 5],
-           "ang": {"g": [x.reshape(-1).detach().cpu().tolist() for x in pas],
-                   "gm": [float(x.mean()) for x in pas], "kfull": kf}}
-    return out   # §12 now needs only the principal angles; the old §12 cube grids / §13 g1,g2,g3 are gone (see _sec13_stats)
+    ks_ang = [1, 2, 5, 10, kf]
+    pas = [pa(k) for k in ks_ang]
+
+    def offstats(g):                                     # min/max/mean over off-diagonal pairs (i≠j)
+        s = g[offm]
+        return (float(s.min()), float(s.max()), float(s.mean())) if s.numel() else (0.0, 0.0, 0.0)
+    om = [offstats(g) for g in pas]
+    ang = {"g": [x.reshape(-1).detach().cpu().tolist() for x in pas], "gm": [float(x.mean()) for x in pas],
+           "mn": [o[0] for o in om], "mx": [o[1] for o in om], "me": [o[2] for o in om], "ks": ks_ang, "kfull": kf}
+
+    # ---- panel-4: proj_i = |⟨J_i,u_{i,l*}⟩|·σ_{i,l*}; l* maximises |proj|·|σ| over top-5⊕bottom-5 of Q_i ----
+    k5 = max(1, min(5, K))
+    E5 = torch.cat([TV[:, :k5, :], BV[:, :k5, :]], dim=1)          # (N,2k5,p)
+    w5 = torch.cat([TW[:, :k5], BW[:, :k5]], dim=1)                # (N,2k5)
+    pj = torch.einsum('ip,iap->ia', Jg, E5)                       # ⟨J_i,u_l⟩
+    lstar = (pj.abs() * w5.abs()).argmax(dim=1)                   # argmax_l |proj|·|σ|
+    ai = torch.arange(N, device=dev)
+    proj = pj[ai, lstar].abs() * w5[ai, lstar]                    # |⟨J,u⟩| · σ (signed eigenvalue)
+
+    def ms(x):
+        return [float(x.mean()), float(x.std(unbiased=False))]
+    out = {"M": N, "do3d": False, "ks": [1, 2, 5], "ang": ang,
+           "proj": {"proj": ms(proj), "r": ms(r), "sproj": ms(torch.sign(proj)), "sr": ms(torch.sign(r))}}
+    return out
 
 
 SEC13_KS = (2, 5)   # §13 top⊕bottom ranks k₀ compared against the exact reference
