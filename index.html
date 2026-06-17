@@ -340,8 +340,8 @@
 <div class="plotrow row5"><div id="p_s14_5_min_0" class="plot" style="height:300px"></div><div id="p_s14_5_min_1" class="plot" style="height:300px"></div><div id="p_s14_5_min_2" class="plot" style="height:300px"></div><div id="p_s14_5_min_3" class="plot" style="height:300px"></div><div id="p_s14_5_min_4" class="plot" style="height:300px"></div></div>
 </div>
 <div class="s14panel" data-grp="ratio">
-<h3 style="margin:12px 0 2px;font-size:14px;color:#475569">Panel 10 — eq-③ multi-step ratio $\big[\prod_{z=0}^{S}(1+\eta\sigma_{j,p}r_{j,t-S+z})\big]/(1+\eta\sigma_{j,p}r_{j,t-S})$, $S=y$ · first/last element × $y$</h3>
-<div class="plotrow row6"><div id="p_s14r_0" class="plot" style="height:300px"></div><div id="p_s14r_1" class="plot" style="height:300px"></div><div id="p_s14r_2" class="plot" style="height:300px"></div><div id="p_s14r_3" class="plot" style="height:300px"></div><div id="p_s14r_4" class="plot" style="height:300px"></div><div id="p_s14r_5" class="plot" style="height:300px"></div></div>
+<h3 style="margin:12px 0 2px;font-size:14px;color:#475569">Panel 10 — eq-③ multi-step ratio $\big[\prod_{z=0}^{S}(1+\eta\sigma_{j,p}r_{j,t-S+z})\big]/(1+\eta\sigma_{j,p}r_{j,t-S})$, $S=y$ · <b>mean over $i\neq j\neq k$</b>: first element (solid) vs last element (dashed)</h3>
+<div class="plotrow row3"><div id="p_s14ratio_1" class="plot" style="height:300px"></div><div id="p_s14ratio_2" class="plot" style="height:300px"></div><div id="p_s14ratio_5" class="plot" style="height:300px"></div></div>
 </div>
 </div>
 
@@ -1100,7 +1100,8 @@ let S14_SNAPS=[], S14_CURIDX=0;
 const S14_YS=[1,2,5], S14_AGGLAB=['max','min','Σtop-y','Σbot-y','Σall'], S14_SUBLAB=['a','b·d','a·b·d','a·b·d·e','a·e'],
       S14_RLAB=['y1·first','y2·first','y5·first','y1·last','y2·last','y5·last'];
 function s14IsId(id){return id.indexOf('p_s14')===0;}
-function s14CubeIds(){const a=[];for(const y of S14_YS)for(const g of ['agg','max','min'])for(let n=0;n<5;n++)a.push('p_s14_'+y+'_'+g+'_'+n);for(let i=0;i<6;i++)a.push('p_s14r_'+i);return a;}
+function s14CubeIds(){const a=[];for(const y of S14_YS)for(const g of ['agg','max','min'])for(let n=0;n<5;n++)a.push('p_s14_'+y+'_'+g+'_'+n);return a;}   // 45 grid time-series (Panel 1-9)
+function s14RatioIds(){return S14_YS.map(y=>'p_s14ratio_'+y);}   // Panel 10: 3 overlay plots (first vs last mean ratio)
 function s14Meta(id){   // §14 cube id → {label, color mode, signed, snapshot→pack}
   let m=id.match(/^p_s14_(\d+)_(agg|max|min)_(\d)$/);
   if(m){const y=m[1],g=m[2],n=+m[3],lab=(g==='agg'?S14_AGGLAB[n]:S14_SUBLAB[n]);
@@ -1108,7 +1109,8 @@ function s14Meta(id){   // §14 cube id → {label, color mode, signed, snapshot
   m=id.match(/^p_s14r_(\d)$/);const i=+m[1];
   return {label:'ratio '+S14_RLAB[i],mode:'symlog',signed:true,pack:s=>(s.ratio?s.ratio[i]:null)};}
 function s14Reset(){
-  for(const id of s14CubeIds()){try{Plotly.purge(id);}catch(e){}const d=document.getElementById(id);if(d)d.innerHTML='';delete S14_SERIES[id];}   // drop plots + series from the previous run
+  for(const id of s14CubeIds().concat(s14RatioIds())){try{Plotly.purge(id);}catch(e){}const d=document.getElementById(id);if(d)d.innerHTML='';delete S14_SERIES[id];}   // drop plots + series from the previous run
+  for(const y of S14_YS)delete S14_RSERIES[y];
   S14_SNAPS=[];S14_CURIDX=0;if(typeof S14_RHIST_JS!=='undefined')S14_RHIST_JS=[];
   const st=document.getElementById('s14_step');if(st)st.textContent='—';
   const em=document.getElementById('s14_empty');if(em)em.style.display='';}   // show the "no data" hint until §14 snapshots arrive
@@ -1117,7 +1119,7 @@ function s14Reset(){
 //    plus mean / mean⁺ / mean⁻ over the whole grid. Ranked top-r solid & bottom-r dotted in the same colour; the six
 //    ranked lines use green/orange/purple; mean=black, mean⁺=blue, mean⁻=red. ──
 const S14_C3=['#2ca02c','#ff7f0e','#9467bd'];   // top/bottom 1,2,3 colours (distinct from black/blue/red)
-const S14_SERIES={};   // id → {xs, t:[[],[],[]], b:[[],[],[]], mean, mpos, mneg, label}
+const S14_SERIES={}, S14_RSERIES={};   // S14_SERIES: grid id → {xs,t,b,mean,mpos,mneg,label}.  S14_RSERIES: y → {xs,first,last} (Panel 10)
 function s14GridStats(snap,meta){   // top-3 / bottom-3 over i≠j≠k + mean/mean⁺/mean⁻ (whole grid) for one grid at one snapshot
   const pk=(snap&&snap.do3d)?meta.pack(snap):null;
   if(!pk)return {top:[null,null,null],bot:[null,null,null],mean:null,mpos:null,mneg:null};
@@ -1132,7 +1134,24 @@ function s14SeriesAppend(snap){   // push one snapshot's stats onto every grid's
     if(!S)S=S14_SERIES[id]={xs:[],t:[[],[],[]],b:[[],[],[]],mean:[],mpos:[],mneg:[],label:s14Meta(id).label};
     const st=s14GridStats(snap,s14Meta(id));S.xs.push(snap.t);
     for(let r=0;r<3;r++){S.t[r].push(st.top[r]);S.b[r].push(st.bot[r]);}
-    S.mean.push(st.mean);S.mpos.push(st.mpos);S.mneg.push(st.mneg);}}
+    S.mean.push(st.mean);S.mpos.push(st.mpos);S.mneg.push(st.mneg);}
+  for(let yi=0;yi<S14_YS.length;yi++){const y=S14_YS[yi];let R=S14_RSERIES[y];   // Panel 10: off-diagonal mean of ratio[first]=idx yi, ratio[last]=idx yi+3
+    if(!R)R=S14_RSERIES[y]={xs:[],first:[],last:[]};
+    R.xs.push(snap.t);R.first.push(s14RatioMean(snap,yi));R.last.push(s14RatioMean(snap,yi+3));}}
+function s14RatioMean(snap,idx){   // off-diagonal (i≠j≠k) mean of the ratio[idx] grid at one snapshot
+  if(!snap||!snap.do3d||!snap.ratio||!snap.ratio[idx])return null;
+  const pk=snap.ratio[idx],N=snap.M,N2=N*N,v=pk.v,ix=pk.idx;let s=0,c=0;
+  for(let q=0;q<v.length;q++){const p=ix?ix[q]:q,i=(p/N2)|0,j=((p%N2)/N)|0,k=p%N,x=v[q];
+    if(i!==j&&j!==k&&i!==k&&x!=null&&isFinite(x)){s+=x;c++;}}
+  return c?s/c:null;}
+function s14RatioDraw(y){   // Panel 10 plot for rank y: first-element mean (solid) vs last-element mean (dashed)
+  const id='p_s14ratio_'+y,div=document.getElementById(id);if(!div||div.offsetParent===null)return;const R=S14_RSERIES[y];if(!R||!R.xs.length)return;
+  const tr=[{x:R.xs.slice(),y:R.first.slice(),type:'scatter',mode:'lines',name:'first',line:{color:'#1f77b4',width:1.9},connectgaps:false},
+            {x:R.xs.slice(),y:R.last.slice(),type:'scatter',mode:'lines',name:'last',line:{color:'#1f77b4',width:1.9,dash:'dash'},connectgaps:false}];
+  const lay={margin:{l:46,r:6,t:18,b:22},title:{text:'ratio y='+y+'  ·  first (solid) vs last (dashed)',font:{size:10.5,color:'#475569'},x:0.03,xanchor:'left',y:0.99},
+    showlegend:false,hovermode:'x unified',xaxis:{title:{text:'step',font:{size:9}},tickfont:{size:8},zeroline:false,autorange:true},
+    yaxis:{tickfont:{size:8},autorange:true},font:{size:9}};
+  Plotly.react(id,tr,lay,{responsive:true,displaylogo:false});}
 function s14SeriesDraw(id){   // (re)draw one grid's 9-line time-series plot — visible panels only
   const div=document.getElementById(id);if(!div||div.offsetParent===null)return;const S=S14_SERIES[id];if(!S||!S.xs.length)return;
   const mk=(y,name,color,dash,w)=>({x:S.xs.slice(),y:y.slice(),type:'scatter',mode:'lines',name:name,line:{color:color,width:w||1.5,dash:dash||'solid'},connectgaps:false});   // fresh arrays so Plotly.react sees the appended points
@@ -1144,13 +1163,13 @@ function s14SeriesDraw(id){   // (re)draw one grid's 9-line time-series plot —
     yaxis:{tickfont:{size:8},zeroline:true,zerolinecolor:'#e2e8f0',autorange:true},font:{size:9}};   // autorange so Plotly.react re-fits the growing series
   Plotly.react(id,tr,lay,{responsive:true,displaylogo:false});}
 function s14RenderNow(i){   // redraw the §14 time-series (the slider doesn't scrub these — the full history is shown)
-  S14_CURIDX=i;for(const id of s14CubeIds())s14SeriesDraw(id);
+  S14_CURIDX=i;for(const id of s14CubeIds())s14SeriesDraw(id);for(const y of S14_YS)s14RatioDraw(y);
   const st=document.getElementById('s14_step');if(st&&S14_SNAPS.length)st.textContent=`${S14_SNAPS.length} snapshots · latest step ${S14_SNAPS[S14_SNAPS.length-1].t}`;}
 function s14Push(m){
   if(!m.p14&&!m.ratio)return;
   S14_SNAPS.push(m);
   {const em=document.getElementById('s14_empty');if(em)em.style.display='none';}   // §14 data arrived — hide the hint
-  s14SeriesAppend(m);for(const id of s14CubeIds())s14SeriesDraw(id);               // append this snapshot + redraw the visible time-series
+  s14SeriesAppend(m);for(const id of s14CubeIds())s14SeriesDraw(id);for(const y of S14_YS)s14RatioDraw(y);   // append this snapshot + redraw the visible time-series + Panel-10 ratios
   const st=document.getElementById('s14_step');if(st)st.textContent=`${S14_SNAPS.length} snapshots · latest step ${m.t}`;}
 function s14ApplyPanelFilter(){   // show/hide §14 panels per the selector; a panel (y,group) shows iff both its rank
   const on=id=>{const e=document.getElementById(id);return !e||e.checked;};   // and group are checked (ratio: its own box)
@@ -2375,7 +2394,7 @@ async function _gifPass(files){
     const s14hidden=[...document.querySelectorAll('#sec_s14 .s14panel')].filter(e=>e.style.display==='none');
     for(const e of s14hidden)e.style.display='';
     s14RenderNow(s14cur);await _raf2();
-    for(const id of s14CubeIds()){const gd=document.getElementById(id);
+    for(const id of s14CubeIds().concat(s14RatioIds())){const gd=document.getElementById(id);
       if(gd&&gd._fullLayout){try{if(st)st.textContent='img '+id+'…';n++;files.push({name:String(n).padStart(2,'0')+'_'+_safeName(id)+'.png',data:_b64bytes(await Plotly.toImage(gd,{format:'png',width:gd._fullLayout.width||360,height:gd._fullLayout.height||300}))});}catch(e){}}}
     for(const e of s14hidden)e.style.display='none';s14RenderNow(s14cur);
   }
