@@ -94,6 +94,7 @@ class Diagnostics:
         self.s20 = P.get("s20", 0)          # §14: Tr(ΔNTK) per-triplet decomposition cubes (shares §12 eigenpairs)
         self.s21 = P.get("s21", 0)          # §13: residual-weighted curvature G1/G2/G3 vs exact ref (own toggle; shares §12 Lanczos)
         self._sec14_rhist = []              # §14: per-sample residual history (last ≤5 ticks) for the eq-③ ratio
+        self._sec14_prev = None             # §14: previous eig-tick's {TV,TW,BV,BW,r,Jg} (u,σ,r_j,J_k at t; cur gives J_i,r_k at t+1)
         self._sec13_prev = None             # §13: previous eig-tick's per-sample {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
         if loss.name == "ce":
             # CE uses the generic residual r = −∂L/∂z = softmax(z)−onehot (the loss-output cotangent). §4
@@ -625,7 +626,10 @@ class Diagnostics:
                 self._sec14_rhist.append(r12.detach())
                 if len(self._sec14_rhist) > 5:
                     self._sec14_rhist.pop(0)
-                rec["g14"] = sec14_payload(TV, TW, BV, BW, r12, Jg12, self.lr, self.grid3dcap, self._sec14_rhist)
+                cur14 = {"TV": TV, "TW": TW, "BV": BV, "BW": BW, "r": r12, "Jg": Jg12}
+                if self._sec14_prev is not None:               # need t (prev) for u,σ,r_j,J_k; skip the first eig-tick (like §13)
+                    rec["g14"] = sec14_payload(self._sec14_prev, cur14, self.lr, self.grid3dcap, self._sec14_rhist)
+                self._sec14_prev = {k_: v_.detach() for k_, v_ in cur14.items()}
 
         # ---- §5 SLQ spectral densities (expensive → ~50 snapshots/run via slqStride) ----
         if self.s5 and slq_tick:

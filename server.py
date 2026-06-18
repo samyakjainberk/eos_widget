@@ -197,23 +197,29 @@ def _sec13_stats(cur, prev, ref, lr):
 SEC14_YS = (1, 2, 5)
 
 
-def _sec14_payload(TV, TW, BV, BW, r, Jg, lr, grid3dcap, rhist):
+def _sec14_payload(prev, cur, lr, grid3dcap, rhist):
     """§14 — per-triplet (i,j,k) decomposition of Tr(ΔNTK)=Σ_{ℓ,p} a·b·c·d·e, with (gradient-gauged eigvecs
     u of the per-sample function Hessians Q): a=u_{i,ℓ}·u_{j,p}; b=σ_{i,ℓ}(J_i·u_{i,ℓ}); c=1+ησ_{j,p}r_j;
-    d=u_{j,p}·J_k; e=r_k. For rank-2y (y top⁺ ⊕ y bottom⁻ eigenpairs of Q_i / Q_j) the (2y)² terms are
-    SORTED signed-descending per cell. The full term T is gauge-invariant; the sub-products a, b·d, a·e are
-    NOT, so every eigenvector is gradient-gauged first (flipped so ⟨∇f_i,u⟩≥0) — reproducible across backends.
-    Panels per y∈{1,2,5}: AGG=[max, min, Σtop-y, Σbot-y, Σall]; MAX/MIN=[a, b·d, a·b·d, a·b·d·e, a·e] at the
-    argmax/argmin (ℓ,p). Panel 10 (eq-③): ratio ∏_{z=1}^{S}(1+ησ_{j,p}r_{j,t-S+z}) over the residual HISTORY
-    (S=y; t→t-S so only the last S residuals are needed), for {first,last} element × y∈{1,2,5}. Each grid is
-    packed (sparse + diagonal + μ/μ⁺/μ⁻). Gated N≤grid3dcap (N³ like §11). MIRRORS index.html sec14Payload /
+    d=u_{j,p}·J_k; e=r_k.
+      TIME-INDEXING (t+1 = the CURRENT iterate): the eigenpairs u,σ and r_j (in c) and J_k (in d) are at the
+      PREVIOUS eig-tick t; only J_i (in b) and r_k (in e) are at the current iterate t+1. So §14 needs BOTH ticks
+      (prev,cur each = {TV,TW,BV,BW,r,Jg}) and SKIPS its first eig-tick (no prev), like §13. The full term T is
+      gauge-invariant; eigvecs are gradient-gauged by the PREVIOUS gradient (⟨J^t_i,u⟩≥0) so the sub-products
+      a, b·d, a·e are reproducible across backends.
+    For rank-2y (y top⁺ ⊕ y bottom⁻ eigenpairs) the (2y)² terms are SORTED signed-descending per cell. Panels per
+    y∈{1,2,5}: AGG=[max, min, Σtop-y, Σbot-y, Σall]; MAX/MIN=[a, b·d, a·b·d, a·b·d·e, a·e] at the argmax/argmin
+    (ℓ,p). Panel 10 (eq-③) is UNCHANGED — it uses the CURRENT-tick eigenpairs (σ_{j,p} at t+1) and the residual
+    HISTORY: ratio ∏_{z=1}^{S}(1+ησ_{j,p}r_{j,t-S+z}) (S=y), for {first,last} element × y. Each grid is packed
+    (sparse + diagonal + μ/μ⁺/μ⁻). Gated N≤grid3dcap (N³ like §11). MIRRORS index.html sec14Payload /
     eos_lab.linalg.sec14_payload."""
-    N, K, p = int(TV.shape[0]), int(TV.shape[1]), int(TV.shape[2])
+    TVp, TWp, BVp, BWp, rp, Jgp = prev["TV"], prev["TW"], prev["BV"], prev["BW"], prev["r"], prev["Jg"]
+    TVc, TWc, BVc, BWc, rc, Jgc = cur["TV"], cur["TW"], cur["BV"], cur["BW"], cur["r"], cur["Jg"]
+    N, K, p = int(TVp.shape[0]), int(TVp.shape[1]), int(TVp.shape[2])
     out = {"M": N, "do3d": False}
     if N > grid3dcap:
         return out
     out["do3d"] = True
-    dev = TV.device
+    dev = TVp.device
     dg = torch.arange(N, device=dev)
 
     def pack14(T):                                       # sparse subset + full diagonal + μ / μ⁺ / μ⁻
@@ -222,50 +228,57 @@ def _sec14_payload(TV, TW, BV, BW, r, Jg, lr, grid3dcap, rhist):
         return {"v": v, "idx": idx, "d": T[dg, dg, dg].detach().cpu().tolist(), "mn": float(f.mean()),
                 "mp": float(pos.mean()) if pos.numel() else 0.0, "mng": float(neg.mean()) if neg.numel() else 0.0}
 
-    def factors(y):
-        """gauged factors a (N,N,D,D), b (N,D), c (N,D), d (N,D,N), e (N,), W (N,D σ), and the full
-        term T (N,N,N,D,D) for rank-2y (D=2·min(y,K) directions: y top⁺ ⊕ y bottom⁻ eigvecs of each Q)."""
+    def build(TVx, TWx, BVx, BWx, Jgg, Jgb, rcc, Jgd, ree, y):
+        """rank-2y gauged factors with per-factor TIME sources: eigvecs/σ from (TVx,TWx,BVx,BWx); gauge gradient
+        Jgg; b's J_i = Jgb; c's r_j = rcc; d's J_k = Jgd; e's r_k = ree. Returns a (N,N,D,D), b (N,D), d (N,D,N),
+        e (N,), W (N,D σ), the full term T (N,N,N,D,D), D, kk."""
         kk = max(1, min(y, K)); D = 2 * kk
-        E = torch.cat([TV[:, :kk, :], BV[:, :kk, :]], dim=1)          # (N,D,p) eigenvectors
-        W = torch.cat([TW[:, :kk], BW[:, :kk]], dim=1)                # (N,D) signed eigenvalues σ
-        gE = torch.einsum('ip,idp->id', Jg, E)
-        E = E * torch.where(gE >= 0, torch.ones_like(gE), -torch.ones_like(gE)).unsqueeze(2)   # GRADIENT GAUGE
-        Ju = torch.einsum('ip,idp->id', Jg, E)                        # ⟨∇f_i, u⟩ ≥ 0
-        a = torch.einsum('ilp,jmp->ijlm', E, E)                       # (N,N,D,D)  u_{i,ℓ}·u_{j,p}
-        b = W * Ju                                                    # (N,D)      σ_{i,ℓ}(J_i·u_{i,ℓ})
-        c = 1.0 + (lr / N) * W * r.view(N, 1)                         # (N,D)  1+(η/N)σ_{j,p}r_j ; η/N = the 1/N-normalized GD step (matches §13)
-        d = torch.einsum('jmp,kp->jmk', E, Jg)                        # (N,D,N)    u_{j,p}·J_k
-        e = r                                                         # (N,)       r_k
+        E = torch.cat([TVx[:, :kk, :], BVx[:, :kk, :]], dim=1)        # (N,D,p) eigenvectors
+        W = torch.cat([TWx[:, :kk], BWx[:, :kk]], dim=1)              # (N,D) signed eigenvalues σ
+        gE = torch.einsum('ip,idp->id', Jgg, E)
+        E = E * torch.where(gE >= 0, torch.ones_like(gE), -torch.ones_like(gE)).unsqueeze(2)   # GRADIENT GAUGE (prev grad)
+        a = torch.einsum('ilp,jmp->ijlm', E, E)                      # (N,N,D,D)  u_{i,ℓ}·u_{j,p}
+        b = W * torch.einsum('ip,idp->id', Jgb, E)                   # (N,D)      σ_{i,ℓ}(J_i·u_{i,ℓ}) ; J_i ← Jgb
+        c = 1.0 + (lr / N) * W * rcc.view(N, 1)                      # (N,D)  1+(η/N)σ_{j,p}r_j ; r_j ← rcc (η/N = 1/N GD step)
+        d = torch.einsum('jmp,kp->jmk', E, Jgd)                      # (N,D,N)    u_{j,p}·J_k ; J_k ← Jgd
+        e = ree                                                      # (N,)       r_k ← ree
         T = (a.unsqueeze(2) * b.view(N, 1, 1, D, 1) * c.view(1, N, 1, 1, D)
              * d.permute(0, 2, 1).reshape(1, N, N, 1, D) * e.view(1, 1, N, 1, 1))   # (N,N,N,D,D)
         return a, b, d, e, W, T, D, kk
 
-    p14 = {}; sig_sel = {"first": {}, "last": {}}
-    for y in SEC14_YS:
-        a, b, d, e, W, T, D, kk = factors(y)
-        Tf = T.reshape(N, N, N, D * D)
-        Ts, _ = torch.sort(Tf, dim=3, descending=True)
-        agg = [Ts[..., 0], Ts[..., -1], Ts[..., :kk].sum(3), Ts[..., D * D - kk:].sum(3), Tf.sum(3)]
-        # FIRST (ℓ,p) on ties (deterministic; torch.argmax ties are impl-defined, esp. on CUDA) — matches the
-        # browser/eos_lab which scan in flat ℓ·D+p order, so the sub-product panels agree across backends.
+    def argsel(Tf, D):                                   # FIRST (ℓ,p) on ties (flat ℓ·D+p order) → cross-backend parity
         ar = torch.arange(D * D, device=dev).view(1, 1, 1, D * D); big = torch.full((), D * D, device=dev, dtype=ar.dtype)
         imax = torch.where(Tf == Tf.amax(3, keepdim=True), ar, big).amin(3).clamp_(max=D * D - 1)   # clamp: NaN cell ⇒ no match ⇒ big
         imin = torch.where(Tf == Tf.amin(3, keepdim=True), ar, big).amin(3).clamp_(max=D * D - 1)
+        return imax, imin
 
-        def subprods(idx):                               # 5 sub-products at the per-cell selected (ℓ*,p*); returns m* too
+    p14 = {}; sig_sel = {"first": {}, "last": {}}
+    for y in SEC14_YS:
+        # ---- panels 1-9: u,σ,r_j(c),J_k(d) at t (prev); J_i(b)=cur, r_k(e)=cur; gauge = prev gradient ----
+        a, b, d, e, W, T, D, kk = build(TVp, TWp, BVp, BWp, Jgp, Jgc, rp, Jgp, rc, y)
+        Tf = T.reshape(N, N, N, D * D)
+        Ts, _ = torch.sort(Tf, dim=3, descending=True)
+        agg = [Ts[..., 0], Ts[..., -1], Ts[..., :kk].sum(3), Ts[..., D * D - kk:].sum(3), Tf.sum(3)]
+        imax, imin = argsel(Tf, D)
+
+        def subprods(idx):                               # 5 sub-products at the per-cell selected (ℓ*,p*)
             lst = idx // D; mst = idx % D
             a_sel = a.reshape(N, N, D * D).unsqueeze(2).expand(N, N, N, D * D).gather(3, idx.unsqueeze(3)).squeeze(3)
             b_sel = b.view(N, 1, 1, D).expand(N, N, N, D).gather(3, lst.unsqueeze(3)).squeeze(3)
             d_sel = d.permute(0, 2, 1).reshape(1, N, N, D).expand(N, N, N, D).gather(3, mst.unsqueeze(3)).squeeze(3)
             e_sel = e.view(1, 1, N).expand(N, N, N)
-            return [a_sel, b_sel * d_sel, a_sel * b_sel * d_sel, a_sel * b_sel * d_sel * e_sel, a_sel * e_sel], mst
-        sub_max, mst_max = subprods(imax)
-        sub_min, mst_min = subprods(imin)
+            return [a_sel, b_sel * d_sel, a_sel * b_sel * d_sel, a_sel * b_sel * d_sel * e_sel, a_sel * e_sel]
+        sub_max = subprods(imax); sub_min = subprods(imin)
         p14[str(y)] = {"agg": [pack14(x) for x in agg], "max": [pack14(x) for x in sub_max],
                        "min": [pack14(x) for x in sub_min]}
-        Wj = W.view(1, N, 1, D).expand(N, N, N, D)                    # σ_{j,p} at the selected mode for panel 10
-        sig_sel["first"][str(y)] = Wj.gather(3, mst_max.unsqueeze(3)).squeeze(3)
-        sig_sel["last"][str(y)] = Wj.gather(3, mst_min.unsqueeze(3)).squeeze(3)
+
+        # ---- panel 10 (UNCHANGED): all-CURRENT term → its argmax/argmin mode + current σ_{j,p} ----
+        _, _, _, _, Wc, Tc, Dc, _ = build(TVc, TWc, BVc, BWc, Jgc, Jgc, rc, Jgc, rc, y)
+        Tcf = Tc.reshape(N, N, N, Dc * Dc)
+        imax_c, imin_c = argsel(Tcf, Dc)
+        Wjc = Wc.view(1, N, 1, Dc).expand(N, N, N, Dc)               # σ_{j,p} at t+1, selected by the current term
+        sig_sel["first"][str(y)] = Wjc.gather(3, (imax_c % Dc).unsqueeze(3)).squeeze(3)
+        sig_sel["last"][str(y)] = Wjc.gather(3, (imin_c % Dc).unsqueeze(3)).squeeze(3)
     out["p14"] = p14
 
     # panel 10 — multi-step ratio over the residual history; order: y∈{1,2,5} for FIRST element, then for LAST.
@@ -1628,6 +1641,7 @@ def run_stream(P):
     eigTick = 0
     done = 0
     sec14_rhist = []          # §14: per-sample residual history (last ≤5 eig-ticks) for the eq-③ multi-step ratio
+    sec14_prev = None         # §14: previous eig-tick's {TV,TW,BV,BW,r,Jg} (u,σ,r_j,J_k at t; cur tick gives J_i,r_k at t+1)
     sec13_prev = None         # §13: previous eig-tick's per-sample {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
     prevTop = [None] * nSub
     prevBot = [None] * nSub
@@ -2162,7 +2176,10 @@ def run_stream(P):
                     sec14_rhist.append(r12.detach())
                     if len(sec14_rhist) > 5:
                         sec14_rhist.pop(0)
-                    sec14 = _sec14_payload(TV, TW, BV, BW, r12, Jg12, lr, grid3dcap, sec14_rhist)
+                    cur14 = {"TV": TV, "TW": TW, "BV": BV, "BW": BW, "r": r12, "Jg": Jg12}
+                    if sec14_prev is not None:                 # need t (prev) for u,σ,r_j,J_k; skip the first eig-tick (like §13)
+                        sec14 = _sec14_payload(sec14_prev, cur14, lr, grid3dcap, sec14_rhist)
+                    sec14_prev = {kk_: vv_.detach() for kk_, vv_ in cur14.items()}
 
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness λmax(∇²L) ≈ λmax(GN) = σ₁/N
             thPr = [(x / N if x is not None else None) for x in thP] if thP else None

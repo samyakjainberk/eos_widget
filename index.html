@@ -298,7 +298,7 @@
 
 <div id="sec_s14" style="display:none">
 <h2>14 · per-triplet $(i,j,k)$ decomposition of $\mathrm{Tr}(\Delta\mathrm{NTK})$</h2>
-<p class="cap">$\mathrm{Tr}(\Delta\mathrm{NTK})_t=\sum_{\ell,p} a\,b\,c\,d\,e$ with $a=u_{i,\ell}^\top u_{j,p}$, $b=\sigma_{i,\ell}\,J_{i}^\top u_{i,\ell}$, $c=1+\eta\sigma_{j,p}r_{j}$, $d=u_{j,p}^\top J_{k}$, $e=r_{k}$. Each $Q$ is rank-$2y$ approximated ($y$ top$^+$ ⊕ $y$ bottom$^-$ eigenpairs, gradient-gauged); the $(2y)^2$ terms $T=abcde$ are sorted signed-descending per cell $(i,j,k)$. Panels per $y\in\{1,2,5\}$: <b>aggregates</b> [max, min, Σtop-y, Σbot-y, Σall] of the sorted list; <b>max</b>/<b>min</b> the five sub-products $a,\,b{\cdot}d,\,a{\cdot}b{\cdot}d,\,a{\cdot}b{\cdot}d{\cdot}e,\,a{\cdot}e$ at the argmax/argmin $(\ell,p)$. Panel 10 is the eq-③ multi-step product over the residual <b>history</b>. Each $N{\times}N{\times}N$ grid over $(i,j,k)$ is shown as a <b>time-series</b> vs training step: its top-3 and bottom-3 values over the off-diagonal cells ($i\neq j\neq k$), plus the mean / mean$^+$ / mean$^-$ over the whole grid (9 lines — see the legend above). Lanczos eigenpairs reuse §12. Gated by the §11 3D-grid cap.</p>
+<p class="cap">$\mathrm{Tr}(\Delta\mathrm{NTK})_t=\sum_{\ell,p} a\,b\,c\,d\,e$ with $a=u_{i,\ell}^\top u_{j,p}$, $b=\sigma_{i,\ell}\,J_{i,t+1}^\top u_{i,\ell}$, $c=1+\eta\sigma_{j,p}r_{j,t}$, $d=u_{j,p}^\top J_{k,t}$, $e=r_{k,t+1}$. <b>Time-indexing</b> ($t{+}1$ = the current iterate): the eigenpairs $u,\sigma$ and $r_j$ (in $c$) and $J_k$ (in $d$) are taken at the <b>previous</b> eig-tick $t$; only $J_i$ (in $b$) and $r_k$ (in $e$) are at the current iterate $t{+}1$ (so §14 holds the previous tick's eigenpairs and <b>skips its first eig-tick</b>, like §13). Each $Q$ is rank-$2y$ approximated ($y$ top$^+$ ⊕ $y$ bottom$^-$ eigenpairs, gauged by the previous gradient); the $(2y)^2$ terms $T=abcde$ are sorted signed-descending per cell $(i,j,k)$. Panels per $y\in\{1,2,5\}$: <b>aggregates</b> [max, min, Σtop-y, Σbot-y, Σall] of the sorted list; <b>max</b>/<b>min</b> the five sub-products $a,\,b{\cdot}d,\,a{\cdot}b{\cdot}d,\,a{\cdot}b{\cdot}d{\cdot}e,\,a{\cdot}e$ at the argmax/argmin $(\ell,p)$. Panel 10 is the eq-③ multi-step product over the residual <b>history</b> (<b>unchanged</b>: it uses the current-tick $\sigma_{j,p}$). Each $N{\times}N{\times}N$ grid over $(i,j,k)$ is shown as a <b>time-series</b> vs training step: its top-3 and bottom-3 values over the off-diagonal cells ($i\neq j\neq k$), plus the mean / mean$^+$ / mean$^-$ over the whole grid (9 lines — see the legend above). Lanczos eigenpairs reuse §12. Gated by the §11 3D-grid cap.</p>
 <div class="ctl" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin:6px 0;max-width:1100px">
   <span id="s14_step" style="white-space:nowrap;color:#475569;font-size:13px">—</span>
   <span style="color:#94a3b8;font-size:12px">lines (vs step): top-1/2/3 <b style="color:#2ca02c">▬</b><b style="color:#ff7f0e">▬</b><b style="color:#9467bd">▬</b> solid · bottom-1/2/3 same colours dotted · mean <b>▬</b> · mean⁺ <b style="color:#1f77b4">▬</b> · mean⁻ <b style="color:#d62728">▬</b> &nbsp;(top-3/bottom-3 over the off-diagonal $i\neq j\neq k$)</span>
@@ -1168,7 +1168,7 @@ function s14Meta(id){   // §14 cube id → {label, color mode, signed, snapshot
 function s14Reset(){
   for(const id of s14CubeIds().concat(s14RatioIds())){try{Plotly.purge(id);}catch(e){}const d=document.getElementById(id);if(d)d.innerHTML='';delete S14_SERIES[id];}   // drop plots + series from the previous run
   for(const y of S14_YS)delete S14_RSERIES[y];
-  S14_SNAPS=[];S14_CURIDX=0;if(typeof S14_RHIST_JS!=='undefined')S14_RHIST_JS=[];
+  S14_SNAPS=[];S14_CURIDX=0;if(typeof S14_RHIST_JS!=='undefined')S14_RHIST_JS=[];if(typeof S14_PREV_JS!=='undefined')S14_PREV_JS=null;
   const st=document.getElementById('s14_step');if(st)st.textContent='—';
   const em=document.getElementById('s14_empty');if(em)em.style.display='';}   // show the "no data" hint until §14 snapshots arrive
 // ── §14 grids are shown as TIME-SERIES (dynamics) line plots — plain 2D SVG (NO WebGL, no context limit, nothing
@@ -1553,28 +1553,32 @@ function s14Pack3d(T,M){   // §14 pack: sparse subset + diagonal + μ/μ⁺/μ�
 }
 // §14 — per-triplet (i,j,k) decomposition of Tr(ΔNTK)=Σ_{ℓ,p} a·b·c·d·e. MIRRORS server._sec14_payload
 // (gradient-gauged; signed-descending sort; rank-2y; eq-③ history ratio). rhist = last ≤5 per-sample residuals.
-function sec14Payload(TV,TW,BV,BW,r,Jg,N,p,lr,grid3dcap,rhist){
+// §14 — TIME-INDEXING (t+1 = current iterate): the eigvecs u,σ and r_j (in c) and J_k (in d) are at the PREVIOUS
+// eig-tick t; only J_i (in b) and r_k (in e) are at t+1. prev/cur each = {TV,TW,BV,BW,r,Jg}; the first eig-tick is
+// skipped (no prev). Panel 10 is UNCHANGED — it uses the all-CURRENT term's σ_{j,p}. MIRRORS server / eos_lab sec14_payload.
+function sec14Payload(prev,cur,N,p,lr,grid3dcap,rhist){
   const out={M:N,do3d:false};if(N>grid3dcap)return out;out.do3d=true;
-  const K=TV[0].length,N3=N*N*N,dotp=(a,b)=>{let s=0;for(let q=0;q<p;q++)s+=a[q]*b[q];return s;};
-  const p14={},sigSel={first:{},last:{}};
-  for(const y of S14_YS){
+  const K=prev.TV[0].length,N3=N*N*N,dotp=(a,b)=>{let s=0;for(let q=0;q<p;q++)s+=a[q]*b[q];return s;};
+  // one rank-2y term with per-factor TIME sources: eig={TV,TW,BV,BW}; gauge grad gJ; b's J_i=bJ; c's r_j=cR; d's J_k=dJ; e's r_k=eR.
+  function term(eig,gJ,bJ,cR,dJ,eR,y){
     const kk=Math.max(1,Math.min(y,K)),D=2*kk,DD=D*D;
-    const E=[],W=[],Ju=[],b=[],c=[];
+    const E=[],W=[],b=[],c=[];
     for(let i=0;i<N;i++){
       const dirs=[],vals=[];
-      for(let a=0;a<kk;a++){dirs.push(TV[i][a]);vals.push(TW[i][a]);}
-      for(let a=0;a<kk;a++){dirs.push(BV[i][a]);vals.push(BW[i][a]);}
-      const Ei=[],Ji=new Float64Array(D),Wi=new Float64Array(D),bi=new Float64Array(D),ci=new Float64Array(D);
-      for(let dd=0;dd<D;dd++){const g=dotp(Jg[i],dirs[dd]),s=g>=0?1:-1,e=new Float64Array(p);
-        for(let q=0;q<p;q++)e[q]=s*dirs[dd][q];Ei.push(e);Ji[dd]=s*g;Wi[dd]=vals[dd];bi[dd]=vals[dd]*Ji[dd];ci[dd]=1+(lr/N)*vals[dd]*r[i];}   // η/N = 1/N-normalized GD step (matches §13)
-      E.push(Ei);Ju.push(Ji);W.push(Wi);b.push(bi);c.push(ci);
+      for(let aa=0;aa<kk;aa++){dirs.push(eig.TV[i][aa]);vals.push(eig.TW[i][aa]);}
+      for(let aa=0;aa<kk;aa++){dirs.push(eig.BV[i][aa]);vals.push(eig.BW[i][aa]);}
+      const Ei=[],Wi=new Float64Array(D),bi=new Float64Array(D),ci=new Float64Array(D);
+      for(let dd=0;dd<D;dd++){const sgn=dotp(gJ[i],dirs[dd])>=0?1:-1,ev=new Float64Array(p);   // gradient gauge (prev grad)
+        for(let q=0;q<p;q++)ev[q]=sgn*dirs[dd][q];Ei.push(ev);Wi[dd]=vals[dd];
+        bi[dd]=vals[dd]*dotp(bJ[i],ev);ci[dd]=1+(lr/N)*vals[dd]*cR[i];}   // b: σ_i(J_i·u) J_i←bJ ; c: 1+(η/N)σ_j r_j r_j←cR
+      E.push(Ei);W.push(Wi);b.push(bi);c.push(ci);
     }
-    const dfac=[];for(let j=0;j<N;j++){const dj=[];for(let m=0;m<D;m++){const dm=new Float64Array(N);for(let k=0;k<N;k++)dm[k]=dotp(E[j][m],Jg[k]);dj.push(dm);}dfac.push(dj);}
+    const dfac=[];for(let j=0;j<N;j++){const dj=[];for(let m=0;m<D;m++){const dm=new Float64Array(N);for(let k=0;k<N;k++)dm[k]=dotp(E[j][m],dJ[k]);dj.push(dm);}dfac.push(dj);}   // d: u_j·J_k J_k←dJ
     const a=[];for(let i=0;i<N;i++){const ai=[];for(let l=0;l<D;l++){const al=[];for(let j=0;j<N;j++){const aj=new Float64Array(D);for(let m=0;m<D;m++)aj[m]=dotp(E[i][l],E[j][m]);al.push(aj);}ai.push(al);}a.push(ai);}
     const aggG=[0,0,0,0,0].map(()=>new Float64Array(N3)),maxG=[0,0,0,0,0].map(()=>new Float64Array(N3)),minG=[0,0,0,0,0].map(()=>new Float64Array(N3));
     const sigF=new Float64Array(N3),sigL=new Float64Array(N3);
     for(let i=0;i<N;i++)for(let j=0;j<N;j++)for(let k=0;k<N;k++){
-      const off=(i*N+j)*N+k,ek=r[k],Tlm=new Float64Array(DD);
+      const off=(i*N+j)*N+k,ek=eR[k],Tlm=new Float64Array(DD);   // e: r_k←eR
       let imax=0,imin=0,vmax=-Infinity,vmin=Infinity;
       for(let l=0;l<D;l++){const bil=b[i][l],ail=a[i][l][j];for(let m=0;m<D;m++){
         const t=ail[m]*bil*c[j][m]*dfac[j][m][k]*ek;Tlm[l*D+m]=t;
@@ -1588,8 +1592,16 @@ function sec14Payload(TV,TW,BV,BW,r,Jg,N,p,lr,grid3dcap,rhist){
       av=a[i][lN][j][mN];bv=b[i][lN];dv=dfac[j][mN][k];
       minG[0][off]=av;minG[1][off]=bv*dv;minG[2][off]=av*bv*dv;minG[3][off]=av*bv*dv*ek;minG[4][off]=av*ek;sigL[off]=W[j][mN];
     }
-    p14[''+y]={agg:aggG.map(g=>s14Pack3d(g,N)),max:maxG.map(g=>s14Pack3d(g,N)),min:minG.map(g=>s14Pack3d(g,N))};
-    sigSel.first[''+y]=sigF;sigSel.last[''+y]=sigL;
+    return {aggG:aggG,maxG:maxG,minG:minG,sigF:sigF,sigL:sigL};
+  }
+  const p14={},sigSel={first:{},last:{}};
+  for(const y of S14_YS){
+    // panels 1-9: prev eig/σ; J_i(b)=cur, r_j(c)=prev, J_k(d)=prev, r_k(e)=cur; gauge=prev
+    const m=term(prev,prev.Jg,cur.Jg,prev.r,prev.Jg,cur.r,y);
+    p14[''+y]={agg:m.aggG.map(g=>s14Pack3d(g,N)),max:m.maxG.map(g=>s14Pack3d(g,N)),min:m.minG.map(g=>s14Pack3d(g,N))};
+    // panel 10 (UNCHANGED): all-current term → its σ_{j,p} selection
+    const cT=term(cur,cur.Jg,cur.Jg,cur.r,cur.Jg,cur.r,y);
+    sigSel.first[''+y]=cT.sigF;sigSel.last[''+y]=cT.sigL;
   }
   out.p14=p14;
   const ratio=[];
@@ -1603,6 +1615,7 @@ function sec14Payload(TV,TW,BV,BW,r,Jg,N,p,lr,grid3dcap,rhist){
   out.ratio=ratio;return out;
 }
 let S14_RHIST_JS=[];   // §14 client-side training path: last ≤5 per-sample residuals (reset per run via s14Reset)
+let S14_PREV_JS=null;  // §14 client-side: previous eig-tick's {TV,TW,BV,BW,r,Jg} (u,σ,r_j,J_k at t; cur gives J_i,r_k at t+1)
 let S13_PREV_JS=null;  // §13 client-side: previous eig-tick's {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
 let OPT={s1:true,s2:true,s3:true,s4:true,s5:true,s6:true,gs:true};
 
@@ -2247,7 +2260,9 @@ async function loop(){                                   // drives ST forward; r
             S13_PREV_JS=cur13;
           }
           if(O.s20){S14_RHIST_JS.push(r12);if(S14_RHIST_JS.length>5)S14_RHIST_JS.shift();   // §14: residual history for the eq-③ ratio
-            s14Push({type:'g14',t:S.t,...sec14Payload(TV,TW,BV,BW,r12,Jg12,N,p,S.lr,S.grid3dcap,S14_RHIST_JS)});}
+            const cur14={TV:TV,TW:TW,BV:BV,BW:BW,r:r12,Jg:Jg12};
+            if(S14_PREV_JS)s14Push({type:'g14',t:S.t,...sec14Payload(S14_PREV_JS,cur14,N,p,S.lr,S.grid3dcap,S14_RHIST_JS)});   // need t (prev); skip first eig-tick
+            S14_PREV_JS=cur14;}
         }
         // Q[u₁] = Σ_a (u₁)_a ∇²f_a — extreme eigvecs (shared by §4b and §4d), sign-tracked once
         let qe=null;

@@ -270,18 +270,22 @@ def sec13_stats(cur, prev, ref, lr):
 SEC14_YS = (1, 2, 5)
 
 
-def sec14_payload(TV, TW, BV, BW, r, Jg, lr, grid3dcap, rhist):
+def sec14_payload(prev, cur, lr, grid3dcap, rhist):
     """§14 — per-triplet (i,j,k) decomposition of Tr(ΔNTK)=Σ_{ℓ,p} a·b·c·d·e (a=u_{i,ℓ}·u_{j,p}, b=σ_{i,ℓ}J_i·u_{i,ℓ},
-    c=1+ησ_{j,p}r_j, d=u_{j,p}·J_k, e=r_k). Rank-2y, gradient-gauged; the (2y)² terms are sorted signed-descending
-    per cell. Panels per y∈{1,2,5}: agg=[max,min,Σtop-y,Σbot-y,Σall]; max/min=[a,b·d,a·b·d,a·b·d·e,a·e] at the
-    argmax/argmin. Panel 10: ∏_{z=1}^{S}(1+ησ_{j,p}r_{j,t-S+z}) (S=y) over the residual history, first/last × y.
-    DENSE here (no SSE); values parity-match server._sec14_payload. MIRRORS server / index.html sec14Payload."""
-    N, K, p = int(TV.shape[0]), int(TV.shape[1]), int(TV.shape[2])
+    c=1+ησ_{j,p}r_j, d=u_{j,p}·J_k, e=r_k). TIME-INDEXING (t+1=current iterate): u,σ,r_j(c),J_k(d) at the PREVIOUS
+    eig-tick t; only J_i(b) and r_k(e) at t+1. So §14 needs both ticks (prev,cur={TV,TW,BV,BW,r,Jg}) and skips its
+    first eig-tick (like §13); eigvecs are gauged by the PREVIOUS gradient. Rank-2y; the (2y)² terms sorted
+    signed-descending per cell. Panels per y∈{1,2,5}: agg=[max,min,Σtop-y,Σbot-y,Σall]; max/min=[a,b·d,a·b·d,a·b·d·e,
+    a·e] at the argmax/argmin. Panel 10 UNCHANGED — current-tick σ_{j,p}: ∏_{z=1}^{S}(1+ησ_{j,p}r_{j,t-S+z}) (S=y)
+    over the residual history, first/last × y. DENSE here; parity-matches server._sec14_payload / index.html sec14Payload."""
+    TVp, TWp, BVp, BWp, rp, Jgp = prev["TV"], prev["TW"], prev["BV"], prev["BW"], prev["r"], prev["Jg"]
+    TVc, TWc, BVc, BWc, rc, Jgc = cur["TV"], cur["TW"], cur["BV"], cur["BW"], cur["r"], cur["Jg"]
+    N, K, p = int(TVp.shape[0]), int(TVp.shape[1]), int(TVp.shape[2])
     out = {"M": N, "do3d": False}
     if N > grid3dcap:
         return out
     out["do3d"] = True
-    dev = TV.device
+    dev = TVp.device
     dg = torch.arange(N, device=dev)
 
     def pack14(T):
@@ -290,32 +294,37 @@ def sec14_payload(TV, TW, BV, BW, r, Jg, lr, grid3dcap, rhist):
                 "mn": float(f.mean()), "mp": float(pos.mean()) if pos.numel() else 0.0,
                 "mng": float(neg.mean()) if neg.numel() else 0.0}
 
-    def factors(y):
+    def build(TVx, TWx, BVx, BWx, Jgg, Jgb, rcc, Jgd, ree, y):
+        """rank-2y gauged factors with per-factor TIME sources: eigvecs/σ from (TVx..); gauge grad Jgg; b's J_i=Jgb;
+        c's r_j=rcc; d's J_k=Jgd; e's r_k=ree."""
         kk = max(1, min(y, K)); D = 2 * kk
-        E = torch.cat([TV[:, :kk, :], BV[:, :kk, :]], dim=1)
-        W = torch.cat([TW[:, :kk], BW[:, :kk]], dim=1)
-        gE = torch.einsum('ip,idp->id', Jg, E)
-        E = E * torch.where(gE >= 0, torch.ones_like(gE), -torch.ones_like(gE)).unsqueeze(2)   # gradient gauge
-        Ju = torch.einsum('ip,idp->id', Jg, E)
+        E = torch.cat([TVx[:, :kk, :], BVx[:, :kk, :]], dim=1)
+        W = torch.cat([TWx[:, :kk], BWx[:, :kk]], dim=1)
+        gE = torch.einsum('ip,idp->id', Jgg, E)
+        E = E * torch.where(gE >= 0, torch.ones_like(gE), -torch.ones_like(gE)).unsqueeze(2)   # gradient gauge (prev grad)
         a = torch.einsum('ilp,jmp->ijlm', E, E)
-        b = W * Ju
-        c = 1.0 + (lr / N) * W * r.view(N, 1)   # 1+(η/N)σ_{j,p}r_j ; η/N = 1/N-normalized GD step (matches §13). MIRRORS server.
-        d = torch.einsum('jmp,kp->jmk', E, Jg)
-        e = r
+        b = W * torch.einsum('ip,idp->id', Jgb, E)   # J_i ← Jgb
+        c = 1.0 + (lr / N) * W * rcc.view(N, 1)       # r_j ← rcc ; η/N = 1/N-normalized GD step (matches §13)
+        d = torch.einsum('jmp,kp->jmk', E, Jgd)       # J_k ← Jgd
+        e = ree                                       # r_k ← ree
         T = (a.unsqueeze(2) * b.view(N, 1, 1, D, 1) * c.view(1, N, 1, 1, D)
              * d.permute(0, 2, 1).reshape(1, N, N, 1, D) * e.view(1, 1, N, 1, 1))
         return a, b, d, e, W, T, D, kk
 
-    p14 = {}; sig_sel = {"first": {}, "last": {}}
-    for y in SEC14_YS:
-        a, b, d, e, W, T, D, kk = factors(y)
-        Tf = T.reshape(N, N, N, D * D)
-        Ts, _ = torch.sort(Tf, dim=3, descending=True)
-        agg = [Ts[..., 0], Ts[..., -1], Ts[..., :kk].sum(3), Ts[..., D * D - kk:].sum(3), Tf.sum(3)]
-        # FIRST (ℓ,p) on ties (deterministic) — matches the browser/server flat-order scan (cross-backend parity)
+    def argsel(Tf, D):
         ar = torch.arange(D * D, device=dev).view(1, 1, 1, D * D); big = torch.full((), D * D, device=dev, dtype=ar.dtype)
         imax = torch.where(Tf == Tf.amax(3, keepdim=True), ar, big).amin(3).clamp_(max=D * D - 1)   # clamp: NaN cell ⇒ no match ⇒ big
         imin = torch.where(Tf == Tf.amin(3, keepdim=True), ar, big).amin(3).clamp_(max=D * D - 1)
+        return imax, imin
+
+    p14 = {}; sig_sel = {"first": {}, "last": {}}
+    for y in SEC14_YS:
+        # panels 1-9: u,σ,r_j,J_k at t (prev); J_i(b)=cur, r_k(e)=cur; gauge = prev gradient
+        a, b, d, e, W, T, D, kk = build(TVp, TWp, BVp, BWp, Jgp, Jgc, rp, Jgp, rc, y)
+        Tf = T.reshape(N, N, N, D * D)
+        Ts, _ = torch.sort(Tf, dim=3, descending=True)
+        agg = [Ts[..., 0], Ts[..., -1], Ts[..., :kk].sum(3), Ts[..., D * D - kk:].sum(3), Tf.sum(3)]
+        imax, imin = argsel(Tf, D)
 
         def subprods(idx):
             lst = idx // D; mst = idx % D
@@ -323,14 +332,18 @@ def sec14_payload(TV, TW, BV, BW, r, Jg, lr, grid3dcap, rhist):
             b_sel = b.view(N, 1, 1, D).expand(N, N, N, D).gather(3, lst.unsqueeze(3)).squeeze(3)
             d_sel = d.permute(0, 2, 1).reshape(1, N, N, D).expand(N, N, N, D).gather(3, mst.unsqueeze(3)).squeeze(3)
             e_sel = e.view(1, 1, N).expand(N, N, N)
-            return [a_sel, b_sel * d_sel, a_sel * b_sel * d_sel, a_sel * b_sel * d_sel * e_sel, a_sel * e_sel], mst
-        sub_max, mst_max = subprods(imax)
-        sub_min, mst_min = subprods(imin)
+            return [a_sel, b_sel * d_sel, a_sel * b_sel * d_sel, a_sel * b_sel * d_sel * e_sel, a_sel * e_sel]
+        sub_max = subprods(imax); sub_min = subprods(imin)
         p14[str(y)] = {"agg": [pack14(x) for x in agg], "max": [pack14(x) for x in sub_max],
                        "min": [pack14(x) for x in sub_min]}
-        Wj = W.view(1, N, 1, D).expand(N, N, N, D)
-        sig_sel["first"][str(y)] = Wj.gather(3, mst_max.unsqueeze(3)).squeeze(3)
-        sig_sel["last"][str(y)] = Wj.gather(3, mst_min.unsqueeze(3)).squeeze(3)
+
+        # panel 10 (UNCHANGED): all-current term → its argmax/argmin mode + current σ_{j,p}
+        _, _, _, _, Wc, Tc, Dc, _ = build(TVc, TWc, BVc, BWc, Jgc, Jgc, rc, Jgc, rc, y)
+        Tcf = Tc.reshape(N, N, N, Dc * Dc)
+        imax_c, imin_c = argsel(Tcf, Dc)
+        Wjc = Wc.view(1, N, 1, Dc).expand(N, N, N, Dc)
+        sig_sel["first"][str(y)] = Wjc.gather(3, (imax_c % Dc).unsqueeze(3)).squeeze(3)
+        sig_sel["last"][str(y)] = Wjc.gather(3, (imin_c % Dc).unsqueeze(3)).squeeze(3)
     out["p14"] = p14
 
     ratios = []
@@ -340,7 +353,7 @@ def sec14_payload(TV, TW, BV, BW, r, Jg, lr, grid3dcap, rhist):
             if len(rhist) < S:
                 ratios.append(None); continue
             sig = sig_sel[sel][str(y)]
-            prod = torch.ones(N, N, N, device=dev, dtype=TV.dtype)
+            prod = torch.ones(N, N, N, device=dev, dtype=TVp.dtype)
             for rt in rhist[-S:]:
                 prod = prod * (1.0 + (lr / N) * sig * rt.view(1, N, 1))   # η/N (1/N-normalized GD step; matches §13)
             ratios.append(pack14(prod))
