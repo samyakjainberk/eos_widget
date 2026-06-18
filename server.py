@@ -1704,6 +1704,10 @@ def run_stream(P):
     # The multi-sample sections form the explicit M×p Jacobian Jc (and an M×M Gram), so gate them by a
     # size budget (mirrors eos_lab): feasible for e.g. CIFAR-CE (M≈N·10), infeasible for OWT (M=N·T·vocab).
     multi_ok = multi and M <= 2048 and M * p <= 700_000_000
+    # §12a/§12b are also well-defined for a SINGLE sample (N=1): the per-sample projection panels need only one
+    # Q_i=∇²f_i. (The pair-based principal-angle / cross-projection panels just stay empty — no i≠j pairs.) §13/§14
+    # still require multi (they build N×N×N cubes). Lets you sanity-check §12b against §4 at N=1, where they coincide.
+    s12single = (s19 or s22) and not multi and M * p <= 700_000_000
     n7 = min(n, max(M, 1))
     n8 = min(n, max(1, p // 2))
     nResid = min(M, 12)
@@ -1849,7 +1853,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if multi_ok and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22):
+            if (multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22):
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -2232,7 +2236,7 @@ def run_stream(P):
             # the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (a single vectorised forward/backward per
             # step instead of N) — ~4–8× faster on GPU. Other archs fall back to the per-sample loop. Gated on N.
             sec12 = None; sec14 = None; sec13 = None
-            if (s19 or s20 or s21 or s22) and multi_ok and Jc is not None and rr is not None and N <= sec12ncap:
+            if (s19 or s20 or s21 or s22) and (multi_ok or s12single) and Jc is not None and rr is not None and N <= sec12ncap:
                 lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
                             if outD > 1 else torch.arange(N, device=_dev()))
                 K12 = max(1, min(SEC12_KFULL, p // 2))          # top-/bottom-K12 eigenpairs (covers k=1,2,5,10,kfull)
@@ -2265,7 +2269,7 @@ def run_stream(P):
                 r12 = rr[lblsel12]; Jg12 = Jc[lblsel12]
                 if s19 or s22:             # §12a (angles+diag-align) ⊕ §12b (proj) — both in one payload, shown by their toggles
                     sec12 = _sec12_payload(TV, TW, BV, BW, r12, Jg12, grid3dcap)
-                if s21 and N <= grid3dcap:                    # §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k (N HVPs, §11's tool) + G1/G2/G3
+                if s21 and multi_ok and N <= grid3dcap:       # §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k (N HVPs, §11's tool) + G1/G2/G3 — multi-only (N³ cube)
                     T1_13 = torch.zeros(N, N, N, dtype=DTYPE, device=_dev())
                     QJ_list = []
                     for kk in range(N):
@@ -2285,7 +2289,7 @@ def run_stream(P):
                             sec13["ndiff"] = (float((A - B).norm()) / nA * 100.0) if nA > 0 else 0.0
                     sec13_prev = {kk_: vv_.detach() for kk_, vv_ in cur13.items()}
                     sec13_qjprev = {"QJ": torch.stack(QJ_list).detach(), "r": r12.detach()}   # (N_j,N_i,p) Q_iJ_j at this tick → PREV for next
-                if s20:                                       # §14 shares §12's per-sample eigenpairs
+                if s20 and multi_ok:                          # §14 shares §12's per-sample eigenpairs — multi-only (N³ cubes)
                     sec14_rhist.append(r12.detach())
                     if len(sec14_rhist) > 5:
                         sec14_rhist.pop(0)

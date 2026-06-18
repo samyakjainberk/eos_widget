@@ -115,6 +115,9 @@ class Diagnostics:
         self.multi = self.M > 1
         # multi-sample sections form the M×p Jacobian — gate by a size budget
         self.multi_ok = self.multi and self.M <= max_M and self.M * p <= max_Mp
+        # §12a/§12b also run for a SINGLE sample (N=1): per-sample proj needs only one Q_i=∇²f_i (pair-based angle/
+        # cross panels stay empty). §13/§14 still require multi (N³ cubes). MIRRORS server. (Lets §12b be checked vs §4.)
+        self.s12single = bool(self.s19 or self.s22) and not self.multi and self.M * p <= max_Mp
         self.n = min(max(1, cfg.neig), half)
         self.kth = min(max(1, cfg.kth), half)
         self.nSub = min(max(self.n, self.kth, (10 if self.s6 else 1)), half)
@@ -306,7 +309,7 @@ class Diagnostics:
         want_multi = self.multi_ok and (self.s7 or self.s8 or self.s9 or self.s10 or self.s11
                                          or self.s12 or self.s13 or self.s15 or self.s16 or self.s17
                                          or self.s18 or self.s19 or self.s20 or self.s21 or self.s22)
-        if want_multi:
+        if want_multi or self.s12single:
             Jc, out_flat = jac_cols(self.model, th, X)
             rr = (-N * cS).reshape(-1)        # generic residual −N·∂L/∂out: Y−f (MSE), onehot−softmax (CE)
 
@@ -579,7 +582,7 @@ class Diagnostics:
         # MATRIX-FREE: extract each Q_i's top-K12 & bottom-K12 eigenpairs by Lanczos on v↦Q_i·v — no p×p
         # Hessian formed. For the MLP the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (one vectorised
         # forward/backward per step, ~4–8× faster on GPU); other archs fall back to the per-sample loop.
-        if ((self.s19 or self.s20 or self.s21 or self.s22) and self.multi_ok and Jc is not None and rr is not None
+        if ((self.s19 or self.s20 or self.s21 or self.s22) and (self.multi_ok or self.s12single) and Jc is not None and rr is not None
                 and N <= self.sec12ncap):
             lblsel12 = (torch.arange(N, device=dev) * outD + Y.reshape(N, outD).argmax(dim=1)
                         if outD > 1 else torch.arange(N, device=dev))
@@ -613,7 +616,7 @@ class Diagnostics:
             r12 = rr[lblsel12]; Jg12 = Jc[lblsel12]
             if self.s19 or self.s22:       # §12a (angles+diag-align) ⊕ §12b (proj) — both in one payload, shown by their toggles
                 rec["g4d"] = sec12_payload(TV, TW, BV, BW, r12, Jg12, self.grid3dcap)
-            if self.s21 and N <= self.grid3dcap:               # §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k (N HVPs, §11's tool) + G1/G2/G3
+            if self.s21 and self.multi_ok and N <= self.grid3dcap:   # §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k (N HVPs) + G1/G2/G3 — multi-only (N³ cube)
                 T1_13 = torch.zeros(N, N, N, dtype=dt, device=dev)
                 QJ_list = []
                 for kk in range(N):
@@ -633,7 +636,7 @@ class Diagnostics:
                         rec["g13"]["ndiff"] = (float((A - B).norm()) / nA * 100.0) if nA > 0 else 0.0
                 self._sec13_prev = {k_: v_.detach() for k_, v_ in cur13.items()}
                 self._sec13_qjprev = {"QJ": torch.stack(QJ_list).detach(), "r": r12.detach()}   # (N_j,N_i,p) → PREV for next tick
-            if self.s20:                                       # §14 shares §12's per-sample eigenpairs
+            if self.s20 and self.multi_ok:                     # §14 shares §12's per-sample eigenpairs — multi-only (N³ cubes)
                 self._sec14_rhist.append(r12.detach())
                 if len(self._sec14_rhist) > 5:
                     self._sec14_rhist.pop(0)

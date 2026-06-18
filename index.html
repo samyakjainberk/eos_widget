@@ -1766,7 +1766,7 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_cubic');if(el)el.style.display=chk('en17')?'':'none';}          // §10 cubic approximation (Eq-47/51) — own id (sec_10 is already §4c)
   {const el=document.getElementById('sec_g3d');if(el)el.style.display=(chk('en18')&&multi)?'':'none';}   // §11 3D Hessian–NTK grids (s18, multi-only)
   {const el=document.getElementById('sec_s12a');if(el)el.style.display=(chk('en19')&&multi)?'':'none';}   // §12a principal angles + diagonal alignment (s19, multi-only)
-  {const el=document.getElementById('sec_s12b');if(el)el.style.display=(chk('en22')&&multi)?'':'none';}   // §12b per-sample projections (s22, multi-only)
+  {const el=document.getElementById('sec_s12b');if(el)el.style.display=chk('en22')?'':'none';}   // §12b per-sample projections (s22) — works for N≥1 (single-sample too); its cross-projection panels just stay empty without sample pairs
   {const el=document.getElementById('sec_s13');if(el)el.style.display=(chk('en21')&&multi)?'':'none';}   // §13 residual-weighted curvature alignment (own toggle en21; reuses the §12 Lanczos)
   {const el=document.getElementById('sec_s14');if(el){const vis=(chk('en20')&&multi);el.style.display=vis?'':'none';   // §14 Tr(ΔNTK) per-triplet decomposition (s20, multi-only)
     if(vis&&typeof S14_SNAPS!=='undefined'&&S14_SNAPS.length)requestAnimationFrame(()=>s14RenderNow(S14_CURIDX));}}   // redraw canvases now that the divs have size
@@ -2306,7 +2306,7 @@ async function loop(){                                   // drives ST forward; r
         }
         // §4b/§4c shared base: top-n NTK eigenvectors v_k (sign-tracked) and J·r = Σ_a r_a ∇f_a, r=y−f
         let u1s=null,Jrs=null,Jrns=0,Rn=0,bJc=null,bEk=null,rrs=null;
-        if((O.s9||O.s10||O.s11||O.s12||O.s15||O.s16||O.s18||O.s19||O.s20||O.s21||O.s22)&&M>1){
+        if((O.s9||O.s10||O.s11||O.s12||O.s15||O.s16||O.s18||O.s19||O.s20||O.s21||O.s22)&&(M>1||O.s19||O.s22)){   // §12a/§12b also run for a single sample (M=1)
           const dn=M;const jc=jacCols(S.th,spec,X,N,inDim,p);bJc=jc.cols;
           const Km=new Float64Array(dn*dn);for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(bJc[a],bJc[b]);Km[a*dn+b]=v;Km[b*dn+a]=v;}
           bEk=symEigDesc(Km,dn);
@@ -2375,7 +2375,7 @@ async function loop(){                                   // drives ST forward; r
         // §12 — per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity (ground-truth-label output).
         // MATRIX-FREE: Lanczos on the per-sample HVP v↦Q_i·v (=hvpS with a one-hot cotangent) gives the top-/
         // bottom-K12 eigenpairs — no p×p Hessian formed, scales to any p. Gated on N (≤sec12ncap). Mirrors server.
-        if((O.s19||O.s20||O.s21||O.s22)&&M>1&&bJc&&rrs&&N<=S.sec12ncap){   // every tick (matrix-free Lanczos); §12b/§13/§14 reuse these eigenpairs
+        if((O.s19||O.s20||O.s21||O.s22)&&(M>1||O.s19||O.s22)&&bJc&&rrs&&N<=S.sec12ncap){   // §12a/§12b run for N≥1; §13/§14 below stay multi-only. matrix-free Lanczos; shared eigenpairs
           const oD=Math.round(M/N), lblsel=new Array(N);
           for(let i=0;i<N;i++){if(oD>1){let mx=-Infinity,mi=0;for(let c=0;c<oD;c++){const yv=Y[i*oD+c];if(yv>mx){mx=yv;mi=c;}}lblsel[i]=i*oD+mi;}else lblsel[i]=i;}
           const K12=Math.max(1,Math.min(SEC12_KFULL,Math.floor(p/2))), m12=Math.min(p,Math.max(6*K12,64));
@@ -2387,7 +2387,7 @@ async function loop(){                                   // drives ST forward; r
           if(O.s19||O.s22){          // §12a (angles+diag-align) ⊕ §12b (proj) — one payload, shown by their toggles
             s12Push({type:'g4d',t:S.t,...sec1213Payload(TV,TW,BV,BW,r12,Jg12,N,p,S.grid3dcap)});
           }
-          if(O.s21&&N<=S.grid3dcap){   // §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k via jacHVP (like §11) + G1/G2/G3 vs ref; needs t-1
+          if(O.s21&&M>1&&N<=S.grid3dcap){   // §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k via jacHVP (like §11) + G1/G2/G3 vs ref; needs t-1 — multi-only (N³ cube)
             const NN=N*N, ref13=new Float64Array(N*NN), QJ=[];
             for(let kk=0;kk<N;kk++){const QJk=jacHVP(S.th,spec,X,N,inDim,p,Jg12[kk],eps),QJr=lblsel.map(a=>QJk[a]);
               QJ.push(QJr);   // QJ[kk][i] = Q_i·J_kk
@@ -2403,7 +2403,7 @@ async function loop(){                                   // drives ST forward; r
               s13Push({type:'g13',t:S.t,...g13});}
             S13_PREV_JS=cur13;S13_QJPREV_JS={QJ:QJ,r:r12};
           }
-          if(O.s20){S14_RHIST_JS.push(r12);if(S14_RHIST_JS.length>5)S14_RHIST_JS.shift();   // §14: residual history for the eq-③ ratio
+          if(O.s20&&M>1){S14_RHIST_JS.push(r12);if(S14_RHIST_JS.length>5)S14_RHIST_JS.shift();   // §14: residual history for the eq-③ ratio — multi-only (N³ cubes)
             const cur14={TV:TV,TW:TW,BV:BV,BW:BW,r:r12,Jg:Jg12};
             if(S14_PREV_JS)s14Push({type:'g14',t:S.t,...sec14Payload(S14_PREV_JS,cur14,N,p,S.lr,S.grid3dcap,S14_RHIST_JS)});   // need t (prev); skip first eig-tick
             S14_PREV_JS=cur14;}
