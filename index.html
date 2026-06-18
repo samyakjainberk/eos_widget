@@ -620,6 +620,25 @@ function lanczosExtreme(hvpFn,p,n,m,seed){
   for(let i=0;i<n;i++){const bi=idx[Math.max(0,k-1-i)];botVecs.push(ritz(bi));botVals.push(vals[bi]);}
   return {topVecs,botVecs,topVals,botVals};
 }
+// Per-sample top-n⊕bottom-n for §12/13/14. MIRRORS server.batched_lanczos_extreme (NOT lanczosExtreme): build the k-step
+// Krylov, PAD T to m×m with a zero block so the spectrum has m entries (k real + (m-k) breakdown null-space zeros). Real
+// Ritz vectors → EXACT unit; spurious (zero-block) → EXACT 0 vector & 0 eigenvalue. This (vs lanczosExtreme's repeat-on-
+// breakdown) makes top/bottom split cleanly with zero-padding — matching the server on low-rank per-sample Hessians.
+function perSampleEig(hvpFn,p,n,m,seed){
+  const {Q,k,T}=lanczosCore(hvpFn,p,m,randVec(p,seed));
+  const Tm=new Float64Array(m*m);
+  for(let i=0;i<k;i++)Tm[i*m+i]=T[i*k+i];
+  for(let i=0;i<k-1;i++){const be=T[i*k+(i+1)];Tm[i*m+(i+1)]=be;Tm[(i+1)*m+i]=be;}
+  const {vals,V}=jacobiEig(Tm,m);
+  const idx=Array.from({length:m},(_,i)=>i).sort((a,b)=>vals[b]-vals[a]);   // eigenvalues descending
+  const mk=ti=>{const v=new Float64Array(p);for(let j=0;j<k;j++){const cc=V[j*m+ti];if(cc!==0){const qj=Q[j];for(let q=0;q<p;q++)v[q]+=cc*qj[q];}}   // zero-block eigvecs → 0 (Q has only k cols)
+    let nr=0;for(let q=0;q<p;q++)nr+=v[q]*v[q];nr=Math.sqrt(nr);   // real Ritz ‖·‖≈1 → EXACT unit ; spurious ‖·‖≈0 → 0
+    if(nr>0.5){for(let q=0;q<p;q++)v[q]/=nr;return {v,r:true};}for(let q=0;q<p;q++)v[q]=0;return {v,r:false};};
+  const topVecs=[],topVals=[],botVecs=[],botVals=[];
+  for(let i=0;i<n;i++){const ti=idx[i],o=mk(ti);topVecs.push(o.v);topVals.push(o.r?vals[ti]:0);}
+  for(let i=0;i<n;i++){const bi=idx[m-1-i],o=mk(bi);botVecs.push(o.v);botVals.push(o.r?vals[bi]:0);}
+  return {topVecs,botVecs,topVals,botVals};
+}
 function lanczosExtremeVals(hvpFn,p,n,m,seed){
   const {vals,idx,k}=lanczosT(hvpFn,p,m,seed);
   const top=[],bot=[];
@@ -1669,30 +1688,31 @@ function sec14Payload(prev,cur,N,p,lr,grid3dcap,rhist){
   // one rank-2y term with per-factor TIME sources: eig={TV,TW,BV,BW}; gauge grad gJ; b's J_i=bJ; c's r_j=cR; d's J_k=dJ; e's r_k=eR.
   function term(eig,gJ,bJ,cR,dJ,eR,y){
     const kk=Math.max(1,Math.min(y,K)),D=2*kk,DD=D*D;
-    const E=[],W=[],b=[],c=[];
+    const E=[],W=[],b=[],c=[],vE=[];
     for(let i=0;i<N;i++){
       const dirs=[],vals=[];
       for(let aa=0;aa<kk;aa++){dirs.push(eig.TV[i][aa]);vals.push(eig.TW[i][aa]);}
       for(let aa=0;aa<kk;aa++){dirs.push(eig.BV[i][aa]);vals.push(eig.BW[i][aa]);}
-      const Ei=[],Wi=new Float64Array(D),bi=new Float64Array(D),ci=new Float64Array(D);
+      const Ei=[],Wi=new Float64Array(D),bi=new Float64Array(D),ci=new Float64Array(D),vi=new Uint8Array(D);
       for(let dd=0;dd<D;dd++){const sgn=dotp(gJ[i],dirs[dd])>=0?1:-1,ev=new Float64Array(p);   // gradient gauge (prev grad)
         for(let q=0;q<p;q++)ev[q]=sgn*dirs[dd][q];Ei.push(ev);Wi[dd]=vals[dd];
+        vi[dd]=dotp(dirs[dd],dirs[dd])>0.25?1:0;   // REAL (unit) vs spurious (0) eigvec — spurious modes excluded below
         bi[dd]=vals[dd]*dotp(bJ[i],ev);ci[dd]=1+(lr/N)*vals[dd]*cR[i];}   // b: σ_i(J_i·u) J_i←bJ ; c: 1+(η/N)σ_j r_j r_j←cR
-      E.push(Ei);W.push(Wi);b.push(bi);c.push(ci);
+      E.push(Ei);W.push(Wi);b.push(bi);c.push(ci);vE.push(vi);
     }
     const dfac=[];for(let j=0;j<N;j++){const dj=[];for(let m=0;m<D;m++){const dm=new Float64Array(N);for(let k=0;k<N;k++)dm[k]=dotp(E[j][m],dJ[k]);dj.push(dm);}dfac.push(dj);}   // d: u_j·J_k J_k←dJ
     const a=[];for(let i=0;i<N;i++){const ai=[];for(let l=0;l<D;l++){const al=[];for(let j=0;j<N;j++){const aj=new Float64Array(D);for(let m=0;m<D;m++)aj[m]=dotp(E[i][l],E[j][m]);al.push(aj);}ai.push(al);}a.push(ai);}
     const aggG=[0,0,0,0,0].map(()=>new Float64Array(N3)),maxG=[0,0,0,0,0].map(()=>new Float64Array(N3)),minG=[0,0,0,0,0].map(()=>new Float64Array(N3));
     const sigF=new Float64Array(N3),sigL=new Float64Array(N3);
     for(let i=0;i<N;i++)for(let j=0;j<N;j++)for(let k=0;k<N;k++){
-      const off=(i*N+j)*N+k,ek=eR[k],Tlm=new Float64Array(DD);   // e: r_k←eR
-      let imax=0,imin=0,vmax=-Infinity,vmin=Infinity;
-      for(let l=0;l<D;l++){const bil=b[i][l],ail=a[i][l][j];for(let m=0;m<D;m++){
-        const t=ail[m]*bil*c[j][m]*dfac[j][m][k]*ek;Tlm[l*D+m]=t;
+      const off=(i*N+j)*N+k,ek=eR[k];   // e: r_k←eR
+      let imax=0,imin=0,vmax=-Infinity,vmin=Infinity;const valid=[];   // values of REAL (ℓ,p) modes only (spurious eigvec ⇒ excluded)
+      for(let l=0;l<D;l++){if(!vE[i][l])continue;const bil=b[i][l],ail=a[i][l][j];for(let m=0;m<D;m++){if(!vE[j][m])continue;
+        const t=ail[m]*bil*c[j][m]*dfac[j][m][k]*ek;valid.push(t);
         if(t>vmax){vmax=t;imax=l*D+m;}if(t<vmin){vmin=t;imin=l*D+m;}}}
-      const sorted=Array.from(Tlm).sort((x,z)=>z-x);
-      let topY=0,botY=0,tot=0;for(let q=0;q<kk;q++){topY+=sorted[q];botY+=sorted[DD-1-q];}for(let q=0;q<DD;q++)tot+=sorted[q];
-      aggG[0][off]=vmax;aggG[1][off]=vmin;aggG[2][off]=topY;aggG[3][off]=botY;aggG[4][off]=tot;
+      valid.sort((x,z)=>z-x);const nv=valid.length;   // Σtop-y / Σbot-y over REAL modes (zero-padded if < y); Σall (spurious T=0)
+      let topY=0,botY=0,tot=0;for(let q=0;q<kk&&q<nv;q++){topY+=valid[q];botY+=valid[nv-1-q];}for(let q=0;q<nv;q++)tot+=valid[q];
+      aggG[0][off]=nv?vmax:0;aggG[1][off]=nv?vmin:0;aggG[2][off]=topY;aggG[3][off]=botY;aggG[4][off]=tot;
       const lM=Math.floor(imax/D),mM=imax%D,lN=Math.floor(imin/D),mN=imin%D;
       let av=a[i][lM][j][mM],bv=b[i][lM],dv=dfac[j][mM][k];
       maxG[0][off]=av;maxG[1][off]=bv*dv;maxG[2][off]=av*bv*dv;maxG[3][off]=av*bv*dv*ek;maxG[4][off]=av*ek;sigF[off]=W[j][mM];
@@ -2354,7 +2374,7 @@ async function loop(){                                   // drives ST forward; r
           const K12=Math.max(1,Math.min(SEC12_KFULL,Math.floor(p/2))), m12=Math.min(p,Math.max(6*K12,64));
           const TV=[],TW=[],BV=[],BW=[];
           for(let i=0;i<N;i++){const c=new Float64Array(M);c[lblsel[i]]=1;   // one-hot cotangent → Q_i·v via hvpS
-            const le=lanczosExtreme(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,c),p,K12,m12,(0x5EC12+i*7919)>>>0);
+            const le=perSampleEig(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,c),p,K12,m12,(0x5EC12+i*7919)>>>0);   // batched-style: real→unit, spurious→0
             TV.push(le.topVecs);TW.push(le.topVals);BV.push(le.botVecs);BW.push(le.botVals);}
           const r12=lblsel.map(a=>rrs[a]), Jg12=lblsel.map(a=>bJc[a]);   // GT-label residual + gradient ∇f_i per sample
           if(O.s19||O.s22){          // §12a (angles+diag-align) ⊕ §12b (proj) — one payload, shown by their toggles

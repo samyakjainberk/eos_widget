@@ -306,6 +306,7 @@ def _sec14_payload(prev, cur, lr, grid3dcap, rhist):
         W = torch.cat([TWx[:, :kk], BWx[:, :kk]], dim=1)              # (N,D) signed eigenvalues σ
         gE = torch.einsum('ip,idp->id', Jgg, E)
         E = E * torch.where(gE >= 0, torch.ones_like(gE), -torch.ones_like(gE)).unsqueeze(2)   # GRADIENT GAUGE (prev grad)
+        vE = E.norm(dim=2) > 0.5                                     # (N,D) REAL (unit) vs spurious (0) eigvec mask
         a = torch.einsum('ilp,jmp->ijlm', E, E)                      # (N,N,D,D)  u_{i,ℓ}·u_{j,p}
         b = W * torch.einsum('ip,idp->id', Jgb, E)                   # (N,D)      σ_{i,ℓ}(J_i·u_{i,ℓ}) ; J_i ← Jgb
         c = 1.0 + (lr / N) * W * rcc.view(N, 1)                      # (N,D)  1+(η/N)σ_{j,p}r_j ; r_j ← rcc (η/N = 1/N GD step)
@@ -313,7 +314,7 @@ def _sec14_payload(prev, cur, lr, grid3dcap, rhist):
         e = ree                                                      # (N,)       r_k ← ree
         T = (a.unsqueeze(2) * b.view(N, 1, 1, D, 1) * c.view(1, N, 1, 1, D)
              * d.permute(0, 2, 1).reshape(1, N, N, 1, D) * e.view(1, 1, N, 1, 1))   # (N,N,N,D,D)
-        return a, b, d, e, W, T, D, kk
+        return a, b, d, e, W, T, D, kk, vE
 
     def argsel(Tf, D):                                   # FIRST (ℓ,p) on ties (flat ℓ·D+p order) → cross-backend parity
         ar = torch.arange(D * D, device=dev).view(1, 1, 1, D * D); big = torch.full((), D * D, device=dev, dtype=ar.dtype)
@@ -321,14 +322,24 @@ def _sec14_payload(prev, cur, lr, grid3dcap, rhist):
         imin = torch.where(Tf == Tf.amin(3, keepdim=True), ar, big).amin(3).clamp_(max=D * D - 1)
         return imax, imin
 
+    inf = float("inf")
+    def modemask(vE, D):                                 # (N,N,N,D²): mode (ℓ,p) REAL iff u_{i,ℓ} & u_{j,p} both real (∀k)
+        return (vE.view(N, 1, D, 1) & vE.view(1, N, 1, D)).reshape(N, N, D * D).unsqueeze(2).expand(N, N, N, D * D)
+    def finite(x):                                       # drop the ±inf left in all-spurious cells (no real mode) → 0
+        return torch.where(torch.isfinite(x), x, torch.zeros_like(x))
+
     p14 = {}; sig_sel = {"first": {}, "last": {}}
     for y in SEC14_YS:
         # ---- panels 1-9: u,σ,r_j(c),J_k(d) at t (prev); J_i(b)=cur, r_k(e)=cur; gauge = prev gradient ----
-        a, b, d, e, W, T, D, kk = build(TVp, TWp, BVp, BWp, Jgp, Jgc, rp, Jgp, rc, y)
+        a, b, d, e, W, T, D, kk, vE = build(TVp, TWp, BVp, BWp, Jgp, Jgc, rp, Jgp, rc, y)
         Tf = T.reshape(N, N, N, D * D)
-        Ts, _ = torch.sort(Tf, dim=3, descending=True)
-        agg = [Ts[..., 0], Ts[..., -1], Ts[..., :kk].sum(3), Ts[..., D * D - kk:].sum(3), Tf.sum(3)]
-        imax, imin = argsel(Tf, D)
+        vm = modemask(vE, D)                             # SPURIOUS modes (zero-norm eigvec) excluded from sort/select
+        Tmax = Tf.masked_fill(~vm, -inf); Tmin = Tf.masked_fill(~vm, inf)   # spurious → ∓inf so they're never max/min
+        Tsx, _ = torch.sort(Tmax, dim=3, descending=True)   # real desc, spurious(-inf) last
+        Tsn, _ = torch.sort(Tmin, dim=3, descending=False)  # real asc,  spurious(+inf) last
+        agg = [finite(Tsx[..., 0]), finite(Tsn[..., 0]),    # max / min over REAL modes
+               finite(Tsx[..., :kk]).sum(3), finite(Tsn[..., :kk]).sum(3), Tf.sum(3)]   # Σtop-y / Σbot-y (real); Σall (T=0 for spurious)
+        imax = argsel(Tmax, D)[0]; imin = argsel(Tmin, D)[1]   # argmax/argmin restricted to REAL modes
 
         def subprods(idx):                               # 5 sub-products at the per-cell selected (ℓ*,p*)
             lst = idx // D; mst = idx % D
@@ -341,10 +352,10 @@ def _sec14_payload(prev, cur, lr, grid3dcap, rhist):
         p14[str(y)] = {"agg": [pack14(x) for x in agg], "max": [pack14(x) for x in sub_max],
                        "min": [pack14(x) for x in sub_min]}
 
-        # ---- panel 10 (UNCHANGED): all-CURRENT term → its argmax/argmin mode + current σ_{j,p} ----
-        _, _, _, _, Wc, Tc, Dc, _ = build(TVc, TWc, BVc, BWc, Jgc, Jgc, rc, Jgc, rc, y)
-        Tcf = Tc.reshape(N, N, N, Dc * Dc)
-        imax_c, imin_c = argsel(Tcf, Dc)
+        # ---- panel 10 (eq-③): all-CURRENT term → its argmax/argmin REAL mode + current σ_{j,p} ----
+        _, _, _, _, Wc, Tc, Dc, _, vEc = build(TVc, TWc, BVc, BWc, Jgc, Jgc, rc, Jgc, rc, y)
+        Tcf = Tc.reshape(N, N, N, Dc * Dc); vmc = modemask(vEc, Dc)
+        imax_c = argsel(Tcf.masked_fill(~vmc, -inf), Dc)[0]; imin_c = argsel(Tcf.masked_fill(~vmc, inf), Dc)[1]
         Wjc = Wc.view(1, N, 1, Dc).expand(N, N, N, Dc)               # σ_{j,p} at t+1, selected by the current term
         sig_sel["first"][str(y)] = Wjc.gather(3, (imax_c % Dc).unsqueeze(3)).squeeze(3)
         sig_sel["last"][str(y)] = Wjc.gather(3, (imin_c % Dc).unsqueeze(3)).squeeze(3)
@@ -1309,8 +1320,14 @@ def batched_lanczos_extreme(hvp_batch, p, N, n, m, seeds):
         vals = torch.gather(mu, 1, ix)
         Svs = torch.gather(Sv, 2, ix.unsqueeze(1).expand(N, k, nn))   # (N,k,nn)
         vecs = torch.einsum('nkp,nkj->njp', Qmat, Svs)               # (N,nn,p)
-        vecs = vecs / vecs.norm(dim=2, keepdim=True).clamp_min(1.0)   # safety: never amplify a spurious ~0 Ritz vector
-        return vecs, vals                                            #         (only shrinks |·|>1 to unit); ⇒ |cos|≤1
+        # Real Ritz vectors have ‖·‖≈1 (orthonormal Krylov basis); on breakdown the surplus requested eigenpairs are
+        # SPURIOUS null-space vectors with ‖·‖≈0. Make the distinction EXACT: real → unit-normalized; spurious → 0
+        # vector AND 0 eigenvalue (a clean sentinel every §12/13/14 consumer excludes; also avoids amplifying noise).
+        nrm = vecs.norm(dim=2, keepdim=True)
+        real = nrm > 0.5
+        vecs = torch.where(real, vecs / nrm.clamp_min(1e-30), torch.zeros_like(vecs))   # real → EXACT unit ; spurious → 0
+        vals = torch.where(real.squeeze(2), vals, torch.zeros_like(vals))               # spurious eigenvalue → EXACT 0
+        return vecs, vals
     tv, tw = gp(top); bv, bw = gp(bot)
     return tv, tw, bv, bw
 
