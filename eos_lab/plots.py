@@ -882,10 +882,10 @@ S12_HISTBINS = 40   # §12 panel-4/5 alignment-histogram bar count (shared bins 
 
 
 def plot_section12_proj(hist):
-    """§12 panels 4/5 — per-sample gradient↔eigvec ALIGNMENT q_i = |⟨J_i,u⟩|/‖J_i‖ (= |cos∠(J_i,u)| ∈ [0,1]) over
-    training, 2D. TOP-2 eigvecs u_{i,1},u_{i,2} (row 0 = panel 4) and BOTTOM-2 u_{i,-1},u_{i,-2} (row 1 = panel 5);
-    rank-1 solid, rank-2 dashed (2 lines/plot). 2 cols: mean alignment, std alignment (over samples). Reads
-    proj.{top,bot}=[{cos},…] (one dict per rank). None if <2 records."""
+    """§12 panels 4/5 — per-sample PRODUCT proj_i·r_i = |⟨J_i,u⟩|·σ·r_i (cols 1-2) and gradient↔eigvec ALIGNMENT
+    q_i = |⟨J_i,u⟩|/‖J_i‖ (= |cos∠(J_i,u)| ∈ [0,1]; cols 3-4) over training, 2D. TOP-2 eigvecs u_{i,1},u_{i,2}
+    (row 0 = panel 4) and BOTTOM-2 u_{i,-1},u_{i,-2} (row 1 = panel 5); rank-1 solid, rank-2 dashed (2 lines/plot).
+    Reads proj.{top,bot}=[{prod,cos},…] (one dict per rank). None if <2 records."""
     import numpy as np
     recs = [r for r in hist if "g4d" in r and r["g4d"].get("proj") is not None
             and r["g4d"]["proj"].get("top")]
@@ -893,14 +893,15 @@ def plot_section12_proj(hist):
         return None
     t = list(range(len(recs)))
     P = [r["g4d"]["proj"] for r in recs]
-    cols = [("cos", 0, "⟨|⟨J,u⟩|/‖J‖⟩"), ("cos", 1, "σ(|⟨J,u⟩|/‖J‖)")]
+    cols = [("prod", 0, "⟨proj·r⟩", False), ("prod", 1, "σ(proj·r)", False),
+            ("cos", 0, "⟨|⟨J,u⟩|/‖J‖⟩", True), ("cos", 1, "σ(|⟨J,u⟩|/‖J‖)", False)]
     rows = [("top", "Panel 4 — top-2 u_{i,1},u_{i,2}", ["#2563eb", "#93c5fd"]),
             ("bot", "Panel 5 — bottom-2 u_{i,-1},u_{i,-2}", ["#dc2626", "#fca5a5"])]
     nrank = max((len(p.get("top", [])) for p in P), default=0)
     rlab = ["rank-1", "rank-2"]; dash = ["-", "--"]
-    fig, axs = plt.subplots(2, 2, figsize=(12, 8))
+    fig, axs = plt.subplots(2, 4, figsize=(20, 8))
     for ri, (grp, rlabel, palette) in enumerate(rows):
-        for ci, (key, si, yl) in enumerate(cols):
+        for ci, (key, si, yl, pin) in enumerate(cols):
             ax = axs[ri][ci]
             ax.axhline(0, c="#d1d5db", lw=0.8)
             for rk in range(nrank):
@@ -908,20 +909,20 @@ def plot_section12_proj(hist):
                 ax.plot(t, y, color=palette[rk % len(palette)], marker="o", ms=3, lw=1.4,
                         ls=dash[rk % len(dash)], label=(rlab[rk] if rk < len(rlab) else f"rank-{rk + 1}"))
             ax.set_xlabel("step"); ax.set_ylabel(yl)
-            if ci == 0:                                        # mean ∈ [0,1]; pin the y-axis so the scale is honest
+            if pin:                                            # mean alignment ∈ [0,1]; pin the y-axis so the scale is honest
                 ax.set_ylim(-0.02, 1.02)
             ax.set_title((rlabel + " · " if ci == 0 else "") + yl, fontsize=9)
-            if ci == 0 and nrank > 1:
+            if ci in (0, 2) and nrank > 1:
                 ax.legend(fontsize=7, loc="best")
-    fig.suptitle("§12 panels 4/5 — alignment |⟨J,u⟩|/‖J‖ ∈ [0,1] (top row: u_{i,1..2}; bottom row: u_{i,-1..-2})", fontsize=13)
+    fig.suptitle("§12 panels 4/5 — product |⟨J,u⟩|·σ·r (cols 1-2) & alignment |⟨J,u⟩|/‖J‖ ∈ [0,1] (cols 3-4)", fontsize=13)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     return fig
 
 
 def plot_section12_hist(hist):
-    """§12 panels 4/5 histogram over the N samples at the LAST snapshot: per-sample alignment |⟨J_i,u⟩|/‖J_i‖,
-    for the TOP-2 (row 0) and BOTTOM-2 (row 1) eigvecs — rank-1 & rank-2 overlaid (shared bins). Reads
-    proj.{top,bot}=[{vals},…] (one dict per rank)."""
+    """§12 panels 4/5 histograms over the N samples at the LAST snapshot: per-sample PRODUCT proj_i·r_i (col 0) and
+    ALIGNMENT |⟨J_i,u⟩|/‖J_i‖ (col 1), for the TOP-2 (row 0) and BOTTOM-2 (row 1) eigvecs — rank-1 & rank-2 overlaid
+    (shared bins). Reads proj.{top,bot}=[{pvals,vals},…] (one dict per rank)."""
     import numpy as np
     def has_vals(r):
         tp = r["g4d"]["proj"].get("top") if r.get("g4d", {}).get("proj") else None
@@ -931,27 +932,29 @@ def plot_section12_hist(hist):
         return None
     P = recs[-1]["g4d"]["proj"]; step = recs[-1].get("t", len(recs) - 1)
     rows = [("top", ["#2563eb", "#93c5fd"]), ("bot", ["#dc2626", "#fca5a5"])]
+    hcols = [(0, "pvals", "proj·r", "proj_i·r_i"), (1, "vals", "|⟨J,u⟩|/‖J‖", "|⟨J_i,u⟩|/‖J_i‖")]
     rlab = ["rank-1", "rank-2"]
-    fig, axs = plt.subplots(2, 1, figsize=(9, 7))
+    fig, axs = plt.subplots(2, 2, figsize=(13, 7))
     for ri, (grp, palette) in enumerate(rows):
-        ax = axs[ri]
         ranks = P.get(grp, []) or []
-        allv = np.concatenate([np.asarray(rk.get("vals", []), dtype=float) for rk in ranks]) if ranks else np.array([])
-        allv = allv[np.isfinite(allv)]
-        if allv.size:                                          # shared bins across ranks so the overlay aligns
-            lo, hi = float(allv.min()), float(allv.max())
-            if hi == lo:
-                lo, hi = lo - 0.5, hi + 0.5
-            vbins = np.linspace(lo, hi, S12_HISTBINS + 1)
-        else:
-            vbins = 10
-        for rk, rkd in enumerate(ranks):
-            v = np.asarray(rkd.get("vals", []), dtype=float)
-            lab = rlab[rk] if rk < len(rlab) else f"rank-{rk + 1}"
-            ax.hist(v, bins=vbins, color=palette[rk % len(palette)], edgecolor="white", alpha=0.6, label=lab)
-        ax.set_title(f"{grp} · |⟨J,u⟩|/‖J‖ over samples (step {step})", fontsize=10)
-        ax.set_xlabel("|⟨J_i,u⟩|/‖J_i‖"); ax.set_ylabel("count"); ax.legend(fontsize=7)
-    fig.suptitle("§12 panels 4/5 — per-sample alignment histograms at the last iteration", fontsize=13)
+        for ci, key, qname, xl in hcols:
+            ax = axs[ri][ci]
+            allv = np.concatenate([np.asarray(rk.get(key, []), dtype=float) for rk in ranks]) if ranks else np.array([])
+            allv = allv[np.isfinite(allv)]
+            if allv.size:                                      # shared bins across ranks so the overlay aligns
+                lo, hi = float(allv.min()), float(allv.max())
+                if hi == lo:
+                    lo, hi = lo - 0.5, hi + 0.5
+                vbins = np.linspace(lo, hi, S12_HISTBINS + 1)
+            else:
+                vbins = 10
+            for rk, rkd in enumerate(ranks):
+                v = np.asarray(rkd.get(key, []), dtype=float)
+                lab = rlab[rk] if rk < len(rlab) else f"rank-{rk + 1}"
+                ax.hist(v, bins=vbins, color=palette[rk % len(palette)], edgecolor="white", alpha=0.6, label=lab)
+            ax.set_title(f"{grp} · {qname} over samples (step {step})", fontsize=10)
+            ax.set_xlabel(xl); ax.set_ylabel("count"); ax.legend(fontsize=7)
+    fig.suptitle("§12 panels 4/5 — per-sample product & alignment histograms at the last iteration", fontsize=13)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     return fig
 

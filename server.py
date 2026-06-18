@@ -82,10 +82,12 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
         titles); ang.mn/mx/me = min/max/MEAN over the OFF-DIAGONAL pairs (i≠j; the i=i diagonal angle is 0),
         used by the panel-2/3 evolution curves; ang.ks lists the k per index.
       proj = panels 4/5. For the TOP-2 eigvecs u_{i,1},u_{i,2} (largest eigenvalues → proj.top, a list of 2 ranks)
-        and the BOTTOM-2 u_{i,-1},u_{i,-2} (most-negative → proj.bot) of Q_i, each rank carries {cos:[mean,std],
-        vals}: cos = [mean,std] over samples of the per-sample gradient↔eigvec ALIGNMENT q_i = |⟨J_i,u⟩|/‖J_i‖
-        (= |cos∠(J_i,u)| ∈ [0,1]; u is unit-norm); vals = the per-sample q_i for the histogram (‖J_i‖=0 dropped).
-        MIRRORS eos_lab.linalg.sec12_payload / index.html sec1213Payload."""
+        and the BOTTOM-2 u_{i,-1},u_{i,-2} (most-negative → proj.bot) of Q_i, each rank carries TWO quantities:
+          • prod:[mean,std], pvals — the per-sample PRODUCT prod_i = |⟨J_i,u⟩|·σ·r_i (all samples; row-1 cols 1-2),
+          • cos:[mean,std], vals   — the per-sample gradient↔eigvec ALIGNMENT q_i = |⟨J_i,u⟩|/‖J_i‖ (= |cos∠(J_i,u)|
+            ∈ [0,1]; u unit-norm; ‖J_i‖=0 dropped; row-1 cols 3-4).
+        pvals/vals = the per-sample arrays for the row-2 histograms. MIRRORS eos_lab.linalg.sec12_payload /
+        index.html sec1213Payload."""
     import math as _m
     N, K, p = int(TV.shape[0]), int(TV.shape[1]), int(TV.shape[2])
     dev = TV.device
@@ -109,14 +111,15 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
            "mn": [o[0] for o in om], "mx": [o[1] for o in om], "me": [o[2] for o in om], "ks": ks_ang, "kfull": kf}
 
     # ---- panels 4/5: TOP-2 (u_{i,1},u_{i,2}; largest eigenvalues) and BOTTOM-2 (u_{i,-1},u_{i,-2}; most-negative)
-    #      eigvecs of Q_i. Plotted = the per-sample gradient↔eigvec ALIGNMENT q_i = |⟨J_i,u⟩|/‖J_i‖ (= |cos∠(J_i,u)|
-    #      ∈ [0,1]), then mean/std over samples (‖J_i‖=0 dropped). 2 ranks/group → 2 lines per plot. ----
+    #      eigvecs of Q_i. TWO per-sample quantities, each mean/std over samples (2 ranks/group → 2 lines per plot):
+    #      (a) PRODUCT prod_i = |⟨J_i,u⟩|·σ·r_i (all samples); (b) ALIGNMENT q_i = |⟨J_i,u⟩|/‖J_i‖ = |cos∠| ∈ [0,1]
+    #      (‖J_i‖=0 dropped). ----
     ai = torch.arange(N, device=dev)
     nrank = min(2, K)                                            # the top-2 (and bottom-2) eigenvectors → 2 lines/plot
     jnorm = Jg.norm(dim=1)                                       # ‖J_i‖ = per-sample gradient norm
-    nz = jnorm > 0                                              # drop samples with ‖J_i‖=0 (can't normalise)
+    nz = jnorm > 0                                              # drop samples with ‖J_i‖=0 (can't normalise the alignment)
 
-    def align_stats(V, W, largest):                            # V/W = (TV,TW) top or (BV,BW) bottom
+    def rank_stats(V, W, largest):                             # V/W = (TV,TW) top or (BV,BW) bottom
         idx = W.topk(nrank, dim=1, largest=largest).indices    # (N,nrank): rank 0 = largest (top)/most-negative (bottom), rank 1 = 2nd
         def ms(x):
             return [float(x.mean()), float(x.std(unbiased=False))] if x.numel() else [0.0, 0.0]
@@ -124,13 +127,15 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
         for rk in range(nrank):
             irk = idx[:, rk]
             jdot = (Jg * V[ai, irk]).sum(dim=1)                # ⟨J_i,u⟩  (u unit-norm)
-            q = jdot[nz].abs() / jnorm[nz]                     # |⟨J_i,u⟩|/‖J_i‖ = |cos∠(J_i,u)| ∈ [0,1]
-            out.append({"cos": ms(q),                          # vals = per-sample alignment for the histogram
-                        "vals": q.detach().cpu().tolist()})
+            sig = W[ai, irk]                                   # σ (signed eigenvalue)
+            prod = (jdot.abs() * sig) * r                      # PRODUCT |⟨J_i,u⟩|·σ·r_i  (all samples)
+            q = jdot[nz].abs() / jnorm[nz]                     # ALIGNMENT |⟨J_i,u⟩|/‖J_i‖ = |cos∠(J_i,u)| ∈ [0,1]
+            out.append({"prod": ms(prod), "pvals": prod.detach().cpu().tolist(),   # product (+ per-sample for histogram)
+                        "cos": ms(q), "vals": q.detach().cpu().tolist()})          # alignment (+ per-sample for histogram)
         return out
 
     out = {"M": N, "do3d": False, "ks": [1, 2, 5], "ang": ang,
-           "proj": {"top": align_stats(TV, TW, True), "bot": align_stats(BV, BW, False)}}
+           "proj": {"top": rank_stats(TV, TW, True), "bot": rank_stats(BV, BW, False)}}
     return out
 
 

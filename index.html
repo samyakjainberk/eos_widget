@@ -266,16 +266,16 @@
 <p class="cap">Same as Panel 2 (min / max / mean over $i\neq j$ vs step) but for $k=1$ and $k=2$.</p>
 <div class="plotrow row3"><div id="p_s12evo_mn_1" class="plot" style="height:280px"></div><div id="p_s12evo_mx_1" class="plot" style="height:280px"></div><div id="p_s12evo_me_1" class="plot" style="height:280px"></div></div>
 <div class="plotrow row3"><div id="p_s12evo_mn_2" class="plot" style="height:280px"></div><div id="p_s12evo_mx_2" class="plot" style="height:280px"></div><div id="p_s12evo_me_2" class="plot" style="height:280px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — gradient alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert$ for the TOP-2 eigenvectors $u_{i,1},u_{i,2}$ (largest eigenvalues)</h3>
-<p class="cap">$u_{i,1},u_{i,2}$ = eigenvectors of the two <b>largest</b> signed eigenvalues of $Q_i$ (<b>rank-1</b> solid, <b>rank-2</b> dotted — 2 lines per plot). For each sample we form the <b>normalized projection</b> $q_i=|\langle J_i,u\rangle|/\lVert J_i\rVert=|\cos\angle(J_i,u)|\in[0,1]$ (alignment of the per-sample gradient $J_i$ with the unit eigenvector $u$), then aggregate across samples ($\lVert J_i\rVert=0$ dropped). 2D vs step: (1) <b>mean</b> $\langle q_i\rangle$ and (2) <b>std</b> $\sigma(q_i)$. Bounded in $[0,1]$ by Cauchy–Schwarz — it cannot blow up.</p>
-<div class="plotrow row2"><div id="p_s12proj_top0" class="plot" style="height:300px"></div><div id="p_s12proj_top1" class="plot" style="height:300px"></div></div>
-<p class="cap" style="margin-top:6px">Histogram over the $N$ samples at the <b>current iteration</b> (redrawn every step): the per-sample alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert$, with rank-1 &amp; rank-2 overlaid.</p>
-<div class="plotrow row1"><div id="p_s12hist_top_val" class="plot" style="height:250px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 5 — gradient alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert$ for the BOTTOM-2 eigenvectors $u_{i,-1},u_{i,-2}$ (most-negative eigenvalues)</h3>
-<p class="cap">Same as Panel 4 but with $u_{i,-1},u_{i,-2}$ = eigenvectors of the two <b>most-negative</b> eigenvalues of $Q_i$; rank-1 = most-negative (solid), rank-2 = next (dotted). (1) mean $\langle q_i\rangle$ and (2) std $\sigma(q_i)$ of $q_i=|\langle J_i,u\rangle|/\lVert J_i\rVert=|\cos\angle(J_i,u)|\in[0,1]$. Per sample first, then aggregated across samples.</p>
-<div class="plotrow row2"><div id="p_s12proj_bot0" class="plot" style="height:300px"></div><div id="p_s12proj_bot1" class="plot" style="height:300px"></div></div>
-<p class="cap" style="margin-top:6px">Histogram over the $N$ samples at the <b>current iteration</b> (redrawn every step): the per-sample alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert$, with rank-1 &amp; rank-2 overlaid.</p>
-<div class="plotrow row1"><div id="p_s12hist_bot_val" class="plot" style="height:250px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — product $|\langle J_i,u\rangle|\,\sigma\,r_i$ and alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert$ for the TOP-2 eigenvectors $u_{i,1},u_{i,2}$ (largest eigenvalues)</h3>
+<p class="cap">$u_{i,1},u_{i,2}$ = eigenvectors of the two <b>largest</b> signed eigenvalues of $Q_i$ (<b>rank-1</b> solid, <b>rank-2</b> dotted — 2 lines per plot). Two per-sample quantities, aggregated across samples. <b>Row of 4 plots</b>: (1) mean &amp; (2) std of the <b>product</b> $\text{proj}_i\cdot r_i=|\langle J_i,u\rangle|\cdot\sigma\cdot r_i$ (all samples; scales with the eigenvalue $\sigma$, so it can grow large during sharpening); (3) mean &amp; (4) std of the <b>alignment</b> $q_i=|\langle J_i,u\rangle|/\lVert J_i\rVert=|\cos\angle(J_i,u)|\in[0,1]$ ($\lVert J_i\rVert=0$ dropped; bounded by Cauchy–Schwarz).</p>
+<div class="plotrow row4"><div id="p_s12proj_top0" class="plot" style="height:290px"></div><div id="p_s12proj_top1" class="plot" style="height:290px"></div><div id="p_s12proj_top2" class="plot" style="height:290px"></div><div id="p_s12proj_top3" class="plot" style="height:290px"></div></div>
+<p class="cap" style="margin-top:6px">Histograms over the $N$ samples at the <b>current iteration</b> (redrawn every step), rank-1 &amp; rank-2 overlaid: the per-sample <b>product</b> $\text{proj}_i\cdot r_i$ (left) and the <b>alignment</b> $|\langle J_i,u\rangle|/\lVert J_i\rVert$ (right).</p>
+<div class="plotrow row2"><div id="p_s12hist_top_prod" class="plot" style="height:250px"></div><div id="p_s12hist_top_cos" class="plot" style="height:250px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 5 — product $|\langle J_i,u\rangle|\,\sigma\,r_i$ and alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert$ for the BOTTOM-2 eigenvectors $u_{i,-1},u_{i,-2}$ (most-negative eigenvalues)</h3>
+<p class="cap">Same as Panel 4 but with $u_{i,-1},u_{i,-2}$ = eigenvectors of the two <b>most-negative</b> eigenvalues of $Q_i$ (so $\sigma<0$); rank-1 = most-negative (solid), rank-2 = next (dotted). 4 plots: (1) mean &amp; (2) std of the product $|\langle J_i,u\rangle|\,\sigma\,r_i$ ; (3) mean &amp; (4) std of the alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert\in[0,1]$. Per sample first, then aggregated across samples.</p>
+<div class="plotrow row4"><div id="p_s12proj_bot0" class="plot" style="height:290px"></div><div id="p_s12proj_bot1" class="plot" style="height:290px"></div><div id="p_s12proj_bot2" class="plot" style="height:290px"></div><div id="p_s12proj_bot3" class="plot" style="height:290px"></div></div>
+<p class="cap" style="margin-top:6px">Histograms over the $N$ samples at the <b>current iteration</b> (redrawn every step), rank-1 &amp; rank-2 overlaid: the per-sample <b>product</b> $\text{proj}_i\cdot r_i$ (left) and the <b>alignment</b> $|\langle J_i,u\rangle|/\lVert J_i\rVert$ (right).</p>
+<div class="plotrow row2"><div id="p_s12hist_bot_prod" class="plot" style="height:250px"></div><div id="p_s12hist_bot_cos" class="plot" style="height:250px"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -1059,8 +1059,8 @@ function s13DiffMean(i,acc){let s=0,c=0;for(let j=0;j<=i&&j<S12_SNAPS.length;j++
 // adaptive μ formatter: exponential for tiny/huge magnitudes so a small grid-mean shows e.g. 3.2e-3 instead of "0.00"
 const fmtMu=x=>{if(x==null||!isFinite(x))return '–';const a=Math.abs(x);return (a!==0&&(a<0.05||a>=1e4))?x.toExponential(1):x.toFixed(2);};
 function s12CubeIds(){return [];}   // §12/§13 no longer have any WebGL cubes (§12 angles+evolution only; §13 is time-series)
-function s12ProjIds(){const a=[];for(const g of ['top','bot'])for(let n=0;n<2;n++)a.push('p_s12proj_'+g+n);return a;}
-function s12HistIds(){return ['p_s12hist_top_val','p_s12hist_bot_val'];}
+function s12ProjIds(){const a=[];for(const g of ['top','bot'])for(let n=0;n<4;n++)a.push('p_s12proj_'+g+n);return a;}
+function s12HistIds(){return ['p_s12hist_top_prod','p_s12hist_top_cos','p_s12hist_bot_prod','p_s12hist_bot_cos'];}
 function s12AllIds(){const a=[];for(let n=0;n<4;n++)a.push('p_s12ang_'+n);return a.concat(s12ProjIds()).concat(s12HistIds()).concat(s12EvoIds());}
 // ── §13 — G1/G2/G3 approximations vs the exact reference J_iᵀQ_jJ_k·r_k (time-series mean±std clouds) ──
 const S13_GS=[1,2,3], S13_KS=[2,5], S13_DOMS=['ndist','ijeq','diag'];
@@ -1332,11 +1332,12 @@ function s12EvoRender(){
 }
 // panel 4: residual ↔ proj correlation — trajectories over training (x=proj stat, y=residual stat; colour=step)
 // Panel 4: 3D evolution trajectories — x=step t, y=proj statistic, z=residual statistic (colour=step)
-// Panels 4 (TOP-2 eigvecs) & 5 (BOTTOM-2 eigvecs): per-sample ALIGNMENT |⟨J,u⟩|/‖J‖ = |cos∠(J,u)|, 2D vs step, 2 lines/plot.
-// 2 plots/panel: mean alignment, std alignment (across samples). proj.{top,bot}=[{cos:[mean,std],vals},…] (one dict per rank).
-const S12P_TITLE=['mean ⟨|⟨J,u⟩|/‖J‖⟩','std σ(|⟨J,u⟩|/‖J‖)'];
-const S12P_YL=['⟨|cos∠(J,u)|⟩','σ(|cos∠(J,u)|)'];   // |⟨J_i,u⟩|/‖J_i‖ = |cos∠(J_i,u)| ∈ [0,1]
-const S12P_STAT=[['cos',0],['cos',1]];   // [key, stat-index] per plot: mean, std (across samples)
+// Panels 4 (TOP-2 eigvecs) & 5 (BOTTOM-2 eigvecs): TWO per-sample quantities vs step, 2 lines/plot (rank-1,rank-2).
+// Row-1 = 4 plots: mean & std of the PRODUCT proj·r = |⟨J,u⟩|·σ·r_i, then mean & std of the ALIGNMENT |⟨J,u⟩|/‖J‖ = |cos∠|.
+// proj.{top,bot}=[{prod:[m,s],pvals, cos:[m,s],vals},…] (one dict per rank). Row-2 = 2 histograms: product, alignment.
+const S12P_TITLE=['mean ⟨proj·r⟩','std σ(proj·r)','mean ⟨|⟨J,u⟩|/‖J‖⟩','std σ(|⟨J,u⟩|/‖J‖)'];
+const S12P_YL=['⟨proj·r⟩','σ(proj·r)','⟨|cos∠(J,u)|⟩','σ(|cos∠(J,u)|)'];   // proj·r=|⟨J,u⟩|·σ·r_i ; |⟨J,u⟩|/‖J‖=|cos∠|∈[0,1]
+const S12P_STAT=[['prod',0],['prod',1],['cos',0],['cos',1]];   // [key, stat-index] per plot
 const S12P_GRP=[['top','p_s12proj_top','#2563eb','#93c5fd'],['bot','p_s12proj_bot','#dc2626','#fca5a5']];   // panel 4 (top, blue) / panel 5 (bottom, red); 2nd colour = rank-2 shade
 const S12P_NRANK=2;                       // 2 lines per plot: rank-1 (u_{i,1}/u_{i,-1}) and rank-2 (u_{i,2}/u_{i,-2})
 const S12P_RLAB=['rank-1','rank-2'];
@@ -1364,15 +1365,15 @@ function s12ProjRender(){
     const xs=[],ys=[];for(let rk=0;rk<S12P_NRANK;rk++){xs.push(t.slice());ys.push(S12P_DATA[grp][n][rk].slice());}
     Plotly.restyle(pre+n,{x:xs,y:ys});}
 }
-function s12HistDraw(i){   // panels 4/5 alignment histogram over samples at the CURRENT snapshot i (redrawn each render); rank-1 & rank-2 overlaid
+function s12HistDraw(i){   // panels 4/5 histograms (product + alignment) over samples at the CURRENT snapshot i (redrawn each render); rank-1 & rank-2 overlaid
   const s=S12_SNAPS[i];if(!s||!s.proj)return;
-  const draw=(id,ranks,title,palette)=>{const div=document.getElementById(id);if(!div)return;
+  const draw=(id,ranks,key,title,palette)=>{const div=document.getElementById(id);if(!div)return;
     ranks=ranks||[];
     let xbins=null,lo=Infinity,hi=-Infinity;   // shared bins across the two ranks so the overlay aligns
-    for(let rk=0;rk<ranks.length;rk++)for(const v of ((ranks[rk]||{}).vals||[]))if(isFinite(v)){if(v<lo)lo=v;if(v>hi)hi=v;}
+    for(let rk=0;rk<ranks.length;rk++)for(const v of ((ranks[rk]||{})[key]||[]))if(isFinite(v)){if(v<lo)lo=v;if(v>hi)hi=v;}
     if(isFinite(lo)&&isFinite(hi)){if(hi===lo){lo-=0.5;hi+=0.5;}const sz=(hi-lo)/S12_HISTBINS||1;xbins={start:lo,end:hi+sz,size:sz};}
     const traces=[];
-    for(let rk=0;rk<ranks.length;rk++){const vals=(ranks[rk]||{}).vals||[];
+    for(let rk=0;rk<ranks.length;rk++){const vals=(ranks[rk]||{})[key]||[];
       const tr={x:vals.slice(),type:'histogram',opacity:0.6,name:S12P_RLAB[rk],marker:{color:palette[rk],line:{color:'#fff',width:0.4}}};
       if(xbins)tr.xbins=xbins;
       traces.push(tr);}
@@ -1382,8 +1383,10 @@ function s12HistDraw(i){   // panels 4/5 alignment histogram over samples at the
       showlegend:true,legend:{font:{size:8},x:0.99,xanchor:'right',y:0.99,yanchor:'top',bgcolor:'rgba(255,255,255,0.6)'}},
       {responsive:true,displaylogo:false});};
   const tp=s.proj.top||[],bt=s.proj.bot||[],tc=['#2563eb','#93c5fd'],bc=['#dc2626','#fca5a5'];
-  draw('p_s12hist_top_val',tp,'top · |⟨J,u⟩|/‖J‖  (step '+s.t+')',tc);
-  draw('p_s12hist_bot_val',bt,'bottom · |⟨J,u⟩|/‖J‖  (step '+s.t+')',bc);
+  draw('p_s12hist_top_prod',tp,'pvals','top · proj·r  (step '+s.t+')',tc);          // product histogram
+  draw('p_s12hist_top_cos', tp,'vals', 'top · |⟨J,u⟩|/‖J‖',tc);                      // alignment histogram
+  draw('p_s12hist_bot_prod',bt,'pvals','bottom · proj·r  (step '+s.t+')',bc);
+  draw('p_s12hist_bot_cos', bt,'vals', 'bottom · |⟨J,u⟩|/‖J‖',bc);
 }
 function s12RenderIdx(i){S12_PENDING=i;if(S12_RAF)return;S12_RAF=requestAnimationFrame(()=>{S12_RAF=0;const j=S12_PENDING;S12_PENDING=-1;if(j>=0)s12RenderNow(j);});}
 function s12Heat2DSnap(id,flat,N,lab,signed,deg,run){
@@ -1487,18 +1490,20 @@ function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap){   // §12: principal an
   const pas=ks.map(k=>s12Angles(TV,BV,N,p,k)), om=pas.map(x=>s12OffStats(x.g,N));
   const ang={g:pas.map(x=>x.g),gm:pas.map(x=>x.gm),mn:om.map(o=>o[0]),mx:om.map(o=>o[1]),me:om.map(o=>o[2]),ks:ks,kfull:kf};
   // panels 4/5: TOP-2 (u_{i,1},u_{i,2}; largest eigenvalues) & BOTTOM-2 (u_{i,-1},u_{i,-2}; most-negative) eigvecs of Q_i.
-  //   Per-sample gradient↔eigvec ALIGNMENT q_i = |⟨J_i,u⟩|/‖J_i‖ (= |cos∠(J_i,u)| ∈ [0,1]); mean/std over samples. 2 ranks.
+  //   TWO per-sample quantities (mean/std over samples, 2 ranks): PRODUCT |⟨J,u⟩|·σ·r_i (all) + ALIGNMENT |⟨J,u⟩|/‖J‖ (=|cos∠|∈[0,1]).
   const ms=arr=>{if(!arr.length)return [0,0];let s=0;for(let q=0;q<arr.length;q++)s+=arr[q];const m=s/arr.length;let v=0;for(let q=0;q<arr.length;q++){const d=arr[q]-m;v+=d*d;}return [m,Math.sqrt(v/arr.length)];};
   const nrank=Math.min(2,K);
   const jnorm=Jg.map(j=>Math.sqrt(s12Dot(j,j,p)));   // ‖J_i‖ = per-sample gradient norm
-  const alignStats=(V,W,largest)=>{
+  const rankStats=(V,W,largest)=>{
     const orders=[];for(let i=0;i<N;i++){const ord=Array.from(W[i],(_,j)=>j);ord.sort((a,b)=>largest?W[i][b]-W[i][a]:W[i][a]-W[i][b]);orders.push(ord);}   // per-sample eigval ranking (rank 0 = largest/most-negative)
     const out=[];
-    for(let rk=0;rk<nrank;rk++){const vv=[];
-      for(let i=0;i<N;i++){if(jnorm[i]>0){const ir=orders[i][rk],jd=s12Dot(Jg[i],V[i][ir],p);vv.push(Math.abs(jd)/jnorm[i]);}}   // |⟨J_i,u⟩|/‖J_i‖ = |cos∠(J_i,u)| (‖J_i‖=0 dropped)
-      out.push({cos:ms(vv),vals:vv});}
+    for(let rk=0;rk<nrank;rk++){const pv=[],vv=[];
+      for(let i=0;i<N;i++){const ir=orders[i][rk],sig=W[i][ir],jd=s12Dot(Jg[i],V[i][ir],p);
+        pv.push(Math.abs(jd)*sig*r[i]);                          // PRODUCT |⟨J,u⟩|·σ·r_i  (all samples)
+        if(jnorm[i]>0)vv.push(Math.abs(jd)/jnorm[i]);}           // ALIGNMENT |⟨J,u⟩|/‖J‖ = |cos∠| (‖J‖=0 dropped)
+      out.push({prod:ms(pv),pvals:pv,cos:ms(vv),vals:vv});}
     return out;};
-  return {M:N,do3d:false,ks:[1,2,5],ang:ang,proj:{top:alignStats(TV,TW,true),bot:alignStats(BV,BW,false)}};
+  return {M:N,do3d:false,ks:[1,2,5],ang:ang,proj:{top:rankStats(TV,TW,true),bot:rankStats(BV,BW,false)}};
 }
 // §13 — G1/G2/G3 rank-k₀ approximations vs the exact reference J_iᵀQ_jJ_k·r_k. MIRRORS server._sec13_stats.
 // cur/prev = {TV,TW,BV,BW,r,Jg}: TV[i][a]=Float64Array(p) a-th top eigvec of Q_i, TW[i][a]=eigval, r[i], Jg[i].
