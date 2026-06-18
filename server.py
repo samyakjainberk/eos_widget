@@ -1568,6 +1568,7 @@ def run_stream(P):
     s18 = P.get("s18", 0)                # §11: 3D grids T1=JᵢᵀQⱼJₖ, T2=uⱼuₖT1, T3=rᵢuⱼuₖT1 (multi-sample, small M)
     s19 = P.get("s19", 0)                # §12: per-sample Q_i eigenvector cross-similarity grids/cuboids (small N)
     s20 = P.get("s20", 0)                # §14: Tr(ΔNTK) per-triplet (i,j,k) decomposition cubes (small N; shares §12 eigenpairs)
+    s21 = P.get("s21", 0)                # §13: residual-weighted curvature G1/G2/G3 vs exact J_iᵀQ_jJ_k·r_k (own toggle; shares §12 Lanczos + adds N HVPs)
     grid3dcap = max(1, P.get("grid3dcap", 30))
     sec12ncap = max(1, P.get("sec12ncap", 500))    # §12 sample cap (gates N). NOTE: §12 builds dense p×p Hessians
                                                     # (p HVPs + O(p³) eig per sample) → large p is SLOW; keep models small.
@@ -1730,7 +1731,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if multi_ok and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20):
+            if multi_ok and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21):
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -2113,7 +2114,7 @@ def run_stream(P):
             # the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (a single vectorised forward/backward per
             # step instead of N) — ~4–8× faster on GPU. Other archs fall back to the per-sample loop. Gated on N.
             sec12 = None; sec14 = None; sec13 = None
-            if (s19 or s20) and multi_ok and Jc is not None and rr is not None and N <= sec12ncap:
+            if (s19 or s20 or s21) and multi_ok and Jc is not None and rr is not None and N <= sec12ncap:
                 lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
                             if outD > 1 else torch.arange(N, device=_dev()))
                 K12 = max(1, min(SEC12_KFULL, p // 2))          # top-/bottom-K12 eigenpairs (covers k=1,2,5,10,kfull)
@@ -2146,17 +2147,17 @@ def run_stream(P):
                 r12 = rr[lblsel12]; Jg12 = Jc[lblsel12]
                 if s19:
                     sec12 = _sec12_payload(TV, TW, BV, BW, r12, Jg12, grid3dcap)
-                    if N <= grid3dcap:                        # §13: exact ref J_iᵀQ_jJ_k·r_k (N HVPs, §11's tool) + G1/G2/G3
-                        T1_13 = torch.zeros(N, N, N, dtype=DTYPE, device=_dev())
-                        for kk in range(N):
-                            QJk = jac_hvp(th, X, Jg12[kk])                  # (M,p) = {Q_a·J_k}_a over all outputs
-                            QJr = QJk[lblsel12] if outD > 1 else QJk        # (N,p) GT-label rows = {Q_j·J_k}_j
-                            T1_13[:, :, kk] = Jg12 @ QJr.t()                # [i,j] = J_i·(Q_j J_k)
-                        ref13 = T1_13 * r12.view(1, 1, N)                   # exact reference · r_k
-                        cur13 = {"TV": TV, "TW": TW, "BV": BV, "BW": BW, "r": r12, "Jg": Jg12}
-                        if sec13_prev is not None:             # need t-1 for Q_i/Q_k & J',r → skip the first eig-tick
-                            sec13 = _sec13_stats(cur13, sec13_prev, ref13, lr)
-                        sec13_prev = {kk_: vv_.detach() for kk_, vv_ in cur13.items()}
+                if s21 and N <= grid3dcap:                    # §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k (N HVPs, §11's tool) + G1/G2/G3
+                    T1_13 = torch.zeros(N, N, N, dtype=DTYPE, device=_dev())
+                    for kk in range(N):
+                        QJk = jac_hvp(th, X, Jg12[kk])                  # (M,p) = {Q_a·J_k}_a over all outputs
+                        QJr = QJk[lblsel12] if outD > 1 else QJk        # (N,p) GT-label rows = {Q_j·J_k}_j
+                        T1_13[:, :, kk] = Jg12 @ QJr.t()                # [i,j] = J_i·(Q_j J_k)
+                    ref13 = T1_13 * r12.view(1, 1, N)                   # exact reference · r_k
+                    cur13 = {"TV": TV, "TW": TW, "BV": BV, "BW": BW, "r": r12, "Jg": Jg12}
+                    if sec13_prev is not None:                 # need t-1 for Q_i/Q_k & J',r → skip the first eig-tick
+                        sec13 = _sec13_stats(cur13, sec13_prev, ref13, lr)
+                    sec13_prev = {kk_: vv_.detach() for kk_, vv_ in cur13.items()}
                 if s20:                                       # §14 shares §12's per-sample eigenpairs
                     sec14_rhist.append(r12.detach())
                     if len(sec14_rhist) > 5:

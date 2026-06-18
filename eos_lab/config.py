@@ -116,6 +116,9 @@ class Config:
                     #   eigendecompositions — small N (≤grid3dcap) AND small p (≤sec12pcap) only.
     s20: int = 0    # §14 Tr(ΔNTK) per-triplet (i,j,k) decomposition cubes — reuses §12's per-sample Lanczos
                     #   eigenpairs; small N (≤grid3dcap). OFF by default.
+    s21: int = 0    # §13 residual-weighted curvature G1/G2/G3 vs the exact reference J_iᵀQ_jJ_k·r_k — reuses §12's
+                    #   per-sample Lanczos eigenpairs but adds N HVPs for the exact reference; small N (≤grid3dcap).
+                    #   OWN toggle (independent of §12/s19); triggers the shared Lanczos by itself. OFF by default.
 
     # ---- test set (held-out) ----
     n_test: int = 0                # held-out test points (0 ⇒ default: max(nsamp, 256), capped per dataset)

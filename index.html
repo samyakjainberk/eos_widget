@@ -216,6 +216,7 @@
   <label title="3D grids over sample indices (i,j,k): T1=JᵢᵀQⱼJₖ, T2=uⱼuₖ·T1, T3=rᵢuⱼuₖ·T1 (u=top NTK eigvec, r=residual). Multi-sample only; OFF by default (N³ points + N Hessian-vector products → small N). Live-updates + scrub past snapshots; drag to rotate."><input type="checkbox" id="en18"> 11 · 3D Hessian–NTK grids</label>
   <label title="Per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity over sample pairs (i,j): max/top-10 |cos| of top-k⊕bottom-k eigenvectors, with eigenvalue- and residual-sign weightings, plus mean principal angles. Multi-sample only; OFF by default. Each Q_i's top-/bottom-15 eigenpairs come from matrix-free Lanczos (no p×p Hessian), so it scales to large models; only N is capped."><input type="checkbox" id="en19"> 12 · per-sample Hessian eigvec similarity</label>
   <label title="§14 — per-triplet (i,j,k) decomposition of Tr(ΔNTK)=Σ a·b·c·d·e over rank-2y eigenpairs of the per-sample function Hessians. 10 panels of N×N×N cubes (sorted-term aggregates, sub-products, eq-③ history ratio). Shares §12's matrix-free Lanczos eigenpairs; multi-sample only, small N (N³ cubes); OFF by default."><input type="checkbox" id="en20"> 14 · Tr(ΔNTK) triplet decomposition</label>
+  <label title="§13 — residual-weighted curvature: rank-k₀ approximations G1/G2/G3 of the exact reference J_iᵀQ_jJ_k·r_k, from the per-sample Lanczos top-k₀⊕bottom-k₀ eigenpairs, vs the exact reference (N extra HVPs). Multi-sample only, small N (N³); OFF by default. Its OWN toggle — independent of §12; turning it on triggers the shared per-sample Lanczos by itself."><input type="checkbox" id="en21"> 13 · residual-weighted curvature G1/G2/G3</label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -1618,7 +1619,7 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_cubic');if(el)el.style.display=chk('en17')?'':'none';}          // §10 cubic approximation (Eq-47/51) — own id (sec_10 is already §4c)
   {const el=document.getElementById('sec_g3d');if(el)el.style.display=(chk('en18')&&multi)?'':'none';}   // §11 3D Hessian–NTK grids (s18, multi-only)
   {const el=document.getElementById('sec_s12');if(el)el.style.display=(chk('en19')&&multi)?'':'none';}   // §12 per-sample Hessian eigvec similarity (s19, multi-only)
-  {const el=document.getElementById('sec_s13');if(el)el.style.display=(chk('en19')&&multi)?'':'none';}   // §13 residual-weighted curvature alignment (shares the §12 toggle/compute)
+  {const el=document.getElementById('sec_s13');if(el)el.style.display=(chk('en21')&&multi)?'':'none';}   // §13 residual-weighted curvature alignment (own toggle en21; reuses the §12 Lanczos)
   {const el=document.getElementById('sec_s14');if(el){const vis=(chk('en20')&&multi);el.style.display=vis?'':'none';   // §14 Tr(ΔNTK) per-triplet decomposition (s20, multi-only)
     if(vis&&typeof S14_SNAPS!=='undefined'&&S14_SNAPS.length)requestAnimationFrame(()=>s14RenderNow(S14_CURIDX));}}   // redraw canvases now that the divs have size
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
@@ -1998,7 +1999,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
   const qmode=Math.max(1,+val('qmode')||1), tset=Math.max(1,+val('tset')||1);   // qmode (legacy, unused by Eq-22); Eq-29 set-T size
   const nProbe=Math.max(1,+val('slqprobes')), efrac=Math.min(1,Math.max(0.5,(+val('energyp'))/100));
-  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),gs:val('gson')==='1'};
+  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),gs:val('gson')==='1'};
   OPT=opt;
   const {spec,p}=buildSpec(inDim,width,depth,act,useBias,outDim);
   if(p>100000){st.textContent=`p=${p} parameters exceeds the cap (100000). Reduce width/depth.`;ST=null;updateButtons();return;}
@@ -2156,7 +2157,7 @@ async function loop(){                                   // drives ST forward; r
         }
         // §4b/§4c shared base: top-n NTK eigenvectors v_k (sign-tracked) and J·r = Σ_a r_a ∇f_a, r=y−f
         let u1s=null,Jrs=null,Jrns=0,Rn=0,bJc=null,bEk=null,rrs=null;
-        if((O.s9||O.s10||O.s11||O.s12||O.s15||O.s16||O.s18||O.s19||O.s20)&&M>1){
+        if((O.s9||O.s10||O.s11||O.s12||O.s15||O.s16||O.s18||O.s19||O.s20||O.s21)&&M>1){
           const dn=M;const jc=jacCols(S.th,spec,X,N,inDim,p);bJc=jc.cols;
           const Km=new Float64Array(dn*dn);for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(bJc[a],bJc[b]);Km[a*dn+b]=v;Km[b*dn+a]=v;}
           bEk=symEigDesc(Km,dn);
@@ -2225,7 +2226,7 @@ async function loop(){                                   // drives ST forward; r
         // §12 — per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity (ground-truth-label output).
         // MATRIX-FREE: Lanczos on the per-sample HVP v↦Q_i·v (=hvpS with a one-hot cotangent) gives the top-/
         // bottom-K12 eigenpairs — no p×p Hessian formed, scales to any p. Gated on N (≤sec12ncap). Mirrors server.
-        if((O.s19||O.s20)&&M>1&&bJc&&rrs&&N<=S.sec12ncap){   // every tick (matrix-free Lanczos); §14 reuses these eigenpairs
+        if((O.s19||O.s20||O.s21)&&M>1&&bJc&&rrs&&N<=S.sec12ncap){   // every tick (matrix-free Lanczos); §13/§14 reuse these eigenpairs
           const oD=Math.round(M/N), lblsel=new Array(N);
           for(let i=0;i<N;i++){if(oD>1){let mx=-Infinity,mi=0;for(let c=0;c<oD;c++){const yv=Y[i*oD+c];if(yv>mx){mx=yv;mi=c;}}lblsel[i]=i*oD+mi;}else lblsel[i]=i;}
           const K12=Math.max(1,Math.min(SEC12_KFULL,Math.floor(p/2))), m12=Math.min(p,Math.max(6*K12,64));
@@ -2236,14 +2237,14 @@ async function loop(){                                   // drives ST forward; r
           const r12=lblsel.map(a=>rrs[a]), Jg12=lblsel.map(a=>bJc[a]);   // GT-label residual + gradient ∇f_i per sample
           if(O.s19){
             s12Push({type:'g4d',t:S.t,...sec1213Payload(TV,TW,BV,BW,r12,Jg12,N,p,S.grid3dcap)});
-            if(N<=S.grid3dcap){   // §13: exact ref J_iᵀQ_jJ_k·r_k via jacHVP (like §11) + G1/G2/G3 vs ref; needs t-1
-              const NN=N*N, ref13=new Float64Array(N*NN);
-              for(let kk=0;kk<N;kk++){const QJk=jacHVP(S.th,spec,X,N,inDim,p,Jg12[kk],eps),QJr=lblsel.map(a=>QJk[a]);
-                for(let i=0;i<N;i++){const ji=Jg12[i];for(let j=0;j<N;j++)ref13[i*NN+j*N+kk]=dot(ji,QJr[j])*r12[kk];}}
-              const cur13={TV:TV,TW:TW,BV:BV,BW:BW,r:r12,Jg:Jg12};
-              if(S13_PREV_JS)s13Push({type:'g13',t:S.t,...sec13Stats(cur13,S13_PREV_JS,ref13,N,S.lr)});
-              S13_PREV_JS=cur13;
-            }
+          }
+          if(O.s21&&N<=S.grid3dcap){   // §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k via jacHVP (like §11) + G1/G2/G3 vs ref; needs t-1
+            const NN=N*N, ref13=new Float64Array(N*NN);
+            for(let kk=0;kk<N;kk++){const QJk=jacHVP(S.th,spec,X,N,inDim,p,Jg12[kk],eps),QJr=lblsel.map(a=>QJk[a]);
+              for(let i=0;i<N;i++){const ji=Jg12[i];for(let j=0;j<N;j++)ref13[i*NN+j*N+kk]=dot(ji,QJr[j])*r12[kk];}}
+            const cur13={TV:TV,TW:TW,BV:BV,BW:BW,r:r12,Jg:Jg12};
+            if(S13_PREV_JS)s13Push({type:'g13',t:S.t,...sec13Stats(cur13,S13_PREV_JS,ref13,N,S.lr)});
+            S13_PREV_JS=cur13;
           }
           if(O.s20){S14_RHIST_JS.push(r12);if(S14_RHIST_JS.length>5)S14_RHIST_JS.shift();   // §14: residual history for the eq-③ ratio
             s14Push({type:'g14',t:S.t,...sec14Payload(TV,TW,BV,BW,r12,Jg12,N,p,S.lr,S.grid3dcap,S14_RHIST_JS)});}
@@ -2463,7 +2464,7 @@ function _zip(files){const enc=new TextEncoder(),parts=[],cd=[];let off=0;
 function _b64bytes(durl){const s=atob(durl.split(',')[1]),a=new Uint8Array(s.length);for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return a;}
 function _cfgText(){const ids=['preset','compute','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','depth','width','act','bias','fixedx','inputstd','ssign','optimizer','indim','outdim','nsamp','batch','tgt','lr','init','initscheme','steps','seed','neig','kth','eigevery','heavyevery','slqprobes','energyp','gson','qapprox','qmode','tset','cubicapprox'];
   const L=ids.map(id=>{const e=document.getElementById(id);return e?(id+' = '+e.value):null;}).filter(Boolean);
-  L.push('panels: '+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20'].map(id=>id+'='+(chk(id)?1:0)).join(' '));
+  L.push('panels: '+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21'].map(id=>id+'='+(chk(id)?1:0)).join(' '));
   const stt=document.getElementById('status');if(stt&&stt.textContent)L.push('status: '+stt.textContent);
   return 'EoS / Progressive-Sharpening — run configuration\n\n'+L.join('\n')+'\n';}
 // ---- self-contained animated-GIF export of the §11/§12/§13 cubes (rotating) + 2D grids (over snapshots) ----
@@ -2524,7 +2525,7 @@ async function _gifPass(files){
   const s12sy=document.getElementById('s12_sync'),g3sy=document.getElementById('g3d_sync');
   const s12w=s12sy&&s12sy.checked,g3w=g3sy&&g3sy.checked;if(s12sy)s12sy.checked=false;if(g3sy)g3sy.checked=false;
   const s12cur=S12_CURIDX, s12had=chk('en19')&&S12_SNAPS.length;
-  const s13had=chk('en19')&&S13_STEPS.length;
+  const s13had=chk('en21')&&S13_STEPS.length;
   const s14cur=S14_CURIDX, s14had=chk('en20')&&S14_SNAPS.length&&S14_SNAPS[s14cur]&&S14_SNAPS[s14cur].do3d;
   // Free the §12/§13/§14 lazy WebGL cubes up-front: nothing competes for the WebGL budget during export, and the §11
   // 3D cubes (exported first, below) get a fresh, uncontended budget. Exporting §11 last exhausts headless software-
@@ -2609,7 +2610,7 @@ function backendURL(start){
    'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree'].forEach(id=>ps.set(id,val(id)));
   [['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
-   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
+   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
   ps.set('start',String(start||0));
   return 'run?'+ps.toString();
 }
@@ -2642,7 +2643,7 @@ function openStream(start,resuming){
   es.onerror=()=>{if(RUNNING&&!PAUSED)st.textContent='backend connection lost — start it with “python server.py”, then press Run (or switch compute to browser).';finish();};
 }
 function runGPU(){
-  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),gs:val('gson')==='1'};
+  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),gs:val('gson')==='1'};
   lastT=-1;META=null;cursorX=null;openStream(0,false);
 }
 function stopGPU(){ if(RUNNING){PAUSED=true;if(ES){ES.close();ES=null;}RUNNING=false;document.getElementById('status').textContent=`stopped at step ${lastT} — press Resume to continue.`;updateButtons();} }
@@ -2701,7 +2702,7 @@ function syncLossPanels(){
 function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic' && val('arch')==='mlp'){ runLocal(true); } }
 document.getElementById('loss').addEventListener('change',syncLossPanels);
 document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
-['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
 ['s14f_y1','s14f_y2','s14f_y5','s14f_agg','s14f_max','s14f_min','s14f_ratio'].forEach(id=>{const e=document.getElementById(id);if(e)e.addEventListener('change',s14ApplyPanelFilter);});
 if(typeof s14ApplyPanelFilter==='function')s14ApplyPanelFilter();   // apply the default §14 panel selection on load
 {const sl=document.getElementById('g3d_slider');if(sl)sl.addEventListener('input',function(){g3dRenderIdx(+this.value);});}   // §11 scrub past snapshots

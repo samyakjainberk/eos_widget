@@ -92,6 +92,7 @@ class Diagnostics:
         self.s18 = P.get("s18", 0)          # §11: 3D grids T1=JᵢᵀQⱼJₖ, T2=uⱼuₖT1, T3=rᵢuⱼuₖT1 (multi-sample, small M)
         self.s19 = P.get("s19", 0)          # §12: per-sample Q_i eigenvector cross-similarity (multi-sample, small N & p)
         self.s20 = P.get("s20", 0)          # §14: Tr(ΔNTK) per-triplet decomposition cubes (shares §12 eigenpairs)
+        self.s21 = P.get("s21", 0)          # §13: residual-weighted curvature G1/G2/G3 vs exact ref (own toggle; shares §12 Lanczos)
         self._sec14_rhist = []              # §14: per-sample residual history (last ≤5 ticks) for the eq-③ ratio
         self._sec13_prev = None             # §13: previous eig-tick's per-sample {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
         if loss.name == "ce":
@@ -301,7 +302,7 @@ class Diagnostics:
         Jc = rr = None
         want_multi = self.multi_ok and (self.s7 or self.s8 or self.s9 or self.s10 or self.s11
                                          or self.s12 or self.s13 or self.s15 or self.s16 or self.s17
-                                         or self.s18 or self.s19 or self.s20)
+                                         or self.s18 or self.s19 or self.s20 or self.s21)
         if want_multi:
             Jc, out_flat = jac_cols(self.model, th, X)
             rr = (-N * cS).reshape(-1)        # generic residual −N·∂L/∂out: Y−f (MSE), onehot−softmax (CE)
@@ -575,7 +576,7 @@ class Diagnostics:
         # MATRIX-FREE: extract each Q_i's top-K12 & bottom-K12 eigenpairs by Lanczos on v↦Q_i·v — no p×p
         # Hessian formed. For the MLP the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (one vectorised
         # forward/backward per step, ~4–8× faster on GPU); other archs fall back to the per-sample loop.
-        if ((self.s19 or self.s20) and self.multi_ok and Jc is not None and rr is not None
+        if ((self.s19 or self.s20 or self.s21) and self.multi_ok and Jc is not None and rr is not None
                 and N <= self.sec12ncap):
             lblsel12 = (torch.arange(N, device=dev) * outD + Y.reshape(N, outD).argmax(dim=1)
                         if outD > 1 else torch.arange(N, device=dev))
@@ -609,17 +610,17 @@ class Diagnostics:
             r12 = rr[lblsel12]; Jg12 = Jc[lblsel12]
             if self.s19:
                 rec["g4d"] = sec12_payload(TV, TW, BV, BW, r12, Jg12, self.grid3dcap)
-                if N <= self.grid3dcap:                        # §13: exact ref J_iᵀQ_jJ_k·r_k (N HVPs, §11's tool) + G1/G2/G3
-                    T1_13 = torch.zeros(N, N, N, dtype=dt, device=dev)
-                    for kk in range(N):
-                        QJk = jac_hvp(self.model, th, X, Jg12[kk])     # (M,p) = {Q_a·J_k}_a over all outputs
-                        QJr = QJk[lblsel12] if outD > 1 else QJk       # (N,p) GT-label rows = {Q_j·J_k}_j
-                        T1_13[:, :, kk] = Jg12 @ QJr.t()               # [i,j] = J_i·(Q_j J_k)
-                    ref13 = T1_13 * r12.view(1, 1, N)                  # exact reference · r_k
-                    cur13 = {"TV": TV, "TW": TW, "BV": BV, "BW": BW, "r": r12, "Jg": Jg12}
-                    if self._sec13_prev is not None:           # need t-1 for Q_i/Q_k & J',r → skip the first eig-tick
-                        rec["g13"] = sec13_stats(cur13, self._sec13_prev, ref13, self.lr)
-                    self._sec13_prev = {k_: v_.detach() for k_, v_ in cur13.items()}
+            if self.s21 and N <= self.grid3dcap:               # §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k (N HVPs, §11's tool) + G1/G2/G3
+                T1_13 = torch.zeros(N, N, N, dtype=dt, device=dev)
+                for kk in range(N):
+                    QJk = jac_hvp(self.model, th, X, Jg12[kk])     # (M,p) = {Q_a·J_k}_a over all outputs
+                    QJr = QJk[lblsel12] if outD > 1 else QJk       # (N,p) GT-label rows = {Q_j·J_k}_j
+                    T1_13[:, :, kk] = Jg12 @ QJr.t()               # [i,j] = J_i·(Q_j J_k)
+                ref13 = T1_13 * r12.view(1, 1, N)                  # exact reference · r_k
+                cur13 = {"TV": TV, "TW": TW, "BV": BV, "BW": BW, "r": r12, "Jg": Jg12}
+                if self._sec13_prev is not None:               # need t-1 for Q_i/Q_k & J',r → skip the first eig-tick
+                    rec["g13"] = sec13_stats(cur13, self._sec13_prev, ref13, self.lr)
+                self._sec13_prev = {k_: v_.detach() for k_, v_ in cur13.items()}
             if self.s20:                                       # §14 shares §12's per-sample eigenpairs
                 self._sec14_rhist.append(r12.detach())
                 if len(self._sec14_rhist) > 5:
