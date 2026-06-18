@@ -93,6 +93,7 @@ class Diagnostics:
         self.s19 = P.get("s19", 0)          # §12: per-sample Q_i eigenvector cross-similarity (multi-sample, small N & p)
         self.s20 = P.get("s20", 0)          # §14: Tr(ΔNTK) per-triplet decomposition cubes (shares §12 eigenpairs)
         self.s21 = P.get("s21", 0)          # §13: residual-weighted curvature G1/G2/G3 vs exact ref (own toggle; shares §12 Lanczos)
+        self.s22 = P.get("s22", 0)          # §12b: per-sample projection panels (s19=§12a angles+diag-align; both share the §12 Lanczos)
         self._sec14_rhist = []              # §14: per-sample residual history (last ≤5 ticks) for the eq-③ ratio
         self._sec14_prev = None             # §14: previous eig-tick's {TV,TW,BV,BW,r,Jg} (u,σ,r_j,J_k at t; cur gives J_i,r_k at t+1)
         self._sec13_prev = None             # §13: previous eig-tick's per-sample {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
@@ -304,7 +305,7 @@ class Diagnostics:
         Jc = rr = None
         want_multi = self.multi_ok and (self.s7 or self.s8 or self.s9 or self.s10 or self.s11
                                          or self.s12 or self.s13 or self.s15 or self.s16 or self.s17
-                                         or self.s18 or self.s19 or self.s20 or self.s21)
+                                         or self.s18 or self.s19 or self.s20 or self.s21 or self.s22)
         if want_multi:
             Jc, out_flat = jac_cols(self.model, th, X)
             rr = (-N * cS).reshape(-1)        # generic residual −N·∂L/∂out: Y−f (MSE), onehot−softmax (CE)
@@ -578,7 +579,7 @@ class Diagnostics:
         # MATRIX-FREE: extract each Q_i's top-K12 & bottom-K12 eigenpairs by Lanczos on v↦Q_i·v — no p×p
         # Hessian formed. For the MLP the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (one vectorised
         # forward/backward per step, ~4–8× faster on GPU); other archs fall back to the per-sample loop.
-        if ((self.s19 or self.s20 or self.s21) and self.multi_ok and Jc is not None and rr is not None
+        if ((self.s19 or self.s20 or self.s21 or self.s22) and self.multi_ok and Jc is not None and rr is not None
                 and N <= self.sec12ncap):
             lblsel12 = (torch.arange(N, device=dev) * outD + Y.reshape(N, outD).argmax(dim=1)
                         if outD > 1 else torch.arange(N, device=dev))
@@ -610,7 +611,7 @@ class Diagnostics:
                     BWl.append(torch.tensor(bval, dtype=dt, device=dev))
                 TV, TW, BV, BW = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
             r12 = rr[lblsel12]; Jg12 = Jc[lblsel12]
-            if self.s19:
+            if self.s19 or self.s22:       # §12a (angles+diag-align) ⊕ §12b (proj) — both in one payload, shown by their toggles
                 rec["g4d"] = sec12_payload(TV, TW, BV, BW, r12, Jg12, self.grid3dcap)
             if self.s21 and N <= self.grid3dcap:               # §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k (N HVPs, §11's tool) + G1/G2/G3
                 T1_13 = torch.zeros(N, N, N, dtype=dt, device=dev)

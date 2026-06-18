@@ -110,6 +110,17 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
     ang = {"g": [x.reshape(-1).detach().cpu().tolist() for x in pas], "gm": [float(x.mean()) for x in pas],
            "mn": [o[0] for o in om], "mx": [o[1] for o in om], "me": [o[2] for o in om], "ks": ks_ang, "kfull": kf}
 
+    # ---- §12a diagonal alignment: mean_{i≠j} of (1/2k)Σ_a|⟨e_{i,a},e_{j,a}⟩| (same-rank eigvec overlap) for k=1,2,5,15.
+    #      |diag(E_iE_jᵀ)| → mean over the 2k entries → mean over off-diagonal pairs. ∈[0,1]; 1 = same-rank eigvecs aligned. ----
+    def diag_align(k):
+        kk = max(1, min(k, K))
+        E = torch.cat([TV[:, :kk, :], BV[:, :kk, :]], dim=1)      # (N,2kk,p)
+        m = torch.einsum('iap,jap->ija', E, E).abs().mean(2)      # (N,N) per-pair mean |⟨e_{i,a},e_{j,a}⟩|
+        s = m[offm]
+        return float(s.mean()) if s.numel() else 0.0
+    ks_dal = [1, 2, 5, 15]
+    ang["dal"] = [diag_align(k) for k in ks_dal]; ang["dal_ks"] = ks_dal
+
     # ---- panels 4/5: TOP-2 (u_{i,1},u_{i,2}; largest eigenvalues) and BOTTOM-2 (u_{i,-1},u_{i,-2}; most-negative)
     #      eigvecs of Q_i. TWO per-sample quantities, each mean/std over samples (2 ranks/group → 2 lines per plot):
     #      (a) PRODUCT prod_i = |⟨J_i,u⟩|·σ·r_i (all samples); (b) ALIGNMENT q_i = |⟨J_i,u⟩|/‖J_i‖ = |cos∠| ∈ [0,1]
@@ -1582,6 +1593,7 @@ def run_stream(P):
     s19 = P.get("s19", 0)                # §12: per-sample Q_i eigenvector cross-similarity grids/cuboids (small N)
     s20 = P.get("s20", 0)                # §14: Tr(ΔNTK) per-triplet (i,j,k) decomposition cubes (small N; shares §12 eigenpairs)
     s21 = P.get("s21", 0)                # §13: residual-weighted curvature G1/G2/G3 vs exact J_iᵀQ_jJ_k·r_k (own toggle; shares §12 Lanczos + adds N HVPs)
+    s22 = P.get("s22", 0)                # §12b: per-sample projection panels (s19=§12a angles+diag-align; both share the §12 Lanczos)
     grid3dcap = max(1, P.get("grid3dcap", 30))
     sec12ncap = max(1, P.get("sec12ncap", 500))    # §12 sample cap (gates N). NOTE: §12 builds dense p×p Hessians
                                                     # (p HVPs + O(p³) eig per sample) → large p is SLOW; keep models small.
@@ -1746,7 +1758,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if multi_ok and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21):
+            if multi_ok and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22):
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -2129,7 +2141,7 @@ def run_stream(P):
             # the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (a single vectorised forward/backward per
             # step instead of N) — ~4–8× faster on GPU. Other archs fall back to the per-sample loop. Gated on N.
             sec12 = None; sec14 = None; sec13 = None
-            if (s19 or s20 or s21) and multi_ok and Jc is not None and rr is not None and N <= sec12ncap:
+            if (s19 or s20 or s21 or s22) and multi_ok and Jc is not None and rr is not None and N <= sec12ncap:
                 lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
                             if outD > 1 else torch.arange(N, device=_dev()))
                 K12 = max(1, min(SEC12_KFULL, p // 2))          # top-/bottom-K12 eigenpairs (covers k=1,2,5,10,kfull)
@@ -2160,7 +2172,7 @@ def run_stream(P):
                         BWl.append(torch.tensor(bval, dtype=DTYPE, device=_dev()))
                     TV, TW, BV, BW = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
                 r12 = rr[lblsel12]; Jg12 = Jc[lblsel12]
-                if s19:
+                if s19 or s22:             # §12a (angles+diag-align) ⊕ §12b (proj) — both in one payload, shown by their toggles
                     sec12 = _sec12_payload(TV, TW, BV, BW, r12, Jg12, grid3dcap)
                 if s21 and N <= grid3dcap:                    # §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k (N HVPs, §11's tool) + G1/G2/G3
                     T1_13 = torch.zeros(N, N, N, dtype=DTYPE, device=_dev())
@@ -2763,6 +2775,7 @@ def _parse_params(q):
         "s19": g("s19", "0") == "1",     # §12: per-sample Q_i eigenvector cross-similarity (multi-sample, small N; OFF by default)
         "s20": g("s20", "0") == "1",     # §14: Tr(ΔNTK) per-triplet decomposition cubes (multi-sample, small N; OFF by default)
         "s21": g("s21", "0") == "1",     # §13: residual-weighted curvature G1/G2/G3 vs exact ref (own toggle; multi-sample, small N; OFF by default)
+        "s22": g("s22", "0") == "1",     # §12b: per-sample projection panels (s19=§12a angles+diag-align; both share the §12 Lanczos)
         "grid3dcap": max(1, fi("grid3dcap", 500)),
         "sec12ncap": max(1, fi("sec12ncap", 500)),
         "gs": g("gson", "1") == "1",

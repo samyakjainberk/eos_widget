@@ -214,7 +214,8 @@
   <label><input type="checkbox" id="en16" checked> 9d-c · self-residual vs full-Hessian sharpness</label>
   <label title="CUBIC approximation (paper §6): Eq-47 (single) / Eq-51 (multi) σ₁ predictions with exact J & Q propagation (3rd-derivative tensor T frozen per window). Two panels: vs the NTK σ₁ and vs the full-Hessian λmax. OFF by default — by far the heaviest section (O(window²) HVPs)."><input type="checkbox" id="en17"> 10 · cubic approximation (Eq-47/51)</label>
   <label title="3D grids over sample indices (i,j,k): T1=JᵢᵀQⱼJₖ, T2=uⱼuₖ·T1, T3=rᵢuⱼuₖ·T1 (u=top NTK eigvec, r=residual). Multi-sample only; OFF by default (N³ points + N Hessian-vector products → small N). Live-updates + scrub past snapshots; drag to rotate."><input type="checkbox" id="en18"> 11 · 3D Hessian–NTK grids</label>
-  <label title="Per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity over sample pairs (i,j): max/top-10 |cos| of top-k⊕bottom-k eigenvectors, with eigenvalue- and residual-sign weightings, plus mean principal angles. Multi-sample only; OFF by default. Each Q_i's top-/bottom-15 eigenpairs come from matrix-free Lanczos (no p×p Hessian), so it scales to large models; only N is capped."><input type="checkbox" id="en19"> 12 · per-sample Hessian eigvec similarity</label>
+  <label title="§12a — per-sample Hessian Q_i=∇²f_i eigenvector SUBSPACE alignment over sample pairs (i,j): principal angles (heatmaps + min/max/mean evolution) and the diagonal alignment mean_{i≠j}(1/2k)Σ|⟨e_{i,a},e_{j,a}⟩| for k=1,2,5,15. Multi-sample only; OFF by default. top-/bottom-15 eigenpairs via matrix-free Lanczos."><input type="checkbox" id="en19"> 12a · eigvec subspace angles</label>
+  <label title="§12b — per-sample projection panels: for the top-2 / bottom-2 eigenvectors of each Q_i, the product |⟨J_i,u⟩|·σ·r_i and the gradient alignment |⟨J_i,u⟩|/‖J_i‖, mean/std over samples + histograms. Shares §12a's Lanczos eigenpairs; multi-sample only; OFF by default."><input type="checkbox" id="en22"> 12b · per-sample projections</label>
   <label title="§14 — per-triplet (i,j,k) decomposition of Tr(ΔNTK)=Σ a·b·c·d·e over rank-2y eigenpairs of the per-sample function Hessians. 10 panels of N×N×N cubes (sorted-term aggregates, sub-products, eq-③ history ratio). Shares §12's matrix-free Lanczos eigenpairs; multi-sample only, small N (N³ cubes); OFF by default."><input type="checkbox" id="en20"> 14 · Tr(ΔNTK) triplet decomposition</label>
   <label title="§13 — residual-weighted curvature: rank-k₀ approximations G1/G2/G3 of the exact reference J_iᵀQ_jJ_k·r_k, from the per-sample Lanczos top-k₀⊕bottom-k₀ eigenpairs, vs the exact reference (N extra HVPs). Multi-sample only, small N (N³); OFF by default. Its OWN toggle — independent of §12; turning it on triggers the shared per-sample Lanczos by itself."><input type="checkbox" id="en21"> 13 · residual-weighted curvature G1/G2/G3</label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
@@ -249,9 +250,9 @@
 <div class="plotrow row4"><div id="p_g3da1" class="plot" style="height:300px"></div><div id="p_g3da2" class="plot" style="height:300px"></div><div id="p_g3da3" class="plot" style="height:300px"></div><div id="p_g3da4" class="plot" style="height:300px"></div></div>
 </div>
 
-<div id="sec_s12" style="display:none">
-<h2>12 · per-sample Hessian eigenvector subspace alignment — principal angles</h2>
-<p class="cap">For each sample $i$, $Q_i=\nabla^2 f_i$ (ground-truth-label output) has its <b>top-15 ⊕ bottom-15</b> eigenpairs extracted <b>matrix-free by Lanczos</b>. <b>Panel 1</b>: for every sample pair $(i,j)$, the mean <b>principal angle</b> (degrees) between the top-$k$ ⊕ bottom-$k$ eigen-subspaces of $Q_i$ and $Q_j$, for $k=1,5,10,15$ (0° = identical subspace, 90° = orthogonal). <b>Panel 2</b>: its evolution over training. Slider scrubs snapshots.</p>
+<div id="sec_s12a" style="display:none">
+<h2>12a · per-sample Hessian eigenvector subspace alignment — principal angles + diagonal alignment</h2>
+<p class="cap">For each sample $i$, $Q_i=\nabla^2 f_i$ (ground-truth-label output) has its <b>top-15 ⊕ bottom-15</b> eigenpairs extracted <b>matrix-free by Lanczos</b>. <b>Panel 1</b>: for every sample pair $(i,j)$, the mean <b>principal angle</b> (degrees) between the top-$k$ ⊕ bottom-$k$ eigen-subspaces of $Q_i$ and $Q_j$, for $k=1,5,10,15$ (0° = identical subspace, 90° = orthogonal). <b>Panels 2–3</b>: its min/max/mean evolution over training. <b>Panel 4</b>: the diagonal (same-rank) alignment. Slider scrubs Panel-1 snapshots.</p>
 <div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
   <label style="white-space:nowrap">snapshot</label>
   <input id="s12_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
@@ -259,20 +260,25 @@
 </div>
 <h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — mean principal angle (deg) between top-$k$ ⊕ bottom-$k$ subspaces of $Q_i,Q_j$ ($k=1,5,10,15$)</h3>
 <div class="plotrow row4"><div id="p_s12ang_0" class="plot" style="height:300px"></div><div id="p_s12ang_1" class="plot" style="height:300px"></div><div id="p_s12ang_2" class="plot" style="height:300px"></div><div id="p_s12ang_3" class="plot" style="height:300px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — principal-angle evolution (over off-diagonal pairs $i\neq j$), $k=5,15$</h3>
-<p class="cap"><b>min</b> / <b>max</b> / <b>mean</b> principal angle (deg) over sample pairs $i\neq j$ vs training step (the $i\!=\!i$ diagonal angle is 0 and is excluded). Rows: $k=5$, then $k=15$.</p>
-<div class="plotrow row3"><div id="p_s12evo_mn_5" class="plot" style="height:280px"></div><div id="p_s12evo_mx_5" class="plot" style="height:280px"></div><div id="p_s12evo_me_5" class="plot" style="height:280px"></div></div>
-<div class="plotrow row3"><div id="p_s12evo_mn_15" class="plot" style="height:280px"></div><div id="p_s12evo_mx_15" class="plot" style="height:280px"></div><div id="p_s12evo_me_15" class="plot" style="height:280px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — principal-angle evolution (over off-diagonal pairs $i\neq j$), $k=1,2$</h3>
-<p class="cap">Same as Panel 2 (min / max / mean over $i\neq j$ vs step) but for $k=1$ and $k=2$.</p>
-<div class="plotrow row3"><div id="p_s12evo_mn_1" class="plot" style="height:280px"></div><div id="p_s12evo_mx_1" class="plot" style="height:280px"></div><div id="p_s12evo_me_1" class="plot" style="height:280px"></div></div>
-<div class="plotrow row3"><div id="p_s12evo_mn_2" class="plot" style="height:280px"></div><div id="p_s12evo_mx_2" class="plot" style="height:280px"></div><div id="p_s12evo_me_2" class="plot" style="height:280px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — product $|\langle J_i,u\rangle|\,\sigma\,r_i$ and alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert$ for the TOP-2 eigenvectors $u_{i,1},u_{i,2}$ (largest eigenvalues)</h3>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — principal-angle evolution (min/max/mean over $i\neq j$): $k=5$ (left 3) · $k=15$ (right 3)</h3>
+<p class="cap"><b>min</b> / <b>max</b> / <b>mean</b> principal angle (deg) over sample pairs $i\neq j$ vs training step (the $i\!=\!i$ diagonal angle is 0 and is excluded). One row of 6: $k=5$ (min·max·mean) then $k=15$ (min·max·mean).</p>
+<div class="plotrow row6"><div id="p_s12evo_mn_5" class="plot" style="height:260px"></div><div id="p_s12evo_mx_5" class="plot" style="height:260px"></div><div id="p_s12evo_me_5" class="plot" style="height:260px"></div><div id="p_s12evo_mn_15" class="plot" style="height:260px"></div><div id="p_s12evo_mx_15" class="plot" style="height:260px"></div><div id="p_s12evo_me_15" class="plot" style="height:260px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — principal-angle evolution (min/max/mean over $i\neq j$): $k=1$ (left 3) · $k=2$ (right 3)</h3>
+<p class="cap">Same as Panel 2 (min / max / mean over $i\neq j$ vs step) but for $k=1$ then $k=2$ — one row of 6.</p>
+<div class="plotrow row6"><div id="p_s12evo_mn_1" class="plot" style="height:260px"></div><div id="p_s12evo_mx_1" class="plot" style="height:260px"></div><div id="p_s12evo_me_1" class="plot" style="height:260px"></div><div id="p_s12evo_mn_2" class="plot" style="height:260px"></div><div id="p_s12evo_mx_2" class="plot" style="height:260px"></div><div id="p_s12evo_me_2" class="plot" style="height:260px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — diagonal (same-rank) eigenvector alignment $\;\text{mean}_{i\neq j}\,\tfrac1{2k}\sum_{a}|\langle e_{i,a},e_{j,a}\rangle|$ ($k=1,2,5,15$)</h3>
+<p class="cap">For each off-diagonal pair $(i,j)$, the <b>mean absolute diagonal</b> of $E_iE_j^\top$ — how well the <b>same-rank</b> eigenvectors line up: $\tfrac1{2k}\sum_{a=1}^{2k}|\langle e_{i,a},e_{j,a}\rangle|$ — then averaged over all $i\neq j$, vs training step. $\in[0,1]$: <b>1</b> = same-rank top/bottom eigenvectors aligned (the $|\text{diag}|$ trace is at its max $2k$), <b>0</b> = orthogonal. One line per $k\in\{1,2,5,15\}$.</p>
+<div class="plotrow row4"><div id="p_s12dal_1" class="plot" style="height:280px"></div><div id="p_s12dal_2" class="plot" style="height:280px"></div><div id="p_s12dal_5" class="plot" style="height:280px"></div><div id="p_s12dal_15" class="plot" style="height:280px"></div></div>
+</div>
+
+<div id="sec_s12b" style="display:none">
+<h2>12b · per-sample projection panels — gradient onto the top-2 / bottom-2 eigenvectors</h2>
+<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — product $|\langle J_i,u\rangle|\,\sigma\,r_i$ and alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert$ for the TOP-2 eigenvectors $u_{i,1},u_{i,2}$ (largest eigenvalues)</h3>
 <p class="cap">$u_{i,1},u_{i,2}$ = eigenvectors of the two <b>largest</b> signed eigenvalues of $Q_i$ (<b>rank-1</b> solid, <b>rank-2</b> dotted — 2 lines per plot). Two per-sample quantities, aggregated across samples. <b>Row of 4 plots</b>: (1) mean &amp; (2) std of the <b>product</b> $\text{proj}_i\cdot r_i=|\langle J_i,u\rangle|\cdot\sigma\cdot r_i$ (all samples; scales with the eigenvalue $\sigma$, so it can grow large during sharpening); (3) mean &amp; (4) std of the <b>alignment</b> $q_i=|\langle J_i,u\rangle|/\lVert J_i\rVert=|\cos\angle(J_i,u)|\in[0,1]$ ($\lVert J_i\rVert=0$ dropped; bounded by Cauchy–Schwarz).</p>
 <div class="plotrow row4"><div id="p_s12proj_top0" class="plot" style="height:290px"></div><div id="p_s12proj_top1" class="plot" style="height:290px"></div><div id="p_s12proj_top2" class="plot" style="height:290px"></div><div id="p_s12proj_top3" class="plot" style="height:290px"></div></div>
 <p class="cap" style="margin-top:6px">Histograms over the $N$ samples at the <b>current iteration</b> (redrawn every step), rank-1 &amp; rank-2 overlaid: the per-sample <b>product</b> $\text{proj}_i\cdot r_i$ (left) and the <b>alignment</b> $|\langle J_i,u\rangle|/\lVert J_i\rVert$ (right).</p>
 <div class="plotrow row2"><div id="p_s12hist_top_prod" class="plot" style="height:250px"></div><div id="p_s12hist_top_cos" class="plot" style="height:250px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 5 — product $|\langle J_i,u\rangle|\,\sigma\,r_i$ and alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert$ for the BOTTOM-2 eigenvectors $u_{i,-1},u_{i,-2}$ (most-negative eigenvalues)</h3>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — product $|\langle J_i,u\rangle|\,\sigma\,r_i$ and alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert$ for the BOTTOM-2 eigenvectors $u_{i,-1},u_{i,-2}$ (most-negative eigenvalues)</h3>
 <p class="cap">Same as Panel 4 but with $u_{i,-1},u_{i,-2}$ = eigenvectors of the two <b>most-negative</b> eigenvalues of $Q_i$ (so $\sigma<0$); rank-1 = most-negative (solid), rank-2 = next (dotted). 4 plots: (1) mean &amp; (2) std of the product $|\langle J_i,u\rangle|\,\sigma\,r_i$ ; (3) mean &amp; (4) std of the alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert\in[0,1]$. Per sample first, then aggregated across samples.</p>
 <div class="plotrow row4"><div id="p_s12proj_bot0" class="plot" style="height:290px"></div><div id="p_s12proj_bot1" class="plot" style="height:290px"></div><div id="p_s12proj_bot2" class="plot" style="height:290px"></div><div id="p_s12proj_bot3" class="plot" style="height:290px"></div></div>
 <p class="cap" style="margin-top:6px">Histograms over the $N$ samples at the <b>current iteration</b> (redrawn every step), rank-1 &amp; rank-2 overlaid: the per-sample <b>product</b> $\text{proj}_i\cdot r_i$ (left) and the <b>alignment</b> $|\langle J_i,u\rangle|/\lVert J_i\rVert$ (right).</p>
@@ -1049,6 +1055,7 @@ const S12_ANGI={1:0,2:1,5:2,10:3,15:4};   // angle k → ang.{g,mn,mx,me} index 
 const S12_EVO_KS=[5,15,1,2];   // evolution k's (panel 2: 5,15 ; panel 3: 1,2)
 const S12_EVO_STATS=[['mn','min','#dc2626'],['mx','max','#2563eb'],['me','mean','#16a34a']];   // off-diagonal stat → id/label/colour
 let S12_SNAPS=[], S12_N=0, S12_BUILT=false, S12_RAF=0, S12_PENDING=-1, S12_CAMKEY='', S12E_STEPS=[], S12E_DATA=null, S12P_DATA=null;
+const S12_DAL_KS=[1,2,5,15]; let S12DAL_STEPS=[], S12DAL_DATA=null;   // §12a Panel 4: diagonal (same-rank) eigvec alignment
 const S12_MAXSNAPS=2000;   // bound §12 snapshot memory on long runs (decimate ×2 when exceeded; mirrors §11's G3D_MAXSNAPS)
 let S12_BUILTSET=new Set(), S12_VISIBLE=new Set(), S12_IO=null, S12_IOT=null, S12_CURIDX=0, S12_EXPORTING=false;   // lazy-WebGL cube state (context budget)
 const s12Mean=a=>{let s=0,c=0;for(let q=0;q<a.length;q++){const v=a[q];if(v!=null&&isFinite(v)){s+=v;c++;}}return c?s/c:0;};   // mean, skipping null/NaN/Inf (sanitised payload)
@@ -1062,7 +1069,8 @@ const fmtMu=x=>{if(x==null||!isFinite(x))return '–';const a=Math.abs(x);return
 function s12CubeIds(){return [];}   // §12/§13 no longer have any WebGL cubes (§12 angles+evolution only; §13 is time-series)
 function s12ProjIds(){const a=[];for(const g of ['top','bot'])for(let n=0;n<4;n++)a.push('p_s12proj_'+g+n);return a;}
 function s12HistIds(){return ['p_s12hist_top_prod','p_s12hist_top_cos','p_s12hist_bot_prod','p_s12hist_bot_cos'];}
-function s12AllIds(){const a=[];for(let n=0;n<4;n++)a.push('p_s12ang_'+n);return a.concat(s12ProjIds()).concat(s12HistIds()).concat(s12EvoIds());}
+function s12DalIds(){return S12_DAL_KS.map(k=>'p_s12dal_'+k);}
+function s12AllIds(){const a=[];for(let n=0;n<4;n++)a.push('p_s12ang_'+n);return a.concat(s12ProjIds()).concat(s12HistIds()).concat(s12EvoIds()).concat(s12DalIds());}
 // ── §13 — G1/G2/G3 approximations vs the exact reference J_iᵀQ_jJ_k·r_k (time-series mean±std clouds) ──
 const S13_GS=[1,2,3], S13_KS=[2,5], S13_DOMS=['ndist','ijeq','diag'];
 const S13_DOMLAB={ndist:'i≠j≠k',ijeq:'i=j≠k',diag:'i=j=k'}, S13_GLAB={1:'G₁',2:'G₂',3:'G₃'};
@@ -1107,7 +1115,7 @@ function s13Draw(){
       y:[bandY(D.rm,D.rs),D.rm.slice(),bandY(D.gm,D.gs),D.gm.slice()]},[0,1,2,3]);}
 }
 function s13Reset(){S13_STEPS=[];S13_DATA=null;S13_BUILT=false;S13N_STEPS=[];S13N_VALS=[];S13N_BUILT=false;if(typeof S13_PREV_JS!=='undefined')S13_PREV_JS=null;if(typeof S13_QJPREV_JS!=='undefined')S13_QJPREV_JS=null;for(const id of s13Ids().concat(['p_s13_ndiff'])){try{Plotly.purge(id);}catch(e){}}}
-function s12Reset(){S12_SNAPS=[];S12_N=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEPS=[];S12E_DATA=null;S12P_DATA=null;S12_CURIDX=0;
+function s12Reset(){S12_SNAPS=[];S12_N=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEPS=[];S12E_DATA=null;S12P_DATA=null;S12DAL_STEPS=[];S12DAL_DATA=null;S12_CURIDX=0;
   if(S12_RAF){cancelAnimationFrame(S12_RAF);S12_RAF=0;}S12_PENDING=-1;
   if(S12_IO){S12_IO.disconnect();S12_IO=null;}if(S12_IOT){clearTimeout(S12_IOT);S12_IOT=null;}S12_BUILTSET.clear();S12_VISIBLE.clear();
   for(const id of s12AllIds()){try{Plotly.purge(id);}catch(e){}}
@@ -1316,6 +1324,7 @@ function s12Build(N){
   S12_N=N;S12_BUILT=true;
   for(let n=0;n<4;n++)s12Heat2DBuild('p_s12ang_'+n,N,S12_ANGT[n],false);
   s12EvoBuild();
+  s12DalBuild();
   s12ProjBuild();
 }
 function s12EvoIds(){const a=[];for(const k of S12_EVO_KS)for(const s of S12_EVO_STATS)a.push('p_s12evo_'+s[0]+'_'+k);return a;}
@@ -1336,6 +1345,21 @@ function s12EvoAppend(m){
 function s12EvoRender(){
   if(!S12E_DATA||!S12E_STEPS.length)return;const t=S12E_STEPS;
   for(const id of s12EvoIds())Plotly.restyle(id,{x:[t],y:[S12E_DATA[id]]});
+}
+function s12DalBuild(){   // §12a Panel 4: diagonal (same-rank) eigvec alignment, one single-line plot per k
+  for(const k of S12_DAL_KS)
+    Plotly.newPlot('p_s12dal_'+k,[{x:[],y:[],mode:'lines',line:{color:'#0891b2',width:1.9}}],
+      withZero(baseLayout('mean |diagonal| alignment  k='+k+'  (i≠j)','alignment ∈ [0,1]',false)),{responsive:true,displaylogo:false});
+}
+function s12DalAppend(m){
+  if(!m.ang||!m.ang.dal)return;
+  if(!S12DAL_DATA){S12DAL_DATA={};for(const k of S12_DAL_KS)S12DAL_DATA[k]=[];}
+  S12DAL_STEPS.push(m.t);
+  for(let i=0;i<S12_DAL_KS.length;i++)S12DAL_DATA[S12_DAL_KS[i]].push(m.ang.dal[i]);
+}
+function s12DalRender(){
+  if(!S12DAL_DATA||!S12DAL_STEPS.length)return;const t=S12DAL_STEPS;
+  for(const k of S12_DAL_KS)Plotly.restyle('p_s12dal_'+k,{x:[t],y:[S12DAL_DATA[k]]});
 }
 // panel 4: residual ↔ proj correlation — trajectories over training (x=proj stat, y=residual stat; colour=step)
 // Panel 4: 3D evolution trajectories — x=step t, y=proj statistic, z=residual statistic (colour=step)
@@ -1419,7 +1443,7 @@ function s12Push(m){
   if(sl){sl.max=S12_SNAPS.length-1;if(wasLive)sl.value=sl.max;}
   {const sl3=document.getElementById('s13_slider');if(sl3){sl3.max=S12_SNAPS.length-1;if(wasLive)sl3.value=sl3.max;}}   // §13 shares §12's snapshots
   if(!S12_BUILT||S12_N!==m.M)s12Build(m.M);   // build synchronously so the evolution restyle targets exist
-  s12EvoAppend(m);s12EvoRender();s12ProjAppend(m);s12ProjRender();
+  s12EvoAppend(m);s12EvoRender();s12DalAppend(m);s12DalRender();s12ProjAppend(m);s12ProjRender();
   s12RenderIdx(wasLive?S12_SNAPS.length-1:(sl?+sl.value:0));
 }
 // ── §12 browser-mode compute (JS port of server._sec12_payload) ──────────────
@@ -1492,10 +1516,21 @@ function s12OffStats(g,N){   // min/max/mean over off-diagonal pairs (i≠j; dia
   for(let i=0;i<N;i++)for(let j=0;j<N;j++){if(i===j)continue;const v=g[i*N+j];if(v<mn)mn=v;if(v>mx)mx=v;s+=v;c++;}
   return c?[mn,mx,s/c]:[0,0,0];
 }
+function s12DiagAlign(TV,BV,N,p,k){   // §12a: mean_{i≠j} of (1/2k)Σ_a|⟨e_{i,a},e_{j,a}⟩| (same-rank eigvec overlap ∈[0,1]). MIRRORS server diag_align.
+  const K2=Math.max(1,Math.min(k,TV[0].length)),sub=[];
+  for(let i=0;i<N;i++){const cols=[];for(let a=0;a<K2;a++)cols.push(TV[i][a]);for(let a=0;a<K2;a++)cols.push(BV[i][a]);sub.push(cols);}
+  let s=0,c=0;
+  for(let i=0;i<N;i++)for(let j=0;j<N;j++){if(i===j)continue;const A=sub[i],B=sub[j],D=A.length;
+    let m=0;for(let a=0;a<D;a++)m+=Math.abs(s12Dot(A[a],B[a],p));   // Σ_a |⟨e_{i,a},e_{j,a}⟩|
+    s+=m/D;c++;}                                                    // per-pair mean of |diagonal|, then mean over i≠j
+  return c?s/c:0;
+}
 function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap){   // §12: principal angles (k=1,2,5,10,kfull) + proj↔residual. §13 = sec13Stats.
   const K=TV[0].length, kf=Math.max(1,Math.min(SEC12_KFULL,K)), ks=[1,2,5,10,kf];
   const pas=ks.map(k=>s12Angles(TV,BV,N,p,k)), om=pas.map(x=>s12OffStats(x.g,N));
   const ang={g:pas.map(x=>x.g),gm:pas.map(x=>x.gm),mn:om.map(o=>o[0]),mx:om.map(o=>o[1]),me:om.map(o=>o[2]),ks:ks,kfull:kf};
+  const dalKs=[1,2,5,15];ang.dal=dalKs.map(k=>s12DiagAlign(TV,BV,N,p,k));ang.dal_ks=dalKs;   // §12a diagonal alignment
+
   // panels 4/5: TOP-2 (u_{i,1},u_{i,2}; largest eigenvalues) & BOTTOM-2 (u_{i,-1},u_{i,-2}; most-negative) eigvecs of Q_i.
   //   TWO per-sample quantities (mean/std over samples, 2 ranks): PRODUCT |⟨J,u⟩|·σ·r_i (all) + ALIGNMENT |⟨J,u⟩|/‖J‖ (=|cos∠|∈[0,1]).
   const ms=arr=>{if(!arr.length)return [0,0];let s=0;for(let q=0;q<arr.length;q++)s+=arr[q];const m=s/arr.length;let v=0;for(let q=0;q<arr.length;q++){const d=arr[q]-m;v+=d*d;}return [m,Math.sqrt(v/arr.length)];};
@@ -1638,7 +1673,8 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_9dc');if(el)el.style.display=chk('en16')?'':'none';}           // §9d-c quad-self residual vs full-H
   {const el=document.getElementById('sec_cubic');if(el)el.style.display=chk('en17')?'':'none';}          // §10 cubic approximation (Eq-47/51) — own id (sec_10 is already §4c)
   {const el=document.getElementById('sec_g3d');if(el)el.style.display=(chk('en18')&&multi)?'':'none';}   // §11 3D Hessian–NTK grids (s18, multi-only)
-  {const el=document.getElementById('sec_s12');if(el)el.style.display=(chk('en19')&&multi)?'':'none';}   // §12 per-sample Hessian eigvec similarity (s19, multi-only)
+  {const el=document.getElementById('sec_s12a');if(el)el.style.display=(chk('en19')&&multi)?'':'none';}   // §12a principal angles + diagonal alignment (s19, multi-only)
+  {const el=document.getElementById('sec_s12b');if(el)el.style.display=(chk('en22')&&multi)?'':'none';}   // §12b per-sample projections (s22, multi-only)
   {const el=document.getElementById('sec_s13');if(el)el.style.display=(chk('en21')&&multi)?'':'none';}   // §13 residual-weighted curvature alignment (own toggle en21; reuses the §12 Lanczos)
   {const el=document.getElementById('sec_s14');if(el){const vis=(chk('en20')&&multi);el.style.display=vis?'':'none';   // §14 Tr(ΔNTK) per-triplet decomposition (s20, multi-only)
     if(vis&&typeof S14_SNAPS!=='undefined'&&S14_SNAPS.length)requestAnimationFrame(()=>s14RenderNow(S14_CURIDX));}}   // redraw canvases now that the divs have size
@@ -2019,7 +2055,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
   const qmode=Math.max(1,+val('qmode')||1), tset=Math.max(1,+val('tset')||1);   // qmode (legacy, unused by Eq-22); Eq-29 set-T size
   const nProbe=Math.max(1,+val('slqprobes')), efrac=Math.min(1,Math.max(0.5,(+val('energyp'))/100));
-  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),gs:val('gson')==='1'};
+  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),gs:val('gson')==='1'};
   OPT=opt;
   const {spec,p}=buildSpec(inDim,width,depth,act,useBias,outDim);
   if(p>100000){st.textContent=`p=${p} parameters exceeds the cap (100000). Reduce width/depth.`;ST=null;updateButtons();return;}
@@ -2177,7 +2213,7 @@ async function loop(){                                   // drives ST forward; r
         }
         // §4b/§4c shared base: top-n NTK eigenvectors v_k (sign-tracked) and J·r = Σ_a r_a ∇f_a, r=y−f
         let u1s=null,Jrs=null,Jrns=0,Rn=0,bJc=null,bEk=null,rrs=null;
-        if((O.s9||O.s10||O.s11||O.s12||O.s15||O.s16||O.s18||O.s19||O.s20||O.s21)&&M>1){
+        if((O.s9||O.s10||O.s11||O.s12||O.s15||O.s16||O.s18||O.s19||O.s20||O.s21||O.s22)&&M>1){
           const dn=M;const jc=jacCols(S.th,spec,X,N,inDim,p);bJc=jc.cols;
           const Km=new Float64Array(dn*dn);for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(bJc[a],bJc[b]);Km[a*dn+b]=v;Km[b*dn+a]=v;}
           bEk=symEigDesc(Km,dn);
@@ -2246,7 +2282,7 @@ async function loop(){                                   // drives ST forward; r
         // §12 — per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity (ground-truth-label output).
         // MATRIX-FREE: Lanczos on the per-sample HVP v↦Q_i·v (=hvpS with a one-hot cotangent) gives the top-/
         // bottom-K12 eigenpairs — no p×p Hessian formed, scales to any p. Gated on N (≤sec12ncap). Mirrors server.
-        if((O.s19||O.s20||O.s21)&&M>1&&bJc&&rrs&&N<=S.sec12ncap){   // every tick (matrix-free Lanczos); §13/§14 reuse these eigenpairs
+        if((O.s19||O.s20||O.s21||O.s22)&&M>1&&bJc&&rrs&&N<=S.sec12ncap){   // every tick (matrix-free Lanczos); §12b/§13/§14 reuse these eigenpairs
           const oD=Math.round(M/N), lblsel=new Array(N);
           for(let i=0;i<N;i++){if(oD>1){let mx=-Infinity,mi=0;for(let c=0;c<oD;c++){const yv=Y[i*oD+c];if(yv>mx){mx=yv;mi=c;}}lblsel[i]=i*oD+mi;}else lblsel[i]=i;}
           const K12=Math.max(1,Math.min(SEC12_KFULL,Math.floor(p/2))), m12=Math.min(p,Math.max(6*K12,64));
@@ -2255,7 +2291,7 @@ async function loop(){                                   // drives ST forward; r
             const le=lanczosExtreme(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,c),p,K12,m12,(0x5EC12+i*7919)>>>0);
             TV.push(le.topVecs);TW.push(le.topVals);BV.push(le.botVecs);BW.push(le.botVals);}
           const r12=lblsel.map(a=>rrs[a]), Jg12=lblsel.map(a=>bJc[a]);   // GT-label residual + gradient ∇f_i per sample
-          if(O.s19){
+          if(O.s19||O.s22){          // §12a (angles+diag-align) ⊕ §12b (proj) — one payload, shown by their toggles
             s12Push({type:'g4d',t:S.t,...sec1213Payload(TV,TW,BV,BW,r12,Jg12,N,p,S.grid3dcap)});
           }
           if(O.s21&&N<=S.grid3dcap){   // §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k via jacHVP (like §11) + G1/G2/G3 vs ref; needs t-1
@@ -2494,7 +2530,7 @@ function _zip(files){const enc=new TextEncoder(),parts=[],cd=[];let off=0;
 function _b64bytes(durl){const s=atob(durl.split(',')[1]),a=new Uint8Array(s.length);for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return a;}
 function _cfgText(){const ids=['preset','compute','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','depth','width','act','bias','fixedx','inputstd','ssign','optimizer','indim','outdim','nsamp','batch','tgt','lr','init','initscheme','steps','seed','neig','kth','eigevery','heavyevery','slqprobes','energyp','gson','qapprox','qmode','tset','cubicapprox'];
   const L=ids.map(id=>{const e=document.getElementById(id);return e?(id+' = '+e.value):null;}).filter(Boolean);
-  L.push('panels: '+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21'].map(id=>id+'='+(chk(id)?1:0)).join(' '));
+  L.push('panels: '+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22'].map(id=>id+'='+(chk(id)?1:0)).join(' '));
   const stt=document.getElementById('status');if(stt&&stt.textContent)L.push('status: '+stt.textContent);
   return 'EoS / Progressive-Sharpening — run configuration\n\n'+L.join('\n')+'\n';}
 // ---- self-contained animated-GIF export of the §11/§12/§13 cubes (rotating) + 2D grids (over snapshots) ----
@@ -2554,7 +2590,7 @@ async function _gifPass(files){
   const add=(nm,bytes)=>files.push({name:String(++n).padStart(2,'0')+'_'+_safeName(nm)+'.gif',data:bytes});
   const s12sy=document.getElementById('s12_sync'),g3sy=document.getElementById('g3d_sync');
   const s12w=s12sy&&s12sy.checked,g3w=g3sy&&g3sy.checked;if(s12sy)s12sy.checked=false;if(g3sy)g3sy.checked=false;
-  const s12cur=S12_CURIDX, s12had=chk('en19')&&S12_SNAPS.length;
+  const s12cur=S12_CURIDX, s12had=(chk('en19')||chk('en22'))&&S12_SNAPS.length;
   const s13had=chk('en21')&&S13_STEPS.length;
   const s14cur=S14_CURIDX, s14had=chk('en20')&&S14_SNAPS.length&&S14_SNAPS[s14cur]&&S14_SNAPS[s14cur].do3d;
   // Free the §12/§13/§14 lazy WebGL cubes up-front: nothing competes for the WebGL budget during export, and the §11
@@ -2640,7 +2676,7 @@ function backendURL(start){
    'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree'].forEach(id=>ps.set(id,val(id)));
   [['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
-   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
+   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
   ps.set('start',String(start||0));
   return 'run?'+ps.toString();
 }
@@ -2673,7 +2709,7 @@ function openStream(start,resuming){
   es.onerror=()=>{if(RUNNING&&!PAUSED)st.textContent='backend connection lost — start it with “python server.py”, then press Run (or switch compute to browser).';finish();};
 }
 function runGPU(){
-  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),gs:val('gson')==='1'};
+  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),gs:val('gson')==='1'};
   lastT=-1;META=null;cursorX=null;openStream(0,false);
 }
 function stopGPU(){ if(RUNNING){PAUSED=true;if(ES){ES.close();ES=null;}RUNNING=false;document.getElementById('status').textContent=`stopped at step ${lastT} — press Resume to continue.`;updateButtons();} }
@@ -2732,7 +2768,7 @@ function syncLossPanels(){
 function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic' && val('arch')==='mlp'){ runLocal(true); } }
 document.getElementById('loss').addEventListener('change',syncLossPanels);
 document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
-['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
 ['s14f_y1','s14f_y2','s14f_y5','s14f_agg','s14f_max','s14f_min','s14f_ratio'].forEach(id=>{const e=document.getElementById(id);if(e)e.addEventListener('change',s14ApplyPanelFilter);});
 if(typeof s14ApplyPanelFilter==='function')s14ApplyPanelFilter();   // apply the default §14 panel selection on load
 {const sl=document.getElementById('g3d_slider');if(sl)sl.addEventListener('input',function(){g3dRenderIdx(+this.value);});}   // §11 scrub past snapshots

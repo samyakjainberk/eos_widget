@@ -878,6 +878,29 @@ def plot_section12_evolution(hist):
     return fig
 
 
+_S12_DAL_KS = [1, 2, 5, 15]
+
+
+def plot_section12_diagalign(hist):
+    """§12a panel 4 — diagonal (same-rank) eigenvector alignment mean_{i≠j}(1/2k)Σ_a|⟨e_{i,a},e_{j,a}⟩| ∈ [0,1] vs
+    step, one line per k∈{1,2,5,15}. Reads ang.dal. None if <2 records."""
+    import numpy as np
+    snaps = [r for r in hist if "g4d" in r and "dal" in r["g4d"].get("ang", {})]
+    if len(snaps) < 2:
+        return None
+    t = [r["t"] for r in snaps]
+    fig, axs = plt.subplots(1, 4, figsize=(18, 3.6))
+    for i, k in enumerate(_S12_DAL_KS):
+        ax = axs[i]
+        y = np.array([r["g4d"]["ang"]["dal"][i] for r in snaps], dtype=float)
+        ax.plot(t, y, color="#0891b2", lw=1.6)
+        ax.set_ylim(-0.02, 1.02); ax.set_xlabel("step"); ax.set_ylabel("alignment ∈ [0,1]")
+        ax.set_title(f"mean |diag| alignment  k={k}", fontsize=10)
+    fig.suptitle("§12a panel 4 — diagonal (same-rank) eigenvector alignment over off-diagonal pairs", fontsize=13)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    return fig
+
+
 S12_HISTBINS = 40   # §12 panel-4/5 alignment-histogram bar count (shared bins across the two ranks) — MIRRORS index.html.
 
 
@@ -1127,6 +1150,7 @@ def save_panels(results, outdir):
             "section11_sumnormshare": plot_section11_sumnormshare(hist),
             "section12_panel1_angles": plot_section12_angles(hist),
             "section12_panel2_evolution": plot_section12_evolution(hist),
+            "section12a_panel4_diagalign": plot_section12_diagalign(hist),
             "section12_panel4_proj": plot_section12_proj(hist),
             "section12_panel45_hist": plot_section12_hist(hist),
             "section13_panel1_G1": plot_section13_panel1(hist),

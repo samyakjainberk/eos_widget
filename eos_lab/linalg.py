@@ -183,6 +183,16 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
     ang = {"g": [x.reshape(-1).detach().cpu().tolist() for x in pas], "gm": [float(x.mean()) for x in pas],
            "mn": [o[0] for o in om], "mx": [o[1] for o in om], "me": [o[2] for o in om], "ks": ks_ang, "kfull": kf}
 
+    # ---- §12a diagonal alignment: mean_{i≠j} of (1/2k)Σ_a|⟨e_{i,a},e_{j,a}⟩| (same-rank eigvec overlap) for k=1,2,5,15. ----
+    def diag_align(k):
+        kk = max(1, min(k, K))
+        E = torch.cat([TV[:, :kk, :], BV[:, :kk, :]], dim=1)      # (N,2kk,p)
+        m = torch.einsum('iap,jap->ija', E, E).abs().mean(2)      # (N,N) per-pair mean |⟨e_{i,a},e_{j,a}⟩|
+        s = m[offm]
+        return float(s.mean()) if s.numel() else 0.0
+    ks_dal = [1, 2, 5, 15]
+    ang["dal"] = [diag_align(k) for k in ks_dal]; ang["dal_ks"] = ks_dal
+
     # ---- panels 4/5: TOP-2 (u_{i,1},u_{i,2}; largest eigenvalues) and BOTTOM-2 (u_{i,-1},u_{i,-2}; most-negative)
     #      eigvecs of Q_i. TWO per-sample quantities, each mean/std over samples (2 ranks/group → 2 lines per plot):
     #      (a) PRODUCT prod_i = |⟨J_i,u⟩|·σ·r_i (all samples); (b) ALIGNMENT q_i = |⟨J_i,u⟩|/‖J_i‖ = |cos∠| ∈ [0,1]
