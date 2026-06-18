@@ -159,8 +159,9 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
         titles); ang.mn/mx/me = min/max/MEAN over the OFF-DIAGONAL pairs (i≠j; the i=i diagonal angle is 0),
         used by the panel-2/3 evolution curves; ang.ks lists the k per index.
       proj = panels 4/5. {top,bot} = lists over rank (TOP-2 u_{i,1},u_{i,2} ; BOTTOM-2 u_{i,-1},u_{i,-2}). Each rank
-        carries {prod,sprod}=[mean,std] over ALL samples of the PRODUCT |⟨J_i,u⟩|·σ·r_i and sign-product, plus
-        pvals/svals = the per-sample product / sign-product (for the histograms). MIRRORS index.html sec1213Payload."""
+        carries {cos:[mean,std], vals}: cos = [mean,std] over samples of the gradient↔eigvec ALIGNMENT
+        q_i = |⟨J_i,u⟩|/‖J_i‖ (= |cos∠(J_i,u)| ∈ [0,1]; u unit-norm); vals = per-sample q_i for the histogram
+        (‖J_i‖=0 dropped). MIRRORS index.html sec1213Payload."""
     N, K, p = int(TV.shape[0]), int(TV.shape[1]), int(TV.shape[2])
     dev = TV.device
     offm = ~torch.eye(N, dtype=torch.bool, device=dev)   # off-diagonal (i≠j) mask
@@ -183,28 +184,28 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
            "mn": [o[0] for o in om], "mx": [o[1] for o in om], "me": [o[2] for o in om], "ks": ks_ang, "kfull": kf}
 
     # ---- panels 4/5: TOP-2 (u_{i,1},u_{i,2}; largest eigenvalues) and BOTTOM-2 (u_{i,-1},u_{i,-2}; most-negative)
-    #      eigvecs of Q_i. Plotted = per-sample PRODUCT prod_i = |⟨J_i,u⟩|·σ·r_i (no division → no spikes), then
-    #      mean/std over ALL samples; plus the sign-product sgn(⟨J_i,u⟩·σ·r_i). 2 ranks/group → 2 lines per plot. ----
+    #      eigvecs of Q_i. Plotted = the per-sample gradient↔eigvec ALIGNMENT q_i = |⟨J_i,u⟩|/‖J_i‖ (= |cos∠(J_i,u)|
+    #      ∈ [0,1]), then mean/std over samples (‖J_i‖=0 dropped). 2 ranks/group → 2 lines per plot. ----
     ai = torch.arange(N, device=dev)
     nrank = min(2, K)                                            # the top-2 (and bottom-2) eigenvectors → 2 lines/plot
+    jnorm = Jg.norm(dim=1)                                       # ‖J_i‖ = per-sample gradient norm
+    nz = jnorm > 0                                              # drop samples with ‖J_i‖=0 (can't normalise)
 
-    def prod_stats(V, W, largest):                              # V/W = (TV,TW) top or (BV,BW) bottom
+    def align_stats(V, W, largest):                            # V/W = (TV,TW) top or (BV,BW) bottom
         idx = W.topk(nrank, dim=1, largest=largest).indices    # (N,nrank): rank 0 = largest (top)/most-negative (bottom), rank 1 = 2nd
         def ms(x):
             return [float(x.mean()), float(x.std(unbiased=False))] if x.numel() else [0.0, 0.0]
         out = []
         for rk in range(nrank):
             irk = idx[:, rk]
-            jdot = (Jg * V[ai, irk]).sum(dim=1)                # ⟨J_i,u⟩  (signed projection)
-            sig = W[ai, irk]                                   # σ (signed eigenvalue)
-            prod = (jdot.abs() * sig) * r                      # PRODUCT |⟨J_i,u⟩|·σ·r_i  (no division → no spikes)
-            sprod = torch.sign(jdot * sig) * torch.sign(r)     # sign-product sgn(⟨J_i,u⟩·σ·r_i)  (SIGNED proj → non-degenerate)
-            out.append({"prod": ms(prod), "sprod": ms(sprod),  # pvals/svals = per-sample values for the histograms
-                        "pvals": prod.detach().cpu().tolist(), "svals": sprod.detach().cpu().tolist()})
+            jdot = (Jg * V[ai, irk]).sum(dim=1)                # ⟨J_i,u⟩  (u unit-norm)
+            q = jdot[nz].abs() / jnorm[nz]                     # |⟨J_i,u⟩|/‖J_i‖ = |cos∠(J_i,u)| ∈ [0,1]
+            out.append({"cos": ms(q),                          # vals = per-sample alignment for the histogram
+                        "vals": q.detach().cpu().tolist()})
         return out
 
     out = {"M": N, "do3d": False, "ks": [1, 2, 5], "ang": ang,
-           "proj": {"top": prod_stats(TV, TW, True), "bot": prod_stats(BV, BW, False)}}
+           "proj": {"top": align_stats(TV, TW, True), "bot": align_stats(BV, BW, False)}}
     return out
 
 
