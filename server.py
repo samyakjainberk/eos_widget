@@ -147,6 +147,37 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
 
     out = {"M": N, "do3d": False, "ks": [1, 2, 5], "ang": ang,
            "proj": {"top": rank_stats(TV, TW, True), "bot": rank_stats(BV, BW, False)}}
+
+    # ---- §12b new panels: SVD-principal-direction → nearest-eigenvector CROSS projections (MIN / MAX angle) ----
+    #      For every OFF-DIAGONAL pair (i≠j): SVD of E_iE_jᵀ (full top-K ⊕ bottom-K). For the col-ℓ principal
+    #      direction (ℓ=0 = MIN angle / ℓ=D-1 = MAX angle), pick u_i=e_{i,a*} (a*=argmax_a|U[a,ℓ]|) and u_j=e_{j,b*}
+    #      (b*=argmax_b|V[b,ℓ]|); σ_i,σ_j = their eigenvalues. Quantities (|⟨J,u⟩| sign-free; σ,r signed) meaned over
+    #      i≠j: q1=|⟨J_i,u_j⟩|σ_i r_i ; q2=|⟨J_i,u_j⟩||⟨J_j,u_i⟩|σ_iσ_j r_i r_j ; q3=|⟨J_i,u_j⟩|/‖J_i‖ ;
+    #      q4=|⟨J_i,u_j⟩||⟨J_j,u_i⟩|/(‖J_i‖‖J_j‖). ----
+    Ef = torch.cat([TV, BV], dim=1)                              # (N,2K,p) full top-K ⊕ bottom-K eigenvectors
+    Wf = torch.cat([TW, BW], dim=1)                              # (N,2K) signed eigenvalues
+    Df = Ef.shape[1]
+    Mf = torch.einsum('iap,jbp->ijab', Ef, Ef)                  # (N,N,D,D) cross-Gram E_iE_jᵀ
+    Uf, _, Vhf = torch.linalg.svd(Mf)                            # U (N,N,D,D) left ; Vh (N,N,D,D) = Vᴴ
+    Jdot_ib = torch.einsum('ip,jbp->ijb', Jg, Ef)              # (N,N,D) ⟨J_i, e_{j,b}⟩
+    Jdot_ja = torch.einsum('jp,iap->ija', Jg, Ef)              # (N,N,D) ⟨J_j, e_{i,a}⟩
+    ii = ai.view(N, 1).expand(N, N); jj = ai.view(1, N).expand(N, N)
+    jn_i = jnorm.view(N, 1).clamp_min(1e-30); jn_j = jnorm.view(1, N).clamp_min(1e-30)
+    r_i = r.view(N, 1); r_j = r.view(1, N)
+
+    def xproj(col):
+        asel = Uf[:, :, :, col].abs().argmax(dim=2)            # (N,N) eigvec idx of i nearest the col-ℓ i-side principal dir
+        bsel = Vhf[:, :, col, :].abs().argmax(dim=2)           # (N,N) eigvec idx of j
+        Jiuj = Jdot_ib.gather(2, bsel.unsqueeze(2)).squeeze(2).abs()   # |⟨J_i,u_j⟩| (N,N)
+        Jjui = Jdot_ja.gather(2, asel.unsqueeze(2)).squeeze(2).abs()   # |⟨J_j,u_i⟩| (N,N)
+        sig_i = Wf[ii, asel]; sig_j = Wf[jj, bsel]            # σ_i, σ_j (N,N)
+        q1 = Jiuj * sig_i * r_i
+        q2 = Jiuj * Jjui * sig_i * sig_j * r_i * r_j
+        q3 = Jiuj / jn_i
+        q4 = Jiuj * Jjui / (jn_i * jn_j)
+        mm = lambda x: float(x[offm].mean()) if offm.any() else 0.0   # mean over OFF-DIAGONAL pairs (i≠j)
+        return [mm(q1), mm(q2), mm(q3), mm(q4)]
+    out["xproj"] = {"min": xproj(0), "max": xproj(Df - 1)}
     return out
 
 

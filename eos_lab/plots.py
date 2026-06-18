@@ -901,6 +901,32 @@ def plot_section12_diagalign(hist):
     return fig
 
 
+_S12_XP_TITLES = ["|<J_i,u_j>|·σ_i·r_i", "|<J_i,u_j>||<J_j,u_i>|·σ_iσ_j·r_i r_j",
+                  "|<J_i,u_j>|/||J_i||", "|<J_i,u_j>||<J_j,u_i>|/(||J_i|| ||J_j||)"]
+
+
+def plot_section12_xproj(hist):
+    """§12b panels 3/4 — SVD-principal-direction → nearest-eigenvector cross projections, MIN (row 0) / MAX (row 1)
+    principal-angle direction; 4 means over ALL (i,j) vs step. Reads xproj.{min,max}. None if <2 records."""
+    import numpy as np
+    snaps = [r for r in hist if "g4d" in r and "xproj" in r["g4d"]]
+    if len(snaps) < 2:
+        return None
+    t = [r["t"] for r in snaps]
+    rows = [("min", "#2563eb"), ("max", "#dc2626")]
+    fig, axs = plt.subplots(2, 4, figsize=(20, 7))
+    for ri, (key, col) in enumerate(rows):
+        for ci in range(4):
+            ax = axs[ri][ci]
+            y = np.array([r["g4d"]["xproj"][key][ci] for r in snaps], dtype=float)
+            ax.axhline(0, c="#d1d5db", lw=0.8)
+            ax.plot(t, y, color=col, marker="o", ms=3, lw=1.4)
+            ax.set_xlabel("step"); ax.set_title(f"{key} · mean {_S12_XP_TITLES[ci]}", fontsize=8)
+    fig.suptitle("§12b panels 3/4 — cross projections at the min/max principal-angle direction", fontsize=13)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    return fig
+
+
 S12_HISTBINS = 40   # §12 panel-4/5 alignment-histogram bar count (shared bins across the two ranks) — MIRRORS index.html.
 
 
@@ -1151,6 +1177,7 @@ def save_panels(results, outdir):
             "section12_panel1_angles": plot_section12_angles(hist),
             "section12_panel2_evolution": plot_section12_evolution(hist),
             "section12a_panel4_diagalign": plot_section12_diagalign(hist),
+            "section12b_panel34_xproj": plot_section12_xproj(hist),
             "section12_panel4_proj": plot_section12_proj(hist),
             "section12_panel45_hist": plot_section12_hist(hist),
             "section13_panel1_G1": plot_section13_panel1(hist),

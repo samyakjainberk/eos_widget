@@ -219,6 +219,28 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
 
     out = {"M": N, "do3d": False, "ks": [1, 2, 5], "ang": ang,
            "proj": {"top": rank_stats(TV, TW, True), "bot": rank_stats(BV, BW, False)}}
+
+    # ---- §12b new panels: SVD-principal-direction → nearest-eigenvector CROSS projections (MIN / MAX angle).
+    #      Per OFF-DIAGONAL pair (i≠j): SVD of E_iE_jᵀ; ℓ=0=MIN angle / ℓ=D-1=MAX; u_i=e_{i,argmax|U[:,ℓ]|},
+    #      u_j=e_{j,argmax|V[:,ℓ]|}. |⟨J,u⟩| sign-free, σ,r signed; mean over i≠j. MIRRORS server._sec12_payload. ----
+    Ef = torch.cat([TV, BV], dim=1); Wf = torch.cat([TW, BW], dim=1); Df = Ef.shape[1]
+    Mf = torch.einsum('iap,jbp->ijab', Ef, Ef)
+    Uf, _, Vhf = torch.linalg.svd(Mf)
+    Jdot_ib = torch.einsum('ip,jbp->ijb', Jg, Ef); Jdot_ja = torch.einsum('jp,iap->ija', Jg, Ef)
+    ii = ai.view(N, 1).expand(N, N); jj = ai.view(1, N).expand(N, N)
+    jn_i = jnorm.view(N, 1).clamp_min(1e-30); jn_j = jnorm.view(1, N).clamp_min(1e-30)
+    r_i = r.view(N, 1); r_j = r.view(1, N)
+
+    def xproj(col):
+        asel = Uf[:, :, :, col].abs().argmax(dim=2); bsel = Vhf[:, :, col, :].abs().argmax(dim=2)
+        Jiuj = Jdot_ib.gather(2, bsel.unsqueeze(2)).squeeze(2).abs()
+        Jjui = Jdot_ja.gather(2, asel.unsqueeze(2)).squeeze(2).abs()
+        sig_i = Wf[ii, asel]; sig_j = Wf[jj, bsel]
+        q1 = Jiuj * sig_i * r_i; q2 = Jiuj * Jjui * sig_i * sig_j * r_i * r_j
+        q3 = Jiuj / jn_i; q4 = Jiuj * Jjui / (jn_i * jn_j)
+        mm = lambda x: float(x[offm].mean()) if offm.any() else 0.0   # mean over OFF-DIAGONAL pairs (i≠j)
+        return [mm(q1), mm(q2), mm(q3), mm(q4)]
+    out["xproj"] = {"min": xproj(0), "max": xproj(Df - 1)}
     return out
 
 

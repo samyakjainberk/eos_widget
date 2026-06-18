@@ -283,6 +283,12 @@
 <div class="plotrow row4"><div id="p_s12proj_bot0" class="plot" style="height:290px"></div><div id="p_s12proj_bot1" class="plot" style="height:290px"></div><div id="p_s12proj_bot2" class="plot" style="height:290px"></div><div id="p_s12proj_bot3" class="plot" style="height:290px"></div></div>
 <p class="cap" style="margin-top:6px">Histograms over the $N$ samples at the <b>current iteration</b> (redrawn every step), rank-1 &amp; rank-2 overlaid: the per-sample <b>product</b> $\text{proj}_i\cdot r_i$ (left) and the <b>alignment</b> $|\langle J_i,u\rangle|/\lVert J_i\rVert$ (right).</p>
 <div class="plotrow row2"><div id="p_s12hist_bot_prod" class="plot" style="height:250px"></div><div id="p_s12hist_bot_cos" class="plot" style="height:250px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — cross projections at the MIN principal-angle direction (nearest eigenvector pair)</h3>
+<p class="cap">For every <b>off-diagonal</b> pair $(i\neq j)$: SVD the cross-Gram $E_iE_j^\top$; for the <b>minimum</b> principal-angle direction (largest singular value), take $u_i=e_{i,a^\ast}$ ($a^\ast=\arg\max_a|U_{a,1}|$) and $u_j=e_{j,b^\ast}$ ($b^\ast=\arg\max_b|V_{b,1}|$) — the eigenvectors nearest the principal directions — with eigenvalues $\sigma_i,\sigma_j$. The 4 plots are the <b>mean over $i\neq j$</b> of: (1) $|\langle J_i,u_j\rangle|\,\sigma_i\,r_i$ ; (2) $|\langle J_i,u_j\rangle|\,|\langle J_j,u_i\rangle|\,\sigma_i\sigma_j\,r_i r_j$ ; (3) $|\langle J_i,u_j\rangle|/\lVert J_i\rVert$ ; (4) $|\langle J_i,u_j\rangle|\,|\langle J_j,u_i\rangle|/(\lVert J_i\rVert\lVert J_j\rVert)$. (Inner products are $|\cdot|$ so the eigenvector sign drops out; $\sigma,r$ keep their signs.)</p>
+<div class="plotrow row4"><div id="p_s12xp_min_0" class="plot" style="height:280px"></div><div id="p_s12xp_min_1" class="plot" style="height:280px"></div><div id="p_s12xp_min_2" class="plot" style="height:280px"></div><div id="p_s12xp_min_3" class="plot" style="height:280px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — cross projections at the MAX principal-angle direction (nearest eigenvector pair)</h3>
+<p class="cap">Same as Panel 3 but for the <b>maximum</b> principal-angle direction (smallest singular value, most-orthogonal): $a^\ast=\arg\max_a|U_{a,D}|$, $b^\ast=\arg\max_b|V_{b,D}|$ ($D=2K$ = last singular column). Same 4 means over $i\neq j$: (1) $|\langle J_i,u_j\rangle|\sigma_i r_i$ ; (2) $|\langle J_i,u_j\rangle||\langle J_j,u_i\rangle|\sigma_i\sigma_j r_i r_j$ ; (3) $|\langle J_i,u_j\rangle|/\lVert J_i\rVert$ ; (4) $|\langle J_i,u_j\rangle||\langle J_j,u_i\rangle|/(\lVert J_i\rVert\lVert J_j\rVert)$.</p>
+<div class="plotrow row4"><div id="p_s12xp_max_0" class="plot" style="height:280px"></div><div id="p_s12xp_max_1" class="plot" style="height:280px"></div><div id="p_s12xp_max_2" class="plot" style="height:280px"></div><div id="p_s12xp_max_3" class="plot" style="height:280px"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -1056,6 +1062,9 @@ const S12_EVO_KS=[5,15,1,2];   // evolution k's (panel 2: 5,15 ; panel 3: 1,2)
 const S12_EVO_STATS=[['mn','min','#dc2626'],['mx','max','#2563eb'],['me','mean','#16a34a']];   // off-diagonal stat → id/label/colour
 let S12_SNAPS=[], S12_N=0, S12_BUILT=false, S12_RAF=0, S12_PENDING=-1, S12_CAMKEY='', S12E_STEPS=[], S12E_DATA=null, S12P_DATA=null;
 const S12_DAL_KS=[1,2,5,15]; let S12DAL_STEPS=[], S12DAL_DATA=null;   // §12a Panel 4: diagonal (same-rank) eigvec alignment
+const S12XP_GRP=[['min','#2563eb'],['max','#dc2626']];   // §12b Panels 3/4: cross projections at min/max principal-angle direction
+const S12XP_TITLE=['mean |⟨J_i,u_j⟩|·σ_i·r_i','mean |⟨J_i,u_j⟩||⟨J_j,u_i⟩|·σ_iσ_j·r_i r_j','mean |⟨J_i,u_j⟩|/‖J_i‖','mean |⟨J_i,u_j⟩||⟨J_j,u_i⟩|/(‖J_i‖‖J_j‖)'];
+let S12XP_STEPS=[], S12XP_DATA=null;
 const S12_MAXSNAPS=2000;   // bound §12 snapshot memory on long runs (decimate ×2 when exceeded; mirrors §11's G3D_MAXSNAPS)
 let S12_BUILTSET=new Set(), S12_VISIBLE=new Set(), S12_IO=null, S12_IOT=null, S12_CURIDX=0, S12_EXPORTING=false;   // lazy-WebGL cube state (context budget)
 const s12Mean=a=>{let s=0,c=0;for(let q=0;q<a.length;q++){const v=a[q];if(v!=null&&isFinite(v)){s+=v;c++;}}return c?s/c:0;};   // mean, skipping null/NaN/Inf (sanitised payload)
@@ -1070,7 +1079,8 @@ function s12CubeIds(){return [];}   // §12/§13 no longer have any WebGL cubes 
 function s12ProjIds(){const a=[];for(const g of ['top','bot'])for(let n=0;n<4;n++)a.push('p_s12proj_'+g+n);return a;}
 function s12HistIds(){return ['p_s12hist_top_prod','p_s12hist_top_cos','p_s12hist_bot_prod','p_s12hist_bot_cos'];}
 function s12DalIds(){return S12_DAL_KS.map(k=>'p_s12dal_'+k);}
-function s12AllIds(){const a=[];for(let n=0;n<4;n++)a.push('p_s12ang_'+n);return a.concat(s12ProjIds()).concat(s12HistIds()).concat(s12EvoIds()).concat(s12DalIds());}
+function s12XpIds(){const a=[];for(const gc of S12XP_GRP)for(let n=0;n<4;n++)a.push('p_s12xp_'+gc[0]+'_'+n);return a;}
+function s12AllIds(){const a=[];for(let n=0;n<4;n++)a.push('p_s12ang_'+n);return a.concat(s12ProjIds()).concat(s12HistIds()).concat(s12EvoIds()).concat(s12DalIds()).concat(s12XpIds());}
 // ── §13 — G1/G2/G3 approximations vs the exact reference J_iᵀQ_jJ_k·r_k (time-series mean±std clouds) ──
 const S13_GS=[1,2,3], S13_KS=[2,5], S13_DOMS=['ndist','ijeq','diag'];
 const S13_DOMLAB={ndist:'i≠j≠k',ijeq:'i=j≠k',diag:'i=j=k'}, S13_GLAB={1:'G₁',2:'G₂',3:'G₃'};
@@ -1115,7 +1125,7 @@ function s13Draw(){
       y:[bandY(D.rm,D.rs),D.rm.slice(),bandY(D.gm,D.gs),D.gm.slice()]},[0,1,2,3]);}
 }
 function s13Reset(){S13_STEPS=[];S13_DATA=null;S13_BUILT=false;S13N_STEPS=[];S13N_VALS=[];S13N_BUILT=false;if(typeof S13_PREV_JS!=='undefined')S13_PREV_JS=null;if(typeof S13_QJPREV_JS!=='undefined')S13_QJPREV_JS=null;for(const id of s13Ids().concat(['p_s13_ndiff'])){try{Plotly.purge(id);}catch(e){}}}
-function s12Reset(){S12_SNAPS=[];S12_N=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEPS=[];S12E_DATA=null;S12P_DATA=null;S12DAL_STEPS=[];S12DAL_DATA=null;S12_CURIDX=0;
+function s12Reset(){S12_SNAPS=[];S12_N=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEPS=[];S12E_DATA=null;S12P_DATA=null;S12DAL_STEPS=[];S12DAL_DATA=null;S12XP_STEPS=[];S12XP_DATA=null;S12_CURIDX=0;
   if(S12_RAF){cancelAnimationFrame(S12_RAF);S12_RAF=0;}S12_PENDING=-1;
   if(S12_IO){S12_IO.disconnect();S12_IO=null;}if(S12_IOT){clearTimeout(S12_IOT);S12_IOT=null;}S12_BUILTSET.clear();S12_VISIBLE.clear();
   for(const id of s12AllIds()){try{Plotly.purge(id);}catch(e){}}
@@ -1325,6 +1335,7 @@ function s12Build(N){
   for(let n=0;n<4;n++)s12Heat2DBuild('p_s12ang_'+n,N,S12_ANGT[n],false);
   s12EvoBuild();
   s12DalBuild();
+  s12XpBuild();
   s12ProjBuild();
 }
 function s12EvoIds(){const a=[];for(const k of S12_EVO_KS)for(const s of S12_EVO_STATS)a.push('p_s12evo_'+s[0]+'_'+k);return a;}
@@ -1360,6 +1371,21 @@ function s12DalAppend(m){
 function s12DalRender(){
   if(!S12DAL_DATA||!S12DAL_STEPS.length)return;const t=S12DAL_STEPS;
   for(const k of S12_DAL_KS)Plotly.restyle('p_s12dal_'+k,{x:[t],y:[S12DAL_DATA[k]]});
+}
+function s12XpBuild(){   // §12b Panels 3/4: cross projections at the min/max principal-angle direction, 4 plots each
+  for(const [g,col] of S12XP_GRP)for(let n=0;n<4;n++)
+    Plotly.newPlot('p_s12xp_'+g+'_'+n,[{x:[],y:[],mode:'lines+markers',line:{color:col,width:1.8},marker:{size:4,color:col}}],
+      withZero(baseLayout(S12XP_TITLE[n],'value',false)),{responsive:true,displaylogo:false});
+}
+function s12XpAppend(m){
+  if(!m.xproj)return;
+  if(!S12XP_DATA){S12XP_DATA={};for(const [g] of S12XP_GRP)S12XP_DATA[g]=[[],[],[],[]];}
+  S12XP_STEPS.push(m.t);
+  for(const [g] of S12XP_GRP){const v=m.xproj[g]||[0,0,0,0];for(let n=0;n<4;n++)S12XP_DATA[g][n].push(v[n]);}
+}
+function s12XpRender(){
+  if(!S12XP_DATA||!S12XP_STEPS.length)return;const t=S12XP_STEPS;
+  for(const [g] of S12XP_GRP)for(let n=0;n<4;n++)Plotly.restyle('p_s12xp_'+g+'_'+n,{x:[t],y:[S12XP_DATA[g][n]]});
 }
 // panel 4: residual ↔ proj correlation — trajectories over training (x=proj stat, y=residual stat; colour=step)
 // Panel 4: 3D evolution trajectories — x=step t, y=proj statistic, z=residual statistic (colour=step)
@@ -1443,7 +1469,7 @@ function s12Push(m){
   if(sl){sl.max=S12_SNAPS.length-1;if(wasLive)sl.value=sl.max;}
   {const sl3=document.getElementById('s13_slider');if(sl3){sl3.max=S12_SNAPS.length-1;if(wasLive)sl3.value=sl3.max;}}   // §13 shares §12's snapshots
   if(!S12_BUILT||S12_N!==m.M)s12Build(m.M);   // build synchronously so the evolution restyle targets exist
-  s12EvoAppend(m);s12EvoRender();s12DalAppend(m);s12DalRender();s12ProjAppend(m);s12ProjRender();
+  s12EvoAppend(m);s12EvoRender();s12DalAppend(m);s12DalRender();s12XpAppend(m);s12XpRender();s12ProjAppend(m);s12ProjRender();
   s12RenderIdx(wasLive?S12_SNAPS.length-1:(sl?+sl.value:0));
 }
 // ── §12 browser-mode compute (JS port of server._sec12_payload) ──────────────
@@ -1525,6 +1551,32 @@ function s12DiagAlign(TV,BV,N,p,k){   // §12a: mean_{i≠j} of (1/2k)Σ_a|⟨e_
     s+=m/D;c++;}                                                    // per-pair mean of |diagonal|, then mean over i≠j
   return c?s/c:0;
 }
+function s12XProj(TV,BV,TW,BW,r,Jg,N,p){   // §12b: SVD-principal-dir → nearest-eigvec CROSS projections (min/max angle). MIRRORS server xproj.
+  const K=TV[0].length,D=2*K,E=[],W=[];
+  for(let i=0;i<N;i++){const cols=[],vals=[];
+    for(let a=0;a<K;a++){cols.push(TV[i][a]);vals.push(TW[i][a]);}
+    for(let a=0;a<K;a++){cols.push(BV[i][a]);vals.push(BW[i][a]);}
+    E.push(cols);W.push(vals);}
+  const jn=Jg.map(g=>Math.sqrt(s12Dot(g,g,p))),EPS=1e-30;
+  const acc={min:[0,0,0,0],max:[0,0,0,0]};let c=0;
+  for(let i=0;i<N;i++)for(let j=0;j<N;j++){if(i===j)continue;   // mean over OFF-DIAGONAL pairs (i≠j)
+    const M=new Float64Array(D*D);for(let a=0;a<D;a++)for(let b=0;b<D;b++)M[a*D+b]=s12Dot(E[i][a],E[j][b],p);   // M=E_iE_jᵀ
+    const MMt=new Float64Array(D*D),MtM=new Float64Array(D*D);   // U=eig(MMᵀ), V=eig(MᵀM) → left/right singular vectors
+    for(let a=0;a<D;a++)for(let a2=0;a2<D;a2++){let s=0;for(let b=0;b<D;b++)s+=M[a*D+b]*M[a2*D+b];MMt[a*D+a2]=s;}
+    for(let b=0;b<D;b++)for(let b2=0;b2<D;b2++){let s=0;for(let a=0;a<D;a++)s+=M[a*D+b]*M[a*D+b2];MtM[b*D+b2]=s;}
+    const eU=jacobiEig(MMt,D),eV=jacobiEig(MtM,D);
+    const ordU=Array.from({length:D},(_,q)=>q).sort((x,z)=>eU.vals[z]-eU.vals[x]);   // columns by σ² descending
+    const ordV=Array.from({length:D},(_,q)=>q).sort((x,z)=>eV.vals[z]-eV.vals[x]);
+    for(const kr of [['min',0],['max',D-1]]){const key=kr[0],cU=ordU[kr[1]],cV=ordV[kr[1]];   // ℓ=0 min angle / ℓ=D-1 max
+      let am=0,av=-1;for(let a=0;a<D;a++){const x=Math.abs(eU.V[a*D+cU]);if(x>av){av=x;am=a;}}   // a*=argmax_a|U[a,ℓ]|
+      let bm=0,bv=-1;for(let b=0;b<D;b++){const x=Math.abs(eV.V[b*D+cV]);if(x>bv){bv=x;bm=b;}}   // b*=argmax_b|V[b,ℓ]|
+      const ui=E[i][am],uj=E[j][bm],si=W[i][am],sj=W[j][bm];
+      const Jiuj=Math.abs(s12Dot(Jg[i],uj,p)),Jjui=Math.abs(s12Dot(Jg[j],ui,p)),ni=Math.max(jn[i],EPS),nj=Math.max(jn[j],EPS);
+      acc[key][0]+=Jiuj*si*r[i];acc[key][1]+=Jiuj*Jjui*si*sj*r[i]*r[j];acc[key][2]+=Jiuj/ni;acc[key][3]+=Jiuj*Jjui/(ni*nj);}
+    c++;
+  }
+  const dv=c||1;return {min:acc.min.map(x=>x/dv),max:acc.max.map(x=>x/dv)};
+}
 function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap){   // §12: principal angles (k=1,2,5,10,kfull) + proj↔residual. §13 = sec13Stats.
   const K=TV[0].length, kf=Math.max(1,Math.min(SEC12_KFULL,K)), ks=[1,2,5,10,kf];
   const pas=ks.map(k=>s12Angles(TV,BV,N,p,k)), om=pas.map(x=>s12OffStats(x.g,N));
@@ -1545,7 +1597,7 @@ function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap){   // §12: principal an
         if(jnorm[i]>0)vv.push(Math.abs(jd)/jnorm[i]);}           // ALIGNMENT |⟨J,u⟩|/‖J‖ = |cos∠| (‖J‖=0 dropped)
       out.push({prod:ms(pv),pvals:pv,cos:ms(vv),vals:vv});}
     return out;};
-  return {M:N,do3d:false,ks:[1,2,5],ang:ang,proj:{top:rankStats(TV,TW,true),bot:rankStats(BV,BW,false)}};
+  return {M:N,do3d:false,ks:[1,2,5],ang:ang,proj:{top:rankStats(TV,TW,true),bot:rankStats(BV,BW,false)},xproj:s12XProj(TV,BV,TW,BW,r,Jg,N,p)};
 }
 // §13 — G1/G2/G3 rank-k₀ approximations vs the exact reference J_iᵀQ_jJ_k·r_k. MIRRORS server._sec13_stats.
 // cur/prev = {TV,TW,BV,BW,r,Jg}: TV[i][a]=Float64Array(p) a-th top eigvec of Q_i, TW[i][a]=eigval, r[i], Jg[i].
