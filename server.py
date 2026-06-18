@@ -74,7 +74,7 @@ SEC12_KFULL = 15   # rank of the "full-space" principal-angle plot (top-15 ⊕ b
                    # too, needs only Lanczos extremes rather than the full spectrum.
 
 
-def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
+def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL, gTV=None, gTW=None, gBV=None, gBW=None):
     """§12 per-sample Hessian eigenvector diagnostics, from per-sample Lanczos eigenpairs.
     TV,BV:(N,K,p) top/bottom eigenVECTORS; TW,BW:(N,K) eigenVALUES; r:(N,) residual; Jg:(N,p) per-sample
     GT-label gradients ∇f_i. Returns {M,do3d,ks,ang,proj}:
@@ -165,10 +165,29 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
                         "cos": ms(q), "vals": q.detach().cpu().tolist()})          # alignment (+ per-sample for histogram)
         return out
 
+    # ---- panels 3/4 (GLOBAL view): project each per-sample ∇f_i onto the TOP-2 / BOTTOM-2 eigenvectors w of the
+    #      SUMMED Hessian Σ_i Q_i (a single shared basis, ordered top=desc / bottom=most-negative). Same two quantities
+    #      as panels 1/2 — product |⟨J_i,w⟩|·σ·r_i (σ = the GLOBAL eigenvalue of Σ_i Q_i) and alignment |⟨J_i,w⟩|/‖J_i‖
+    #      — mean/std over samples. At N=1 this coincides with panels 1/2 (Σ_i Q_i = Q_1). ----
+    def gproj_stats(gV, gW):
+        def ms(x):
+            return [float(x.mean()), float(x.std(unbiased=False))] if x.numel() else [0.0, 0.0]
+        o = []
+        for rk in range(min(nrank, int(gV.shape[0]))):
+            w = gV[rk]; sig = float(gW[rk])                    # global eigvec + its (global) eigenvalue
+            jdot = Jg @ w                                      # (N,) ⟨J_i, w⟩ for every sample
+            prod = (jdot.abs() * sig) * r                      # |⟨J_i,w⟩|·σ·r_i
+            q = jdot[nz].abs() / jnorm[nz]                     # |⟨J_i,w⟩|/‖J_i‖ ∈ [0,1]
+            o.append({"prod": ms(prod), "pvals": prod.detach().cpu().tolist(),
+                      "cos": ms(q), "vals": q.detach().cpu().tolist()})
+        return o
+
     out = {"M": N, "do3d": False, "ks": [1, 2, 5], "ang": ang,
            "proj": {"top": rank_stats(TV, TW, True), "bot": rank_stats(BV, BW, False)}}
+    if gTV is not None and gBV is not None:                     # panels 3/4 — global-Hessian view
+        out["gproj"] = {"top": gproj_stats(gTV, gTW), "bot": gproj_stats(gBV, gBW)}
 
-    # ---- §12b new panels: SVD-principal-direction → nearest-eigenvector CROSS projections (MIN / MAX angle) ----
+    # ---- §12b panels 5/6: SVD-principal-direction → nearest-eigenvector CROSS projections (MIN / MAX angle) ----
     #      For every OFF-DIAGONAL pair (i≠j): SVD of the REAL-subspace overlap E_i^✓E_j^✓ᵀ (✓ = the valid, unit-norm
     #      eigvecs only — spurious null-space rows are dropped so the MAX-angle direction is a genuine least-aligned
     #      REAL principal direction, not a zero-norm vector). For the col-ℓ principal direction (ℓ=0 = MIN angle /
@@ -1974,7 +1993,7 @@ def run_stream(P):
                 QJr = hvpS(th, X, Jrs, u1s.reshape(N, outD))
                 qn = max(float(QJr.norm()), 1e-30)
                 q10 = []
-                for k in range(n):
+                for k in range(min(n, bEk_vecs.shape[1])):    # ≤ M GN eigvecs exist (clamp so N·d_out<neig doesn't index OOB)
                     g = Jc.t() @ bEk_vecs[:, k]
                     g = g / max(float(g.norm()), 1e-30)
                     q10.append(float(QJr @ g))
@@ -2267,8 +2286,15 @@ def run_stream(P):
                         BWl.append(torch.tensor(bval, dtype=DTYPE, device=_dev()))
                     TV, TW, BV, BW = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
                 r12 = rr[lblsel12]; Jg12 = Jc[lblsel12]
+                gTV = gTW = gBV = gBW = None
+                if s22:                    # §12b panels 3/4: top-2/bottom-2 eigenpairs of the GLOBAL Hessian Σ_i Q_i =
+                    cAll = torch.zeros(N, outD, dtype=DTYPE, device=_dev())   # ∇²(Σ_i f_i^GT) via hvpS with the GT-label cotangent
+                    cAll.view(-1)[lblsel12] = 1.0                            #   (= §4's ∇²Σf when outdim=1). single Lanczos.
+                    gtv, gbv, gtw, gbw = lanczos_extreme(lambda v: hvpS(th, X, v, cAll), p, 2, m12, 0x6105A1)
+                    gTV = torch.stack(gtv); gBV = torch.stack(gbv)
+                    gTW = torch.tensor(gtw, dtype=DTYPE, device=_dev()); gBW = torch.tensor(gbw, dtype=DTYPE, device=_dev())
                 if s19 or s22:             # §12a (angles+diag-align) ⊕ §12b (proj) — both in one payload, shown by their toggles
-                    sec12 = _sec12_payload(TV, TW, BV, BW, r12, Jg12, grid3dcap)
+                    sec12 = _sec12_payload(TV, TW, BV, BW, r12, Jg12, grid3dcap, gTV=gTV, gTW=gTW, gBV=gBV, gBW=gBW)
                 if s21 and multi_ok and N <= grid3dcap:       # §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k (N HVPs, §11's tool) + G1/G2/G3 — multi-only (N³ cube)
                     T1_13 = torch.zeros(N, N, N, dtype=DTYPE, device=_dev())
                     QJ_list = []

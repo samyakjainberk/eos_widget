@@ -614,8 +614,15 @@ class Diagnostics:
                     BWl.append(torch.tensor(bval, dtype=dt, device=dev))
                 TV, TW, BV, BW = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
             r12 = rr[lblsel12]; Jg12 = Jc[lblsel12]
+            gTV = gTW = gBV = gBW = None
+            if self.s22:                   # panels 3/4: top-2/bottom-2 eigvecs of the GLOBAL Hessian Σ_i Q_i = ∇²(Σ_i f_i^GT)
+                cAll = torch.zeros(N, outD, dtype=dt, device=dev)        # via hvp_S with the GT-label cotangent (= ∇²Σf when outD=1)
+                cAll.view(-1)[lblsel12] = 1.0
+                gtv, gbv, gtw, gbw = lanczos_extreme(lambda v: hvp_S(self.model, th, X, cAll, v), p, 2, m12, 0x6105A1, dev, dt)
+                gTV = torch.stack(gtv); gBV = torch.stack(gbv)
+                gTW = torch.tensor(gtw, dtype=dt, device=dev); gBW = torch.tensor(gbw, dtype=dt, device=dev)
             if self.s19 or self.s22:       # §12a (angles+diag-align) ⊕ §12b (proj) — both in one payload, shown by their toggles
-                rec["g4d"] = sec12_payload(TV, TW, BV, BW, r12, Jg12, self.grid3dcap)
+                rec["g4d"] = sec12_payload(TV, TW, BV, BW, r12, Jg12, self.grid3dcap, gTV=gTV, gTW=gTW, gBV=gBV, gBW=gBW)
             if self.s21 and self.multi_ok and N <= self.grid3dcap:   # §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k (N HVPs) + G1/G2/G3 — multi-only (N³ cube)
                 T1_13 = torch.zeros(N, N, N, dtype=dt, device=dev)
                 QJ_list = []

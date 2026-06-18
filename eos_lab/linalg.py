@@ -156,7 +156,7 @@ def hutch_trace(hvp, p, nprobe, seed, device, dtype):
 SEC12_KFULL = 15   # rank of the §12 "full-space" principal-angle plot (top-15 ⊕ bottom-15) — MIRRORS server.
 
 
-def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
+def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL, gTV=None, gTW=None, gBV=None, gBW=None):
     """§12 per-sample Hessian eigenvector diagnostics, from per-sample Lanczos eigenpairs. MIRRORS
     server._sec12_payload. TV,BV:(N,K,p) top/bottom eigenVECTORS; TW,BW:(N,K) eigenVALUES; r:(N,) residual;
     Jg:(N,p) per-sample GT-label gradients ∇f_i. Returns {M,do3d,ks,ang,proj}:
@@ -239,8 +239,26 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
                         "cos": ms(q), "vals": q.detach().cpu().tolist()})          # alignment (+ per-sample for histogram)
         return out
 
+    # panels 3/4 (GLOBAL view): each per-sample ∇f_i onto the top-2/bottom-2 eigvecs w of the SUMMED Hessian Σ_i Q_i
+    # (shared basis); product |⟨J_i,w⟩|·σ·r_i (σ = global eigenvalue), alignment |⟨J_i,w⟩|/‖J_i‖; mean/std over samples.
+    # At N=1 coincides with panels 1/2. MIRRORS server._sec12_payload.
+    def gproj_stats(gV, gW):
+        def ms(x):
+            return [float(x.mean()), float(x.std(unbiased=False))] if x.numel() else [0.0, 0.0]
+        o = []
+        for rk in range(min(nrank, int(gV.shape[0]))):
+            w = gV[rk]; sig = float(gW[rk])
+            jdot = Jg @ w
+            prod = (jdot.abs() * sig) * r
+            q = jdot[nz].abs() / jnorm[nz]
+            o.append({"prod": ms(prod), "pvals": prod.detach().cpu().tolist(),
+                      "cos": ms(q), "vals": q.detach().cpu().tolist()})
+        return o
+
     out = {"M": N, "do3d": False, "ks": [1, 2, 5], "ang": ang,
            "proj": {"top": rank_stats(TV, TW, True), "bot": rank_stats(BV, BW, False)}}
+    if gTV is not None and gBV is not None:
+        out["gproj"] = {"top": gproj_stats(gTV, gTW), "bot": gproj_stats(gBV, gBW)}
 
     # ---- §12b new panels: SVD-principal-direction → nearest-eigenvector CROSS projections (MIN / MAX angle).
     #      Per OFF-DIAGONAL pair (i≠j): SVD of the REAL-subspace overlap E_i^✓E_j^✓ᵀ (✓ = valid unit eigvecs only);
