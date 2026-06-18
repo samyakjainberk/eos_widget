@@ -72,8 +72,6 @@ def _g3d_pack(flat, K=G3D_MAXPTS):
 # tensor-only so it is unit-testable; MIRRORS eos_lab.linalg.sec12_payload / index.html sec12Payload.
 SEC12_KFULL = 15   # rank of the "full-space" principal-angle plot (top-15 ⊕ bottom-15) — a fixed cap so it,
                    # too, needs only Lanczos extremes rather than the full spectrum.
-SEC12_RATIO_EPS = 0.1   # §12 panel-4/5 residual floor: clamp |r_i| ≥ SEC12_RATIO_EPS·RMS(r) before forming proj_i/r_i,
-                        # so the ratio (and its histogram) can't spike when a residual crosses zero.
 
 
 def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
@@ -83,12 +81,11 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
       ang.g = the principal-angle (i,j) grids for k=1,2,5,10,kfull (deg); ang.gm = whole-grid means (panel-1
         titles); ang.mn/mx/me = min/max/MEAN over the OFF-DIAGONAL pairs (i≠j; the i=i diagonal angle is 0),
         used by the panel-2/3 evolution curves; ang.ks lists the k per index.
-      proj = panels 4/5, for u = the TOP eigvec u_{i,1} (largest signed eigenvalue, → proj.top) and the BOTTOM
-        eigvec u_{i,-1} (most-negative, → proj.bot) of Q_i. Each carries {ratio:[mean,std], sratio:[mean,std]}:
-        the magnitude ratio uses |⟨J_i,u⟩|·σ / r_i (with |r_i| floored at SEC12_RATIO_EPS·RMS(r) to kill spikes when a
-        residual crosses zero, sign kept); the SIGN-ratio uses sgn(⟨J_i,u⟩·σ / r_i) — the SIGNED
-        projection so its sign varies per sample (|proj|·σ has constant sign sgn(σ) → sign-ratio would collapse to
-        ±sgn(r_i)). Per-sample ratio FIRST, then mean/std over samples; r_i=0 dropped. MIRRORS
+      proj = panels 4/5. For the TOP-2 eigvecs u_{i,1},u_{i,2} (largest eigenvalues → proj.top, a list of 2 ranks)
+        and the BOTTOM-2 u_{i,-1},u_{i,-2} (most-negative → proj.bot) of Q_i, each rank carries
+        {prod:[mean,std], sprod:[mean,std], pvals, svals}: the per-sample PRODUCT prod_i = |⟨J_i,u⟩|·σ·r_i (no
+        division → no spikes) and the sign-product sprod_i = sgn(⟨J_i,u⟩·σ·r_i) (SIGNED projection so its sign
+        varies per sample). pvals/svals = the per-sample arrays for the histograms. MIRRORS
         eos_lab.linalg.sec12_payload / index.html sec1213Payload."""
     import math as _m
     N, K, p = int(TV.shape[0]), int(TV.shape[1]), int(TV.shape[2])
@@ -112,34 +109,29 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
     ang = {"g": [x.reshape(-1).detach().cpu().tolist() for x in pas], "gm": [float(x.mean()) for x in pas],
            "mn": [o[0] for o in om], "mx": [o[1] for o in om], "me": [o[2] for o in om], "ks": ks_ang, "kfull": kf}
 
-    # ---- panels 4/5: proj_i = |⟨J_i,u⟩|·σ for the TOP eigvec u_{i,1} (largest signed eigenvalue) and the
-    #      BOTTOM eigvec u_{i,-1} (most-negative eigenvalue) of Q_i. Plotted = the per-sample RATIO proj_i/r_i,
-    #      then mean/std over samples; plus the sign-ratio sgn(proj_i)/sgn(r_i). Samples with r_i=0 are dropped. ----
+    # ---- panels 4/5: TOP-2 (u_{i,1},u_{i,2}; largest eigenvalues) and BOTTOM-2 (u_{i,-1},u_{i,-2}; most-negative)
+    #      eigvecs of Q_i. Plotted = the per-sample PRODUCT prod_i = |⟨J_i,u⟩|·σ·r_i (no division → no spikes), then
+    #      mean/std over ALL samples; plus the sign-product sgn(⟨J_i,u⟩·σ·r_i). 2 ranks/group → 2 lines per plot. ----
     ai = torch.arange(N, device=dev)
-    it = TW.argmax(dim=1); ib = BW.argmin(dim=1)                  # top = largest eigenvalue ; bottom = most negative
-    jt = (Jg * TV[ai, it]).sum(dim=1); jb = (Jg * BV[ai, ib]).sum(dim=1)   # ⟨J_i,u⟩ SIGNED projection
-    st = TW[ai, it]; sb = BW[ai, ib]                             # σ_top, σ_bot (signed)
+    nrank = min(2, K)                                            # the top-2 (and bottom-2) eigenvectors → 2 lines/plot
 
-    def ratio_stats(jdot, sig):
-        # magnitude ratio uses |⟨J,u⟩|·σ (as specified); the SIGN-ratio uses the SIGNED ⟨J,u⟩·σ so its sign varies
-        # per sample (otherwise |proj|·σ has a constant sign = sgn(σ) and the sign-ratio collapses to ±sgn(r_i)).
-        proj_mag = jdot.abs() * sig                              # |⟨J_i,u⟩|·σ  → magnitude ratio
-        proj_sgn = jdot * sig                                    # ⟨J_i,u⟩·σ (signed) → sign-ratio
-        nz = r != 0
-        rnz = r[nz]
-        eps = SEC12_RATIO_EPS * torch.sqrt((rnz ** 2).mean()) if rnz.numel() else None   # residual floor = REL·RMS(r)
-        r_safe = torch.sign(rnz) * torch.clamp(rnz.abs(), min=float(eps)) if eps is not None else rnz   # |r| floored (sign kept)
-        rat = proj_mag[nz] / r_safe
-        fin = torch.isfinite(rat)
-        rat = rat[fin]
-        srat = torch.sign(proj_sgn[nz][fin]) * torch.sign(rnz[fin])    # sign-ratio uses the RAW residual sign (correction is magnitude-only)
+    def prod_stats(V, W, largest):                              # V/W = (TV,TW) top or (BV,BW) bottom
+        idx = W.topk(nrank, dim=1, largest=largest).indices    # (N,nrank): rank 0 = largest (top)/most-negative (bottom), rank 1 = 2nd
         def ms(x):
             return [float(x.mean()), float(x.std(unbiased=False))] if x.numel() else [0.0, 0.0]
-        return {"ratio": ms(rat), "sratio": ms(srat),                   # rvals/svals = per-sample values for the panel-4/5 histograms
-                "rvals": rat.detach().cpu().tolist(), "svals": srat.detach().cpu().tolist()}
+        out = []
+        for rk in range(nrank):
+            irk = idx[:, rk]
+            jdot = (Jg * V[ai, irk]).sum(dim=1)                # ⟨J_i,u⟩  (signed projection)
+            sig = W[ai, irk]                                   # σ (signed eigenvalue)
+            prod = (jdot.abs() * sig) * r                      # PRODUCT |⟨J_i,u⟩|·σ·r_i  (no division → no spikes)
+            sprod = torch.sign(jdot * sig) * torch.sign(r)     # sign-product sgn(⟨J_i,u⟩·σ·r_i)  (SIGNED proj → non-degenerate)
+            out.append({"prod": ms(prod), "sprod": ms(sprod),  # pvals/svals = per-sample values for the histograms
+                        "pvals": prod.detach().cpu().tolist(), "svals": sprod.detach().cpu().tolist()})
+        return out
 
     out = {"M": N, "do3d": False, "ks": [1, 2, 5], "ang": ang,
-           "proj": {"top": ratio_stats(jt, st), "bot": ratio_stats(jb, sb)}}
+           "proj": {"top": prod_stats(TV, TW, True), "bot": prod_stats(BV, BW, False)}}
     return out
 
 

@@ -878,56 +878,84 @@ def plot_section12_evolution(hist):
     return fig
 
 
+S12_HISTBINS = 40   # §12 panel-4/5 product-histogram bar count (shared bins across the two ranks) — MIRRORS index.html.
+
+
 def plot_section12_proj(hist):
-    """§12 panels 4/5 — per-sample ratio proj_i/r_i over training, 2D. proj_i = |⟨J_i,u⟩|·σ for the TOP eigvec
-    u_{i,1} (row 0 = panel 4) and the BOTTOM eigvec u_{i,-1} (row 1 = panel 5). 4 cols: mean ratio, std ratio,
-    mean sign-ratio, std sign-ratio. Reads proj.{top,bot}.{ratio,sratio}=[mean,std]. None if <2 records."""
+    """§12 panels 4/5 — per-sample PRODUCT proj_i·r_i over training, 2D. proj_i·r_i = |⟨J_i,u⟩|·σ·r_i for the TOP-2
+    eigvecs u_{i,1},u_{i,2} (row 0 = panel 4) and the BOTTOM-2 u_{i,-1},u_{i,-2} (row 1 = panel 5); rank-1 solid,
+    rank-2 dashed (2 lines/plot). 4 cols: mean product, std product, mean sign-product, std sign-product. Reads
+    proj.{top,bot}=[{prod,sprod},…] (one dict per rank). None if <2 records."""
     import numpy as np
     recs = [r for r in hist if "g4d" in r and r["g4d"].get("proj") is not None
-            and "top" in r["g4d"]["proj"]]
+            and r["g4d"]["proj"].get("top")]
     if len(recs) < 2:
         return None
     t = list(range(len(recs)))
     P = [r["g4d"]["proj"] for r in recs]
-    cols = [("ratio", 0, "⟨proj/r⟩"), ("ratio", 1, "σ(proj/r)"),
-            ("sratio", 0, "⟨sign-ratio⟩"), ("sratio", 1, "σ(sign-ratio)")]
-    rows = [("top", "Panel 4 — top eigvec u_{i,1}", "#2563eb"),
-            ("bot", "Panel 5 — bottom eigvec u_{i,-1}", "#dc2626")]
+    cols = [("prod", 0, "⟨proj·r⟩"), ("prod", 1, "σ(proj·r)"),
+            ("sprod", 0, "⟨sign-product⟩"), ("sprod", 1, "σ(sign-product)")]
+    rows = [("top", "Panel 4 — top-2 u_{i,1},u_{i,2}", ["#2563eb", "#93c5fd"]),
+            ("bot", "Panel 5 — bottom-2 u_{i,-1},u_{i,-2}", ["#dc2626", "#fca5a5"])]
+    nrank = max((len(p.get("top", [])) for p in P), default=0)
+    rlab = ["rank-1", "rank-2"]; dash = ["-", "--"]
     fig, axs = plt.subplots(2, 4, figsize=(20, 8))
-    for ri, (grp, rlab, col) in enumerate(rows):
+    for ri, (grp, rlabel, palette) in enumerate(rows):
         for ci, (key, si, yl) in enumerate(cols):
             ax = axs[ri][ci]
-            y = np.array([p[grp][key][si] for p in P], dtype=float)
             ax.axhline(0, c="#d1d5db", lw=0.8)
-            ax.plot(t, y, color=col, marker="o", ms=3, lw=1.4)
+            for rk in range(nrank):
+                y = np.array([(p[grp][rk][key][si] if rk < len(p.get(grp, [])) else np.nan) for p in P], dtype=float)
+                ax.plot(t, y, color=palette[rk % len(palette)], marker="o", ms=3, lw=1.4,
+                        ls=dash[rk % len(dash)], label=(rlab[rk] if rk < len(rlab) else f"rank-{rk + 1}"))
             ax.set_xlabel("step"); ax.set_ylabel(yl)
-            ax.set_title((rlab + " · " if ci == 0 else "") + yl, fontsize=9)
-    fig.suptitle("§12 panels 4/5 — ratio proj_i/r_i (top row: u_{i,1}; bottom row: u_{i,-1})", fontsize=13)
+            ax.set_title((rlabel + " · " if ci == 0 else "") + yl, fontsize=9)
+            if ci == 0 and nrank > 1:
+                ax.legend(fontsize=7, loc="best")
+    fig.suptitle("§12 panels 4/5 — product proj_i·r_i (top row: u_{i,1..2}; bottom row: u_{i,-1..-2})", fontsize=13)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     return fig
 
 
 def plot_section12_hist(hist):
-    """§12 panels 4/5 histograms over the N samples at the LAST snapshot: per-sample ratio proj_i/r_i and its
-    sign-ratio, for the top (row 0) and bottom (row 1) eigenvectors. Reads proj.{top,bot}.{rvals,svals}."""
+    """§12 panels 4/5 histograms over the N samples at the LAST snapshot: per-sample PRODUCT proj_i·r_i and its
+    sign-product, for the TOP-2 (row 0) and BOTTOM-2 (row 1) eigvecs — rank-1 & rank-2 overlaid (shared bins).
+    Reads proj.{top,bot}=[{pvals,svals},…] (one dict per rank)."""
     import numpy as np
-    recs = [r for r in hist if "g4d" in r and r["g4d"].get("proj") is not None
-            and "rvals" in r["g4d"]["proj"].get("top", {})]
+    def has_pvals(r):
+        tp = r["g4d"]["proj"].get("top") if r.get("g4d", {}).get("proj") else None
+        return bool(tp) and "pvals" in tp[0]
+    recs = [r for r in hist if "g4d" in r and r["g4d"].get("proj") is not None and has_pvals(r)]
     if not recs:
         return None
     P = recs[-1]["g4d"]["proj"]; step = recs[-1].get("t", len(recs) - 1)
-    rows = [("top", "#2563eb"), ("bot", "#dc2626")]
+    rows = [("top", ["#2563eb", "#93c5fd"]), ("bot", ["#dc2626", "#fca5a5"])]
+    rlab = ["rank-1", "rank-2"]
     fig, axs = plt.subplots(2, 2, figsize=(11, 7))
-    for ri, (grp, col) in enumerate(rows):
-        rv = np.asarray(P[grp].get("rvals", []), dtype=float)
-        sv = np.asarray(P[grp].get("svals", []), dtype=float)
-        axs[ri][0].hist(rv, bins=min(20, max(5, rv.size)), color=col, edgecolor="white")
-        axs[ri][0].set_title(f"{grp} · proj/r over samples (step {step})", fontsize=10)
-        axs[ri][0].set_xlabel("proj_i/r_i"); axs[ri][0].set_ylabel("count")
-        axs[ri][1].hist(sv, bins=[-1.5, -0.5, 0.5, 1.5], color=col, edgecolor="white")
-        axs[ri][1].set_title(f"{grp} · sign-ratio", fontsize=10)
-        axs[ri][1].set_xlabel("sgn(proj_i·σ/r_i)"); axs[ri][1].set_ylabel("count"); axs[ri][1].set_xticks([-1, 0, 1])
-    fig.suptitle("§12 panels 4/5 — per-sample histograms at the last iteration", fontsize=13)
+    for ri, (grp, palette) in enumerate(rows):
+        ranks = P.get(grp, []) or []
+        allp = np.concatenate([np.asarray(rk.get("pvals", []), dtype=float) for rk in ranks]) if ranks else np.array([])
+        allp = allp[np.isfinite(allp)]
+        if allp.size:                                          # shared bins across ranks so the overlay aligns
+            lo, hi = float(allp.min()), float(allp.max())
+            if hi == lo:
+                lo, hi = lo - 0.5, hi + 0.5
+            pbins = np.linspace(lo, hi, S12_HISTBINS + 1)
+        else:
+            pbins = 10
+        for rk, rkd in enumerate(ranks):
+            pv = np.asarray(rkd.get("pvals", []), dtype=float)
+            sv = np.asarray(rkd.get("svals", []), dtype=float)
+            lab = rlab[rk] if rk < len(rlab) else f"rank-{rk + 1}"
+            col = palette[rk % len(palette)]
+            axs[ri][0].hist(pv, bins=pbins, color=col, edgecolor="white", alpha=0.6, label=lab)
+            axs[ri][1].hist(sv, bins=[-1.5, -0.5, 0.5, 1.5], color=col, edgecolor="white", alpha=0.6, label=lab)
+        axs[ri][0].set_title(f"{grp} · proj·r over samples (step {step})", fontsize=10)
+        axs[ri][0].set_xlabel("proj_i·r_i"); axs[ri][0].set_ylabel("count"); axs[ri][0].legend(fontsize=7)
+        axs[ri][1].set_title(f"{grp} · sign-product", fontsize=10)
+        axs[ri][1].set_xlabel("sgn(⟨J,u⟩·σ·r_i)"); axs[ri][1].set_ylabel("count")
+        axs[ri][1].set_xticks([-1, 0, 1]); axs[ri][1].legend(fontsize=7)
+    fig.suptitle("§12 panels 4/5 — per-sample product histograms at the last iteration", fontsize=13)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     return fig
 
