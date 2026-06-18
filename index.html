@@ -274,21 +274,32 @@
 </div>
 
 <div id="sec_s12b" style="display:none">
-<h2>12b · per-sample projection panels — gradient onto the top-2 / bottom-2 eigenvectors</h2>
+<h2>12b · projection panels — gradient onto top-2 / bottom-2 eigenvectors (per-sample $Q_i$, global $\sum_i Q_i$, and cross-pairs)</h2>
+<label style="font-size:12px;color:#475569;cursor:pointer;user-select:none"><input type="checkbox" id="s12_hidehist" onchange="s12HistVis()"> hide residual histograms (the per-step over-sample histograms under each panel)</label>
 <h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — product $|\langle J_i,u\rangle|\,\sigma\,r_i$ and alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert$ for the TOP-2 eigenvectors $u_{i,1},u_{i,2}$ (largest eigenvalues)</h3>
 <p class="cap">$u_{i,1},u_{i,2}$ = eigenvectors of the two <b>largest</b> signed eigenvalues of $Q_i$ (<b>rank-1</b> solid, <b>rank-2</b> dotted — 2 lines per plot). Two per-sample quantities, aggregated across samples. <b>Row of 4 plots</b>: (1) mean &amp; (2) std of the <b>product</b> $\text{proj}_i\cdot r_i=|\langle J_i,u\rangle|\cdot\sigma\cdot r_i$ (all samples; scales with the eigenvalue $\sigma$, so it can grow large during sharpening); (3) mean &amp; (4) std of the <b>alignment</b> $q_i=|\langle J_i,u\rangle|/\lVert J_i\rVert=|\cos\angle(J_i,u)|\in[0,1]$ ($\lVert J_i\rVert=0$ dropped; bounded by Cauchy–Schwarz).</p>
 <div class="plotrow row4"><div id="p_s12proj_top0" class="plot" style="height:290px"></div><div id="p_s12proj_top1" class="plot" style="height:290px"></div><div id="p_s12proj_top2" class="plot" style="height:290px"></div><div id="p_s12proj_top3" class="plot" style="height:290px"></div></div>
-<p class="cap" style="margin-top:6px">Histograms over the $N$ samples at the <b>current iteration</b> (redrawn every step), rank-1 &amp; rank-2 overlaid: the per-sample <b>product</b> $\text{proj}_i\cdot r_i$ (left) and the <b>alignment</b> $|\langle J_i,u\rangle|/\lVert J_i\rVert$ (right).</p>
-<div class="plotrow row2"><div id="p_s12hist_top_prod" class="plot" style="height:250px"></div><div id="p_s12hist_top_cos" class="plot" style="height:250px"></div></div>
+<p class="cap s12hist" style="margin-top:6px">Histograms over the $N$ samples at the <b>current iteration</b> (redrawn every step), rank-1 &amp; rank-2 overlaid: the per-sample <b>product</b> $\text{proj}_i\cdot r_i$ (left) and the <b>alignment</b> $|\langle J_i,u\rangle|/\lVert J_i\rVert$ (right).</p>
+<div class="plotrow row2 s12hist"><div id="p_s12hist_top_prod" class="plot" style="height:250px"></div><div id="p_s12hist_top_cos" class="plot" style="height:250px"></div></div>
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — product $|\langle J_i,u\rangle|\,\sigma\,r_i$ and alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert$ for the BOTTOM-2 eigenvectors $u_{i,-1},u_{i,-2}$ (most-negative eigenvalues)</h3>
 <p class="cap">Same as Panel 4 but with $u_{i,-1},u_{i,-2}$ = eigenvectors of the two <b>most-negative</b> eigenvalues of $Q_i$ (so $\sigma<0$); rank-1 = most-negative (solid), rank-2 = next (dotted). 4 plots: (1) mean &amp; (2) std of the product $|\langle J_i,u\rangle|\,\sigma\,r_i$ ; (3) mean &amp; (4) std of the alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert\in[0,1]$. Per sample first, then aggregated across samples.</p>
 <div class="plotrow row4"><div id="p_s12proj_bot0" class="plot" style="height:290px"></div><div id="p_s12proj_bot1" class="plot" style="height:290px"></div><div id="p_s12proj_bot2" class="plot" style="height:290px"></div><div id="p_s12proj_bot3" class="plot" style="height:290px"></div></div>
-<p class="cap" style="margin-top:6px">Histograms over the $N$ samples at the <b>current iteration</b> (redrawn every step), rank-1 &amp; rank-2 overlaid: the per-sample <b>product</b> $\text{proj}_i\cdot r_i$ (left) and the <b>alignment</b> $|\langle J_i,u\rangle|/\lVert J_i\rVert$ (right).</p>
-<div class="plotrow row2"><div id="p_s12hist_bot_prod" class="plot" style="height:250px"></div><div id="p_s12hist_bot_cos" class="plot" style="height:250px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — cross projections at the MIN principal-angle direction (nearest eigenvector pair)</h3>
+<p class="cap s12hist" style="margin-top:6px">Histograms over the $N$ samples at the <b>current iteration</b> (redrawn every step), rank-1 &amp; rank-2 overlaid: the per-sample <b>product</b> $\text{proj}_i\cdot r_i$ (left) and the <b>alignment</b> $|\langle J_i,u\rangle|/\lVert J_i\rVert$ (right).</p>
+<div class="plotrow row2 s12hist"><div id="p_s12hist_bot_prod" class="plot" style="height:250px"></div><div id="p_s12hist_bot_cos" class="plot" style="height:250px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — GLOBAL view: $|\langle J_i,w\rangle|\,\sigma\,r_i$ and $|\langle J_i,w\rangle|/\lVert J_i\rVert$ for the TOP-2 eigenvectors $w_1,w_2$ of the summed Hessian $\sum_i Q_i$</h3>
+<p class="cap">Same two quantities as Panel 1, but each per-sample gradient $\nabla f_i$ is projected onto a <b>single shared</b> basis: the top-2 eigenvectors $w$ of the <b>summed</b> function Hessian $\sum_i Q_i=\nabla^2(\sum_i f_i^{\,\text{GT}})$ (one global eigendecomposition, not per-sample). The product $|\langle J_i,w\rangle|\cdot\sigma\cdot r_i$ uses the <b>global</b> eigenvalue $\sigma$ of $\sum_i Q_i$; alignment $|\langle J_i,w\rangle|/\lVert J_i\rVert\in[0,1]$. Mean/std over the $N$ samples (rank-1 solid, rank-2 dotted). At $N=1$ this coincides with Panel 1 ($\sum_i Q_i=Q_1$); for $d_{\text{out}}=1$ the operator is §4's $\nabla^2\!\sum f$.</p>
+<div class="plotrow row4"><div id="p_s12gproj_top0" class="plot" style="height:290px"></div><div id="p_s12gproj_top1" class="plot" style="height:290px"></div><div id="p_s12gproj_top2" class="plot" style="height:290px"></div><div id="p_s12gproj_top3" class="plot" style="height:290px"></div></div>
+<p class="cap s12hist" style="margin-top:6px">Histograms over the $N$ samples (rank-1 &amp; rank-2 overlaid): the per-sample <b>product</b> $|\langle J_i,w\rangle|\sigma r_i$ (left) and <b>alignment</b> $|\langle J_i,w\rangle|/\lVert J_i\rVert$ (right) onto the global TOP eigenvectors.</p>
+<div class="plotrow row2 s12hist"><div id="p_s12ghist_top_prod" class="plot" style="height:250px"></div><div id="p_s12ghist_top_cos" class="plot" style="height:250px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — GLOBAL view: $|\langle J_i,w\rangle|\,\sigma\,r_i$ and $|\langle J_i,w\rangle|/\lVert J_i\rVert$ for the BOTTOM-2 eigenvectors $w_{-1},w_{-2}$ of $\sum_i Q_i$</h3>
+<p class="cap">Same as Panel 3 but onto the two <b>most-negative</b> eigenvectors of the summed Hessian $\sum_i Q_i$ (so $\sigma<0$). Mean/std over samples; at $N=1$ coincides with Panel 2.</p>
+<div class="plotrow row4"><div id="p_s12gproj_bot0" class="plot" style="height:290px"></div><div id="p_s12gproj_bot1" class="plot" style="height:290px"></div><div id="p_s12gproj_bot2" class="plot" style="height:290px"></div><div id="p_s12gproj_bot3" class="plot" style="height:290px"></div></div>
+<p class="cap s12hist" style="margin-top:6px">Histograms over the $N$ samples (rank-1 &amp; rank-2 overlaid): the per-sample <b>product</b> (left) and <b>alignment</b> (right) onto the global BOTTOM eigenvectors.</p>
+<div class="plotrow row2 s12hist"><div id="p_s12ghist_bot_prod" class="plot" style="height:250px"></div><div id="p_s12ghist_bot_cos" class="plot" style="height:250px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 5 — cross projections at the MIN principal-angle direction (nearest eigenvector pair)</h3>
 <p class="cap">For every <b>off-diagonal</b> pair $(i\neq j)$: SVD the cross-Gram $E_iE_j^\top$; for the <b>minimum</b> principal-angle direction (largest singular value), take $u_i=e_{i,a^\ast}$ ($a^\ast=\arg\max_a|U_{a,1}|$) and $u_j=e_{j,b^\ast}$ ($b^\ast=\arg\max_b|V_{b,1}|$) — the eigenvectors nearest the principal directions — with eigenvalues $\sigma_i,\sigma_j$. The 4 plots are the <b>mean over $i\neq j$</b> of: (1) $|\langle J_i,u_j\rangle|\,\sigma_i\,r_i$ ; (2) $|\langle J_i,u_j\rangle|\,|\langle J_j,u_i\rangle|\,\sigma_i\sigma_j\,r_i r_j$ ; (3) $|\langle J_i,u_j\rangle|/\lVert J_i\rVert$ ; (4) $|\langle J_i,u_j\rangle|\,|\langle J_j,u_i\rangle|/(\lVert J_i\rVert\lVert J_j\rVert)$. (Inner products are $|\cdot|$ so the eigenvector sign drops out; $\sigma,r$ keep their signs.)</p>
 <div class="plotrow row4"><div id="p_s12xp_min_0" class="plot" style="height:280px"></div><div id="p_s12xp_min_1" class="plot" style="height:280px"></div><div id="p_s12xp_min_2" class="plot" style="height:280px"></div><div id="p_s12xp_min_3" class="plot" style="height:280px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — cross projections at the MAX principal-angle direction (nearest eigenvector pair)</h3>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 6 — cross projections at the MAX principal-angle direction (nearest eigenvector pair)</h3>
 <p class="cap">Same as Panel 3 but for the <b>maximum</b> principal-angle direction (smallest singular value, most-orthogonal): $a^\ast=\arg\max_a|U_{a,D}|$, $b^\ast=\arg\max_b|V_{b,D}|$ ($D=2K$ = last singular column). Same 4 means over $i\neq j$: (1) $|\langle J_i,u_j\rangle|\sigma_i r_i$ ; (2) $|\langle J_i,u_j\rangle||\langle J_j,u_i\rangle|\sigma_i\sigma_j r_i r_j$ ; (3) $|\langle J_i,u_j\rangle|/\lVert J_i\rVert$ ; (4) $|\langle J_i,u_j\rangle||\langle J_j,u_i\rangle|/(\lVert J_i\rVert\lVert J_j\rVert)$.</p>
 <div class="plotrow row4"><div id="p_s12xp_max_0" class="plot" style="height:280px"></div><div id="p_s12xp_max_1" class="plot" style="height:280px"></div><div id="p_s12xp_max_2" class="plot" style="height:280px"></div><div id="p_s12xp_max_3" class="plot" style="height:280px"></div></div>
 </div>
@@ -1081,13 +1092,14 @@ const S12_ANGHEAT=[0,2,3,4];   // panel-1 heatmap n → ang.g index (ang grids a
 const S12_ANGI={1:0,2:1,5:2,10:3,15:4};   // angle k → ang.{g,mn,mx,me} index (15 = the kfull slot, idx 4)
 const S12_EVO_KS=[5,15,1,2];   // evolution k's (panel 2: 5,15 ; panel 3: 1,2)
 const S12_EVO_STATS=[['mn','min','#dc2626'],['mx','max','#2563eb'],['me','mean','#16a34a']];   // off-diagonal stat → id/label/colour
-let S12_SNAPS=[], S12_N=0, S12_BUILT=false, S12_RAF=0, S12_PENDING=-1, S12_CAMKEY='', S12E_STEPS=[], S12E_DATA=null, S12P_DATA=null;
+let S12_SNAPS=[], S12_N=0, S12_BUILT=false, S12_RAF=0, S12_PENDING=-1, S12_CAMKEY='', S12E_STEPS=[], S12E_DATA=null, S12P_DATA=null, S12GP_DATA=null;
 const S12_DAL_KS=[1,2,5,15]; let S12DAL_STEPS=[], S12DAL_DATA=null;   // §12a Panel 4: diagonal (same-rank) eigvec alignment
 const S12XP_GRP=[['min','#2563eb'],['max','#dc2626']];   // §12b Panels 3/4: cross projections at min/max principal-angle direction
 const S12XP_TITLE=['mean_i Σ_{j≠i} |⟨J_i,u_j⟩|·σ_i·r_i','mean_i Σ_{j≠i} |⟨J_i,u_j⟩||⟨J_j,u_i⟩|·σ_iσ_j·r_i r_j','mean_{i≠j} |⟨J_i,u_j⟩|/‖J_i‖','mean_{i≠j} |⟨J_i,u_j⟩||⟨J_j,u_i⟩|/(‖J_i‖‖J_j‖)'];
 let S12XP_STEPS=[], S12XP_DATA=null;
 const S12_MAXSNAPS=2000;   // bound §12 snapshot memory on long runs (decimate ×2 when exceeded; mirrors §11's G3D_MAXSNAPS)
 let S12_BUILTSET=new Set(), S12_VISIBLE=new Set(), S12_IO=null, S12_IOT=null, S12_CURIDX=0, S12_EXPORTING=false;   // lazy-WebGL cube state (context budget)
+let S12_HIDEHIST=false;   // §12b: hide the per-step over-sample residual histograms (panels 1–4) when checked
 const s12Mean=a=>{let s=0,c=0;for(let q=0;q<a.length;q++){const v=a[q];if(v!=null&&isFinite(v)){s+=v;c++;}}return c?s/c:0;};   // mean, skipping null/NaN/Inf (sanitised payload)
 function s12RunMean(i,fn){let s=0,c=0;for(let q=0;q<=i&&q<S12_SNAPS.length;q++){const v=fn(S12_SNAPS[q]);if(v!=null&&isFinite(v)){s+=v;c++;}}return c?s/c:NaN;}  // time-running mean over snapshots 0..i
 // §13 plots the per-iteration DIFFERENCE value(i)−value(i−1) (zeros at the first snapshot — no previous). acc maps a
@@ -1098,10 +1110,11 @@ function s13DiffMean(i,acc){let s=0,c=0;for(let j=0;j<=i&&j<S12_SNAPS.length;j++
 const fmtMu=x=>{if(x==null||!isFinite(x))return '–';const a=Math.abs(x);return (a!==0&&(a<0.05||a>=1e4))?x.toExponential(1):x.toFixed(2);};
 function s12CubeIds(){return [];}   // §12/§13 no longer have any WebGL cubes (§12 angles+evolution only; §13 is time-series)
 function s12ProjIds(){const a=[];for(const g of ['top','bot'])for(let n=0;n<4;n++)a.push('p_s12proj_'+g+n);return a;}
-function s12HistIds(){return ['p_s12hist_top_prod','p_s12hist_top_cos','p_s12hist_bot_prod','p_s12hist_bot_cos'];}
+function s12GProjIds(){const a=[];for(const g of ['top','bot'])for(let n=0;n<4;n++)a.push('p_s12gproj_'+g+n);return a;}
+function s12HistIds(){return ['p_s12hist_top_prod','p_s12hist_top_cos','p_s12hist_bot_prod','p_s12hist_bot_cos','p_s12ghist_top_prod','p_s12ghist_top_cos','p_s12ghist_bot_prod','p_s12ghist_bot_cos'];}
 function s12DalIds(){return S12_DAL_KS.map(k=>'p_s12dal_'+k);}
 function s12XpIds(){const a=[];for(const gc of S12XP_GRP)for(let n=0;n<4;n++)a.push('p_s12xp_'+gc[0]+'_'+n);return a;}
-function s12AllIds(){const a=[];for(let n=0;n<4;n++)a.push('p_s12ang_'+n);return a.concat(s12ProjIds()).concat(s12HistIds()).concat(s12EvoIds()).concat(s12DalIds()).concat(s12XpIds());}
+function s12AllIds(){const a=[];for(let n=0;n<4;n++)a.push('p_s12ang_'+n);return a.concat(s12ProjIds()).concat(s12GProjIds()).concat(s12HistIds()).concat(s12EvoIds()).concat(s12DalIds()).concat(s12XpIds());}
 // ── §13 — G1/G2/G3 approximations vs the exact reference J_iᵀQ_jJ_k·r_k (time-series mean±std clouds) ──
 const S13_GS=[1,2,3], S13_KS=[2,5], S13_DOMS=['ndist','ijeq','diag'];
 const S13_DOMLAB={ndist:'i≠j≠k',ijeq:'i=j≠k',diag:'i=j=k'}, S13_GLAB={1:'G₁',2:'G₂',3:'G₃'};
@@ -1146,7 +1159,7 @@ function s13Draw(){
       y:[bandY(D.rm,D.rs),D.rm.slice(),bandY(D.gm,D.gs),D.gm.slice()]},[0,1,2,3]);}
 }
 function s13Reset(){S13_STEPS=[];S13_DATA=null;S13_BUILT=false;S13N_STEPS=[];S13N_VALS=[];S13N_BUILT=false;if(typeof S13_PREV_JS!=='undefined')S13_PREV_JS=null;if(typeof S13_QJPREV_JS!=='undefined')S13_QJPREV_JS=null;for(const id of s13Ids().concat(['p_s13_ndiff'])){try{Plotly.purge(id);}catch(e){}}}
-function s12Reset(){S12_SNAPS=[];S12_N=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEPS=[];S12E_DATA=null;S12P_DATA=null;S12DAL_STEPS=[];S12DAL_DATA=null;S12XP_STEPS=[];S12XP_DATA=null;S12_CURIDX=0;
+function s12Reset(){S12_SNAPS=[];S12_N=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEPS=[];S12E_DATA=null;S12P_DATA=null;S12GP_DATA=null;S12DAL_STEPS=[];S12DAL_DATA=null;S12XP_STEPS=[];S12XP_DATA=null;S12_CURIDX=0;
   if(S12_RAF){cancelAnimationFrame(S12_RAF);S12_RAF=0;}S12_PENDING=-1;
   if(S12_IO){S12_IO.disconnect();S12_IO=null;}if(S12_IOT){clearTimeout(S12_IOT);S12_IOT=null;}S12_BUILTSET.clear();S12_VISIBLE.clear();
   for(const id of s12AllIds()){try{Plotly.purge(id);}catch(e){}}
@@ -1358,6 +1371,7 @@ function s12Build(N){
   s12DalBuild();
   s12XpBuild();
   s12ProjBuild();
+  s12GProjBuild();
 }
 function s12EvoIds(){const a=[];for(const k of S12_EVO_KS)for(const s of S12_EVO_STATS)a.push('p_s12evo_'+s[0]+'_'+k);return a;}
 function s12EvoBuild(){   // panels 2/3: min/max/mean principal angle over i≠j, for k∈{5,15,1,2}
@@ -1443,28 +1457,67 @@ function s12ProjRender(){
     const xs=[],ys=[];for(let rk=0;rk<S12P_NRANK;rk++){xs.push(t.slice());ys.push(S12P_DATA[grp][n][rk].slice());}
     Plotly.restyle(pre+n,{x:xs,y:ys});}
 }
-function s12HistDraw(i){   // panels 4/5 histograms (product + alignment) over samples at the CURRENT snapshot i (redrawn each render); rank-1 & rank-2 overlaid
+// panels 3/4 (GLOBAL view) — identical plots to panels 1/2 (S12P_* config) but reading m.gproj (Σ_i Q_i basis)
+const S12GP_GRP=[['top','p_s12gproj_top','#2563eb','#93c5fd'],['bot','p_s12gproj_bot','#dc2626','#fca5a5']];
+function s12GProjBuild(){
+  for(const [grp,pre,col,col2] of S12GP_GRP)for(let n=0;n<S12P_STAT.length;n++){
+    const cols=[col,col2],dash=['solid','dot'],traces=[];
+    for(let rk=0;rk<S12P_NRANK;rk++)traces.push({x:[],y:[],mode:'lines+markers',name:S12P_RLAB[rk],line:{color:cols[rk],width:1.8,dash:dash[rk]},marker:{size:4,color:cols[rk]}});
+    const lay=withZero(baseLayout(S12P_TITLE[n],S12P_YL[n],false));
+    lay.showlegend=true;lay.legend={font:{size:8},x:0.99,xanchor:'right',y:0.99,yanchor:'top',bgcolor:'rgba(255,255,255,0.6)'};
+    Plotly.newPlot(pre+n,traces,lay,{responsive:true,displaylogo:false});}
+}
+function s12GProjAppend(m){
+  if(!m.gproj||!m.gproj.top)return;
+  if(!S12GP_DATA){S12GP_DATA={steps:[]};for(const [grp] of S12GP_GRP){S12GP_DATA[grp]=[];for(let n=0;n<S12P_STAT.length;n++){S12GP_DATA[grp][n]=[];for(let rk=0;rk<S12P_NRANK;rk++)S12GP_DATA[grp][n][rk]=[];}}}
+  S12GP_DATA.steps.push(m.t);
+  for(const [grp] of S12GP_GRP){const ranks=m.gproj[grp]||[];
+    for(let n=0;n<S12P_STAT.length;n++){const[k,si]=S12P_STAT[n];
+      for(let rk=0;rk<S12P_NRANK;rk++){const e=ranks[rk];S12GP_DATA[grp][n][rk].push(e?(e[k]||[0,0])[si]:null);}}}
+}
+function s12GProjRender(){
+  if(!S12GP_DATA||!S12GP_DATA.steps.length)return;const t=S12GP_DATA.steps;
+  for(const [grp,pre] of S12GP_GRP)for(let n=0;n<S12P_STAT.length;n++){
+    const xs=[],ys=[];for(let rk=0;rk<S12P_NRANK;rk++){xs.push(t.slice());ys.push(S12GP_DATA[grp][n][rk].slice());}
+    Plotly.restyle(pre+n,{x:xs,y:ys});}
+}
+function s12HistDrawOne(id,ranks,key,title,palette){const div=document.getElementById(id);if(!div)return;   // one §12b histogram, rank-1 & rank-2 overlaid
+  ranks=ranks||[];
+  let xbins=null,lo=Infinity,hi=-Infinity;   // shared bins across the two ranks so the overlay aligns
+  for(let rk=0;rk<ranks.length;rk++)for(const v of ((ranks[rk]||{})[key]||[]))if(isFinite(v)){if(v<lo)lo=v;if(v>hi)hi=v;}
+  if(isFinite(lo)&&isFinite(hi)){if(hi===lo){lo-=0.5;hi+=0.5;}const sz=(hi-lo)/S12_HISTBINS||1;xbins={start:lo,end:hi+sz,size:sz};}
+  const traces=[];
+  for(let rk=0;rk<ranks.length;rk++){const vals=(ranks[rk]||{})[key]||[];
+    const tr={x:vals.slice(),type:'histogram',opacity:0.6,name:S12P_RLAB[rk],marker:{color:palette[rk],line:{color:'#fff',width:0.4}}};
+    if(xbins)tr.xbins=xbins;
+    traces.push(tr);}
+  Plotly.react(id,traces,{title:{text:title,font:{size:10.5,color:'#475569'},x:0.04,xanchor:'left',y:0.98},
+    barmode:'overlay',margin:{l:38,r:8,t:22,b:28},bargap:0.04,paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{size:9,color:'#374151'},
+    xaxis:{gridcolor:'#eef0f3',zeroline:true,zerolinecolor:'#d1d5db'},yaxis:{title:{text:'count',font:{size:9}},gridcolor:'#eef0f3'},
+    showlegend:true,legend:{font:{size:8},x:0.99,xanchor:'right',y:0.99,yanchor:'top',bgcolor:'rgba(255,255,255,0.6)'}},
+    {responsive:true,displaylogo:false});}
+function s12HistDraw(i){   // panels 1/2 histograms (product + alignment) over samples at the CURRENT snapshot i
+  if(S12_HIDEHIST)return;
   const s=S12_SNAPS[i];if(!s||!s.proj)return;
-  const draw=(id,ranks,key,title,palette)=>{const div=document.getElementById(id);if(!div)return;
-    ranks=ranks||[];
-    let xbins=null,lo=Infinity,hi=-Infinity;   // shared bins across the two ranks so the overlay aligns
-    for(let rk=0;rk<ranks.length;rk++)for(const v of ((ranks[rk]||{})[key]||[]))if(isFinite(v)){if(v<lo)lo=v;if(v>hi)hi=v;}
-    if(isFinite(lo)&&isFinite(hi)){if(hi===lo){lo-=0.5;hi+=0.5;}const sz=(hi-lo)/S12_HISTBINS||1;xbins={start:lo,end:hi+sz,size:sz};}
-    const traces=[];
-    for(let rk=0;rk<ranks.length;rk++){const vals=(ranks[rk]||{})[key]||[];
-      const tr={x:vals.slice(),type:'histogram',opacity:0.6,name:S12P_RLAB[rk],marker:{color:palette[rk],line:{color:'#fff',width:0.4}}};
-      if(xbins)tr.xbins=xbins;
-      traces.push(tr);}
-    Plotly.react(id,traces,{title:{text:title,font:{size:10.5,color:'#475569'},x:0.04,xanchor:'left',y:0.98},
-      barmode:'overlay',margin:{l:38,r:8,t:22,b:28},bargap:0.04,paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{size:9,color:'#374151'},
-      xaxis:{gridcolor:'#eef0f3',zeroline:true,zerolinecolor:'#d1d5db'},yaxis:{title:{text:'count',font:{size:9}},gridcolor:'#eef0f3'},
-      showlegend:true,legend:{font:{size:8},x:0.99,xanchor:'right',y:0.99,yanchor:'top',bgcolor:'rgba(255,255,255,0.6)'}},
-      {responsive:true,displaylogo:false});};
   const tp=s.proj.top||[],bt=s.proj.bot||[],tc=['#2563eb','#93c5fd'],bc=['#dc2626','#fca5a5'];
-  draw('p_s12hist_top_prod',tp,'pvals','top · proj·r  (step '+s.t+')',tc);          // product histogram
-  draw('p_s12hist_top_cos', tp,'vals', 'top · |⟨J,u⟩|/‖J‖',tc);                      // alignment histogram
-  draw('p_s12hist_bot_prod',bt,'pvals','bottom · proj·r  (step '+s.t+')',bc);
-  draw('p_s12hist_bot_cos', bt,'vals', 'bottom · |⟨J,u⟩|/‖J‖',bc);
+  s12HistDrawOne('p_s12hist_top_prod',tp,'pvals','top · proj·r  (step '+s.t+')',tc);
+  s12HistDrawOne('p_s12hist_top_cos', tp,'vals', 'top · |⟨J,u⟩|/‖J‖',tc);
+  s12HistDrawOne('p_s12hist_bot_prod',bt,'pvals','bottom · proj·r  (step '+s.t+')',bc);
+  s12HistDrawOne('p_s12hist_bot_cos', bt,'vals', 'bottom · |⟨J,u⟩|/‖J‖',bc);
+}
+function s12GHistDraw(i){   // panels 3/4 (global view) histograms
+  if(S12_HIDEHIST)return;
+  const s=S12_SNAPS[i];if(!s||!s.gproj)return;
+  const tp=s.gproj.top||[],bt=s.gproj.bot||[],tc=['#2563eb','#93c5fd'],bc=['#dc2626','#fca5a5'];
+  s12HistDrawOne('p_s12ghist_top_prod',tp,'pvals','top(global) · |⟨J,w⟩|σr  (step '+s.t+')',tc);
+  s12HistDrawOne('p_s12ghist_top_cos', tp,'vals', 'top(global) · |⟨J,w⟩|/‖J‖',tc);
+  s12HistDrawOne('p_s12ghist_bot_prod',bt,'pvals','bottom(global) · |⟨J,w⟩|σr  (step '+s.t+')',bc);
+  s12HistDrawOne('p_s12ghist_bot_cos', bt,'vals', 'bottom(global) · |⟨J,w⟩|/‖J‖',bc);
+}
+function s12HistVis(){   // §12b "hide residual histograms" toggle — hides every .s12hist (captions + plot rows of panels 1–4)
+  S12_HIDEHIST=!!((document.getElementById('s12_hidehist')||{}).checked);
+  for(const el of document.querySelectorAll('#sec_s12b .s12hist'))el.style.display=S12_HIDEHIST?'none':'';
+  if(!S12_HIDEHIST){s12HistDraw(S12_CURIDX);s12GHistDraw(S12_CURIDX);}   // redraw into the now-visible (re-sized) divs
 }
 function s12RenderIdx(i){S12_PENDING=i;if(S12_RAF)return;S12_RAF=requestAnimationFrame(()=>{S12_RAF=0;const j=S12_PENDING;S12_PENDING=-1;if(j>=0)s12RenderNow(j);});}
 function s12Heat2DSnap(id,flat,N,lab,signed,deg,run){
@@ -1477,7 +1530,8 @@ function s12RenderNow(i){
   if(!S12_BUILT||S12_N!==N)s12Build(N);
   for(let n=0;n<4;n++){const gi=S12_ANGHEAT[n];   // ang grids are k=1,2,5,10,kfull → panel-1 shows 1,5,10,kfull
     s12Heat2DSnap('p_s12ang_'+n,s.ang.g[gi],N,(n<3?S12_ANGT[n]:'principal angle k='+(s.ang.kfull||15)),false,true,s12RunMean(i,sn=>sn.ang.gm[gi]));}
-  s12HistDraw(i);   // panels 4/5 sample histograms at this snapshot
+  s12HistDraw(i);   // panels 1/2 sample histograms at this snapshot
+  s12GHistDraw(i);  // panels 3/4 (global view) sample histograms
   const txt=`step ${s.t}  ·  snapshot ${i+1}/${S12_SNAPS.length}`;
   const sp=document.getElementById('s12_step');if(sp)sp.textContent=txt;
   const sp3=document.getElementById('s13_step');if(sp3)sp3.textContent=txt;   // keep the §13 scrub bar in sync
@@ -1490,7 +1544,7 @@ function s12Push(m){
   if(sl){sl.max=S12_SNAPS.length-1;if(wasLive)sl.value=sl.max;}
   {const sl3=document.getElementById('s13_slider');if(sl3){sl3.max=S12_SNAPS.length-1;if(wasLive)sl3.value=sl3.max;}}   // §13 shares §12's snapshots
   if(!S12_BUILT||S12_N!==m.M)s12Build(m.M);   // build synchronously so the evolution restyle targets exist
-  s12EvoAppend(m);s12EvoRender();s12DalAppend(m);s12DalRender();s12XpAppend(m);s12XpRender();s12ProjAppend(m);s12ProjRender();
+  s12EvoAppend(m);s12EvoRender();s12DalAppend(m);s12DalRender();s12XpAppend(m);s12XpRender();s12ProjAppend(m);s12ProjRender();s12GProjAppend(m);s12GProjRender();
   s12RenderIdx(wasLive?S12_SNAPS.length-1:(sl?+sl.value:0));
 }
 // ── §12 browser-mode compute (JS port of server._sec12_payload) ──────────────
@@ -1614,7 +1668,7 @@ function s12XProj(TV,BV,TW,BW,r,Jg,N,p){   // §12b: SVD-principal-dir → neare
   return {min:[acc.min[0]/dvi,acc.min[1]/dvi,acc.min[2]/dvp,acc.min[3]/dvp],
           max:[acc.max[0]/dvi,acc.max[1]/dvi,acc.max[2]/dvp,acc.max[3]/dvp]};
 }
-function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap){   // §12: principal angles (k=1,2,5,10,kfull) + proj↔residual. §13 = sec13Stats.
+function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap,gTV,gTW,gBV,gBW){   // §12: principal angles + proj↔residual + global-view gproj. §13 = sec13Stats.
   const K=TV[0].length, kf=Math.max(1,Math.min(SEC12_KFULL,K)), ks=[1,2,5,10,kf];
   const pas=ks.map(k=>s12Angles(TV,BV,N,p,k)), om=pas.map(x=>s12OffStats(x.g,N));
   const ang={g:pas.map(x=>x.g),gm:pas.map(x=>x.gm),mn:om.map(o=>o[0]),mx:om.map(o=>o[1]),me:om.map(o=>o[2]),ks:ks,kfull:kf};
@@ -1636,7 +1690,18 @@ function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap){   // §12: principal an
         if(jnorm[i]>0)vv.push(Math.abs(jd)/jnorm[i]);}           // ALIGNMENT |⟨J,u⟩|/‖J‖ = |cos∠| (‖J‖=0 dropped)
       out.push({prod:ms(pv),pvals:pv,cos:ms(vv),vals:vv});}
     return out;};
-  return {M:N,do3d:false,ks:[1,2,5],ang:ang,proj:{top:rankStats(TV,TW,true),bot:rankStats(BV,BW,false)},xproj:s12XProj(TV,BV,TW,BW,r,Jg,N,p)};
+  // panels 3/4 (GLOBAL view): each per-sample ∇f_i onto the top-2/bottom-2 eigvecs w of the SUMMED Hessian Σ_i Q_i
+  // (shared basis gTV/gBV with eigenvalues gTW/gBW). Same two quantities as panels 1/2. MIRRORS server gproj_stats.
+  const gprojStats=(gV,gW)=>{const out=[];
+    for(let rk=0;rk<Math.min(nrank,gV.length);rk++){const w=gV[rk],sig=gW[rk],pv=[],vv=[];
+      for(let i=0;i<N;i++){const jd=s12Dot(Jg[i],w,p);
+        pv.push(Math.abs(jd)*sig*r[i]);                       // |⟨J_i,w⟩|·σ·r_i (σ = global eigenvalue)
+        if(jnorm[i]>0)vv.push(Math.abs(jd)/jnorm[i]);}        // |⟨J_i,w⟩|/‖J_i‖
+      out.push({prod:ms(pv),pvals:pv,cos:ms(vv),vals:vv});}
+    return out;};
+  const out={M:N,do3d:false,ks:[1,2,5],ang:ang,proj:{top:rankStats(TV,TW,true),bot:rankStats(BV,BW,false)},xproj:s12XProj(TV,BV,TW,BW,r,Jg,N,p)};
+  if(gTV&&gBV)out.gproj={top:gprojStats(gTV,gTW),bot:gprojStats(gBV,gBW)};
+  return out;
 }
 // §13 — G1/G2/G3 rank-k₀ approximations vs the exact reference J_iᵀQ_jJ_k·r_k. MIRRORS server._sec13_stats.
 // cur/prev = {TV,TW,BV,BW,r,Jg}: TV[i][a]=Float64Array(p) a-th top eigvec of Q_i, TW[i][a]=eigval, r[i], Jg[i].
@@ -2384,8 +2449,13 @@ async function loop(){                                   // drives ST forward; r
             const le=perSampleEig(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,c),p,K12,m12,(0x5EC12+i*7919)>>>0);   // batched-style: real→unit, spurious→0
             TV.push(le.topVecs);TW.push(le.topVals);BV.push(le.botVecs);BW.push(le.botVals);}
           const r12=lblsel.map(a=>rrs[a]), Jg12=lblsel.map(a=>bJc[a]);   // GT-label residual + gradient ∇f_i per sample
+          let gTV,gTW,gBV,gBW;
+          if(O.s22){                 // panels 3/4: top-2/bottom-2 eigvecs of the GLOBAL Hessian Σ_i Q_i = ∇²(Σ_i f_i^GT)
+            const cAll=new Float64Array(M);for(let i=0;i<N;i++)cAll[lblsel[i]]=1;   // GT-label cotangent for ALL samples (=∇²Σf when oD=1)
+            const gle=lanczosExtreme(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,cAll),p,2,m12,0x6105A1);
+            gTV=gle.topVecs;gTW=gle.topVals;gBV=gle.botVecs;gBW=gle.botVals;}
           if(O.s19||O.s22){          // §12a (angles+diag-align) ⊕ §12b (proj) — one payload, shown by their toggles
-            s12Push({type:'g4d',t:S.t,...sec1213Payload(TV,TW,BV,BW,r12,Jg12,N,p,S.grid3dcap)});
+            s12Push({type:'g4d',t:S.t,...sec1213Payload(TV,TW,BV,BW,r12,Jg12,N,p,S.grid3dcap,gTV,gTW,gBV,gBW)});
           }
           if(O.s21&&M>1&&N<=S.grid3dcap){   // §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k via jacHVP (like §11) + G1/G2/G3 vs ref; needs t-1 — multi-only (N³ cube)
             const NN=N*N, ref13=new Float64Array(N*NN), QJ=[];

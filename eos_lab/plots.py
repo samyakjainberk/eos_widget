@@ -906,7 +906,7 @@ _S12_XP_TITLES = ["mean_i Σ_j |<J_i,u_j>|·σ_i·r_i", "mean_i Σ_j |<J_i,u_j>|
 
 
 def plot_section12_xproj(hist):
-    """§12b panels 3/4 — SVD-principal-direction → nearest-eigenvector cross projections, MIN (row 0) / MAX (row 1)
+    """§12b panels 5/6 — SVD-principal-direction → nearest-eigenvector cross projections, MIN (row 0) / MAX (row 1)
     principal-angle direction; 4 means over ALL (i,j) vs step. Reads xproj.{min,max}. None if <2 records."""
     import numpy as np
     snaps = [r for r in hist if "g4d" in r and "xproj" in r["g4d"]]
@@ -922,7 +922,7 @@ def plot_section12_xproj(hist):
             ax.axhline(0, c="#d1d5db", lw=0.8)
             ax.plot(t, y, color=col, marker="o", ms=3, lw=1.4)
             ax.set_xlabel("step"); ax.set_title(f"{key} · mean {_S12_XP_TITLES[ci]}", fontsize=8)
-    fig.suptitle("§12b panels 3/4 — cross projections at the min/max principal-angle direction", fontsize=13)
+    fig.suptitle("§12b panels 5/6 — cross projections at the min/max principal-angle direction", fontsize=13)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     return fig
 
@@ -930,22 +930,21 @@ def plot_section12_xproj(hist):
 S12_HISTBINS = 40   # §12 panel-4/5 alignment-histogram bar count (shared bins across the two ranks) — MIRRORS index.html.
 
 
-def plot_section12_proj(hist):
-    """§12 panels 4/5 — per-sample PRODUCT proj_i·r_i = |⟨J_i,u⟩|·σ·r_i (cols 1-2) and gradient↔eigvec ALIGNMENT
-    q_i = |⟨J_i,u⟩|/‖J_i‖ (= |cos∠(J_i,u)| ∈ [0,1]; cols 3-4) over training, 2D. TOP-2 eigvecs u_{i,1},u_{i,2}
-    (row 0 = panel 4) and BOTTOM-2 u_{i,-1},u_{i,-2} (row 1 = panel 5); rank-1 solid, rank-2 dashed (2 lines/plot).
-    Reads proj.{top,bot}=[{prod,cos},…] (one dict per rank). None if <2 records."""
+def _s12_proj_fig(hist, dkey, row_titles, suptitle, ulab="u"):
+    """Shared body for the §12b projection time-series panels. dkey='proj' (per-sample Q_i, eigvec label u) or
+    'gproj' (GLOBAL Σ_i Q_i, eigvec label w). PRODUCT |⟨J,·⟩|·σ·r (cols 1-2) and ALIGNMENT |⟨J,·⟩|/‖J‖ ∈ [0,1]
+    (cols 3-4); TOP-2 (row 0) and BOTTOM-2 (row 1); rank-1 solid, rank-2 dashed. None if <2 records."""
     import numpy as np
-    recs = [r for r in hist if "g4d" in r and r["g4d"].get("proj") is not None
-            and r["g4d"]["proj"].get("top")]
+    recs = [r for r in hist if "g4d" in r and r["g4d"].get(dkey) is not None
+            and r["g4d"][dkey].get("top")]
     if len(recs) < 2:
         return None
     t = list(range(len(recs)))
-    P = [r["g4d"]["proj"] for r in recs]
+    P = [r["g4d"][dkey] for r in recs]
     cols = [("prod", 0, "⟨proj·r⟩", False), ("prod", 1, "σ(proj·r)", False),
-            ("cos", 0, "⟨|⟨J,u⟩|/‖J‖⟩", True), ("cos", 1, "σ(|⟨J,u⟩|/‖J‖)", False)]
-    rows = [("top", "Panel 4 — top-2 u_{i,1},u_{i,2}", ["#2563eb", "#93c5fd"]),
-            ("bot", "Panel 5 — bottom-2 u_{i,-1},u_{i,-2}", ["#dc2626", "#fca5a5"])]
+            ("cos", 0, f"⟨|⟨J,{ulab}⟩|/‖J‖⟩", True), ("cos", 1, f"σ(|⟨J,{ulab}⟩|/‖J‖)", False)]
+    rows = [("top", row_titles[0], ["#2563eb", "#93c5fd"]),
+            ("bot", row_titles[1], ["#dc2626", "#fca5a5"])]
     nrank = max((len(p.get("top", [])) for p in P), default=0)
     rlab = ["rank-1", "rank-2"]; dash = ["-", "--"]
     fig, axs = plt.subplots(2, 4, figsize=(20, 8))
@@ -963,25 +962,42 @@ def plot_section12_proj(hist):
             ax.set_title((rlabel + " · " if ci == 0 else "") + yl, fontsize=9)
             if ci in (0, 2) and nrank > 1:
                 ax.legend(fontsize=7, loc="best")
-    fig.suptitle("§12 panels 4/5 — product |⟨J,u⟩|·σ·r (cols 1-2) & alignment |⟨J,u⟩|/‖J‖ ∈ [0,1] (cols 3-4)", fontsize=13)
+    fig.suptitle(suptitle, fontsize=13)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     return fig
 
 
-def plot_section12_hist(hist):
-    """§12 panels 4/5 histograms over the N samples at the LAST snapshot: per-sample PRODUCT proj_i·r_i (col 0) and
-    ALIGNMENT |⟨J_i,u⟩|/‖J_i‖ (col 1), for the TOP-2 (row 0) and BOTTOM-2 (row 1) eigvecs — rank-1 & rank-2 overlaid
-    (shared bins). Reads proj.{top,bot}=[{pvals,vals},…] (one dict per rank)."""
+def plot_section12_proj(hist):
+    """§12b panels 1/2 — per-sample PRODUCT |⟨J_i,u⟩|·σ·r_i & ALIGNMENT |⟨J_i,u⟩|/‖J_i‖ for the TOP-2 (row 0)
+    and BOTTOM-2 (row 1) eigenvectors u of EACH per-sample Q_i. Reads proj.{top,bot}."""
+    return _s12_proj_fig(hist, "proj",
+        ["Panel 1 — per-sample top-2 u_{i,1},u_{i,2}", "Panel 2 — per-sample bottom-2 u_{i,-1},u_{i,-2}"],
+        "§12b panels 1/2 — per-sample product |⟨J,u⟩|·σ·r (cols 1-2) & alignment |⟨J,u⟩|/‖J‖ ∈ [0,1] (cols 3-4)", "u")
+
+
+def plot_section12_gproj(hist):
+    """§12b panels 3/4 — GLOBAL view: each ∇f_i projected onto the TOP-2 (row 0) / BOTTOM-2 (row 1) eigenvectors
+    w of the SUMMED Hessian Σ_i Q_i (one shared basis); product uses the GLOBAL eigenvalue σ. Reads gproj.{top,bot}.
+    Empty unless the global-view eigendecomposition ran (s22). At N=1 it coincides with panels 1/2."""
+    return _s12_proj_fig(hist, "gproj",
+        ["Panel 3 — GLOBAL top-2 w_1,w_2 of Σ_i Q_i", "Panel 4 — GLOBAL bottom-2 w_{-1},w_{-2} of Σ_i Q_i"],
+        "§12b panels 3/4 — GLOBAL view onto Σ_i Q_i eigvecs: product |⟨J,w⟩|·σ·r (cols 1-2) & alignment |⟨J,w⟩|/‖J‖ (cols 3-4)", "w")
+
+
+def _s12_hist_fig(hist, dkey, suptitle, ulab="u"):
+    """Shared body for the §12b over-sample histograms at the LAST snapshot. dkey='proj' (per-sample, label u) or
+    'gproj' (GLOBAL, label w). PRODUCT proj_i·r_i (col 0) and ALIGNMENT |⟨J_i,·⟩|/‖J_i‖ (col 1) for TOP-2 (row 0)
+    and BOTTOM-2 (row 1); rank-1 & rank-2 overlaid (shared bins). Reads {dkey}.{top,bot}=[{pvals,vals},…]."""
     import numpy as np
     def has_vals(r):
-        tp = r["g4d"]["proj"].get("top") if r.get("g4d", {}).get("proj") else None
+        tp = r["g4d"][dkey].get("top") if r.get("g4d", {}).get(dkey) else None
         return bool(tp) and "vals" in tp[0]
-    recs = [r for r in hist if "g4d" in r and r["g4d"].get("proj") is not None and has_vals(r)]
+    recs = [r for r in hist if "g4d" in r and r["g4d"].get(dkey) is not None and has_vals(r)]
     if not recs:
         return None
-    P = recs[-1]["g4d"]["proj"]; step = recs[-1].get("t", len(recs) - 1)
+    P = recs[-1]["g4d"][dkey]; step = recs[-1].get("t", len(recs) - 1)
     rows = [("top", ["#2563eb", "#93c5fd"]), ("bot", ["#dc2626", "#fca5a5"])]
-    hcols = [(0, "pvals", "proj·r", "proj_i·r_i"), (1, "vals", "|⟨J,u⟩|/‖J‖", "|⟨J_i,u⟩|/‖J_i‖")]
+    hcols = [(0, "pvals", "proj·r", "proj_i·r_i"), (1, "vals", f"|⟨J,{ulab}⟩|/‖J‖", f"|⟨J_i,{ulab}⟩|/‖J_i‖")]
     rlab = ["rank-1", "rank-2"]
     fig, axs = plt.subplots(2, 2, figsize=(13, 7))
     for ri, (grp, palette) in enumerate(rows):
@@ -1003,9 +1019,21 @@ def plot_section12_hist(hist):
                 ax.hist(v, bins=vbins, color=palette[rk % len(palette)], edgecolor="white", alpha=0.6, label=lab)
             ax.set_title(f"{grp} · {qname} over samples (step {step})", fontsize=10)
             ax.set_xlabel(xl); ax.set_ylabel("count"); ax.legend(fontsize=7)
-    fig.suptitle("§12 panels 4/5 — per-sample product & alignment histograms at the last iteration", fontsize=13)
+    fig.suptitle(suptitle, fontsize=13)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     return fig
+
+
+def plot_section12_hist(hist):
+    """§12b panels 1/2 — per-sample product & alignment histograms at the last iteration (per-sample Q_i eigvecs u)."""
+    return _s12_hist_fig(hist, "proj",
+        "§12b panels 1/2 — per-sample product & alignment histograms at the last iteration", "u")
+
+
+def plot_section12_ghist(hist):
+    """§12b panels 3/4 — GLOBAL-view product & alignment histograms at the last iteration (Σ_i Q_i eigvecs w)."""
+    return _s12_hist_fig(hist, "gproj",
+        "§12b panels 3/4 — GLOBAL-view product & alignment histograms at the last iteration", "w")
 
 
 # ─────────────────── §13 G1/G2/G3 approximations of the exact reference J_iᵀQ_jJ_k·r_k ───────────────────
@@ -1177,9 +1205,11 @@ def save_panels(results, outdir):
             "section12_panel1_angles": plot_section12_angles(hist),
             "section12_panel2_evolution": plot_section12_evolution(hist),
             "section12a_panel4_diagalign": plot_section12_diagalign(hist),
-            "section12b_panel34_xproj": plot_section12_xproj(hist),
-            "section12_panel4_proj": plot_section12_proj(hist),
-            "section12_panel45_hist": plot_section12_hist(hist),
+            "section12b_panel56_xproj": plot_section12_xproj(hist),
+            "section12b_panel12_proj": plot_section12_proj(hist),
+            "section12b_panel12_hist": plot_section12_hist(hist),
+            "section12b_panel34_gproj": plot_section12_gproj(hist),
+            "section12b_panel34_ghist": plot_section12_ghist(hist),
             "section13_panel1_G1": plot_section13_panel1(hist),
             "section13_panel2_G2": plot_section13_panel2(hist),
             "section13_panel3_G3": plot_section13_panel3(hist),
