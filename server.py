@@ -1643,6 +1643,7 @@ def run_stream(P):
     sec14_rhist = []          # §14: per-sample residual history (last ≤5 eig-ticks) for the eq-③ multi-step ratio
     sec14_prev = None         # §14: previous eig-tick's {TV,TW,BV,BW,r,Jg} (u,σ,r_j,J_k at t; cur tick gives J_i,r_k at t+1)
     sec13_prev = None         # §13: previous eig-tick's per-sample {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
+    sec13_qjprev = None        # §13 panel 4: previous eig-tick's {QJ=(N_j,N_i,p) Q_iJ_j, r} for the ‖A−B‖/‖A‖ asymmetry
     prevTop = [None] * nSub
     prevBot = [None] * nSub
     prevPos = None
@@ -2163,15 +2164,24 @@ def run_stream(P):
                     sec12 = _sec12_payload(TV, TW, BV, BW, r12, Jg12, grid3dcap)
                 if s21 and N <= grid3dcap:                    # §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k (N HVPs, §11's tool) + G1/G2/G3
                     T1_13 = torch.zeros(N, N, N, dtype=DTYPE, device=_dev())
+                    QJ_list = []
                     for kk in range(N):
                         QJk = jac_hvp(th, X, Jg12[kk])                  # (M,p) = {Q_a·J_k}_a over all outputs
-                        QJr = QJk[lblsel12] if outD > 1 else QJk        # (N,p) GT-label rows = {Q_j·J_k}_j
+                        QJr = QJk[lblsel12] if outD > 1 else QJk        # (N,p) GT-label rows = {Q_i·J_kk}_i
+                        QJ_list.append(QJr)
                         T1_13[:, :, kk] = Jg12 @ QJr.t()                # [i,j] = J_i·(Q_j J_k)
                     ref13 = T1_13 * r12.view(1, 1, N)                   # exact reference · r_k
                     cur13 = {"TV": TV, "TW": TW, "BV": BV, "BW": BW, "r": r12, "Jg": Jg12}
                     if sec13_prev is not None:                 # need t-1 for Q_i/Q_k & J',r → skip the first eig-tick
                         sec13 = _sec13_stats(cur13, sec13_prev, ref13, lr)
+                        if sec13_qjprev is not None:           # panel 4: residual-reweighting asymmetry ‖A−B‖/‖A‖·100
+                            QJp, rpv = sec13_qjprev["QJ"], sec13_qjprev["r"]   # QJp[j,i]=Q_{i,t}J_{j,t} ; rpv=r_{·,t}, all at PREV tick t
+                            A = torch.einsum('jip,i,j->p', QJp, r12, rpv)      # (Σ_i r_{i,t+1}Q_{i,t})(Σ_j J_{j,t} r_{j,t})
+                            B = torch.einsum('jip,i,j->p', QJp, rpv, r12)      # (Σ_i r_{i,t}Q_{i,t})(Σ_j J_{j,t} r_{j,t+1})
+                            nA = float(A.norm())
+                            sec13["ndiff"] = (float((A - B).norm()) / nA * 100.0) if nA > 0 else 0.0
                     sec13_prev = {kk_: vv_.detach() for kk_, vv_ in cur13.items()}
+                    sec13_qjprev = {"QJ": torch.stack(QJ_list).detach(), "r": r12.detach()}   # (N_j,N_i,p) Q_iJ_j at this tick → PREV for next
                 if s20:                                       # §14 shares §12's per-sample eigenpairs
                     sec14_rhist.append(r12.detach())
                     if len(sec14_rhist) > 5:

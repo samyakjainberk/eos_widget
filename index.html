@@ -70,8 +70,8 @@
   .row4{grid-template-columns:repeat(4,1fr)} .row2{grid-template-columns:repeat(2,1fr)} .row5{grid-template-columns:repeat(5,1fr)} .row3{grid-template-columns:repeat(3,1fr)} .row6{grid-template-columns:repeat(6,1fr)} .row1{grid-template-columns:1fr}
   .plot{width:100%;min-width:0;height:320px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 3px rgba(16,24,40,.05)}
   .plotrow>*{min-width:0}   /* grid items default to min-width:auto (=min-content); without this a wide Plotly SVG expands the 1fr track and the row spills past the page margin */
-  @media(max-width:1320px){.row4{grid-template-columns:repeat(2,1fr)} .row5{grid-template-columns:repeat(3,1fr)}}
-  @media(max-width:1000px){.row4,.row2,.row5,.row3{grid-template-columns:1fr}}
+  @media(max-width:1320px){.row4{grid-template-columns:repeat(2,1fr)} .row5{grid-template-columns:repeat(3,1fr)} .row6{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:1000px){.row4,.row2,.row5,.row3,.row6{grid-template-columns:1fr}}
   code{font-family:var(--mono);background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:.9em}
   .footnote{font-family:var(--sans);font-size:12.5px;color:var(--muted);margin-top:8px}
   a{color:var(--accent)}
@@ -285,15 +285,15 @@
 <br><b>G₁</b> $=\sum_{x,y,z} r_{k,t}\sigma_{j,y}(1+r_{i,t-1}\eta\sigma_{i,x})\cos_{(i,x)(j,y)}J'_{i,t-1}(x)\,(1+r_{k,t-1}\eta\sigma_{k,z})\cos_{(j,y)(k,z)}J'_{k,t-1}(z)$, where $J'_{i,t-1}(x)=\langle J_{i,t-1},u_{i,x}\rangle$ and $\cos$ are signed dot products of unit eigenvectors (cross-time for $i\!\leftrightarrow\!j$, $j\!\leftrightarrow\!k$).
 <br><b>G₂</b>: the $i$-side sum collapses to $J_{i,t}^\top u_{j,y}$ (so $J_i$ is at $t$). <b>G₃</b>: the $k$-side collapses to $J_{k,t}^\top u_{j,y}$.
 <br>Each plot is a <b>mean ± std cloud over training step</b> — <span style="color:#111;font-weight:600">reference</span> vs <span style="color:#2563eb;font-weight:600">$G_n$</span> — taken over a class of triples. Per panel: rows $k_0=2,5$ × columns $i\neq j\neq k$ , $i=j\neq k$ , $i=j=k$. Needs the §11 3D-grid cap (small $N$); the first eig-tick is skipped (no $t-1$).</p>
-<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — G₁ vs reference</h3>
-<div class="plotrow row3"><div id="p_s13_1_2_ndist" class="plot" style="height:300px"></div><div id="p_s13_1_2_ijeq" class="plot" style="height:300px"></div><div id="p_s13_1_2_diag" class="plot" style="height:300px"></div></div>
-<div class="plotrow row3"><div id="p_s13_1_5_ndist" class="plot" style="height:300px"></div><div id="p_s13_1_5_ijeq" class="plot" style="height:300px"></div><div id="p_s13_1_5_diag" class="plot" style="height:300px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — G₂ vs reference</h3>
-<div class="plotrow row3"><div id="p_s13_2_2_ndist" class="plot" style="height:300px"></div><div id="p_s13_2_2_ijeq" class="plot" style="height:300px"></div><div id="p_s13_2_2_diag" class="plot" style="height:300px"></div></div>
-<div class="plotrow row3"><div id="p_s13_2_5_ndist" class="plot" style="height:300px"></div><div id="p_s13_2_5_ijeq" class="plot" style="height:300px"></div><div id="p_s13_2_5_diag" class="plot" style="height:300px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — G₃ vs reference</h3>
-<div class="plotrow row3"><div id="p_s13_3_2_ndist" class="plot" style="height:300px"></div><div id="p_s13_3_2_ijeq" class="plot" style="height:300px"></div><div id="p_s13_3_2_diag" class="plot" style="height:300px"></div></div>
-<div class="plotrow row3"><div id="p_s13_3_5_ndist" class="plot" style="height:300px"></div><div id="p_s13_3_5_ijeq" class="plot" style="height:300px"></div><div id="p_s13_3_5_diag" class="plot" style="height:300px"></div></div>
+<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — G₁ vs reference  <span style="font-weight:400;color:#94a3b8">(k₀=2: i≠j≠k · i=j≠k · i=j=k ‖ k₀=5: i≠j≠k · i=j≠k · i=j=k)</span></h3>
+<div class="plotrow row6"><div id="p_s13_1_2_ndist" class="plot" style="height:260px"></div><div id="p_s13_1_2_ijeq" class="plot" style="height:260px"></div><div id="p_s13_1_2_diag" class="plot" style="height:260px"></div><div id="p_s13_1_5_ndist" class="plot" style="height:260px"></div><div id="p_s13_1_5_ijeq" class="plot" style="height:260px"></div><div id="p_s13_1_5_diag" class="plot" style="height:260px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — G₂ vs reference  <span style="font-weight:400;color:#94a3b8">(k₀=2: i≠j≠k · i=j≠k · i=j=k ‖ k₀=5: i≠j≠k · i=j≠k · i=j=k)</span></h3>
+<div class="plotrow row6"><div id="p_s13_2_2_ndist" class="plot" style="height:260px"></div><div id="p_s13_2_2_ijeq" class="plot" style="height:260px"></div><div id="p_s13_2_2_diag" class="plot" style="height:260px"></div><div id="p_s13_2_5_ndist" class="plot" style="height:260px"></div><div id="p_s13_2_5_ijeq" class="plot" style="height:260px"></div><div id="p_s13_2_5_diag" class="plot" style="height:260px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — G₃ vs reference  <span style="font-weight:400;color:#94a3b8">(k₀=2: i≠j≠k · i=j≠k · i=j=k ‖ k₀=5: i≠j≠k · i=j≠k · i=j=k)</span></h3>
+<div class="plotrow row6"><div id="p_s13_3_2_ndist" class="plot" style="height:260px"></div><div id="p_s13_3_2_ijeq" class="plot" style="height:260px"></div><div id="p_s13_3_2_diag" class="plot" style="height:260px"></div><div id="p_s13_3_5_ndist" class="plot" style="height:260px"></div><div id="p_s13_3_5_ijeq" class="plot" style="height:260px"></div><div id="p_s13_3_5_diag" class="plot" style="height:260px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — residual-reweighting asymmetry $\;\lVert A-B\rVert/\lVert A\rVert\times100$  (%)</h3>
+<p class="cap">A single percent over training, where $A=\big(\sum_i r_{i,t+1}Q_{i,t}\big)\big(\sum_j J_{j,t}\,r_{j,t}\big)$ and $B=\big(\sum_i r_{i,t}Q_{i,t}\big)\big(\sum_j J_{j,t}\,r_{j,t+1}\big)$ are $p$-vectors (each $Q_{i,t}$ is the exact per-sample function Hessian applied via HVP). It measures how much swapping the current ($t{+}1$) vs previous ($t$) residual between the Hessian-sum and the gradient-sum changes the result: $\lVert A-B\rVert_2/\lVert A\rVert_2\times100$. All of $Q_{i,t},J_{j,t},r_{j,t}$ are at the <b>previous</b> eig-tick $t$; $r_{i,t+1},r_{j,t+1}$ are the <b>current</b> iterate $t{+}1$ (so this panel, like the G's, skips the first eig-tick).</p>
+<div class="plotrow row1"><div id="p_s13_ndiff" class="plot" style="height:320px"></div></div>
 </div>
 
 <div id="sec_s14" style="display:none">
@@ -1067,6 +1067,11 @@ function s12AllIds(){const a=[];for(let n=0;n<4;n++)a.push('p_s12ang_'+n);return
 const S13_GS=[1,2,3], S13_KS=[2,5], S13_DOMS=['ndist','ijeq','diag'];
 const S13_DOMLAB={ndist:'i≠j≠k',ijeq:'i=j≠k',diag:'i=j=k'}, S13_GLAB={1:'G₁',2:'G₂',3:'G₃'};
 let S13_STEPS=[], S13_DATA=null, S13_BUILT=false;
+let S13N_STEPS=[], S13N_VALS=[], S13N_BUILT=false;   // §13 panel 4 — ‖A−B‖/‖A‖·100 time-series
+function s13NBuild(){S13N_BUILT=true;
+  Plotly.newPlot('p_s13_ndiff',[{x:[],y:[],mode:'lines+markers',line:{color:'#7c3aed',width:1.9},marker:{size:4,color:'#7c3aed'}}],
+    withZero(baseLayout('residual-reweighting asymmetry  ‖A−B‖/‖A‖ × 100','%',false)),{responsive:true,displaylogo:false});}
+function s13NDraw(){if(!S13N_BUILT)return;Plotly.restyle('p_s13_ndiff',{x:[S13N_STEPS.slice()],y:[S13N_VALS.slice()]});}
 function s13Id(g,k,d){return 'p_s13_'+g+'_'+k+'_'+d;}
 function s13Ids(){const a=[];for(const g of S13_GS)for(const k of S13_KS)for(const d of S13_DOMS)a.push(s13Id(g,k,d));return a;}
 function s13Build(){   // 4 traces/plot: ref ±σ band, ref mean, Gₙ ±σ band, Gₙ mean
@@ -1091,6 +1096,7 @@ function s13Push(m){
     D.rm.push(rf[0]);D.rs.push(rf[1]);D.gm.push(gn[0]);D.gs.push(gn[1]);
   }
   s13Draw();
+  if(m.ndiff!=null){if(!S13N_BUILT)s13NBuild();S13N_STEPS.push(m.t);S13N_VALS.push(m.ndiff);s13NDraw();}   // panel 4
 }
 function s13Draw(){
   if(!S13_DATA||!S13_STEPS.length)return;
@@ -1100,7 +1106,7 @@ function s13Draw(){
     Plotly.restyle(id,{x:[trx.slice(),t.slice(),trx.slice(),t.slice()],
       y:[bandY(D.rm,D.rs),D.rm.slice(),bandY(D.gm,D.gs),D.gm.slice()]},[0,1,2,3]);}
 }
-function s13Reset(){S13_STEPS=[];S13_DATA=null;S13_BUILT=false;if(typeof S13_PREV_JS!=='undefined')S13_PREV_JS=null;for(const id of s13Ids()){try{Plotly.purge(id);}catch(e){}}}
+function s13Reset(){S13_STEPS=[];S13_DATA=null;S13_BUILT=false;S13N_STEPS=[];S13N_VALS=[];S13N_BUILT=false;if(typeof S13_PREV_JS!=='undefined')S13_PREV_JS=null;if(typeof S13_QJPREV_JS!=='undefined')S13_QJPREV_JS=null;for(const id of s13Ids().concat(['p_s13_ndiff'])){try{Plotly.purge(id);}catch(e){}}}
 function s12Reset(){S12_SNAPS=[];S12_N=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEPS=[];S12E_DATA=null;S12P_DATA=null;S12_CURIDX=0;
   if(S12_RAF){cancelAnimationFrame(S12_RAF);S12_RAF=0;}S12_PENDING=-1;
   if(S12_IO){S12_IO.disconnect();S12_IO=null;}if(S12_IOT){clearTimeout(S12_IOT);S12_IOT=null;}S12_BUILTSET.clear();S12_VISIBLE.clear();
@@ -1617,6 +1623,7 @@ function sec14Payload(prev,cur,N,p,lr,grid3dcap,rhist){
 let S14_RHIST_JS=[];   // §14 client-side training path: last ≤5 per-sample residuals (reset per run via s14Reset)
 let S14_PREV_JS=null;  // §14 client-side: previous eig-tick's {TV,TW,BV,BW,r,Jg} (u,σ,r_j,J_k at t; cur gives J_i,r_k at t+1)
 let S13_PREV_JS=null;  // §13 client-side: previous eig-tick's {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
+let S13_QJPREV_JS=null;  // §13 panel 4 client-side: previous eig-tick's {QJ[j][i]=Q_iJ_j, r} for the ‖A−B‖/‖A‖ asymmetry
 let OPT={s1:true,s2:true,s3:true,s4:true,s5:true,s6:true,gs:true};
 
 // Show/hide each §1 section by its panel toggle (en1..en12 → sec_1..sec_12 · en13 → sec_7a · en14 → sec_9c).
@@ -2252,12 +2259,20 @@ async function loop(){                                   // drives ST forward; r
             s12Push({type:'g4d',t:S.t,...sec1213Payload(TV,TW,BV,BW,r12,Jg12,N,p,S.grid3dcap)});
           }
           if(O.s21&&N<=S.grid3dcap){   // §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k via jacHVP (like §11) + G1/G2/G3 vs ref; needs t-1
-            const NN=N*N, ref13=new Float64Array(N*NN);
+            const NN=N*N, ref13=new Float64Array(N*NN), QJ=[];
             for(let kk=0;kk<N;kk++){const QJk=jacHVP(S.th,spec,X,N,inDim,p,Jg12[kk],eps),QJr=lblsel.map(a=>QJk[a]);
+              QJ.push(QJr);   // QJ[kk][i] = Q_i·J_kk
               for(let i=0;i<N;i++){const ji=Jg12[i];for(let j=0;j<N;j++)ref13[i*NN+j*N+kk]=dot(ji,QJr[j])*r12[kk];}}
             const cur13={TV:TV,TW:TW,BV:BV,BW:BW,r:r12,Jg:Jg12};
-            if(S13_PREV_JS)s13Push({type:'g13',t:S.t,...sec13Stats(cur13,S13_PREV_JS,ref13,N,S.lr)});
-            S13_PREV_JS=cur13;
+            if(S13_PREV_JS){const g13=sec13Stats(cur13,S13_PREV_JS,ref13,N,S.lr);
+              if(S13_QJPREV_JS){const QJp=S13_QJPREV_JS.QJ,rpv=S13_QJPREV_JS.r;   // QJp[j][i]=Q_{i,t}J_{j,t}, rpv=r_{·,t} at PREV tick t
+                const A=new Float64Array(p),B=new Float64Array(p);
+                for(let j=0;j<N;j++)for(let i=0;i<N;i++){const v=QJp[j][i],wA=r12[i]*rpv[j],wB=rpv[i]*r12[j];   // A: r_{t+1}⊗r_t ; B: r_t⊗r_{t+1}
+                  for(let q=0;q<p;q++){A[q]+=wA*v[q];B[q]+=wB*v[q];}}
+                let nA=0,nD=0;for(let q=0;q<p;q++){nA+=A[q]*A[q];const d=A[q]-B[q];nD+=d*d;}
+                nA=Math.sqrt(nA);g13.ndiff=nA>0?Math.sqrt(nD)/nA*100:0;}
+              s13Push({type:'g13',t:S.t,...g13});}
+            S13_PREV_JS=cur13;S13_QJPREV_JS={QJ:QJ,r:r12};
           }
           if(O.s20){S14_RHIST_JS.push(r12);if(S14_RHIST_JS.length>5)S14_RHIST_JS.shift();   // §14: residual history for the eq-③ ratio
             const cur14={TV:TV,TW:TW,BV:BV,BW:BW,r:r12,Jg:Jg12};

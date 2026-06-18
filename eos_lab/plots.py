@@ -979,7 +979,7 @@ def _s13_meanstd(series):
 
 
 def _plot_section13_panel(hist, n):
-    """§13 panel n (n∈{1,2,3}) — Gn vs the exact reference, 6 subplots (rows=k₀∈{2,5}, cols=domains).
+    """§13 panel n (n∈{1,2,3}) — Gn vs the exact reference, ONE row of 6 subplots (k₀∈{2,5} × domains).
     Each subplot overlays two mean±std clouds vs step t: the reference (black) and Gn (blue)."""
     import numpy as np
     g13recs = _s13_recs(hist)
@@ -987,20 +987,19 @@ def _plot_section13_panel(hist, n):
         return None
     t = [r["t"] for r in g13recs]
     gkey = "g" + str(n)
-    fig, axs = plt.subplots(2, 3, figsize=(18, 7))
-    for ri, k0 in enumerate(_S13_KS):
-        for ci, (dom, domlabel) in enumerate(_S13_DOMS):
-            ax = axs[ri, ci]
-            rm, rs = _s13_meanstd([r["g13"]["ref"][dom] for r in g13recs])           # reference (same in all 6)
-            ax.plot(t, rm, color="#111", lw=1.4, label="ref")
-            ax.fill_between(t, rm - rs, rm + rs, color="#999", alpha=0.15)
-            gm, gs = _s13_meanstd([r["g13"][gkey][str(k0)][dom] for r in g13recs])   # Gn approximation
-            ax.plot(t, gm, color="#2563eb", lw=1.4, label=f"G{n}")
-            ax.fill_between(t, gm - gs, gm + gs, color="#2563eb", alpha=0.16)
-            ax.set_xlabel("step"); ax.set_title(f"G{n}  {domlabel}  (k₀={k0})", fontsize=10)
-            ax.legend(fontsize=8, loc="best")
+    cells = [(k0, dom, domlabel) for k0 in _S13_KS for (dom, domlabel) in _S13_DOMS]   # k₀-major: 2×{doms} then 5×{doms}
+    fig, axs = plt.subplots(1, 6, figsize=(24, 3.6))
+    for ax, (k0, dom, domlabel) in zip(axs, cells):
+        rm, rs = _s13_meanstd([r["g13"]["ref"][dom] for r in g13recs])           # reference (same in all 6)
+        ax.plot(t, rm, color="#111", lw=1.4, label="ref")
+        ax.fill_between(t, rm - rs, rm + rs, color="#999", alpha=0.15)
+        gm, gs = _s13_meanstd([r["g13"][gkey][str(k0)][dom] for r in g13recs])   # Gn approximation
+        ax.plot(t, gm, color="#2563eb", lw=1.4, label=f"G{n}")
+        ax.fill_between(t, gm - gs, gm + gs, color="#2563eb", alpha=0.16)
+        ax.set_xlabel("step"); ax.set_title(f"{domlabel}  (k₀={k0})", fontsize=9)
+        ax.legend(fontsize=7, loc="best")
     fig.suptitle(f"§13 panel {n} — G{n} vs reference J_iᵀQ_jJ_k·r_k", fontsize=13)
-    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
     return fig
 
 
@@ -1014,6 +1013,22 @@ def plot_section13_panel2(hist):
 
 def plot_section13_panel3(hist):
     return _plot_section13_panel(hist, 3)
+
+
+def plot_section13_ndiff(hist):
+    """§13 panel 4 — residual-reweighting asymmetry ‖A−B‖/‖A‖·100 (%) over training, where
+    A=(Σ_i r_{i,t+1}Q_{i,t})(Σ_j J_{j,t}r_{j,t}), B=(Σ_i r_{i,t}Q_{i,t})(Σ_j J_{j,t}r_{j,t+1}). None if no data."""
+    recs = [r for r in _s13_recs(hist) if "ndiff" in r["g13"]]
+    if len(recs) < 1:
+        return None
+    t = [r["t"] for r in recs]; y = [r["g13"]["ndiff"] for r in recs]
+    fig, ax = plt.subplots(figsize=(9, 4))
+    ax.plot(t, y, color="#7c3aed", marker="o", ms=3, lw=1.5)
+    ax.axhline(0, c="#d1d5db", lw=0.8)
+    ax.set_xlabel("step"); ax.set_ylabel("%")
+    ax.set_title("§13 residual-reweighting asymmetry  ‖A−B‖/‖A‖ × 100", fontsize=11)
+    fig.tight_layout()
+    return fig
 
 
 # ── §14: per-triplet (i,j,k) decomposition of Tr(ΔNTK). 10 panels of N×N×N cubes (μ / μ⁺ / μ⁻ titles). ──
@@ -1117,6 +1132,7 @@ def save_panels(results, outdir):
             "section13_panel1_G1": plot_section13_panel1(hist),
             "section13_panel2_G2": plot_section13_panel2(hist),
             "section13_panel3_G3": plot_section13_panel3(hist),
+            "section13_panel4_ndiff": plot_section13_ndiff(hist),
             "section14_y1_agg": plot_section14(hist, 1, "agg"),
             "section14_y1_max": plot_section14(hist, 1, "max"),
             "section14_y1_min": plot_section14(hist, 1, "min"),

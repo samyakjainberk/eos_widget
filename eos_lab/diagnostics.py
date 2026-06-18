@@ -96,6 +96,7 @@ class Diagnostics:
         self._sec14_rhist = []              # §14: per-sample residual history (last ≤5 ticks) for the eq-③ ratio
         self._sec14_prev = None             # §14: previous eig-tick's {TV,TW,BV,BW,r,Jg} (u,σ,r_j,J_k at t; cur gives J_i,r_k at t+1)
         self._sec13_prev = None             # §13: previous eig-tick's per-sample {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
+        self._sec13_qjprev = None           # §13 panel 4: previous eig-tick's {QJ=(N_j,N_i,p) Q_iJ_j, r} for the ‖A−B‖/‖A‖ asymmetry
         if loss.name == "ce":
             # CE uses the generic residual r = −∂L/∂z = softmax(z)−onehot (the loss-output cotangent). §4
             # (J→H) and §6 (rotation) are model-only; §7/§7a/§8/§4b/§4c use the function NTK (Jᵤ·Jᵤᵀ) plus
@@ -613,15 +614,24 @@ class Diagnostics:
                 rec["g4d"] = sec12_payload(TV, TW, BV, BW, r12, Jg12, self.grid3dcap)
             if self.s21 and N <= self.grid3dcap:               # §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k (N HVPs, §11's tool) + G1/G2/G3
                 T1_13 = torch.zeros(N, N, N, dtype=dt, device=dev)
+                QJ_list = []
                 for kk in range(N):
                     QJk = jac_hvp(self.model, th, X, Jg12[kk])     # (M,p) = {Q_a·J_k}_a over all outputs
-                    QJr = QJk[lblsel12] if outD > 1 else QJk       # (N,p) GT-label rows = {Q_j·J_k}_j
+                    QJr = QJk[lblsel12] if outD > 1 else QJk       # (N,p) GT-label rows = {Q_i·J_kk}_i
+                    QJ_list.append(QJr)
                     T1_13[:, :, kk] = Jg12 @ QJr.t()               # [i,j] = J_i·(Q_j J_k)
                 ref13 = T1_13 * r12.view(1, 1, N)                  # exact reference · r_k
                 cur13 = {"TV": TV, "TW": TW, "BV": BV, "BW": BW, "r": r12, "Jg": Jg12}
                 if self._sec13_prev is not None:               # need t-1 for Q_i/Q_k & J',r → skip the first eig-tick
                     rec["g13"] = sec13_stats(cur13, self._sec13_prev, ref13, self.lr)
+                    if self._sec13_qjprev is not None:         # panel 4: residual-reweighting asymmetry ‖A−B‖/‖A‖·100
+                        QJp, rpv = self._sec13_qjprev["QJ"], self._sec13_qjprev["r"]   # QJp[j,i]=Q_{i,t}J_{j,t}, rpv=r_{·,t} at PREV tick t
+                        A = torch.einsum('jip,i,j->p', QJp, r12, rpv)   # (Σ_i r_{i,t+1}Q_{i,t})(Σ_j J_{j,t} r_{j,t})
+                        B = torch.einsum('jip,i,j->p', QJp, rpv, r12)   # (Σ_i r_{i,t}Q_{i,t})(Σ_j J_{j,t} r_{j,t+1})
+                        nA = float(A.norm())
+                        rec["g13"]["ndiff"] = (float((A - B).norm()) / nA * 100.0) if nA > 0 else 0.0
                 self._sec13_prev = {k_: v_.detach() for k_, v_ in cur13.items()}
+                self._sec13_qjprev = {"QJ": torch.stack(QJ_list).detach(), "r": r12.detach()}   # (N_j,N_i,p) → PREV for next tick
             if self.s20:                                       # §14 shares §12's per-sample eigenpairs
                 self._sec14_rhist.append(r12.detach())
                 if len(self._sec14_rhist) > 5:
