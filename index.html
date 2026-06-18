@@ -216,8 +216,8 @@
   <label title="3D grids over sample indices (i,j,k): T1=JᵢᵀQⱼJₖ, T2=uⱼuₖ·T1, T3=rᵢuⱼuₖ·T1 (u=top NTK eigvec, r=residual). Multi-sample only; OFF by default (N³ points + N Hessian-vector products → small N). Live-updates + scrub past snapshots; drag to rotate."><input type="checkbox" id="en18"> 11 · 3D Hessian–NTK grids</label>
   <label title="§12a — per-sample Hessian Q_i=∇²f_i eigenvector SUBSPACE alignment over sample pairs (i,j): principal angles (heatmaps + min/max/mean evolution) and the diagonal alignment mean_{i≠j}(1/2k)Σ|⟨e_{i,a},e_{j,a}⟩| for k=1,2,5,15. Multi-sample only; OFF by default. top-/bottom-15 eigenpairs via matrix-free Lanczos."><input type="checkbox" id="en19"> 12a · eigvec subspace angles</label>
   <label title="§12b — per-sample projection panels: for the top-2 / bottom-2 eigenvectors of each Q_i, the product |⟨J_i,u⟩|·σ·r_i and the gradient alignment |⟨J_i,u⟩|/‖J_i‖, mean/std over samples + histograms. Shares §12a's Lanczos eigenpairs; multi-sample only; OFF by default."><input type="checkbox" id="en22"> 12b · per-sample projections</label>
-  <label title="§14 — per-triplet (i,j,k) decomposition of Tr(ΔNTK)=Σ a·b·c·d·e over rank-2y eigenpairs of the per-sample function Hessians. 10 panels of N×N×N cubes (sorted-term aggregates, sub-products, eq-③ history ratio). Shares §12's matrix-free Lanczos eigenpairs; multi-sample only, small N (N³ cubes); OFF by default."><input type="checkbox" id="en20"> 14 · Tr(ΔNTK) triplet decomposition</label>
   <label title="§13 — residual-weighted curvature: rank-k₀ approximations G1/G2/G3 of the exact reference J_iᵀQ_jJ_k·r_k, from the per-sample Lanczos top-k₀⊕bottom-k₀ eigenpairs, vs the exact reference (N extra HVPs). Multi-sample only, small N (N³); OFF by default. Its OWN toggle — independent of §12; turning it on triggers the shared per-sample Lanczos by itself."><input type="checkbox" id="en21"> 13 · residual-weighted curvature G1/G2/G3</label>
+  <label title="§14 — per-triplet (i,j,k) decomposition of Tr(ΔNTK)=Σ a·b·c·d·e over rank-2y eigenpairs of the per-sample function Hessians. 10 panels of N×N×N cubes (sorted-term aggregates, sub-products, eq-③ history ratio). Shares §12's matrix-free Lanczos eigenpairs; multi-sample only, small N (N³ cubes); OFF by default."><input type="checkbox" id="en20"> 14 · Tr(ΔNTK) triplet decomposition</label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -1524,9 +1524,13 @@ function s1213Pack3d(T,M){
 }
 function s12Angles(TV,BV,N,p,k){
   const K2=Math.max(1,Math.min(k,TV[0].length)),sub=[];
-  for(let i=0;i<N;i++){const cols=[];for(let a=0;a<K2;a++)cols.push(TV[i][a]);for(let a=0;a<K2;a++)cols.push(BV[i][a]);sub.push(cols);}
+  for(let i=0;i<N;i++){const cols=[];   // VALID (unit) eigvecs only — drop spurious breakdown eigvecs (‖e‖≈0) so phantom 90° angles don't pollute the mean
+    for(let a=0;a<K2;a++){const e=TV[i][a];if(s12Dot(e,e,p)>0.25)cols.push(e);}
+    for(let a=0;a<K2;a++){const e=BV[i][a];if(s12Dot(e,e,p)>0.25)cols.push(e);}
+    sub.push(cols);}
   const g=new Float64Array(N*N);
   for(let i=0;i<N;i++)for(let j=0;j<N;j++){const A=sub[i],B=sub[j],di=A.length,dj=B.length;
+    if(di===0||dj===0){g[i*N+j]=0;continue;}   // no real subspace overlap
     const Mt=new Float64Array(di*dj);for(let a=0;a<di;a++)for(let b=0;b<dj;b++)Mt[a*dj+b]=s12Dot(A[a],B[b],p);
     let G,n2;
     if(di>=dj){n2=dj;G=new Float64Array(dj*dj);for(let a=0;a<dj;a++)for(let b=0;b<dj;b++){let s=0;for(let q=0;q<di;q++)s+=Mt[q*dj+a]*Mt[q*dj+b];G[a*dj+b]=s;}}
@@ -1543,38 +1547,46 @@ function s12OffStats(g,N){   // min/max/mean over off-diagonal pairs (i≠j; dia
   return c?[mn,mx,s/c]:[0,0,0];
 }
 function s12DiagAlign(TV,BV,N,p,k){   // §12a: mean_{i≠j} of (1/2k)Σ_a|⟨e_{i,a},e_{j,a}⟩| (same-rank eigvec overlap ∈[0,1]). MIRRORS server diag_align.
-  const K2=Math.max(1,Math.min(k,TV[0].length)),sub=[];
-  for(let i=0;i<N;i++){const cols=[];for(let a=0;a<K2;a++)cols.push(TV[i][a]);for(let a=0;a<K2;a++)cols.push(BV[i][a]);sub.push(cols);}
+  const K2=Math.max(1,Math.min(k,TV[0].length)),sub=[],val=[];
+  for(let i=0;i<N;i++){const cols=[],vv=[];
+    for(let a=0;a<K2;a++){const e=TV[i][a];cols.push(e);vv.push(s12Dot(e,e,p)>0.25);}   // mark valid (unit) vs spurious (~0)
+    for(let a=0;a<K2;a++){const e=BV[i][a];cols.push(e);vv.push(s12Dot(e,e,p)>0.25);}
+    sub.push(cols);val.push(vv);}
   let s=0,c=0;
   for(let i=0;i<N;i++)for(let j=0;j<N;j++){if(i===j)continue;const A=sub[i],B=sub[j],D=A.length;
-    let m=0;for(let a=0;a<D;a++)m+=Math.abs(s12Dot(A[a],B[a],p));   // Σ_a |⟨e_{i,a},e_{j,a}⟩|
-    s+=m/D;c++;}                                                    // per-pair mean of |diagonal|, then mean over i≠j
+    let m=0,cc=0;for(let a=0;a<D;a++){if(val[i][a]&&val[j][a]){m+=Math.abs(s12Dot(A[a],B[a],p));cc++;}}   // Σ_a |⟨e_{i,a},e_{j,a}⟩| over real same-rank a only
+    if(cc>0){s+=m/cc;c++;}}                                         // per-pair mean of |diagonal|, then mean over i≠j
   return c?s/c:0;
 }
-function s12XProj(TV,BV,TW,BW,r,Jg,N,p){   // §12b: SVD-principal-dir → nearest-eigvec CROSS projections (min/max angle). MIRRORS server xproj.
-  const K=TV[0].length,D=2*K,E=[],W=[];
-  for(let i=0;i<N;i++){const cols=[],vals=[];
+function s12XProj(TV,BV,TW,BW,r,Jg,N,p){   // §12b: SVD-principal-dir → nearest REAL-eigvec CROSS projections (min/max angle). MIRRORS server xproj.
+  const K=TV[0].length,E=[],W=[],VI=[];   // VI[i] = indices of VALID (unit) eigvecs of i; spurious breakdown eigvecs (‖e‖≈0) dropped
+  for(let i=0;i<N;i++){const cols=[],vals=[],vi=[];
     for(let a=0;a<K;a++){cols.push(TV[i][a]);vals.push(TW[i][a]);}
     for(let a=0;a<K;a++){cols.push(BV[i][a]);vals.push(BW[i][a]);}
-    E.push(cols);W.push(vals);}
+    for(let a=0;a<cols.length;a++)if(s12Dot(cols[a],cols[a],p)>0.25)vi.push(a);   // ‖e‖>0.5 ⟺ real
+    E.push(cols);W.push(vals);VI.push(vi);}
   const jn=Jg.map(g=>Math.sqrt(s12Dot(g,g,p))),EPS=1e-30;
   const acc={min:[0,0,0,0],max:[0,0,0,0]};let c=0;
-  for(let i=0;i<N;i++)for(let j=0;j<N;j++){if(i===j)continue;   // mean over OFF-DIAGONAL pairs (i≠j)
-    const M=new Float64Array(D*D);for(let a=0;a<D;a++)for(let b=0;b<D;b++)M[a*D+b]=s12Dot(E[i][a],E[j][b],p);   // M=E_iE_jᵀ
-    const MMt=new Float64Array(D*D),MtM=new Float64Array(D*D);   // U=eig(MMᵀ), V=eig(MᵀM) → left/right singular vectors
-    for(let a=0;a<D;a++)for(let a2=0;a2<D;a2++){let s=0;for(let b=0;b<D;b++)s+=M[a*D+b]*M[a2*D+b];MMt[a*D+a2]=s;}
-    for(let b=0;b<D;b++)for(let b2=0;b2<D;b2++){let s=0;for(let a=0;a<D;a++)s+=M[a*D+b]*M[a*D+b2];MtM[b*D+b2]=s;}
-    const eU=jacobiEig(MMt,D),eV=jacobiEig(MtM,D);
-    const ordU=Array.from({length:D},(_,q)=>q).sort((x,z)=>eU.vals[z]-eU.vals[x]);   // columns by σ² descending
-    const ordV=Array.from({length:D},(_,q)=>q).sort((x,z)=>eV.vals[z]-eV.vals[x]);
-    for(const kr of [['min',0],['max',D-1]]){const key=kr[0],cU=ordU[kr[1]],cV=ordV[kr[1]];   // ℓ=0 min angle / ℓ=D-1 max
-      let am=0,av=-1;for(let a=0;a<D;a++){const x=Math.abs(eU.V[a*D+cU]);if(x>av){av=x;am=a;}}   // a*=argmax_a|U[a,ℓ]|
-      let bm=0,bv=-1;for(let b=0;b<D;b++){const x=Math.abs(eV.V[b*D+cV]);if(x>bv){bv=x;bm=b;}}   // b*=argmax_b|V[b,ℓ]|
-      const ui=E[i][am],uj=E[j][bm],si=W[i][am],sj=W[j][bm];
+  for(let i=0;i<N;i++){if(VI[i].length===0)continue;
+    for(let j=0;j<N;j++){if(i===j||VI[j].length===0)continue;   // mean over OFF-DIAGONAL pairs with a real overlap
+    const vi=VI[i],vj=VI[j],di=vi.length,dj=vj.length;
+    const M=new Float64Array(di*dj);for(let a=0;a<di;a++)for(let b=0;b<dj;b++)M[a*dj+b]=s12Dot(E[i][vi[a]],E[j][vj[b]],p);   // REAL-subspace overlap (di×dj)
+    const MMt=new Float64Array(di*di),MtM=new Float64Array(dj*dj);   // U=eig(MMᵀ), V=eig(MᵀM) → left/right singular vectors
+    for(let a=0;a<di;a++)for(let a2=0;a2<di;a2++){let s=0;for(let b=0;b<dj;b++)s+=M[a*dj+b]*M[a2*dj+b];MMt[a*di+a2]=s;}
+    for(let b=0;b<dj;b++)for(let b2=0;b2<dj;b2++){let s=0;for(let a=0;a<di;a++)s+=M[a*dj+b]*M[a*dj+b2];MtM[b*dj+b2]=s;}
+    const eU=jacobiEig(MMt,di),eV=jacobiEig(MtM,dj);
+    const ordU=Array.from({length:di},(_,q)=>q).sort((x,z)=>eU.vals[z]-eU.vals[x]);   // columns by σ² descending
+    const ordV=Array.from({length:dj},(_,q)=>q).sort((x,z)=>eV.vals[z]-eV.vals[x]);
+    const rank=Math.min(di,dj);
+    for(const kr of [['min',0],['max',rank-1]]){const key=kr[0],cU=ordU[kr[1]],cV=ordV[kr[1]];   // ℓ=0 min angle / ℓ=rank-1 max
+      let am=0,av=-1;for(let a=0;a<di;a++){const x=Math.abs(eU.V[a*di+cU]);if(x>av){av=x;am=a;}}   // nearest real eigvec of i (local)
+      let bm=0,bv=-1;for(let b=0;b<dj;b++){const x=Math.abs(eV.V[b*dj+cV]);if(x>bv){bv=x;bm=b;}}
+      const gi=vi[am],gj=vj[bm];   // map local→global eigvec index
+      const ui=E[i][gi],uj=E[j][gj],si=W[i][gi],sj=W[j][gj];
       const Jiuj=Math.abs(s12Dot(Jg[i],uj,p)),Jjui=Math.abs(s12Dot(Jg[j],ui,p)),ni=Math.max(jn[i],EPS),nj=Math.max(jn[j],EPS);
       acc[key][0]+=Jiuj*si*r[i];acc[key][1]+=Jiuj*Jjui*si*sj*r[i]*r[j];acc[key][2]+=Jiuj/ni;acc[key][3]+=Jiuj*Jjui/(ni*nj);}
     c++;
-  }
+  }}
   const dv=c||1;return {min:acc.min.map(x=>x/dv),max:acc.max.map(x=>x/dv)};
 }
 function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap){   // §12: principal angles (k=1,2,5,10,kfull) + proj↔residual. §13 = sec13Stats.
@@ -1592,8 +1604,10 @@ function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap){   // §12: principal an
     const orders=[];for(let i=0;i<N;i++){const ord=Array.from(W[i],(_,j)=>j);ord.sort((a,b)=>largest?W[i][b]-W[i][a]:W[i][a]-W[i][b]);orders.push(ord);}   // per-sample eigval ranking (rank 0 = largest/most-negative)
     const out=[];
     for(let rk=0;rk<nrank;rk++){const pv=[],vv=[];
-      for(let i=0;i<N;i++){const ir=orders[i][rk],sig=W[i][ir],jd=s12Dot(Jg[i],V[i][ir],p);
-        pv.push(Math.abs(jd)*sig*r[i]);                          // PRODUCT |⟨J,u⟩|·σ·r_i  (all samples)
+      for(let i=0;i<N;i++){const ir=orders[i][rk],u=V[i][ir];
+        if(s12Dot(u,u,p)<=0.25)continue;                         // spurious (non-existent) eigvec at this rank → exclude sample
+        const sig=W[i][ir],jd=s12Dot(Jg[i],u,p);
+        pv.push(Math.abs(jd)*sig*r[i]);                          // PRODUCT |⟨J,u⟩|·σ·r_i  (real-eigvec samples)
         if(jnorm[i]>0)vv.push(Math.abs(jd)/jnorm[i]);}           // ALIGNMENT |⟨J,u⟩|/‖J‖ = |cos∠| (‖J‖=0 dropped)
       out.push({prod:ms(pv),pvals:pv,cos:ms(vv),vals:vv});}
     return out;};

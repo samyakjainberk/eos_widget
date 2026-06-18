@@ -165,13 +165,24 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
     N, K, p = int(TV.shape[0]), int(TV.shape[1]), int(TV.shape[2])
     dev = TV.device
     offm = ~torch.eye(N, dtype=torch.bool, device=dev)   # off-diagonal (i≠j) mask
+    # VALID (real, unit-norm) eigenvectors — on Lanczos breakdown (operator rank < 2K) the surplus eigenpairs are
+    # SPURIOUS null-space vectors with norm ≈ 0; every §12 quantity is restricted to span{e:‖e‖≈1} so spurious
+    # vectors can't inject phantom 90° angles or collapse the MAX-angle xproj. (No-op when full-rank ⇒ all valid.)
+    validT = TV.norm(dim=2) > 0.5; validB = BV.norm(dim=2) > 0.5   # (N,K) each
 
     # ---- principal angles (gauge-free: svdvals is invariant to eigenvector ±) for k = 1,2,5,10,kfull ----
+    #      Averaged over only the REAL principal angles (rij = min(#valid_i,#valid_j) largest cosines).
     def pa(k):
         kk = max(1, min(k, K))
         E = torch.cat([TV[:, :kk, :], BV[:, :kk, :]], dim=1)
-        sv = torch.linalg.svdvals(torch.einsum('iap,jbp->ijab', E, E)).clamp(-1.0, 1.0)
-        return (torch.acos(sv) * (180.0 / math.pi)).mean(dim=2)
+        vm = torch.cat([validT[:, :kk], validB[:, :kk]], dim=1)   # (N,2kk) real-eigvec mask for this slice
+        Dk = E.shape[1]
+        sv = torch.linalg.svdvals(torch.einsum('iap,jbp->ijab', E, E)).clamp(-1.0, 1.0)  # (N,N,2kk) desc by cos
+        ang = torch.acos(sv) * (180.0 / math.pi)
+        nv = vm.sum(1)
+        rij = torch.minimum(nv.view(N, 1), nv.view(1, N))        # (N,N) # of real principal angles
+        keep = torch.arange(Dk, device=dev).view(1, 1, Dk) < rij.unsqueeze(2)
+        return (ang * keep).sum(2) / keep.sum(2).clamp_min(1)    # (N,N) mean over real principal angles only
     kf = max(1, min(kfull, K))
     ks_ang = [1, 2, 5, 10, kf]
     pas = [pa(k) for k in ks_ang]
@@ -187,9 +198,13 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
     def diag_align(k):
         kk = max(1, min(k, K))
         E = torch.cat([TV[:, :kk, :], BV[:, :kk, :]], dim=1)      # (N,2kk,p)
-        m = torch.einsum('iap,jap->ija', E, E).abs().mean(2)      # (N,N) per-pair mean |⟨e_{i,a},e_{j,a}⟩|
-        s = m[offm]
-        return float(s.mean()) if s.numel() else 0.0
+        vm = torch.cat([validT[:, :kk], validB[:, :kk]], dim=1)   # (N,2kk) real-eigvec mask
+        d = torch.einsum('iap,jap->ija', E, E).abs()             # (N,N,2kk) |⟨e_{i,a},e_{j,a}⟩|
+        both = vm.unsqueeze(1) & vm.unsqueeze(0)                  # (N,N,2kk) same-rank a real in BOTH i and j
+        cnt = both.sum(2)
+        m = (d * both).sum(2) / cnt.clamp_min(1)                 # (N,N) mean over real same-rank entries only
+        sel = offm & (cnt > 0)
+        return float(m[sel].mean()) if sel.any() else 0.0
     ks_dal = [1, 2, 5, 15]
     ang["dal"] = [diag_align(k) for k in ks_dal]; ang["dal_ks"] = ks_dal
 
@@ -204,15 +219,17 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
 
     def rank_stats(V, W, largest):                             # V/W = (TV,TW) top or (BV,BW) bottom
         idx = W.topk(nrank, dim=1, largest=largest).indices    # (N,nrank): rank 0 = largest (top)/most-negative (bottom), rank 1 = 2nd
+        Vn = V.norm(dim=2)                                      # (N,K) eigenvector norms (spurious ≈ 0)
         def ms(x):
             return [float(x.mean()), float(x.std(unbiased=False))] if x.numel() else [0.0, 0.0]
         out = []
         for rk in range(nrank):
             irk = idx[:, rk]
+            real = Vn[ai, irk] > 0.5                           # samples whose rk-th eigvec actually EXISTS (unit) vs spurious
             jdot = (Jg * V[ai, irk]).sum(dim=1)                # ⟨J_i,u⟩  (u unit-norm)
             sig = W[ai, irk]                                   # σ (signed eigenvalue)
-            prod = (jdot.abs() * sig) * r                      # PRODUCT |⟨J_i,u⟩|·σ·r_i  (all samples)
-            q = jdot[nz].abs() / jnorm[nz]                     # ALIGNMENT |⟨J_i,u⟩|/‖J_i‖ = |cos∠(J_i,u)| ∈ [0,1]
+            prod = ((jdot.abs() * sig) * r)[real]              # PRODUCT |⟨J_i,u⟩|·σ·r_i  (real-eigvec samples)
+            q = jdot[nz & real].abs() / jnorm[nz & real]       # ALIGNMENT |⟨J_i,u⟩|/‖J_i‖ = |cos∠(J_i,u)| ∈ [0,1]
             out.append({"prod": ms(prod), "pvals": prod.detach().cpu().tolist(),   # product (+ per-sample for histogram)
                         "cos": ms(q), "vals": q.detach().cpu().tolist()})          # alignment (+ per-sample for histogram)
         return out
@@ -221,26 +238,38 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
            "proj": {"top": rank_stats(TV, TW, True), "bot": rank_stats(BV, BW, False)}}
 
     # ---- §12b new panels: SVD-principal-direction → nearest-eigenvector CROSS projections (MIN / MAX angle).
-    #      Per OFF-DIAGONAL pair (i≠j): SVD of E_iE_jᵀ; ℓ=0=MIN angle / ℓ=D-1=MAX; u_i=e_{i,argmax|U[:,ℓ]|},
-    #      u_j=e_{j,argmax|V[:,ℓ]|}. |⟨J,u⟩| sign-free, σ,r signed; mean over i≠j. MIRRORS server._sec12_payload. ----
-    Ef = torch.cat([TV, BV], dim=1); Wf = torch.cat([TW, BW], dim=1); Df = Ef.shape[1]
-    Mf = torch.einsum('iap,jbp->ijab', Ef, Ef)
-    Uf, _, Vhf = torch.linalg.svd(Mf)
-    Jdot_ib = torch.einsum('ip,jbp->ijb', Jg, Ef); Jdot_ja = torch.einsum('jp,iap->ija', Jg, Ef)
-    ii = ai.view(N, 1).expand(N, N); jj = ai.view(1, N).expand(N, N)
-    jn_i = jnorm.view(N, 1).clamp_min(1e-30); jn_j = jnorm.view(1, N).clamp_min(1e-30)
-    r_i = r.view(N, 1); r_j = r.view(1, N)
-
-    def xproj(col):
-        asel = Uf[:, :, :, col].abs().argmax(dim=2); bsel = Vhf[:, :, col, :].abs().argmax(dim=2)
-        Jiuj = Jdot_ib.gather(2, bsel.unsqueeze(2)).squeeze(2).abs()
-        Jjui = Jdot_ja.gather(2, asel.unsqueeze(2)).squeeze(2).abs()
-        sig_i = Wf[ii, asel]; sig_j = Wf[jj, bsel]
-        q1 = Jiuj * sig_i * r_i; q2 = Jiuj * Jjui * sig_i * sig_j * r_i * r_j
-        q3 = Jiuj / jn_i; q4 = Jiuj * Jjui / (jn_i * jn_j)
-        mm = lambda x: float(x[offm].mean()) if offm.any() else 0.0   # mean over OFF-DIAGONAL pairs (i≠j)
-        return [mm(q1), mm(q2), mm(q3), mm(q4)]
-    out["xproj"] = {"min": xproj(0), "max": xproj(Df - 1)}
+    #      Per OFF-DIAGONAL pair (i≠j): SVD of the REAL-subspace overlap E_i^✓E_j^✓ᵀ (✓ = valid unit eigvecs only);
+    #      ℓ=0=MIN angle / ℓ=rank-1=MAX (rank=min(#valid_i,#valid_j)); u_i=e_{i,argmax|U[:,ℓ]|},
+    #      u_j=e_{j,argmax|V[:,ℓ]|} both unit. |⟨J,u⟩| sign-free, σ,r signed; mean over real-overlap i≠j pairs.
+    #      MIRRORS server._sec12_payload. ----
+    Ef = torch.cat([TV, BV], dim=1); Wf = torch.cat([TW, BW], dim=1)
+    valid = torch.cat([validT, validB], dim=1)                  # (N,2K) real (unit) vs spurious (~0)
+    jnc = jnorm.clamp_min(1e-30)
+    accmin = [0.0, 0.0, 0.0, 0.0]; accmax = [0.0, 0.0, 0.0, 0.0]; cnt = 0
+    vidx = [torch.nonzero(valid[i], as_tuple=False).flatten() for i in range(N)]
+    for i in range(N):
+        if vidx[i].numel() == 0:
+            continue
+        for j in range(N):
+            if i == j or vidx[j].numel() == 0:
+                continue
+            Ei = Ef[i][vidx[i]]; Ej = Ef[j][vidx[j]]           # real subspaces
+            U, _, Vh = torch.linalg.svd(Ei @ Ej.t())
+            rank = min(int(vidx[i].numel()), int(vidx[j].numel()))
+            for acc, col in ((accmin, 0), (accmax, rank - 1)):
+                a = int(vidx[i][int(U[:, col].abs().argmax())])
+                b = int(vidx[j][int(Vh[col, :].abs().argmax())])
+                ui = Ef[i][a]; uj = Ef[j][b]
+                si = float(Wf[i][a]); sj = float(Wf[j][b]); ri = float(r[i]); rj = float(r[j])
+                ni = float(jnc[i]); nj = float(jnc[j])
+                Jiuj = float((Jg[i] * uj).sum().abs()); Jjui = float((Jg[j] * ui).sum().abs())
+                acc[0] += Jiuj * si * ri
+                acc[1] += Jiuj * Jjui * si * sj * ri * rj
+                acc[2] += Jiuj / ni
+                acc[3] += Jiuj * Jjui / (ni * nj)
+            cnt += 1
+    dv = cnt if cnt else 1
+    out["xproj"] = {"min": [x / dv for x in accmin], "max": [x / dv for x in accmax]}
     return out
 
 
