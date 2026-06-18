@@ -1585,6 +1585,13 @@ def init_data_theta(P, dataset, N, inD, outD):
         X, Y = load_sort(N, inD, drng)
     elif dataset == "chebyshev":
         X, Y = load_chebyshev(N, P.get("degree", 3))
+    elif dataset == "const":
+        # iid Gaussian inputs (like synthetic), but a single CONSTANT POSITIVE target |tgt| for EVERY sample.
+        # ⇒ the net regresses random x onto the constant function y≡|tgt|; the initial residuals r=y−f(x,θ₀) are
+        # all the SAME (positive) sign — a clean uniform-residual counterpart to the random-target synthetic run.
+        Xl = [[inStd * gauss(drng) for _ in range(inD)] for _ in range(N)]
+        X = torch.tensor(Xl, dtype=DTYPE, device=_dev())
+        Y = torch.full((N, outD), abs(tgt), dtype=DTYPE, device=_dev())
     elif fixedx:
         X = torch.ones(N, inD, dtype=DTYPE, device=_dev())
         if ssign == "off":

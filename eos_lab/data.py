@@ -114,6 +114,11 @@ def make_test_set(model, P, dataset, n_test, in_dim, out_dim, device, dtype, cif
     tgt, in_std = float(P["tgt"]), float(P["inputstd"])
     if dataset == "sorting":
         return load_sort(n_test, in_dim, trng, device, dtype)
+    if dataset == "const":                                # held-out: fresh iid Gaussian X, same constant target |tgt|
+        Xl = [[in_std * gauss(trng) for _ in range(in_dim)] for _ in range(n_test)]
+        Yl = [[abs(tgt) for _ in range(out_dim)] for _ in range(n_test)]
+        return (torch.tensor(Xl, dtype=dtype, device=device),
+                torch.tensor(Yl, dtype=dtype, device=device))
     # synthetic: only well-defined for iid Gaussian inputs with off sign-mode
     if P["fixedx"] == "1" or P.get("ssign", "off") != "off":
         return None
@@ -212,6 +217,11 @@ def init_data_theta(model, P, dataset, N, in_dim, out_dim, device, dtype, cifar_
         X, Y = load_sort(N, in_dim, drng, device, dtype)
     elif dataset == "chebyshev":
         X, Y = load_chebyshev(N, P.get("degree", 3), device, dtype)
+    elif dataset == "const":
+        # iid Gaussian inputs, CONSTANT POSITIVE target |tgt| for every sample (uniform-residual). MIRRORS server.
+        Xl = [[in_std * gauss(drng) for _ in range(in_dim)] for _ in range(N)]
+        X = torch.tensor(Xl, dtype=dtype, device=device)
+        Y = torch.full((N, out_dim), abs(tgt), dtype=dtype, device=device)
     elif fixedx:
         X = torch.ones(N, in_dim, dtype=dtype, device=device)
         if ssign == "off":

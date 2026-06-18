@@ -103,6 +103,7 @@
     <option value="linear" selected>Wide deep-linear net — single sample (fixed input)</option>
     <option value="msample">Multi-sample tanh MLP — NTK / function-Hessian analysis</option>
     <option value="gpu_run">GPU run — large multi-sample net, 100 samples (server.py backend)</option>
+    <option value="gpu_const">GPU run — large net, constant +target (server.py backend)</option>
     <option value="cifar_mlp">CIFAR-10 · MLP (GPU backend)</option>
     <option value="cifar_cnn">CIFAR-10 · small CNN (GPU backend)</option>
     <option value="cifar_vgg">CIFAR-10 · VGG11 (GPU backend, ~0.6M; chmul=1 → ~9.4M)</option>
@@ -118,7 +119,7 @@
   <div class="panel">
     <div class="panel-title">Dataset &amp; architecture <span style="color:#94a3b8;font-weight:400;text-transform:none">· GPU backend only</span></div>
     <div class="grid">
-      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="cifar10">CIFAR-10</option><option value="sorting">sorting</option><option value="owt">OpenWebText</option><option value="chebyshev">Chebyshev</option></select></div>
+      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="const">const target (iid x → fixed +y)</option><option value="cifar10">CIFAR-10</option><option value="sorting">sorting</option><option value="owt">OpenWebText</option><option value="chebyshev">Chebyshev</option></select></div>
       <div class="ctl"><label>architecture</label><select id="arch"><option value="mlp" selected>MLP</option><option value="cnn">CNN</option><option value="vgg11">VGG11</option><option value="gpt">mini-GPT</option></select></div>
       <div class="ctl"><label>loss</label><select id="loss"><option value="mse" selected>MSE</option><option value="ce">cross-entropy</option></select></div>
       <div class="ctl"><label>CNN/VGG channel mult</label><input id="chmul" type="number" value="0.25" min="0.05" max="2" step="0.05"></div>
@@ -2157,7 +2158,8 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const th=initTheta(spec,p,initScale,seed+1,val('initscheme'));   // θ first (needed to evaluate residual signs)
   const ssign=val('ssign');                                    // 'off' | 'pos' | 'neg'
   const X=new Float64Array(N*inDim), Y=new Float64Array(M);
-  if(fixedX){X.fill(1.0);
+  if(val('dataset')==='const'){ for(let i=0;i<N*inDim;i++)X[i]=inputStd*gauss(drng); Y.fill(Math.abs(tgt)); }   // iid Gaussian x, CONSTANT positive target |tgt| (uniform-residual)
+  else if(fixedX){X.fill(1.0);
     if(ssign==='off'){Y.fill(tgt);}
     else{const s=ssign==='pos'?1:-1,floor=0.25*Math.max(Math.abs(tgt),1e-6),F=forward(th,spec,X,N,inDim).out;for(let i=0;i<M;i++)Y[i]=F[i]+s*Math.max(Math.abs(tgt),floor);} // r=y−f(x=1)=s·|tgt|, sign s
   }
@@ -2821,6 +2823,7 @@ const PRESETS={
   msample:{depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.3,init:0.1,nsamp:10,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:800,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,dataset:'synthetic',arch:'mlp',loss:'mse',compute:'browser'},
   // large multi-sample run intended for the GPU backend: 100 samples, 4000 steps, panels 1/4/7/4b/4c/4d on
   gpu_run:{depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.5,init:0.1,nsamp:25,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,dataset:'synthetic',arch:'mlp',loss:'mse',compute:'gpu'},
+  gpu_const:{depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.5,init:0.1,nsamp:25,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,dataset:'const',arch:'mlp',loss:'mse',compute:'gpu'},   // = gpu_run but every target is the constant +|tgt|
   // CIFAR-10 (MSE on one-hot) — fully-connected net on flattened 3072-dim images (GPU backend)
   cifar_mlp:{dataset:'cifar10',arch:'mlp',loss:'mse',depth:2,width:128,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:128,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // CIFAR-10 (MSE) — small 3-block conv net (avg-pool, tanh) on a CIFAR subset (GPU backend)
@@ -2892,6 +2895,7 @@ const CMP_PRESETS = {
   linear:   { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'linear', bias:'0', fixedx:'1', indim:10, outdim:1, nsamp:1, lr:0.3, init:0.1, steps:400, eigevery:1, neig:3, slqprobes:4 },
   msample:  { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:10, lr:0.3, init:0.1, steps:800, eigevery:1, neig:3, slqprobes:4 },
   gpu_run:  { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:25, lr:0.5, init:0.1, steps:2000, eigevery:1, neig:3, slqprobes:4 },
+  gpu_const:{ ...CMP_BASE, dataset:'const',     arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:25, lr:0.5, init:0.1, steps:2000, eigevery:1, neig:3, slqprobes:4 },
   cifar_mlp:{ ...CMP_BASE, dataset:'cifar10', arch:'mlp', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.02, init:0.5, steps:300, eigevery:2, chmul:0.25 },
   cifar_cnn:{ ...CMP_BASE, dataset:'cifar10', arch:'cnn', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.05, init:0.5, steps:300, eigevery:2, chmul:1.0 },
   cifar_vgg:{ ...CMP_BASE, dataset:'cifar10', arch:'vgg11', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.05, init:0.5, steps:300, eigevery:2, chmul:0.25 },
@@ -2932,6 +2936,7 @@ function cmpHTML(pre, kind) {
       <option value="linear" selected>Wide deep-linear net — single sample (fixed input)</option>
       <option value="msample">Multi-sample tanh MLP — NTK / function-Hessian analysis</option>
       <option value="gpu_run">GPU run — large multi-sample net, 100 samples (server.py backend)</option>
+      <option value="gpu_const">GPU run — large net, constant +target (server.py backend)</option>
       <option value="cifar_mlp">CIFAR-10 · MLP (GPU backend)</option>
       <option value="cifar_cnn">CIFAR-10 · small CNN (GPU backend)</option>
       <option value="cifar_vgg">CIFAR-10 · VGG11 (GPU backend, ~0.6M; chmul=1 → ~9.4M)</option>
@@ -2944,7 +2949,7 @@ function cmpHTML(pre, kind) {
   </div>
   <div class="controls">
     <div class="panel"><div class="panel-title">Dataset &amp; architecture</div><div class="grid">
-      ${C('dataset', 'dataset', '', '', [['synthetic', 'synthetic', 1], ['cifar10', 'CIFAR-10', 0], ['sorting', 'sorting', 0], ['owt', 'OpenWebText', 0], ['chebyshev', 'Chebyshev', 0]])}
+      ${C('dataset', 'dataset', '', '', [['synthetic', 'synthetic', 1], ['const', 'const target', 0], ['cifar10', 'CIFAR-10', 0], ['sorting', 'sorting', 0], ['owt', 'OpenWebText', 0], ['chebyshev', 'Chebyshev', 0]])}
       ${C('arch', 'architecture', '', '', [['mlp', 'MLP', 1], ['cnn', 'CNN', 0], ['vgg11', 'VGG11', 0], ['gpt', 'mini-GPT', 0]])}
       ${C('loss', 'loss', '', '', [['mse', 'MSE', 1], ['ce', 'cross-entropy', 0]])}
       ${C('chmul', 'CNN/VGG chan mult', 0.25, 0.05)}
