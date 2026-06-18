@@ -1613,11 +1613,11 @@ function sec13Stats(cur,prev,ref,N,lr){
       const m=c?s/c:0; out[d]=[m, c?Math.sqrt(Math.max(0,s2/c-m*m)):0];}
     return out;}
   const out={ref:stats(ref),g1:{},g2:{},g3:{}};
-  for(const k0 of KS){const D=2*k0;
+  for(const k0 of KS){const kk=Math.max(1,Math.min(k0,cur.TV[0].length)),D=2*kk;   // clamp k0 to the stored rank K (MIRRORS server min(k0,K))
     const Uj=[],Wj=[],Up=[],Wp=[];
     for(let i=0;i<N;i++){const uj=[],wj=[],up=[],wp=[];
-      for(let a=0;a<k0;a++){uj.push(cur.TV[i][a]);wj.push(cur.TW[i][a]);up.push(prev.TV[i][a]);wp.push(prev.TW[i][a]);}
-      for(let a=0;a<k0;a++){uj.push(cur.BV[i][a]);wj.push(cur.BW[i][a]);up.push(prev.BV[i][a]);wp.push(prev.BW[i][a]);}
+      for(let a=0;a<kk;a++){uj.push(cur.TV[i][a]);wj.push(cur.TW[i][a]);up.push(prev.TV[i][a]);wp.push(prev.TW[i][a]);}
+      for(let a=0;a<kk;a++){uj.push(cur.BV[i][a]);wj.push(cur.BW[i][a]);up.push(prev.BV[i][a]);wp.push(prev.BW[i][a]);}
       Uj.push(uj);Wj.push(wj);Up.push(up);Wp.push(wp);}
     const P=[];   // P[i][x] = (1+r_{i,t-1}·η·σ_{i,x}^{t-1})·⟨J_{i,t-1},u_{i,x}^{t-1}⟩
     for(let i=0;i<N;i++){const pi=new Float64Array(D);for(let x=0;x<D;x++)pi[x]=(1+prev.r[i]*(lr/N)*Wp[i][x])*s13Dot(prev.Jg[i],Up[i][x]);P.push(pi);}   // η/N = 1/N-normalized GD step
