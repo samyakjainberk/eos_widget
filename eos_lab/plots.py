@@ -901,8 +901,8 @@ def plot_section12_diagalign(hist):
     return fig
 
 
-_S12_XP_TITLES = ["|<J_i,u_j>|·σ_i·r_i", "|<J_i,u_j>||<J_j,u_i>|·σ_iσ_j·r_i r_j",
-                  "|<J_i,u_j>|/||J_i||", "|<J_i,u_j>||<J_j,u_i>|/(||J_i|| ||J_j||)"]
+_S12_XP_TITLES = ["mean_i Σ_j |<J_i,u_j>|·σ_i·r_i", "mean_i Σ_j |<J_i,u_j>||<J_j,u_i>|·σ_iσ_j·r_i r_j",
+                  "mean_{i≠j} |<J_i,u_j>|/||J_i||", "mean_{i≠j} |<J_i,u_j>||<J_j,u_i>|/(||J_i|| ||J_j||)"]
 
 
 def plot_section12_xproj(hist):

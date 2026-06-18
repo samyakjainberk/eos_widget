@@ -174,17 +174,19 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
     #      REAL principal direction, not a zero-norm vector). For the col-ℓ principal direction (ℓ=0 = MIN angle /
     #      ℓ=rank-1 = MAX angle, rank=min(#valid_i,#valid_j)), pick u_i=e_{i,a*} (a*=argmax_a|U[a,ℓ]|) and
     #      u_j=e_{j,b*} (b*=argmax_b|V[b,ℓ]|) — both GUARANTEED unit; σ_i,σ_j = their eigenvalues. Quantities (|⟨J,u⟩|
-    #      sign-free; σ,r signed) meaned over the i≠j pairs that have a real overlap: q1=|⟨J_i,u_j⟩|σ_i r_i ;
-    #      q2=|⟨J_i,u_j⟩||⟨J_j,u_i⟩|σ_iσ_j r_i r_j ; q3=|⟨J_i,u_j⟩|/‖J_i‖ ; q4=|⟨J_i,u_j⟩||⟨J_j,u_i⟩|/(‖J_i‖‖J_j‖). ----
+    #      sign-free; σ,r signed): q1=|⟨J_i,u_j⟩|σ_i r_i ; q2=|⟨J_i,u_j⟩||⟨J_j,u_i⟩|σ_iσ_j r_i r_j ; q3=|⟨J_i,u_j⟩|/‖J_i‖ ;
+    #      q4=|⟨J_i,u_j⟩||⟨J_j,u_i⟩|/(‖J_i‖‖J_j‖). q1,q2 are aggregated as MEAN over i of the SUM over j≠i (per-i total
+    #      curvature⟶residual coupling); q3,q4 as the MEAN over all i≠j pairs. ----
     Ef = torch.cat([TV, BV], dim=1)                              # (N,2K,p) full top-K ⊕ bottom-K eigenvectors
     Wf = torch.cat([TW, BW], dim=1)                              # (N,2K) signed eigenvalues
     valid = torch.cat([validT, validB], dim=1)                  # (N,2K) real (unit) vs spurious (~0) eigvecs
     jnc = jnorm.clamp_min(1e-30)                                # ‖J_i‖ (guard /0)
-    accmin = [0.0, 0.0, 0.0, 0.0]; accmax = [0.0, 0.0, 0.0, 0.0]; cnt = 0
+    accmin = [0.0, 0.0, 0.0, 0.0]; accmax = [0.0, 0.0, 0.0, 0.0]; cnt = 0; nis = 0
     vidx = [torch.nonzero(valid[i], as_tuple=False).flatten() for i in range(N)]   # real-eigvec indices per sample
     for i in range(N):
         if vidx[i].numel() == 0:                                # sample i has NO real eigvecs (operator ≈ 0) → no overlap
             continue
+        i_contrib = False
         for j in range(N):
             if i == j or vidx[j].numel() == 0:
                 continue
@@ -198,13 +200,17 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
                 si = float(Wf[i][a]); sj = float(Wf[j][b]); ri = float(r[i]); rj = float(r[j])
                 ni = float(jnc[i]); nj = float(jnc[j])
                 Jiuj = float((Jg[i] * uj).sum().abs()); Jjui = float((Jg[j] * ui).sum().abs())
-                acc[0] += Jiuj * si * ri
+                acc[0] += Jiuj * si * ri                        # q1,q2: SUMMED over j (then meaned over i below)
                 acc[1] += Jiuj * Jjui * si * sj * ri * rj
-                acc[2] += Jiuj / ni
+                acc[2] += Jiuj / ni                            # q3,q4: meaned over all i≠j pairs
                 acc[3] += Jiuj * Jjui / (ni * nj)
-            cnt += 1
-    dv = cnt if cnt else 1
-    out["xproj"] = {"min": [x / dv for x in accmin], "max": [x / dv for x in accmax]}
+            cnt += 1; i_contrib = True
+        if i_contrib:
+            nis += 1
+    dvp = cnt if cnt else 1                                     # # off-diagonal pairs (q3,q4)
+    dvi = nis if nis else 1                                     # # samples i with a real overlap (q1,q2: mean_i Σ_j)
+    out["xproj"] = {"min": [accmin[0] / dvi, accmin[1] / dvi, accmin[2] / dvp, accmin[3] / dvp],
+                    "max": [accmax[0] / dvi, accmax[1] / dvi, accmax[2] / dvp, accmax[3] / dvp]}
     return out
 
 

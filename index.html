@@ -1082,7 +1082,7 @@ const S12_EVO_STATS=[['mn','min','#dc2626'],['mx','max','#2563eb'],['me','mean',
 let S12_SNAPS=[], S12_N=0, S12_BUILT=false, S12_RAF=0, S12_PENDING=-1, S12_CAMKEY='', S12E_STEPS=[], S12E_DATA=null, S12P_DATA=null;
 const S12_DAL_KS=[1,2,5,15]; let S12DAL_STEPS=[], S12DAL_DATA=null;   // §12a Panel 4: diagonal (same-rank) eigvec alignment
 const S12XP_GRP=[['min','#2563eb'],['max','#dc2626']];   // §12b Panels 3/4: cross projections at min/max principal-angle direction
-const S12XP_TITLE=['mean |⟨J_i,u_j⟩|·σ_i·r_i','mean |⟨J_i,u_j⟩||⟨J_j,u_i⟩|·σ_iσ_j·r_i r_j','mean |⟨J_i,u_j⟩|/‖J_i‖','mean |⟨J_i,u_j⟩||⟨J_j,u_i⟩|/(‖J_i‖‖J_j‖)'];
+const S12XP_TITLE=['mean_i Σ_{j≠i} |⟨J_i,u_j⟩|·σ_i·r_i','mean_i Σ_{j≠i} |⟨J_i,u_j⟩||⟨J_j,u_i⟩|·σ_iσ_j·r_i r_j','mean_{i≠j} |⟨J_i,u_j⟩|/‖J_i‖','mean_{i≠j} |⟨J_i,u_j⟩||⟨J_j,u_i⟩|/(‖J_i‖‖J_j‖)'];
 let S12XP_STEPS=[], S12XP_DATA=null;
 const S12_MAXSNAPS=2000;   // bound §12 snapshot memory on long runs (decimate ×2 when exceeded; mirrors §11's G3D_MAXSNAPS)
 let S12_BUILTSET=new Set(), S12_VISIBLE=new Set(), S12_IO=null, S12_IOT=null, S12_CURIDX=0, S12_EXPORTING=false;   // lazy-WebGL cube state (context budget)
@@ -1585,9 +1585,9 @@ function s12XProj(TV,BV,TW,BW,r,Jg,N,p){   // §12b: SVD-principal-dir → neare
     for(let a=0;a<cols.length;a++)if(s12Dot(cols[a],cols[a],p)>0.25)vi.push(a);   // ‖e‖>0.5 ⟺ real
     E.push(cols);W.push(vals);VI.push(vi);}
   const jn=Jg.map(g=>Math.sqrt(s12Dot(g,g,p))),EPS=1e-30;
-  const acc={min:[0,0,0,0],max:[0,0,0,0]};let c=0;
-  for(let i=0;i<N;i++){if(VI[i].length===0)continue;
-    for(let j=0;j<N;j++){if(i===j||VI[j].length===0)continue;   // mean over OFF-DIAGONAL pairs with a real overlap
+  const acc={min:[0,0,0,0],max:[0,0,0,0]};let c=0,nis=0;
+  for(let i=0;i<N;i++){if(VI[i].length===0)continue;let ic=false;
+    for(let j=0;j<N;j++){if(i===j||VI[j].length===0)continue;   // q1,q2: SUM over j (meaned over i below); q3,q4: mean over i≠j pairs
     const vi=VI[i],vj=VI[j],di=vi.length,dj=vj.length;
     const M=new Float64Array(di*dj);for(let a=0;a<di;a++)for(let b=0;b<dj;b++)M[a*dj+b]=s12Dot(E[i][vi[a]],E[j][vj[b]],p);   // REAL-subspace overlap (di×dj)
     const MMt=new Float64Array(di*di),MtM=new Float64Array(dj*dj);   // U=eig(MMᵀ), V=eig(MᵀM) → left/right singular vectors
@@ -1604,9 +1604,13 @@ function s12XProj(TV,BV,TW,BW,r,Jg,N,p){   // §12b: SVD-principal-dir → neare
       const ui=E[i][gi],uj=E[j][gj],si=W[i][gi],sj=W[j][gj];
       const Jiuj=Math.abs(s12Dot(Jg[i],uj,p)),Jjui=Math.abs(s12Dot(Jg[j],ui,p)),ni=Math.max(jn[i],EPS),nj=Math.max(jn[j],EPS);
       acc[key][0]+=Jiuj*si*r[i];acc[key][1]+=Jiuj*Jjui*si*sj*r[i]*r[j];acc[key][2]+=Jiuj/ni;acc[key][3]+=Jiuj*Jjui/(ni*nj);}
-    c++;
-  }}
-  const dv=c||1;return {min:acc.min.map(x=>x/dv),max:acc.max.map(x=>x/dv)};
+    c++;ic=true;
+    }
+    if(ic)nis++;
+  }
+  const dvp=c||1,dvi=nis||1;   // q1,q2 ÷ #i (mean_i Σ_j) ; q3,q4 ÷ #pairs (mean_{i≠j})
+  return {min:[acc.min[0]/dvi,acc.min[1]/dvi,acc.min[2]/dvp,acc.min[3]/dvp],
+          max:[acc.max[0]/dvi,acc.max[1]/dvi,acc.max[2]/dvp,acc.max[3]/dvp]};
 }
 function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap){   // §12: principal angles (k=1,2,5,10,kfull) + proj↔residual. §13 = sec13Stats.
   const K=TV[0].length, kf=Math.max(1,Math.min(SEC12_KFULL,K)), ks=[1,2,5,10,kf];

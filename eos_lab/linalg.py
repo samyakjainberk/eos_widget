@@ -250,11 +250,12 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
     Ef = torch.cat([TV, BV], dim=1); Wf = torch.cat([TW, BW], dim=1)
     valid = torch.cat([validT, validB], dim=1)                  # (N,2K) real (unit) vs spurious (~0)
     jnc = jnorm.clamp_min(1e-30)
-    accmin = [0.0, 0.0, 0.0, 0.0]; accmax = [0.0, 0.0, 0.0, 0.0]; cnt = 0
+    accmin = [0.0, 0.0, 0.0, 0.0]; accmax = [0.0, 0.0, 0.0, 0.0]; cnt = 0; nis = 0
     vidx = [torch.nonzero(valid[i], as_tuple=False).flatten() for i in range(N)]
     for i in range(N):
         if vidx[i].numel() == 0:
             continue
+        i_contrib = False
         for j in range(N):
             if i == j or vidx[j].numel() == 0:
                 continue
@@ -268,13 +269,16 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL):
                 si = float(Wf[i][a]); sj = float(Wf[j][b]); ri = float(r[i]); rj = float(r[j])
                 ni = float(jnc[i]); nj = float(jnc[j])
                 Jiuj = float((Jg[i] * uj).sum().abs()); Jjui = float((Jg[j] * ui).sum().abs())
-                acc[0] += Jiuj * si * ri
+                acc[0] += Jiuj * si * ri                        # q1,q2: SUMMED over j (meaned over i below)
                 acc[1] += Jiuj * Jjui * si * sj * ri * rj
-                acc[2] += Jiuj / ni
+                acc[2] += Jiuj / ni                            # q3,q4: meaned over all i≠j pairs
                 acc[3] += Jiuj * Jjui / (ni * nj)
-            cnt += 1
-    dv = cnt if cnt else 1
-    out["xproj"] = {"min": [x / dv for x in accmin], "max": [x / dv for x in accmax]}
+            cnt += 1; i_contrib = True
+        if i_contrib:
+            nis += 1
+    dvp = cnt if cnt else 1; dvi = nis if nis else 1            # q1,q2 ÷ #i (mean_i Σ_j) ; q3,q4 ÷ #pairs (mean_{i≠j})
+    out["xproj"] = {"min": [accmin[0] / dvi, accmin[1] / dvi, accmin[2] / dvp, accmin[3] / dvp],
+                    "max": [accmax[0] / dvi, accmax[1] / dvi, accmax[2] / dvp, accmax[3] / dvp]}
     return out
 
 
