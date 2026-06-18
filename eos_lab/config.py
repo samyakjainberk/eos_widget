@@ -23,6 +23,7 @@ class Config:
     seqlen: int = 16                # sorting sequence length / owt block size (tokens per sequence)
     vocab: int = 50257              # owt vocabulary (GPT-2 BPE) — token-embedding/head size
     degree: int = 3                 # chebyshev: degree of the target Chebyshev polynomial T_k
+    cvar: float = 0.0               # const dataset: variance of Gaussian noise added to the constant target (0 ⇒ exact constant)
 
     # ---- model (mirror 'Model' panel) ----
     depth: int = 4

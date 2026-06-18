@@ -152,6 +152,7 @@
       <div class="ctl"><label>number_of_samples</label><input id="nsamp" type="number" value="1" min="1" max="512" step="1"></div>
       <div class="ctl"><label>batch_size (0 = full)</label><input id="batch" type="number" value="0" min="0" max="4096" step="1"></div>
       <div class="ctl"><label>target_scale</label><input id="tgt" type="number" value="1.0" step="0.5"></div>
+      <div class="ctl"><label title="const dataset only: VARIANCE of Gaussian noise added to the constant target (0 = exact constant ⇒ uniform residuals; raise to decorrelate the residuals and dial up cross-sample interaction)">const noise var</label><input id="cvar" type="number" value="0" min="0" step="0.05"></div>
       <div class="ctl"><label>learning rate</label><input id="lr" type="number" value="0.3" step="0.001"></div>
       <div class="ctl"><label>init_scale</label><input id="init" type="number" value="0.1" step="0.05"></div>
       <div class="ctl"><label>init scheme</label><select id="initscheme"><option value="default" selected>default (scale/√fan_in)</option><option value="mup">muP</option><option value="xavier_normal">Xavier normal</option><option value="xavier_uniform">Xavier uniform</option><option value="custom">custom (Gaussian std)</option></select></div>
@@ -2158,7 +2159,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const th=initTheta(spec,p,initScale,seed+1,val('initscheme'));   // θ first (needed to evaluate residual signs)
   const ssign=val('ssign');                                    // 'off' | 'pos' | 'neg'
   const X=new Float64Array(N*inDim), Y=new Float64Array(M);
-  if(val('dataset')==='const'){ for(let i=0;i<N*inDim;i++)X[i]=inputStd*gauss(drng); Y.fill(Math.abs(tgt)); }   // iid Gaussian x, CONSTANT positive target |tgt| (uniform-residual)
+  if(val('dataset')==='const'){ const cstd=Math.sqrt(Math.max(0,+val('cvar')||0)); for(let i=0;i<N*inDim;i++)X[i]=inputStd*gauss(drng); for(let i=0;i<M;i++)Y[i]=Math.abs(tgt)+cstd*gauss(drng); }   // iid Gaussian x, CONSTANT positive target |tgt| + N(0,cvar) noise (cvar=0 ⇒ exact constant)
   else if(fixedX){X.fill(1.0);
     if(ssign==='off'){Y.fill(tgt);}
     else{const s=ssign==='pos'?1:-1,floor=0.25*Math.max(Math.abs(tgt),1e-6),F=forward(th,spec,X,N,inDim).out;for(let i=0;i<M;i++)Y[i]=F[i]+s*Math.max(Math.abs(tgt),floor);} // r=y−f(x=1)=s·|tgt|, sign s
@@ -2620,7 +2621,7 @@ function _zip(files){const enc=new TextEncoder(),parts=[],cd=[];let off=0;
   const eo=new Uint8Array([].concat(u32(0x06054b50),u16(0),u16(0),u16(cd.length),u16(cd.length),u32(cs),u32(off),u16(0)));
   return new Blob([...parts,...cp,eo],{type:'application/zip'});}
 function _b64bytes(durl){const s=atob(durl.split(',')[1]),a=new Uint8Array(s.length);for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return a;}
-function _cfgText(){const ids=['preset','compute','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','depth','width','act','bias','fixedx','inputstd','ssign','optimizer','indim','outdim','nsamp','batch','tgt','lr','init','initscheme','steps','seed','neig','kth','eigevery','heavyevery','slqprobes','energyp','gson','qapprox','qmode','tset','cubicapprox'];
+function _cfgText(){const ids=['preset','compute','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','cvar','depth','width','act','bias','fixedx','inputstd','ssign','optimizer','indim','outdim','nsamp','batch','tgt','lr','init','initscheme','steps','seed','neig','kth','eigevery','heavyevery','slqprobes','energyp','gson','qapprox','qmode','tset','cubicapprox'];
   const L=ids.map(id=>{const e=document.getElementById(id);return e?(id+' = '+e.value):null;}).filter(Boolean);
   L.push('panels: '+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22'].map(id=>id+'='+(chk(id)?1:0)).join(' '));
   const stt=document.getElementById('status');if(stt&&stt.textContent)L.push('status: '+stt.textContent);
@@ -2766,7 +2767,7 @@ function backendURL(start){
   const ps=new URLSearchParams();
   ['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
    'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap',
-   'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree'].forEach(id=>ps.set(id,val(id)));
+   'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar'].forEach(id=>ps.set(id,val(id)));
   [['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
    ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
   ps.set('start',String(start||0));
@@ -2823,7 +2824,7 @@ const PRESETS={
   msample:{depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.3,init:0.1,nsamp:10,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:800,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,dataset:'synthetic',arch:'mlp',loss:'mse',compute:'browser'},
   // large multi-sample run intended for the GPU backend: 100 samples, 4000 steps, panels 1/4/7/4b/4c/4d on
   gpu_run:{depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.5,init:0.1,nsamp:25,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,dataset:'synthetic',arch:'mlp',loss:'mse',compute:'gpu'},
-  gpu_const:{depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.5,init:0.1,nsamp:25,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,dataset:'const',arch:'mlp',loss:'mse',compute:'gpu'},   // = gpu_run but every target is the constant +|tgt|
+  gpu_const:{depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.5,init:0.1,nsamp:25,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,cvar:0,dataset:'const',arch:'mlp',loss:'mse',compute:'gpu'},   // = gpu_run but every target is the constant +|tgt| (+ optional N(0,cvar) noise)
   // CIFAR-10 (MSE on one-hot) — fully-connected net on flattened 3072-dim images (GPU backend)
   cifar_mlp:{dataset:'cifar10',arch:'mlp',loss:'mse',depth:2,width:128,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:128,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // CIFAR-10 (MSE) — small 3-block conv net (avg-pool, tanh) on a CIFAR subset (GPU backend)
@@ -2841,7 +2842,7 @@ const PRESETS={
 };
 function setVal(id,v){document.getElementById(id).value=String(v);}
 function applyPreset(name){const P=PRESETS[name];if(!P)return;for(const k in P){const el=document.getElementById(k);if(!el)continue;if(el.type==='checkbox')el.checked=!!P[k];else el.value=String(P[k]);}syncLossPanels();updateParamBadge();}
-['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt','neig','kth','steps','eigevery','slqprobes','energyp','gson','seed','qapprox','qmode','tset','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree']
+['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt','neig','kth','steps','eigevery','slqprobes','energyp','gson','seed','qapprox','qmode','tset','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','cvar']
   .forEach(id=>document.getElementById(id).addEventListener('input',()=>{document.getElementById('preset').value='custom';}));
 ['dataset','arch','loss'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';}));
 // keep the live parameter-count badge + §1/§2/§3 annotations in sync with the architecture controls
@@ -2895,7 +2896,7 @@ const CMP_PRESETS = {
   linear:   { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'linear', bias:'0', fixedx:'1', indim:10, outdim:1, nsamp:1, lr:0.3, init:0.1, steps:400, eigevery:1, neig:3, slqprobes:4 },
   msample:  { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:10, lr:0.3, init:0.1, steps:800, eigevery:1, neig:3, slqprobes:4 },
   gpu_run:  { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:25, lr:0.5, init:0.1, steps:2000, eigevery:1, neig:3, slqprobes:4 },
-  gpu_const:{ ...CMP_BASE, dataset:'const',     arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:25, lr:0.5, init:0.1, steps:2000, eigevery:1, neig:3, slqprobes:4 },
+  gpu_const:{ ...CMP_BASE, dataset:'const',     arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:25, lr:0.5, init:0.1, steps:2000, eigevery:1, neig:3, slqprobes:4, cvar:0 },
   cifar_mlp:{ ...CMP_BASE, dataset:'cifar10', arch:'mlp', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.02, init:0.5, steps:300, eigevery:2, chmul:0.25 },
   cifar_cnn:{ ...CMP_BASE, dataset:'cifar10', arch:'cnn', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.05, init:0.5, steps:300, eigevery:2, chmul:1.0 },
   cifar_vgg:{ ...CMP_BASE, dataset:'cifar10', arch:'vgg11', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.05, init:0.5, steps:300, eigevery:2, chmul:0.25 },
@@ -2973,6 +2974,7 @@ function cmpHTML(pre, kind) {
     <div class="panel"><div class="panel-title">Training &amp; analysis</div><div class="grid">
       ${C('nsamp', 'number_of_samples', 10, 1)}
       ${C('tgt', 'target_scale', 1.0, 0.5)}
+      ${C('cvar', 'const noise var', 0, 0.05)}
       ${C('lr', 'learning rate', 0.3, 0.001)}
       ${C('init', 'init_scale', 0.1, 0.05)}
       ${C('initscheme', 'init scheme', '', '', [['default', 'default (scale/√fan_in)', 1], ['mup', 'muP', 0], ['xavier_normal', 'Xavier normal', 0], ['xavier_uniform', 'Xavier uniform', 0], ['custom', 'custom (Gaussian std)', 0]])}
@@ -3033,7 +3035,7 @@ function cmpURL(pre, kind, start) {
     ssign:'ssign', lr:'lr', init:'init', initscheme:'initscheme', nsamp:'nsamp', indim:'indim', outdim:'outdim', tgt:'tgt', neig:'neig',
     steps:'steps', eigevery:'eigevery', slqprobes:'slqprobes', seed:'seed', qmode:'qmode', tset:'tset',
     dataset:'dataset', arch:'arch', loss:'loss', chmul:'chmul', nlayer:'nlayer', nhead:'nhead', dmodel:'dmodel',
-    seqlen:'seqlen', vocab:'vocab', degree:'degree', every_iter:'qapprox' };
+    seqlen:'seqlen', vocab:'vocab', degree:'degree', cvar:'cvar', every_iter:'qapprox' };
   for (const k in map) ps.set(map[k], v(k));
   for (const c of ['c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11','c12']) ps.set(c, document.getElementById(pre + '_' + c).checked ? '1' : '0');
   ps.set('cubicapprox', (document.getElementById('cubicapprox')||{value:10}).value);   // §10 cubic window (shared with the main page control)
@@ -3288,7 +3290,7 @@ function makeCompareSection(pre, kind) {
     document.getElementById(pre + '_status').textContent = 'preset applied — press Run to start.';
   } });
   // editing any control switches this section's preset to "custom"
-  ['dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','depth','width','act','bias','fixedx','inputstd','ssign','optimizer','indim','outdim','nsamp','tgt','lr','init','initscheme','steps','seed','neig','eigevery','every_iter','slqprobes','qmode','tset','c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11','c12']
+  ['dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','cvar','depth','width','act','bias','fixedx','inputstd','ssign','optimizer','indim','outdim','nsamp','tgt','lr','init','initscheme','steps','seed','neig','eigevery','every_iter','slqprobes','qmode','tset','c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11','c12']
     .forEach(id => { const el = document.getElementById(pre + '_' + id); if (el) el.addEventListener(el.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input', () => { document.getElementById(pre + '_preset').value = 'custom'; }); });
   cmpApplyPreset(pre, 'linear');   // default surrogate preset = §1 default ('linear'), so the sections match exactly
   // draw empty, labeled plots right away (like the main widget) so the section isn't blank before Run

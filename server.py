@@ -1586,12 +1586,15 @@ def init_data_theta(P, dataset, N, inD, outD):
     elif dataset == "chebyshev":
         X, Y = load_chebyshev(N, P.get("degree", 3))
     elif dataset == "const":
-        # iid Gaussian inputs (like synthetic), but a single CONSTANT POSITIVE target |tgt| for EVERY sample.
-        # ⇒ the net regresses random x onto the constant function y≡|tgt|; the initial residuals r=y−f(x,θ₀) are
-        # all the SAME (positive) sign — a clean uniform-residual counterpart to the random-target synthetic run.
+        # iid Gaussian inputs (like synthetic); every target is the CONSTANT POSITIVE |tgt| PLUS optional Gaussian
+        # noise of VARIANCE `cvar` (default 0 ⇒ exactly constant). cvar=0 ⇒ all initial residuals r=y−f(x,θ₀) share
+        # the SAME (positive) sign (uniform residuals — minimal cross-sample structure); raising cvar spreads the
+        # targets ⇒ the residuals decorrelate, dialling up the degree of interaction between samples (§13/§14/§12b).
+        cstd = max(0.0, float(P.get("cvar", 0.0))) ** 0.5                  # noise std = √variance
         Xl = [[inStd * gauss(drng) for _ in range(inD)] for _ in range(N)]
         X = torch.tensor(Xl, dtype=DTYPE, device=_dev())
-        Y = torch.full((N, outD), abs(tgt), dtype=DTYPE, device=_dev())
+        Yl = [[abs(tgt) + cstd * gauss(drng) for _ in range(outD)] for _ in range(N)]
+        Y = torch.tensor(Yl, dtype=DTYPE, device=_dev())
     elif fixedx:
         X = torch.ones(N, inD, dtype=DTYPE, device=_dev())
         if ssign == "off":
@@ -2848,6 +2851,7 @@ def _parse_params(q):
         "chmul": ff("chmul", 0.25), "nlayer": fi("nlayer", 2), "nhead": fi("nhead", 4),
         "dmodel": fi("dmodel", 64), "seqlen": fi("seqlen", 16), "vocab": fi("vocab", 50257),
         "degree": fi("degree", 3),       # Chebyshev polynomial degree (chebyshev dataset)
+        "cvar": ff("cvar", 0.0),         # const dataset: variance of Gaussian noise added to the constant target (0 ⇒ exact constant)
         "initscheme": g("initscheme", "default"),
         "surrogate": g("surrogate", "quad"), "mode": g("mode", "run"),
         "s1": g("s1", "1") == "1", "s2": g("s2", "1") == "1", "s3": g("s3", "1") == "1",
