@@ -1121,7 +1121,7 @@ const S12_EVO_KS=[5,15,1,2];   // evolution k's (panel 2: 5,15 ; panel 3: 1,2)
 const S12_EVO_STATS=[['mn','min','#dc2626'],['mx','max','#2563eb'],['me','mean','#16a34a']];   // off-diagonal stat → id/label/colour
 let S12_SNAPS=[], S12_N=0, S12_BUILT=false, S12_RAF=0, S12_PENDING=-1, S12_CAMKEY='', S12E_STEPS=[], S12E_DATA=null, S12P_DATA=null, S12GP_DATA=null, S12WP_DATA=null;
 const S12_DAL_KS=[1,2,5,15]; let S12DAL_STEPS=[], S12DAL_DATA=null;   // §12a Panel 4: diagonal (same-rank) eigvec alignment
-const S12XP_GRP=[['min','#2563eb'],['max','#dc2626']];   // §12b Panels 3/4: cross projections at min/max principal-angle direction
+const S12XP_GRP=[['min','#2563eb'],['max','#dc2626']];   // §12b Panels 8/9: cross projections at min/max principal-angle direction
 const S12XP_TITLE=['mean_i Σ_{j≠i} |⟨J_i,u_j⟩|·σ_i·r_i','mean_i Σ_{j≠i} |⟨J_i,u_j⟩||⟨J_j,u_i⟩|·σ_iσ_j·r_i r_j','mean_{i≠j} |⟨J_i,u_j⟩|/‖J_i‖','mean_{i≠j} |⟨J_i,u_j⟩||⟨J_j,u_i⟩|/(‖J_i‖‖J_j‖)'];
 let S12XP_STEPS=[], S12XP_DATA=null;
 const S12_MAXSNAPS=2000;   // bound §12 snapshot memory on long runs (decimate ×2 when exceeded; mirrors §11's G3D_MAXSNAPS)
@@ -1435,7 +1435,7 @@ function s12DalRender(){
   if(!S12DAL_DATA||!S12DAL_STEPS.length)return;const t=S12DAL_STEPS;
   for(const k of S12_DAL_KS)Plotly.restyle('p_s12dal_'+k,{x:[t],y:[S12DAL_DATA[k]]});
 }
-function s12XpBuild(){   // §12b Panels 3/4: cross projections at the min/max principal-angle direction, 4 plots each
+function s12XpBuild(){   // §12b Panels 8/9: cross projections at the min/max principal-angle direction, 4 plots each
   for(const [g,col] of S12XP_GRP)for(let n=0;n<4;n++)
     Plotly.newPlot('p_s12xp_'+g+'_'+n,[{x:[],y:[],mode:'lines+markers',line:{color:col,width:1.8},marker:{size:4,color:col}}],
       withZero(baseLayout(S12XP_TITLE[n],'value',false)),{responsive:true,displaylogo:false});
@@ -1485,7 +1485,7 @@ function s12ProjRender(){
     const xs=[],ys=[];for(let rk=0;rk<S12P_NRANK;rk++){xs.push(t.slice());ys.push(S12P_DATA[grp][n][rk].slice());}
     Plotly.restyle(pre+n,{x:xs,y:ys});}
 }
-// panels 3/4 (GLOBAL view) — identical plots to panels 1/2 (S12P_* config) but reading m.gproj (Σ_i Q_i basis)
+// panels 3/4 (AVERAGED view) — identical plots to panels 1/2 (S12P_* config) but reading m.gproj ((1/N)Σ_i Q_i basis)
 const S12GP_GRP=[['top','p_s12gproj_top','#2563eb','#93c5fd'],['bot','p_s12gproj_bot','#dc2626','#fca5a5']];
 function s12GProjBuild(){
   for(const [grp,pre,col,col2] of S12GP_GRP)for(let n=0;n<S12P_STAT.length;n++){
@@ -1752,7 +1752,7 @@ function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap,gTV,gTW,gBV,gBW,wbases){ 
         if(jnorm[i]>0)vv.push(Math.abs(jd)/jnorm[i]);}           // ALIGNMENT |⟨J,u⟩|/‖J‖ = |cos∠| (‖J‖=0 dropped)
       out.push({prod:ms(pv),pvals:pv,cos:ms(vv),vals:vv});}
     return out;};
-  // panels 3/4 (GLOBAL view): each per-sample ∇f_i onto the top-2/bottom-2 eigvecs w of the SUMMED Hessian Σ_i Q_i
+  // panels 3/4 (AVERAGED view): each per-sample ∇f_i onto the top-2/bottom-2 eigvecs w of the AVERAGED Hessian (1/N)Σ_i Q_i
   // (shared basis gTV/gBV with eigenvalues gTW/gBW). Same two quantities as panels 1/2. MIRRORS server gproj_stats.
   const gprojStats=(gV,gW)=>{const out=[];
     for(let rk=0;rk<Math.min(nrank,gV.length);rk++){const w=gV[rk],sig=gW[rk],pv=[],vv=[];

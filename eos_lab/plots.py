@@ -906,7 +906,7 @@ _S12_XP_TITLES = ["mean_i Σ_j |<J_i,u_j>|·σ_i·r_i", "mean_i Σ_j |<J_i,u_j>|
 
 
 def plot_section12_xproj(hist):
-    """§12b panels 5/6 — SVD-principal-direction → nearest-eigenvector cross projections, MIN (row 0) / MAX (row 1)
+    """§12b panels 8/9 — SVD-principal-direction → nearest-eigenvector cross projections, MIN (row 0) / MAX (row 1)
     principal-angle direction; 4 means over ALL (i,j) vs step. Reads xproj.{min,max}. None if <2 records."""
     import numpy as np
     snaps = [r for r in hist if "g4d" in r and "xproj" in r["g4d"]]
@@ -922,7 +922,7 @@ def plot_section12_xproj(hist):
             ax.axhline(0, c="#d1d5db", lw=0.8)
             ax.plot(t, y, color=col, marker="o", ms=3, lw=1.4)
             ax.set_xlabel("step"); ax.set_title(f"{key} · mean {_S12_XP_TITLES[ci]}", fontsize=8)
-    fig.suptitle("§12b panels 5/6 — cross projections at the min/max principal-angle direction", fontsize=13)
+    fig.suptitle("§12b panels 8/9 — cross projections at the min/max principal-angle direction", fontsize=13)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     return fig
 
@@ -932,7 +932,7 @@ S12_HISTBINS = 40   # §12 panel-4/5 alignment-histogram bar count (shared bins 
 
 def _s12_proj_fig(hist, dkey, row_titles, suptitle, ulab="u"):
     """Shared body for the §12b projection time-series panels. dkey='proj' (per-sample Q_i, eigvec label u) or
-    'gproj' (GLOBAL Σ_i Q_i, eigvec label w). PRODUCT |⟨J,·⟩|·σ·r (cols 1-2) and ALIGNMENT |⟨J,·⟩|/‖J‖ ∈ [0,1]
+    'gproj' (AVERAGED (1/N)Σ_i Q_i, eigvec label w). PRODUCT |⟨J,·⟩|·σ·r (cols 1-2) and ALIGNMENT |⟨J,·⟩|/‖J‖ ∈ [0,1]
     (cols 3-4); TOP-2 (row 0) and BOTTOM-2 (row 1); rank-1 solid, rank-2 dashed. None if <2 records."""
     import numpy as np
     recs = [r for r in hist if "g4d" in r and r["g4d"].get(dkey) is not None
@@ -1082,9 +1082,9 @@ def plot_section12_hist(hist):
 
 
 def plot_section12_ghist(hist):
-    """§12b panels 3/4 — GLOBAL-view product & alignment histograms at the last iteration (Σ_i Q_i eigvecs w)."""
+    """§12b panels 3/4 — AVERAGED-view product & alignment histograms at the last iteration ((1/N)Σ_i Q_i eigvecs w)."""
     return _s12_hist_fig(hist, "gproj",
-        "§12b panels 3/4 — GLOBAL-view product & alignment histograms at the last iteration", "w")
+        "§12b panels 3/4 — AVERAGED-view product & alignment histograms at the last iteration", "w")
 
 
 # ─────────────────── §13 G1/G2/G3 approximations of the exact reference J_iᵀQ_jJ_k·r_k ───────────────────
@@ -1256,7 +1256,7 @@ def save_panels(results, outdir):
             "section12_panel1_angles": plot_section12_angles(hist),
             "section12_panel2_evolution": plot_section12_evolution(hist),
             "section12a_panel4_diagalign": plot_section12_diagalign(hist),
-            "section12b_panel56_xproj": plot_section12_xproj(hist),
+            "section12b_panel89_xproj": plot_section12_xproj(hist),
             "section12b_panel12_proj": plot_section12_proj(hist),
             "section12b_panel12_hist": plot_section12_hist(hist),
             "section12b_panel34_gproj": plot_section12_gproj(hist),

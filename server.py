@@ -165,10 +165,10 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL, gTV=None
                         "cos": ms(q), "vals": q.detach().cpu().tolist()})          # alignment (+ per-sample for histogram)
         return out
 
-    # ---- panels 3/4 (GLOBAL view): project each per-sample ∇f_i onto the TOP-2 / BOTTOM-2 eigenvectors w of the
-    #      SUMMED Hessian Σ_i Q_i (a single shared basis, ordered top=desc / bottom=most-negative). Same two quantities
-    #      as panels 1/2 — product |⟨J_i,w⟩|·σ·r_i (σ = the GLOBAL eigenvalue of Σ_i Q_i) and alignment |⟨J_i,w⟩|/‖J_i‖
-    #      — mean/std over samples. At N=1 this coincides with panels 1/2 (Σ_i Q_i = Q_1). ----
+    # ---- panels 3/4 (AVERAGED view): project each per-sample ∇f_i onto the TOP-2 / BOTTOM-2 eigenvectors w of the
+    #      AVERAGED Hessian (1/N)Σ_i Q_i (a single shared basis, ordered top=desc / bottom=most-negative). Same two
+    #      quantities as panels 1/2 — product |⟨J_i,w⟩|·σ·r_i (σ = the eigenvalue of (1/N)Σ_i Q_i) and alignment
+    #      |⟨J_i,w⟩|/‖J_i‖ — mean/std over samples. At N=1 this coincides with panels 1/2 ((1/N)Σ_i Q_i = Q_1). ----
     def gproj_stats(gV, gW):
         def ms(x):
             return [float(x.mean()), float(x.std(unbiased=False))] if x.numel() else [0.0, 0.0]

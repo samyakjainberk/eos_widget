@@ -239,7 +239,7 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL, gTV=None,
                         "cos": ms(q), "vals": q.detach().cpu().tolist()})          # alignment (+ per-sample for histogram)
         return out
 
-    # panels 3/4 (GLOBAL view): each per-sample ∇f_i onto the top-2/bottom-2 eigvecs w of the SUMMED Hessian Σ_i Q_i
+    # panels 3/4 (AVERAGED view): each per-sample ∇f_i onto the top-2/bottom-2 eigvecs w of the AVERAGED Hessian (1/N)Σ_i Q_i
     # (shared basis); product |⟨J_i,w⟩|·σ·r_i (σ = global eigenvalue), alignment |⟨J_i,w⟩|/‖J_i‖; mean/std over samples.
     # At N=1 coincides with panels 1/2. MIRRORS server._sec12_payload.
     def gproj_stats(gV, gW):
