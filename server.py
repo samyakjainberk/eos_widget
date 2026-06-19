@@ -74,7 +74,7 @@ SEC12_KFULL = 15   # rank of the "full-space" principal-angle plot (top-15 ⊕ b
                    # too, needs only Lanczos extremes rather than the full spectrum.
 
 
-def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL, gTV=None, gTW=None, gBV=None, gBW=None):
+def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL, gTV=None, gTW=None, gBV=None, gBW=None, wbases=None):
     """§12 per-sample Hessian eigenvector diagnostics, from per-sample Lanczos eigenpairs.
     TV,BV:(N,K,p) top/bottom eigenVECTORS; TW,BW:(N,K) eigenVALUES; r:(N,) residual; Jg:(N,p) per-sample
     GT-label gradients ∇f_i. Returns {M,do3d,ks,ang,proj}:
@@ -184,8 +184,10 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL, gTV=None
 
     out = {"M": N, "do3d": False, "ks": [1, 2, 5], "ang": ang,
            "proj": {"top": rank_stats(TV, TW, True), "bot": rank_stats(BV, BW, False)}}
-    if gTV is not None and gBV is not None:                     # panels 3/4 — global-Hessian view
+    if gTV is not None and gBV is not None:                     # panels 3/4 — averaged-Hessian view (1/N)Σ_i Q_i
         out["gproj"] = {"top": gproj_stats(gTV, gTW), "bot": gproj_stats(gBV, gBW)}
+    if wbases is not None:                                       # panels 5/6/7 — WEIGHTED-AVERAGE Hessian (Σ w_i Q_i)/(Σ w_i)
+        out["wproj"] = [{"top": gproj_stats(b["tv"], b["tw"]), "bot": gproj_stats(b["bv"], b["bw"])} for b in wbases]
 
     # ---- §12b panels 5/6: SVD-principal-direction → nearest-eigenvector CROSS projections (MIN / MAX angle) ----
     #      For every OFF-DIAGONAL pair (i≠j): SVD of the REAL-subspace overlap E_i^✓E_j^✓ᵀ (✓ = the valid, unit-norm
@@ -2286,15 +2288,32 @@ def run_stream(P):
                         BWl.append(torch.tensor(bval, dtype=DTYPE, device=_dev()))
                     TV, TW, BV, BW = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
                 r12 = rr[lblsel12]; Jg12 = Jc[lblsel12]
-                gTV = gTW = gBV = gBW = None
-                if s22:                    # §12b panels 3/4: top-2/bottom-2 eigenpairs of the GLOBAL Hessian Σ_i Q_i =
-                    cAll = torch.zeros(N, outD, dtype=DTYPE, device=_dev())   # ∇²(Σ_i f_i^GT) via hvpS with the GT-label cotangent
-                    cAll.view(-1)[lblsel12] = 1.0                            #   (= §4's ∇²Σf when outdim=1). single Lanczos.
-                    gtv, gbv, gtw, gbw = lanczos_extreme(lambda v: hvpS(th, X, v, cAll), p, 2, m12, 0x6105A1)
+                gTV = gTW = gBV = gBW = None; wbases = None
+                if s22:                    # §12b panels 3/4: top-2/bottom-2 eigenpairs of the AVERAGED Hessian (1/N)Σ_i Q_i
+                    cAvg = torch.zeros(N, outD, dtype=DTYPE, device=_dev())   # = ∇²((1/N)Σ_i f_i^GT) via hvpS with cotangent 1/N
+                    cAvg.view(-1)[lblsel12] = 1.0 / N                         #   (eigvecs are scale-free; the 1/N only rescales σ)
+                    gtv, gbv, gtw, gbw = lanczos_extreme(lambda v: hvpS(th, X, v, cAvg), p, 2, m12, 0x6105A1)
                     gTV = torch.stack(gtv); gBV = torch.stack(gbv)
                     gTW = torch.tensor(gtw, dtype=DTYPE, device=_dev()); gBW = torch.tensor(gbw, dtype=DTYPE, device=_dev())
+                    # panels 5/6/7: top-2/bottom-2 eigenpairs of the WEIGHTED-AVERAGE Hessian (Σ_i w_i Q_i)/(Σ_i w_i),
+                    #   w = |top NTK eigvec| (p5), |2nd NTK eigvec| (p6), unit-normalized random U[0,1] (p7). NTK = J Jᵀ
+                    #   (N×N per-sample GT-gradient Gram); |·| makes the weights gauge-free. cotangent = w/Σw ⇒ a true average.
+                    ntk = Jg12 @ Jg12.t()                                    # (N,N)
+                    nevecs = torch.linalg.eigh(ntk).eigenvectors             # columns ascending by eigenvalue
+                    v1 = nevecs[:, -1].abs()                                 # |top NTK eigvec|
+                    v2 = (nevecs[:, -2] if N >= 2 else nevecs[:, -1]).abs()  # |2nd NTK eigvec| (falls back to top at N=1)
+                    rrng = mulberry32(0x7A9D07)                              # fixed seed ⇒ reproducible + browser-identical
+                    rvec = torch.tensor([rrng() for _ in range(N)], dtype=DTYPE, device=_dev())
+                    rvec = rvec / rvec.norm().clamp_min(1e-30)               # unit-normalized random U[0,1]
+                    wbases = []
+                    for wi, wv in enumerate([v1, v2, rvec]):
+                        cW = torch.zeros(N, outD, dtype=DTYPE, device=_dev())
+                        cW.view(-1)[lblsel12] = wv / wv.sum().clamp_min(1e-30)   # weighted-average cotangent (Σ c_i = 1)
+                        wtv, wbv, wtw, wbw = lanczos_extreme(lambda v, c=cW: hvpS(th, X, v, c), p, 2, m12, (0x7B0001 + wi * 0x101))
+                        wbases.append({"tv": torch.stack(wtv), "tw": torch.tensor(wtw, dtype=DTYPE, device=_dev()),
+                                       "bv": torch.stack(wbv), "bw": torch.tensor(wbw, dtype=DTYPE, device=_dev())})
                 if s19 or s22:             # §12a (angles+diag-align) ⊕ §12b (proj) — both in one payload, shown by their toggles
-                    sec12 = _sec12_payload(TV, TW, BV, BW, r12, Jg12, grid3dcap, gTV=gTV, gTW=gTW, gBV=gBV, gBW=gBW)
+                    sec12 = _sec12_payload(TV, TW, BV, BW, r12, Jg12, grid3dcap, gTV=gTV, gTW=gTW, gBV=gBV, gBW=gBW, wbases=wbases)
                 if s21 and multi_ok and N <= grid3dcap:       # §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k (N HVPs, §11's tool) + G1/G2/G3 — multi-only (N³ cube)
                     T1_13 = torch.zeros(N, N, N, dtype=DTYPE, device=_dev())
                     QJ_list = []

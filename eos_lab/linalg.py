@@ -156,7 +156,7 @@ def hutch_trace(hvp, p, nprobe, seed, device, dtype):
 SEC12_KFULL = 15   # rank of the §12 "full-space" principal-angle plot (top-15 ⊕ bottom-15) — MIRRORS server.
 
 
-def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL, gTV=None, gTW=None, gBV=None, gBW=None):
+def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL, gTV=None, gTW=None, gBV=None, gBW=None, wbases=None):
     """§12 per-sample Hessian eigenvector diagnostics, from per-sample Lanczos eigenpairs. MIRRORS
     server._sec12_payload. TV,BV:(N,K,p) top/bottom eigenVECTORS; TW,BW:(N,K) eigenVALUES; r:(N,) residual;
     Jg:(N,p) per-sample GT-label gradients ∇f_i. Returns {M,do3d,ks,ang,proj}:
@@ -259,6 +259,8 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL, gTV=None,
            "proj": {"top": rank_stats(TV, TW, True), "bot": rank_stats(BV, BW, False)}}
     if gTV is not None and gBV is not None:
         out["gproj"] = {"top": gproj_stats(gTV, gTW), "bot": gproj_stats(gBV, gBW)}
+    if wbases is not None:                                       # panels 5/6/7 — WEIGHTED-AVERAGE Hessian (Σ w_i Q_i)/(Σ w_i)
+        out["wproj"] = [{"top": gproj_stats(b["tv"], b["tw"]), "bot": gproj_stats(b["bv"], b["bw"])} for b in wbases]
 
     # ---- §12b new panels: SVD-principal-direction → nearest-eigenvector CROSS projections (MIN / MAX angle).
     #      Per OFF-DIAGONAL pair (i≠j): SVD of the REAL-subspace overlap E_i^✓E_j^✓ᵀ (✓ = valid unit eigvecs only);

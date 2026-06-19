@@ -274,8 +274,10 @@
 </div>
 
 <div id="sec_s12b" style="display:none">
-<h2>12b · projection panels — gradient onto top-2 / bottom-2 eigenvectors (per-sample $Q_i$, global $\sum_i Q_i$, and cross-pairs)</h2>
+<h2>12b · projection panels — gradient onto top-2 / bottom-2 eigenvectors (per-sample $Q_i$, averaged $\langle Q\rangle$, NTK-weighted $\langle Q\rangle$, and cross-pairs)</h2>
 <label style="font-size:12px;color:#475569;cursor:pointer;user-select:none"><input type="checkbox" id="s12_hidehist" onchange="s12HistVis()"> hide residual histograms (the per-step over-sample histograms under each panel)</label>
+<div style="margin:6px 0 2px;font-size:12px;color:#334155">show panel groups: <label style="margin-right:12px;cursor:pointer"><input type="checkbox" id="s12grp_12_t" checked onchange="s12GrpVis()"> (1,2) per-sample $Q_i$</label><label style="margin-right:12px;cursor:pointer"><input type="checkbox" id="s12grp_34_t" checked onchange="s12GrpVis()"> (3,4) averaged $\tfrac1N\textstyle\sum_i Q_i$</label><label style="margin-right:12px;cursor:pointer"><input type="checkbox" id="s12grp_567_t" checked onchange="s12GrpVis()"> (5,6,7) NTK-weighted average</label><label style="margin-right:12px;cursor:pointer"><input type="checkbox" id="s12grp_89_t" checked onchange="s12GrpVis()"> (8,9) cross-pairs</label></div>
+<div class="s12grp" id="s12grp_12">
 <h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — product $|\langle J_i,u\rangle|\,\sigma\,r_i$ and alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert$ for the TOP-2 eigenvectors $u_{i,1},u_{i,2}$ (largest eigenvalues)</h3>
 <p class="cap">$u_{i,1},u_{i,2}$ = eigenvectors of the two <b>largest</b> signed eigenvalues of $Q_i$ (<b>rank-1</b> solid, <b>rank-2</b> dotted — 2 lines per plot). Two per-sample quantities, aggregated across samples. <b>Row of 4 plots</b>: (1) mean &amp; (2) std of the <b>product</b> $\text{proj}_i\cdot r_i=|\langle J_i,u\rangle|\cdot\sigma\cdot r_i$ (all samples; scales with the eigenvalue $\sigma$, so it can grow large during sharpening); (3) mean &amp; (4) std of the <b>alignment</b> $q_i=|\langle J_i,u\rangle|/\lVert J_i\rVert=|\cos\angle(J_i,u)|\in[0,1]$ ($\lVert J_i\rVert=0$ dropped; bounded by Cauchy–Schwarz).</p>
 <div class="plotrow row4"><div id="p_s12proj_top0" class="plot" style="height:290px"></div><div id="p_s12proj_top1" class="plot" style="height:290px"></div><div id="p_s12proj_top2" class="plot" style="height:290px"></div><div id="p_s12proj_top3" class="plot" style="height:290px"></div></div>
@@ -286,22 +288,47 @@
 <div class="plotrow row4"><div id="p_s12proj_bot0" class="plot" style="height:290px"></div><div id="p_s12proj_bot1" class="plot" style="height:290px"></div><div id="p_s12proj_bot2" class="plot" style="height:290px"></div><div id="p_s12proj_bot3" class="plot" style="height:290px"></div></div>
 <p class="cap s12hist" style="margin-top:6px">Histograms over the $N$ samples at the <b>current iteration</b> (redrawn every step), rank-1 &amp; rank-2 overlaid: the per-sample <b>product</b> $\text{proj}_i\cdot r_i$ (left) and the <b>alignment</b> $|\langle J_i,u\rangle|/\lVert J_i\rVert$ (right).</p>
 <div class="plotrow row2 s12hist"><div id="p_s12hist_bot_prod" class="plot" style="height:250px"></div><div id="p_s12hist_bot_cos" class="plot" style="height:250px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — GLOBAL view: $|\langle J_i,w\rangle|\,\sigma\,r_i$ and $|\langle J_i,w\rangle|/\lVert J_i\rVert$ for the TOP-2 eigenvectors $w_1,w_2$ of the summed Hessian $\sum_i Q_i$</h3>
-<p class="cap">Same two quantities as Panel 1, but each per-sample gradient $\nabla f_i$ is projected onto a <b>single shared</b> basis: the top-2 eigenvectors $w$ of the <b>summed</b> function Hessian $\sum_i Q_i=\nabla^2(\sum_i f_i^{\,\text{GT}})$ (one global eigendecomposition, not per-sample). The product $|\langle J_i,w\rangle|\cdot\sigma\cdot r_i$ uses the <b>global</b> eigenvalue $\sigma$ of $\sum_i Q_i$; alignment $|\langle J_i,w\rangle|/\lVert J_i\rVert\in[0,1]$. Mean/std over the $N$ samples (rank-1 solid, rank-2 dotted). At $N=1$ this coincides with Panel 1 ($\sum_i Q_i=Q_1$); for $d_{\text{out}}=1$ the operator is §4's $\nabla^2\!\sum f$.</p>
+</div>
+<div class="s12grp" id="s12grp_34">
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — AVERAGED view: $|\langle J_i,w\rangle|\,\sigma\,r_i$ and $|\langle J_i,w\rangle|/\lVert J_i\rVert$ for the TOP-2 eigenvectors $w_1,w_2$ of the averaged Hessian $\tfrac1N\sum_i Q_i$</h3>
+<p class="cap">Same two quantities as Panel 1, but each per-sample gradient $\nabla f_i$ is projected onto a <b>single shared</b> basis: the top-2 eigenvectors $w$ of the <b>averaged</b> function Hessian $\langle Q\rangle=\tfrac1N\sum_i Q_i=\nabla^2(\tfrac1N\sum_i f_i^{\,\text{GT}})$ (one global eigendecomposition, not per-sample). The product $|\langle J_i,w\rangle|\cdot\sigma\cdot r_i$ uses the eigenvalue $\sigma$ of $\tfrac1N\sum_i Q_i$ (the $1/N$ only rescales $\sigma$; the eigenvectors are unchanged from the summed version). Alignment $|\langle J_i,w\rangle|/\lVert J_i\rVert\in[0,1]$. Mean/std over the $N$ samples (rank-1 solid, rank-2 dotted). At $N=1$ this coincides with Panel 1.</p>
 <div class="plotrow row4"><div id="p_s12gproj_top0" class="plot" style="height:290px"></div><div id="p_s12gproj_top1" class="plot" style="height:290px"></div><div id="p_s12gproj_top2" class="plot" style="height:290px"></div><div id="p_s12gproj_top3" class="plot" style="height:290px"></div></div>
 <p class="cap s12hist" style="margin-top:6px">Histograms over the $N$ samples (rank-1 &amp; rank-2 overlaid): the per-sample <b>product</b> $|\langle J_i,w\rangle|\sigma r_i$ (left) and <b>alignment</b> $|\langle J_i,w\rangle|/\lVert J_i\rVert$ (right) onto the global TOP eigenvectors.</p>
 <div class="plotrow row2 s12hist"><div id="p_s12ghist_top_prod" class="plot" style="height:250px"></div><div id="p_s12ghist_top_cos" class="plot" style="height:250px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — GLOBAL view: $|\langle J_i,w\rangle|\,\sigma\,r_i$ and $|\langle J_i,w\rangle|/\lVert J_i\rVert$ for the BOTTOM-2 eigenvectors $w_{-1},w_{-2}$ of $\sum_i Q_i$</h3>
-<p class="cap">Same as Panel 3 but onto the two <b>most-negative</b> eigenvectors of the summed Hessian $\sum_i Q_i$ (so $\sigma<0$). Mean/std over samples; at $N=1$ coincides with Panel 2.</p>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — AVERAGED view: $|\langle J_i,w\rangle|\,\sigma\,r_i$ and $|\langle J_i,w\rangle|/\lVert J_i\rVert$ for the BOTTOM-2 eigenvectors $w_{-1},w_{-2}$ of $\tfrac1N\sum_i Q_i$</h3>
+<p class="cap">Same as Panel 3 but onto the two <b>most-negative</b> eigenvectors of the averaged Hessian $\tfrac1N\sum_i Q_i$ (so $\sigma<0$). Mean/std over samples; at $N=1$ coincides with Panel 2.</p>
 <div class="plotrow row4"><div id="p_s12gproj_bot0" class="plot" style="height:290px"></div><div id="p_s12gproj_bot1" class="plot" style="height:290px"></div><div id="p_s12gproj_bot2" class="plot" style="height:290px"></div><div id="p_s12gproj_bot3" class="plot" style="height:290px"></div></div>
 <p class="cap s12hist" style="margin-top:6px">Histograms over the $N$ samples (rank-1 &amp; rank-2 overlaid): the per-sample <b>product</b> (left) and <b>alignment</b> (right) onto the global BOTTOM eigenvectors.</p>
 <div class="plotrow row2 s12hist"><div id="p_s12ghist_bot_prod" class="plot" style="height:250px"></div><div id="p_s12ghist_bot_cos" class="plot" style="height:250px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 5 — cross projections at the MIN principal-angle direction (nearest eigenvector pair)</h3>
+</div>
+<div class="s12grp" id="s12grp_567">
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 5 — WEIGHTED-AVERAGE Hessian $\dfrac{\sum_i w_i Q_i}{\sum_i w_i}$, weights $w_i=|v^{(1)}_i|$ = |$i$-th component of the TOP NTK eigenvector|</h3>
+<p class="cap">Like Panels 3/4 but the global Hessian is a <b>weighted</b> average of the per-sample $Q_i$, weighted by $w_i=|v^{(1)}_i|$, where $v^{(1)}$ is the <b>top eigenvector of the NTK</b> $K=JJ^\top$ (the $N\times N$ per-sample gradient Gram); $|\cdot|$ makes the weights gauge-free. Each $\nabla f_i$ is projected onto the eigenvectors of $\langle Q\rangle_w=(\sum_i w_iQ_i)/(\sum_i w_i)$. <b>Row 1</b> = onto its TOP-2 eigenvectors (Panel-3 style); <b>Row 2</b> = onto its BOTTOM-2 (Panel-4 style). 4 plots/row: mean/std of the product $|\langle J_i,e\rangle|\,\sigma\,r_i$ and of the alignment $|\langle J_i,e\rangle|/\lVert J_i\rVert\in[0,1]$ (rank-1 solid, rank-2 dotted).</p>
+<p class="cap" style="margin:6px 0 1px;color:#2563eb"><b>Row 1 — TOP-2 eigenvectors of the weighted-average Hessian</b></p>
+<div class="plotrow row4"><div id="p_s12wproj_0_top0" class="plot" style="height:280px"></div><div id="p_s12wproj_0_top1" class="plot" style="height:280px"></div><div id="p_s12wproj_0_top2" class="plot" style="height:280px"></div><div id="p_s12wproj_0_top3" class="plot" style="height:280px"></div></div>
+<p class="cap" style="margin:6px 0 1px;color:#dc2626"><b>Row 2 — BOTTOM-2 eigenvectors of the weighted-average Hessian</b></p>
+<div class="plotrow row4"><div id="p_s12wproj_0_bot0" class="plot" style="height:280px"></div><div id="p_s12wproj_0_bot1" class="plot" style="height:280px"></div><div id="p_s12wproj_0_bot2" class="plot" style="height:280px"></div><div id="p_s12wproj_0_bot3" class="plot" style="height:280px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 6 — WEIGHTED-AVERAGE Hessian, weights $w_i=|v^{(2)}_i|$ = |$i$-th component of the 2nd NTK eigenvector|</h3>
+<p class="cap">Same as Panel 5 but weighted by the <b>second</b> NTK eigenvector $v^{(2)}$. (At $N=1$ there is only one NTK eigenvector, so this falls back to Panel 5.)</p>
+<p class="cap" style="margin:6px 0 1px;color:#2563eb"><b>Row 1 — TOP-2 eigenvectors of the weighted-average Hessian</b></p>
+<div class="plotrow row4"><div id="p_s12wproj_1_top0" class="plot" style="height:280px"></div><div id="p_s12wproj_1_top1" class="plot" style="height:280px"></div><div id="p_s12wproj_1_top2" class="plot" style="height:280px"></div><div id="p_s12wproj_1_top3" class="plot" style="height:280px"></div></div>
+<p class="cap" style="margin:6px 0 1px;color:#dc2626"><b>Row 2 — BOTTOM-2 eigenvectors of the weighted-average Hessian</b></p>
+<div class="plotrow row4"><div id="p_s12wproj_1_bot0" class="plot" style="height:280px"></div><div id="p_s12wproj_1_bot1" class="plot" style="height:280px"></div><div id="p_s12wproj_1_bot2" class="plot" style="height:280px"></div><div id="p_s12wproj_1_bot3" class="plot" style="height:280px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 7 — WEIGHTED-AVERAGE Hessian, weights $w_i$ = a random uniform $[0,1]$ i.i.d. vector (unit-normalized)</h3>
+<p class="cap">Same as Panel 5 but weighted by a <b>random</b> $w\sim\mathcal{U}[0,1]^N$, normalized to unit norm (fixed seed, so reproducible &amp; identical across the browser / GPU backends). A control: how the projection structure looks under an arbitrary positive weighting rather than an NTK-informed one.</p>
+<p class="cap" style="margin:6px 0 1px;color:#2563eb"><b>Row 1 — TOP-2 eigenvectors of the weighted-average Hessian</b></p>
+<div class="plotrow row4"><div id="p_s12wproj_2_top0" class="plot" style="height:280px"></div><div id="p_s12wproj_2_top1" class="plot" style="height:280px"></div><div id="p_s12wproj_2_top2" class="plot" style="height:280px"></div><div id="p_s12wproj_2_top3" class="plot" style="height:280px"></div></div>
+<p class="cap" style="margin:6px 0 1px;color:#dc2626"><b>Row 2 — BOTTOM-2 eigenvectors of the weighted-average Hessian</b></p>
+<div class="plotrow row4"><div id="p_s12wproj_2_bot0" class="plot" style="height:280px"></div><div id="p_s12wproj_2_bot1" class="plot" style="height:280px"></div><div id="p_s12wproj_2_bot2" class="plot" style="height:280px"></div><div id="p_s12wproj_2_bot3" class="plot" style="height:280px"></div></div>
+</div>
+<div class="s12grp" id="s12grp_89">
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 8 — cross projections at the MIN principal-angle direction (nearest eigenvector pair)</h3>
 <p class="cap">For every <b>off-diagonal</b> pair $(i\neq j)$: SVD the cross-Gram $E_iE_j^\top$; for the <b>minimum</b> principal-angle direction (largest singular value), take $u_i=e_{i,a^\ast}$ ($a^\ast=\arg\max_a|U_{a,1}|$) and $u_j=e_{j,b^\ast}$ ($b^\ast=\arg\max_b|V_{b,1}|$) — the eigenvectors nearest the principal directions — with eigenvalues $\sigma_i,\sigma_j$. The 4 plots are the <b>mean over $i\neq j$</b> of: (1) $|\langle J_i,u_j\rangle|\,\sigma_i\,r_i$ ; (2) $|\langle J_i,u_j\rangle|\,|\langle J_j,u_i\rangle|\,\sigma_i\sigma_j\,r_i r_j$ ; (3) $|\langle J_i,u_j\rangle|/\lVert J_i\rVert$ ; (4) $|\langle J_i,u_j\rangle|\,|\langle J_j,u_i\rangle|/(\lVert J_i\rVert\lVert J_j\rVert)$. (Inner products are $|\cdot|$ so the eigenvector sign drops out; $\sigma,r$ keep their signs.)</p>
 <div class="plotrow row4"><div id="p_s12xp_min_0" class="plot" style="height:280px"></div><div id="p_s12xp_min_1" class="plot" style="height:280px"></div><div id="p_s12xp_min_2" class="plot" style="height:280px"></div><div id="p_s12xp_min_3" class="plot" style="height:280px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 6 — cross projections at the MAX principal-angle direction (nearest eigenvector pair)</h3>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 9 — cross projections at the MAX principal-angle direction (nearest eigenvector pair)</h3>
 <p class="cap">Same as Panel 3 but for the <b>maximum</b> principal-angle direction (smallest singular value, most-orthogonal): $a^\ast=\arg\max_a|U_{a,D}|$, $b^\ast=\arg\max_b|V_{b,D}|$ ($D=2K$ = last singular column). Same 4 means over $i\neq j$: (1) $|\langle J_i,u_j\rangle|\sigma_i r_i$ ; (2) $|\langle J_i,u_j\rangle||\langle J_j,u_i\rangle|\sigma_i\sigma_j r_i r_j$ ; (3) $|\langle J_i,u_j\rangle|/\lVert J_i\rVert$ ; (4) $|\langle J_i,u_j\rangle||\langle J_j,u_i\rangle|/(\lVert J_i\rVert\lVert J_j\rVert)$.</p>
 <div class="plotrow row4"><div id="p_s12xp_max_0" class="plot" style="height:280px"></div><div id="p_s12xp_max_1" class="plot" style="height:280px"></div><div id="p_s12xp_max_2" class="plot" style="height:280px"></div><div id="p_s12xp_max_3" class="plot" style="height:280px"></div></div>
+</div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -1092,7 +1119,7 @@ const S12_ANGHEAT=[0,2,3,4];   // panel-1 heatmap n → ang.g index (ang grids a
 const S12_ANGI={1:0,2:1,5:2,10:3,15:4};   // angle k → ang.{g,mn,mx,me} index (15 = the kfull slot, idx 4)
 const S12_EVO_KS=[5,15,1,2];   // evolution k's (panel 2: 5,15 ; panel 3: 1,2)
 const S12_EVO_STATS=[['mn','min','#dc2626'],['mx','max','#2563eb'],['me','mean','#16a34a']];   // off-diagonal stat → id/label/colour
-let S12_SNAPS=[], S12_N=0, S12_BUILT=false, S12_RAF=0, S12_PENDING=-1, S12_CAMKEY='', S12E_STEPS=[], S12E_DATA=null, S12P_DATA=null, S12GP_DATA=null;
+let S12_SNAPS=[], S12_N=0, S12_BUILT=false, S12_RAF=0, S12_PENDING=-1, S12_CAMKEY='', S12E_STEPS=[], S12E_DATA=null, S12P_DATA=null, S12GP_DATA=null, S12WP_DATA=null;
 const S12_DAL_KS=[1,2,5,15]; let S12DAL_STEPS=[], S12DAL_DATA=null;   // §12a Panel 4: diagonal (same-rank) eigvec alignment
 const S12XP_GRP=[['min','#2563eb'],['max','#dc2626']];   // §12b Panels 3/4: cross projections at min/max principal-angle direction
 const S12XP_TITLE=['mean_i Σ_{j≠i} |⟨J_i,u_j⟩|·σ_i·r_i','mean_i Σ_{j≠i} |⟨J_i,u_j⟩||⟨J_j,u_i⟩|·σ_iσ_j·r_i r_j','mean_{i≠j} |⟨J_i,u_j⟩|/‖J_i‖','mean_{i≠j} |⟨J_i,u_j⟩||⟨J_j,u_i⟩|/(‖J_i‖‖J_j‖)'];
@@ -1114,7 +1141,7 @@ function s12GProjIds(){const a=[];for(const g of ['top','bot'])for(let n=0;n<4;n
 function s12HistIds(){return ['p_s12hist_top_prod','p_s12hist_top_cos','p_s12hist_bot_prod','p_s12hist_bot_cos','p_s12ghist_top_prod','p_s12ghist_top_cos','p_s12ghist_bot_prod','p_s12ghist_bot_cos'];}
 function s12DalIds(){return S12_DAL_KS.map(k=>'p_s12dal_'+k);}
 function s12XpIds(){const a=[];for(const gc of S12XP_GRP)for(let n=0;n<4;n++)a.push('p_s12xp_'+gc[0]+'_'+n);return a;}
-function s12AllIds(){const a=[];for(let n=0;n<4;n++)a.push('p_s12ang_'+n);return a.concat(s12ProjIds()).concat(s12GProjIds()).concat(s12HistIds()).concat(s12EvoIds()).concat(s12DalIds()).concat(s12XpIds());}
+function s12AllIds(){const a=[];for(let n=0;n<4;n++)a.push('p_s12ang_'+n);return a.concat(s12ProjIds()).concat(s12GProjIds()).concat(s12WProjIds()).concat(s12HistIds()).concat(s12EvoIds()).concat(s12DalIds()).concat(s12XpIds());}
 // ── §13 — G1/G2/G3 approximations vs the exact reference J_iᵀQ_jJ_k·r_k (time-series mean±std clouds) ──
 const S13_GS=[1,2,3], S13_KS=[2,5], S13_DOMS=['ndist','ijeq','diag'];
 const S13_DOMLAB={ndist:'i≠j≠k',ijeq:'i=j≠k',diag:'i=j=k'}, S13_GLAB={1:'G₁',2:'G₂',3:'G₃'};
@@ -1159,7 +1186,7 @@ function s13Draw(){
       y:[bandY(D.rm,D.rs),D.rm.slice(),bandY(D.gm,D.gs),D.gm.slice()]},[0,1,2,3]);}
 }
 function s13Reset(){S13_STEPS=[];S13_DATA=null;S13_BUILT=false;S13N_STEPS=[];S13N_VALS=[];S13N_BUILT=false;if(typeof S13_PREV_JS!=='undefined')S13_PREV_JS=null;if(typeof S13_QJPREV_JS!=='undefined')S13_QJPREV_JS=null;for(const id of s13Ids().concat(['p_s13_ndiff'])){try{Plotly.purge(id);}catch(e){}}}
-function s12Reset(){S12_SNAPS=[];S12_N=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEPS=[];S12E_DATA=null;S12P_DATA=null;S12GP_DATA=null;S12DAL_STEPS=[];S12DAL_DATA=null;S12XP_STEPS=[];S12XP_DATA=null;S12_CURIDX=0;
+function s12Reset(){S12_SNAPS=[];S12_N=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEPS=[];S12E_DATA=null;S12P_DATA=null;S12GP_DATA=null;S12WP_DATA=null;S12DAL_STEPS=[];S12DAL_DATA=null;S12XP_STEPS=[];S12XP_DATA=null;S12_CURIDX=0;
   if(S12_RAF){cancelAnimationFrame(S12_RAF);S12_RAF=0;}S12_PENDING=-1;
   if(S12_IO){S12_IO.disconnect();S12_IO=null;}if(S12_IOT){clearTimeout(S12_IOT);S12_IOT=null;}S12_BUILTSET.clear();S12_VISIBLE.clear();
   for(const id of s12AllIds()){try{Plotly.purge(id);}catch(e){}}
@@ -1372,6 +1399,7 @@ function s12Build(N){
   s12XpBuild();
   s12ProjBuild();
   s12GProjBuild();
+  s12WProjBuild();
 }
 function s12EvoIds(){const a=[];for(const k of S12_EVO_KS)for(const s of S12_EVO_STATS)a.push('p_s12evo_'+s[0]+'_'+k);return a;}
 function s12EvoBuild(){   // panels 2/3: min/max/mean principal angle over i≠j, for k∈{5,15,1,2}
@@ -1481,6 +1509,40 @@ function s12GProjRender(){
     const xs=[],ys=[];for(let rk=0;rk<S12P_NRANK;rk++){xs.push(t.slice());ys.push(S12GP_DATA[grp][n][rk].slice());}
     Plotly.restyle(pre+n,{x:xs,y:ys});}
 }
+// panels 5/6/7 (WEIGHTED-AVERAGE view) — 3 panels, each 2 rows (top-2 / bottom-2 eigvecs of the weighted Hessian). Reads m.wproj=[p5,p6,p7].
+const S12WP_PANELS=[['p_s12wproj_0','|top NTK eigvec|'],['p_s12wproj_1','|2nd NTK eigvec|'],['p_s12wproj_2','random U[0,1]']];
+const S12WP_ROWS=[['top','#2563eb','#93c5fd'],['bot','#dc2626','#fca5a5']];
+function s12WProjIds(){const a=[];for(const [pre] of S12WP_PANELS)for(const [grp] of S12WP_ROWS)for(let n=0;n<4;n++)a.push(pre+'_'+grp+n);return a;}
+function s12WProjBuild(){
+  for(const [pre] of S12WP_PANELS)for(const [grp,col,col2] of S12WP_ROWS)for(let n=0;n<S12P_STAT.length;n++){
+    const cols=[col,col2],dash=['solid','dot'],traces=[];
+    for(let rk=0;rk<S12P_NRANK;rk++)traces.push({x:[],y:[],mode:'lines+markers',name:S12P_RLAB[rk],line:{color:cols[rk],width:1.8,dash:dash[rk]},marker:{size:4,color:cols[rk]}});
+    const lay=withZero(baseLayout(S12P_TITLE[n],S12P_YL[n],false));
+    lay.showlegend=true;lay.legend={font:{size:8},x:0.99,xanchor:'right',y:0.99,yanchor:'top',bgcolor:'rgba(255,255,255,0.6)'};
+    Plotly.newPlot(pre+'_'+grp+n,traces,lay,{responsive:true,displaylogo:false});}
+}
+function s12WProjAppend(m){
+  if(!m.wproj)return;
+  if(!S12WP_DATA){S12WP_DATA={steps:[]};for(let pi=0;pi<S12WP_PANELS.length;pi++){S12WP_DATA[pi]={};for(const [grp] of S12WP_ROWS){S12WP_DATA[pi][grp]=[];for(let n=0;n<S12P_STAT.length;n++){S12WP_DATA[pi][grp][n]=[];for(let rk=0;rk<S12P_NRANK;rk++)S12WP_DATA[pi][grp][n][rk]=[];}}}}
+  S12WP_DATA.steps.push(m.t);
+  for(let pi=0;pi<S12WP_PANELS.length;pi++){const pan=m.wproj[pi]||{};
+    for(const [grp] of S12WP_ROWS){const ranks=pan[grp]||[];
+      for(let n=0;n<S12P_STAT.length;n++){const[k,si]=S12P_STAT[n];
+        for(let rk=0;rk<S12P_NRANK;rk++){const e=ranks[rk];S12WP_DATA[pi][grp][n][rk].push(e?(e[k]||[0,0])[si]:null);}}}}
+}
+function s12WProjRender(){
+  if(!S12WP_DATA||!S12WP_DATA.steps.length)return;const t=S12WP_DATA.steps;
+  for(let pi=0;pi<S12WP_PANELS.length;pi++){const pre=S12WP_PANELS[pi][0];
+    for(const [grp] of S12WP_ROWS)for(let n=0;n<S12P_STAT.length;n++){
+      const xs=[],ys=[];for(let rk=0;rk<S12P_NRANK;rk++){xs.push(t.slice());ys.push(S12WP_DATA[pi][grp][n][rk].slice());}
+      Plotly.restyle(pre+'_'+grp+n,{x:xs,y:ys});}}
+}
+function s12GrpVis(){   // §12b panel-group toggles: (1,2) (3,4) (5,6,7) (8,9)
+  for(const [tid,gid] of [['s12grp_12_t','s12grp_12'],['s12grp_34_t','s12grp_34'],['s12grp_567_t','s12grp_567'],['s12grp_89_t','s12grp_89']]){
+    const cb=document.getElementById(tid),el=document.getElementById(gid);
+    if(el)el.style.display=(cb&&!cb.checked)?'none':'';}
+  requestAnimationFrame(()=>{for(const id of s12AllIds()){const el=document.getElementById(id);if(el&&el.offsetParent!==null){try{Plotly.Plots.resize(id);}catch(e){}}}});   // re-size plots in just-shown groups
+}
 function s12HistDrawOne(id,ranks,key,title,palette){const div=document.getElementById(id);if(!div)return;   // one §12b histogram, rank-1 & rank-2 overlaid
   ranks=ranks||[];
   let xbins=null,lo=Infinity,hi=-Infinity;   // shared bins across the two ranks so the overlay aligns
@@ -1544,7 +1606,7 @@ function s12Push(m){
   if(sl){sl.max=S12_SNAPS.length-1;if(wasLive)sl.value=sl.max;}
   {const sl3=document.getElementById('s13_slider');if(sl3){sl3.max=S12_SNAPS.length-1;if(wasLive)sl3.value=sl3.max;}}   // §13 shares §12's snapshots
   if(!S12_BUILT||S12_N!==m.M)s12Build(m.M);   // build synchronously so the evolution restyle targets exist
-  s12EvoAppend(m);s12EvoRender();s12DalAppend(m);s12DalRender();s12XpAppend(m);s12XpRender();s12ProjAppend(m);s12ProjRender();s12GProjAppend(m);s12GProjRender();
+  s12EvoAppend(m);s12EvoRender();s12DalAppend(m);s12DalRender();s12XpAppend(m);s12XpRender();s12ProjAppend(m);s12ProjRender();s12GProjAppend(m);s12GProjRender();s12WProjAppend(m);s12WProjRender();
   s12RenderIdx(wasLive?S12_SNAPS.length-1:(sl?+sl.value:0));
 }
 // ── §12 browser-mode compute (JS port of server._sec12_payload) ──────────────
@@ -1668,7 +1730,7 @@ function s12XProj(TV,BV,TW,BW,r,Jg,N,p){   // §12b: SVD-principal-dir → neare
   return {min:[acc.min[0]/dvi,acc.min[1]/dvi,acc.min[2]/dvp,acc.min[3]/dvp],
           max:[acc.max[0]/dvi,acc.max[1]/dvi,acc.max[2]/dvp,acc.max[3]/dvp]};
 }
-function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap,gTV,gTW,gBV,gBW){   // §12: principal angles + proj↔residual + global-view gproj. §13 = sec13Stats.
+function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap,gTV,gTW,gBV,gBW,wbases){   // §12: principal angles + proj↔residual + averaged-view gproj + weighted-view wproj. §13 = sec13Stats.
   const K=TV[0].length, kf=Math.max(1,Math.min(SEC12_KFULL,K)), ks=[1,2,5,10,kf];
   const pas=ks.map(k=>s12Angles(TV,BV,N,p,k)), om=pas.map(x=>s12OffStats(x.g,N));
   const ang={g:pas.map(x=>x.g),gm:pas.map(x=>x.gm),mn:om.map(o=>o[0]),mx:om.map(o=>o[1]),me:om.map(o=>o[2]),ks:ks,kfull:kf};
@@ -1700,7 +1762,8 @@ function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap,gTV,gTW,gBV,gBW){   // §
       out.push({prod:ms(pv),pvals:pv,cos:ms(vv),vals:vv});}
     return out;};
   const out={M:N,do3d:false,ks:[1,2,5],ang:ang,proj:{top:rankStats(TV,TW,true),bot:rankStats(BV,BW,false)},xproj:s12XProj(TV,BV,TW,BW,r,Jg,N,p)};
-  if(gTV&&gBV)out.gproj={top:gprojStats(gTV,gTW),bot:gprojStats(gBV,gBW)};
+  if(gTV&&gBV)out.gproj={top:gprojStats(gTV,gTW),bot:gprojStats(gBV,gBW)};   // panels 3/4 — averaged Hessian (1/N)Σ Q_i
+  if(wbases)out.wproj=wbases.map(b=>({top:gprojStats(b.tv,b.tw),bot:gprojStats(b.bv,b.bw)}));   // panels 5/6/7 — weighted-avg Hessian
   return out;
 }
 // §13 — G1/G2/G3 rank-k₀ approximations vs the exact reference J_iᵀQ_jJ_k·r_k. MIRRORS server._sec13_stats.
@@ -2449,13 +2512,27 @@ async function loop(){                                   // drives ST forward; r
             const le=perSampleEig(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,c),p,K12,m12,(0x5EC12+i*7919)>>>0);   // batched-style: real→unit, spurious→0
             TV.push(le.topVecs);TW.push(le.topVals);BV.push(le.botVecs);BW.push(le.botVals);}
           const r12=lblsel.map(a=>rrs[a]), Jg12=lblsel.map(a=>bJc[a]);   // GT-label residual + gradient ∇f_i per sample
-          let gTV,gTW,gBV,gBW;
-          if(O.s22){                 // panels 3/4: top-2/bottom-2 eigvecs of the GLOBAL Hessian Σ_i Q_i = ∇²(Σ_i f_i^GT)
-            const cAll=new Float64Array(M);for(let i=0;i<N;i++)cAll[lblsel[i]]=1;   // GT-label cotangent for ALL samples (=∇²Σf when oD=1)
-            const gle=lanczosExtreme(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,cAll),p,2,m12,0x6105A1);
-            gTV=gle.topVecs;gTW=gle.topVals;gBV=gle.botVecs;gBW=gle.botVals;}
+          let gTV,gTW,gBV,gBW,wbases;
+          if(O.s22){                 // panels 3/4: top-2/bottom-2 eigvecs of the AVERAGED Hessian (1/N)Σ_i Q_i (cotangent 1/N)
+            const cAvg=new Float64Array(M);for(let i=0;i<N;i++)cAvg[lblsel[i]]=1/N;   // = ∇²((1/N)Σ f_i^GT); eigvecs scale-free, σ÷N
+            const gle=lanczosExtreme(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,cAvg),p,2,m12,0x6105A1);
+            gTV=gle.topVecs;gTW=gle.topVals;gBV=gle.botVecs;gBW=gle.botVals;
+            // panels 5/6/7: WEIGHTED-AVERAGE Hessian (Σ w_i Q_i)/(Σ w_i). NTK = Jg12·Jg12ᵀ (N×N); w = |top NTK eigvec|,
+            //   |2nd NTK eigvec|, unit-normalized random U[0,1]. |·| makes the weights gauge-free (eigvec sign cancels).
+            const ntk=new Float64Array(N*N);
+            for(let i=0;i<N;i++)for(let j=0;j<N;j++){let s=0;const a=Jg12[i],b=Jg12[j];for(let q=0;q<p;q++)s+=a[q]*b[q];ntk[i*N+j]=s;}
+            const ne=jacobiEig(ntk,N), ord=Array.from({length:N},(_,q)=>q).sort((x,z)=>ne.vals[z]-ne.vals[x]);   // desc by eigenvalue
+            const col=c=>{const v=new Float64Array(N);for(let k=0;k<N;k++)v[k]=Math.abs(ne.V[k*N+c]);return v;};
+            const v1=col(ord[0]), v2=col(ord[N>=2?1:0]);
+            const rrng=mulberry32(0x7A9D07>>>0), rvec=new Float64Array(N);let rn=0;
+            for(let i=0;i<N;i++){rvec[i]=rrng();rn+=rvec[i]*rvec[i];}rn=Math.sqrt(rn)||1;for(let i=0;i<N;i++)rvec[i]/=rn;
+            wbases=[];
+            for(let wi=0;wi<3;wi++){const wv=[v1,v2,rvec][wi];let ws=0;for(let i=0;i<N;i++)ws+=wv[i];ws=ws||1e-30;
+              const cW=new Float64Array(M);for(let i=0;i<N;i++)cW[lblsel[i]]=wv[i]/ws;   // weighted-average cotangent (Σ c_i = 1)
+              const wle=lanczosExtreme(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,cW),p,2,m12,(0x7B0001+wi*0x101)>>>0);
+              wbases.push({tv:wle.topVecs,tw:wle.topVals,bv:wle.botVecs,bw:wle.botVals});}}
           if(O.s19||O.s22){          // §12a (angles+diag-align) ⊕ §12b (proj) — one payload, shown by their toggles
-            s12Push({type:'g4d',t:S.t,...sec1213Payload(TV,TW,BV,BW,r12,Jg12,N,p,S.grid3dcap,gTV,gTW,gBV,gBW)});
+            s12Push({type:'g4d',t:S.t,...sec1213Payload(TV,TW,BV,BW,r12,Jg12,N,p,S.grid3dcap,gTV,gTW,gBV,gBW,wbases)});
           }
           if(O.s21&&M>1&&N<=S.grid3dcap){   // §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k via jacHVP (like §11) + G1/G2/G3 vs ref; needs t-1 — multi-only (N³ cube)
             const NN=N*N, ref13=new Float64Array(N*NN), QJ=[];

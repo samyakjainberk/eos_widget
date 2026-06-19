@@ -976,12 +976,63 @@ def plot_section12_proj(hist):
 
 
 def plot_section12_gproj(hist):
-    """§12b panels 3/4 — GLOBAL view: each ∇f_i projected onto the TOP-2 (row 0) / BOTTOM-2 (row 1) eigenvectors
-    w of the SUMMED Hessian Σ_i Q_i (one shared basis); product uses the GLOBAL eigenvalue σ. Reads gproj.{top,bot}.
-    Empty unless the global-view eigendecomposition ran (s22). At N=1 it coincides with panels 1/2."""
+    """§12b panels 3/4 — AVERAGED view: each ∇f_i projected onto the TOP-2 (row 0) / BOTTOM-2 (row 1) eigenvectors
+    w of the AVERAGED Hessian (1/N)Σ_i Q_i (one shared basis); product uses its eigenvalue σ. Reads gproj.{top,bot}.
+    Empty unless the averaged-view eigendecomposition ran (s22). At N=1 it coincides with panels 1/2."""
     return _s12_proj_fig(hist, "gproj",
-        ["Panel 3 — GLOBAL top-2 w_1,w_2 of Σ_i Q_i", "Panel 4 — GLOBAL bottom-2 w_{-1},w_{-2} of Σ_i Q_i"],
-        "§12b panels 3/4 — GLOBAL view onto Σ_i Q_i eigvecs: product |⟨J,w⟩|·σ·r (cols 1-2) & alignment |⟨J,w⟩|/‖J‖ (cols 3-4)", "w")
+        ["Panel 3 — AVERAGED top-2 w_1,w_2 of (1/N)Σ_i Q_i", "Panel 4 — AVERAGED bottom-2 w_{-1},w_{-2} of (1/N)Σ_i Q_i"],
+        "§12b panels 3/4 — AVERAGED view onto (1/N)Σ_i Q_i eigvecs: product |⟨J,w⟩|·σ·r (cols 1-2) & alignment |⟨J,w⟩|/‖J‖ (cols 3-4)", "w")
+
+
+def _s12_wproj_fig(hist, pi, title):
+    """One §12b WEIGHTED-AVERAGE panel (5/6/7, pi∈{0,1,2}) — 2 rows: TOP-2 (row 0) & BOTTOM-2 (row 1) eigenvectors of
+    the weighted-average Hessian (Σ_i w_i Q_i)/(Σ_i w_i). Reads wproj[pi].{top,bot}. None if <2 records / panel absent."""
+    import numpy as np
+    recs = [r for r in hist if "g4d" in r and r["g4d"].get("wproj") and len(r["g4d"]["wproj"]) > pi
+            and r["g4d"]["wproj"][pi].get("top")]
+    if len(recs) < 2:
+        return None
+    t = list(range(len(recs)))
+    P = [r["g4d"]["wproj"][pi] for r in recs]
+    cols = [("prod", 0, "⟨proj·r⟩", False), ("prod", 1, "σ(proj·r)", False),
+            ("cos", 0, "⟨|⟨J,e⟩|/‖J‖⟩", True), ("cos", 1, "σ(|⟨J,e⟩|/‖J‖)", False)]
+    rows = [("top", "Row 1 — TOP-2 eigvecs of ⟨Q⟩_w", ["#2563eb", "#93c5fd"]),
+            ("bot", "Row 2 — BOTTOM-2 eigvecs of ⟨Q⟩_w", ["#dc2626", "#fca5a5"])]
+    nrank = max((len(p.get("top", [])) for p in P), default=0)
+    rlab = ["rank-1", "rank-2"]; dash = ["-", "--"]
+    fig, axs = plt.subplots(2, 4, figsize=(20, 8))
+    for ri, (grp, rlabel, palette) in enumerate(rows):
+        for ci, (key, si, yl, pin) in enumerate(cols):
+            ax = axs[ri][ci]
+            ax.axhline(0, c="#d1d5db", lw=0.8)
+            for rk in range(nrank):
+                y = np.array([(p[grp][rk][key][si] if rk < len(p.get(grp, [])) else np.nan) for p in P], dtype=float)
+                ax.plot(t, y, color=palette[rk % len(palette)], marker="o", ms=3, lw=1.4,
+                        ls=dash[rk % len(dash)], label=(rlab[rk] if rk < len(rlab) else f"rank-{rk + 1}"))
+            ax.set_xlabel("step"); ax.set_ylabel(yl)
+            if pin:
+                ax.set_ylim(-0.02, 1.02)
+            ax.set_title((rlabel + " · " if ci == 0 else "") + yl, fontsize=9)
+            if ci in (0, 2) and nrank > 1:
+                ax.legend(fontsize=7, loc="best")
+    fig.suptitle(title, fontsize=13)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    return fig
+
+
+def plot_section12_wproj5(hist):
+    """§12b Panel 5 — weighted-average Hessian, weights = |top NTK eigenvector|."""
+    return _s12_wproj_fig(hist, 0, "§12b Panel 5 — weighted avg ⟨Q⟩_w, weights w_i = |top NTK eigvec component|")
+
+
+def plot_section12_wproj6(hist):
+    """§12b Panel 6 — weighted-average Hessian, weights = |2nd NTK eigenvector|."""
+    return _s12_wproj_fig(hist, 1, "§12b Panel 6 — weighted avg ⟨Q⟩_w, weights w_i = |2nd NTK eigvec component|")
+
+
+def plot_section12_wproj7(hist):
+    """§12b Panel 7 — weighted-average Hessian, weights = random U[0,1] (unit-normalized)."""
+    return _s12_wproj_fig(hist, 2, "§12b Panel 7 — weighted avg ⟨Q⟩_w, weights w_i = random U[0,1] (unit-norm)")
 
 
 def _s12_hist_fig(hist, dkey, suptitle, ulab="u"):
@@ -1210,6 +1261,9 @@ def save_panels(results, outdir):
             "section12b_panel12_hist": plot_section12_hist(hist),
             "section12b_panel34_gproj": plot_section12_gproj(hist),
             "section12b_panel34_ghist": plot_section12_ghist(hist),
+            "section12b_panel5_wproj_topNTK": plot_section12_wproj5(hist),
+            "section12b_panel6_wproj_2ndNTK": plot_section12_wproj6(hist),
+            "section12b_panel7_wproj_random": plot_section12_wproj7(hist),
             "section13_panel1_G1": plot_section13_panel1(hist),
             "section13_panel2_G2": plot_section13_panel2(hist),
             "section13_panel3_G3": plot_section13_panel3(hist),

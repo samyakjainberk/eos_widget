@@ -29,6 +29,7 @@ from .linalg import (lanczos_extreme, lanczos_extreme_vals, slq_density, hutch_t
                      sign_to, pin_sign, pos_subspace, neg_subspace, principal_angles, randn_vec,
                      sec12_payload, sec13_stats, SEC13_KS, SEC13_DOMS, sec14_payload, SEC12_KFULL,
                      batched_lanczos_extreme)
+from .rng import mulberry32
 
 # §11 render budget: emit only ≤this many points per grid above this size (mirror server.G3D_MAXPTS).
 G3D_MAXPTS = 10000
@@ -614,15 +615,31 @@ class Diagnostics:
                     BWl.append(torch.tensor(bval, dtype=dt, device=dev))
                 TV, TW, BV, BW = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
             r12 = rr[lblsel12]; Jg12 = Jc[lblsel12]
-            gTV = gTW = gBV = gBW = None
-            if self.s22:                   # panels 3/4: top-2/bottom-2 eigvecs of the GLOBAL Hessian Σ_i Q_i = ∇²(Σ_i f_i^GT)
-                cAll = torch.zeros(N, outD, dtype=dt, device=dev)        # via hvp_S with the GT-label cotangent (= ∇²Σf when outD=1)
-                cAll.view(-1)[lblsel12] = 1.0
-                gtv, gbv, gtw, gbw = lanczos_extreme(lambda v: hvp_S(self.model, th, X, cAll, v), p, 2, m12, 0x6105A1, dev, dt)
+            gTV = gTW = gBV = gBW = None; wbases = None
+            if self.s22:                   # panels 3/4: top-2/bottom-2 eigvecs of the AVERAGED Hessian (1/N)Σ_i Q_i
+                cAvg = torch.zeros(N, outD, dtype=dt, device=dev)        # = ∇²((1/N)Σ_i f_i^GT) via hvp_S with cotangent 1/N
+                cAvg.view(-1)[lblsel12] = 1.0 / N
+                gtv, gbv, gtw, gbw = lanczos_extreme(lambda v: hvp_S(self.model, th, X, cAvg, v), p, 2, m12, 0x6105A1, dev, dt)
                 gTV = torch.stack(gtv); gBV = torch.stack(gbv)
                 gTW = torch.tensor(gtw, dtype=dt, device=dev); gBW = torch.tensor(gbw, dtype=dt, device=dev)
+                # panels 5/6/7: top-2/bottom-2 eigvecs of the WEIGHTED-AVERAGE Hessian (Σ_i w_i Q_i)/(Σ_i w_i),
+                #   w = |top NTK eigvec| (p5), |2nd NTK eigvec| (p6), unit-normalized random U[0,1] (p7). NTK = J Jᵀ (N×N).
+                ntk = Jg12 @ Jg12.t()
+                nevecs = torch.linalg.eigh(ntk).eigenvectors            # columns ascending
+                v1 = nevecs[:, -1].abs()
+                v2 = (nevecs[:, -2] if N >= 2 else nevecs[:, -1]).abs()
+                rrng = mulberry32(0x7A9D07)                             # fixed seed ⇒ browser-identical random vector
+                rvec = torch.tensor([rrng() for _ in range(N)], dtype=dt, device=dev)
+                rvec = rvec / rvec.norm().clamp_min(1e-30)
+                wbases = []
+                for wi, wv in enumerate([v1, v2, rvec]):
+                    cW = torch.zeros(N, outD, dtype=dt, device=dev)
+                    cW.view(-1)[lblsel12] = wv / wv.sum().clamp_min(1e-30)   # weighted-average cotangent (Σ c_i = 1)
+                    wtv, wbv, wtw, wbw = lanczos_extreme(lambda v, c=cW: hvp_S(self.model, th, X, c, v), p, 2, m12, (0x7B0001 + wi * 0x101), dev, dt)
+                    wbases.append({"tv": torch.stack(wtv), "tw": torch.tensor(wtw, dtype=dt, device=dev),
+                                   "bv": torch.stack(wbv), "bw": torch.tensor(wbw, dtype=dt, device=dev)})
             if self.s19 or self.s22:       # §12a (angles+diag-align) ⊕ §12b (proj) — both in one payload, shown by their toggles
-                rec["g4d"] = sec12_payload(TV, TW, BV, BW, r12, Jg12, self.grid3dcap, gTV=gTV, gTW=gTW, gBV=gBV, gBW=gBW)
+                rec["g4d"] = sec12_payload(TV, TW, BV, BW, r12, Jg12, self.grid3dcap, gTV=gTV, gTW=gTW, gBV=gBV, gBW=gBW, wbases=wbases)
             if self.s21 and self.multi_ok and N <= self.grid3dcap:   # §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k (N HVPs) + G1/G2/G3 — multi-only (N³ cube)
                 T1_13 = torch.zeros(N, N, N, dtype=dt, device=dev)
                 QJ_list = []
