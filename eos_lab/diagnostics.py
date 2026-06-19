@@ -124,7 +124,7 @@ class Diagnostics:
         self.nSub = min(max(self.n, self.kth, (10 if self.s6 else 1)), half)
         self.n7 = min(self.n, max(self.M, 1))
         self.n8 = min(self.n, max(1, p // 2))
-        self.nResid = min(self.M, 12)
+        self.nResid = self.M             # §1 residual plot: ALL samples' residual evolution (was capped at 12)
         self.efrac = min(1.0, max(0.5, cfg.energyp / 100.0))
         self.nprobe = max(1, cfg.slqprobes)
         self.lr = cfg.lr

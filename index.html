@@ -2105,7 +2105,7 @@ function pushPoint(t,D,n,kth,nResid){
   if(OPT.s1){
     extP('p_loss',{x:[[t]],y:[[D.loss]]},[0]);
     extP('p_sharp',{x:[[t]],y:[[D.sharp]]},[0]);
-    if(D.r&&D.r.length){const nr=Math.min(D.r.length,nResid||D.r.length);extP('p_resid',{x:reps(nr,t),y:colsOf(nr,D.r)},ids(nr));}  // clamp to the nResid=min(M,12) created traces (browser sends full r); CE/LM sends none
+    if(D.r&&D.r.length){const nr=Math.min(D.r.length,nResid||D.r.length);extP('p_resid',{x:reps(nr,t),y:colsOf(nr,D.r)},ids(nr));}  // nResid=M ⇒ ALL samples' residuals (browser sends full r); CE/LM sends none
     extP('p_eHfX',{x:[[t],[t]],y:[[D.hfMax],[D.hfMin]]},[0,1]);
   }
   if(OPT.s2){
@@ -2282,7 +2282,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const half=Math.max(1,Math.floor(p/2));
   n=Math.max(1,Math.min(n,half));kth=Math.max(1,Math.min(kth,half));
   const nSub=Math.min(Math.max(n,kth,(opt.s6?10:1)),half);
-  const eps=1e-3, thr=2.0/lr, M=N*outDim, nResid=Math.min(M,12);
+  const eps=1e-3, thr=2.0/lr, M=N*outDim, nResid=M;   // §1 residual plot: ALL samples (was capped at 12)
   const drng=mulberry32((seed*7919+1)>>>0);
   const th=initTheta(spec,p,initScale,seed+1,val('initscheme'));   // θ first (needed to evaluate residual signs)
   const ssign=val('ssign');                                    // 'off' | 'pos' | 'neg'

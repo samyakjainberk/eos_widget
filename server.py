@@ -1737,7 +1737,7 @@ def run_stream(P):
     s12single = (s19 or s22) and not multi and M * p <= 700_000_000
     n7 = min(n, max(M, 1))
     n8 = min(n, max(1, p // 2))
-    nResid = min(M, 12)
+    nResid = M                       # §1 residual plot: ALL samples' residual evolution (was capped at 12)
     lr = P["lr"]
     opt = P.get("optimizer", "gd")
     thr = 2.0 / lr

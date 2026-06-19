@@ -29,7 +29,7 @@ def plot_section1(series, meta, ax=None):
         axs[1].plot(t, series["sharpness"], label="sharpness")
         axs[1].axhline(meta["thr"], ls="--", c="r", label="2/η (EoS)")
         axs[1].set_title("sharpness vs edge of stability"); axs[1].legend(); axs[1].set_xlabel("step")
-    if "resid_head" in series:              # per-sample residual y−f (first nResid) — matches the widget's panel
+    if "resid_head" in series:              # per-sample residual y−f for ALL samples (nResid=M) — matches the widget's panel
         for j, track in enumerate(series["resid_head"]):
             axs[2].plot(*_finite(t, track), lw=1)
         axs[2].axhline(0, c="k", lw=0.6)
