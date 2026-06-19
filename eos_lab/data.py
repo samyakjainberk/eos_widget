@@ -115,6 +115,8 @@ def make_test_set(model, P, dataset, n_test, in_dim, out_dim, device, dtype, cif
     if dataset == "sorting":
         return load_sort(n_test, in_dim, trng, device, dtype)
     if dataset == "const":                                # held-out: fresh iid Gaussian X, same constant target |tgt| (+ cvar noise)
+        if P.get("ssign", "off") != "off":
+            return None                                    # sign-forced const ⇒ f₀-dependent targets, no clean held-out set (matches synthetic)
         cstd = max(0.0, float(P.get("cvar", 0.0))) ** 0.5
         Xl = [[in_std * gauss(trng) for _ in range(in_dim)] for _ in range(n_test)]
         Yl = [[abs(tgt) + cstd * gauss(trng) for _ in range(out_dim)] for _ in range(n_test)]
@@ -224,8 +226,14 @@ def init_data_theta(model, P, dataset, N, in_dim, out_dim, device, dtype, cifar_
         cstd = max(0.0, float(P.get("cvar", 0.0))) ** 0.5
         Xl = [[in_std * gauss(drng) for _ in range(in_dim)] for _ in range(N)]
         X = torch.tensor(Xl, dtype=dtype, device=device)
-        Yl = [[abs(tgt) + cstd * gauss(drng) for _ in range(out_dim)] for _ in range(N)]
-        Y = torch.tensor(Yl, dtype=dtype, device=device)
+        Ymag = torch.tensor([[abs(tgt) + cstd * gauss(drng) for _ in range(out_dim)] for _ in range(N)],
+                            dtype=dtype, device=device)                   # |tgt| (+cvar noise); drawn for EVERY ssign (RNG parity)
+        if ssign in ("pos", "neg"):                                       # FORCE all initial residual signs: r=y−f=s·max(|tgt|+noise,floor) ⇒ sign s
+            s = 1.0 if ssign == "pos" else -1.0
+            floor = 0.25 * max(abs(tgt), 1e-6)
+            Y = model.forward(th, X) + s * Ymag.clamp(min=floor)         # uniform |tgt| residual with the chosen sign (cvar still spreads it)
+        else:
+            Y = Ymag                                                      # off: constant positive target |tgt| (+noise); residuals naturally +
     elif fixedx:
         X = torch.ones(N, in_dim, dtype=dtype, device=device)
         if ssign == "off":

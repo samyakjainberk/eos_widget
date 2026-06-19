@@ -2287,7 +2287,11 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const th=initTheta(spec,p,initScale,seed+1,val('initscheme'));   // θ first (needed to evaluate residual signs)
   const ssign=val('ssign');                                    // 'off' | 'pos' | 'neg'
   const X=new Float64Array(N*inDim), Y=new Float64Array(M);
-  if(val('dataset')==='const'){ const cstd=Math.sqrt(Math.max(0,+val('cvar')||0)); for(let i=0;i<N*inDim;i++)X[i]=inputStd*gauss(drng); for(let i=0;i<M;i++)Y[i]=Math.abs(tgt)+cstd*gauss(drng); }   // iid Gaussian x, CONSTANT positive target |tgt| + N(0,cvar) noise (cvar=0 ⇒ exact constant)
+  if(val('dataset')==='const'){ const cstd=Math.sqrt(Math.max(0,+val('cvar')||0)); for(let i=0;i<N*inDim;i++)X[i]=inputStd*gauss(drng);   // iid Gaussian x
+    const s=ssign==='pos'?1:(ssign==='neg'?-1:0), floor=0.25*Math.max(Math.abs(tgt),1e-6), F=s?forward(th,spec,X,N,inDim).out:null;
+    for(let i=0;i<M;i++){const mag=Math.abs(tgt)+cstd*gauss(drng);   // |tgt| (+cvar noise); gauss drawn for EVERY ssign (RNG parity)
+      Y[i]=s?(F[i]+s*Math.max(mag,floor)):mag;}   // off: const target |tgt|+noise ; pos/neg: r_i=s·max(|tgt|+noise,floor) ⇒ guaranteed sign s
+  }
   else if(fixedX){X.fill(1.0);
     if(ssign==='off'){Y.fill(tgt);}
     else{const s=ssign==='pos'?1:-1,floor=0.25*Math.max(Math.abs(tgt),1e-6),F=forward(th,spec,X,N,inDim).out;for(let i=0;i<M;i++)Y[i]=F[i]+s*Math.max(Math.abs(tgt),floor);} // r=y−f(x=1)=s·|tgt|, sign s

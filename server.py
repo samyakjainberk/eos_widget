@@ -1614,8 +1614,14 @@ def init_data_theta(P, dataset, N, inD, outD):
         cstd = max(0.0, float(P.get("cvar", 0.0))) ** 0.5                  # noise std = √variance
         Xl = [[inStd * gauss(drng) for _ in range(inD)] for _ in range(N)]
         X = torch.tensor(Xl, dtype=DTYPE, device=_dev())
-        Yl = [[abs(tgt) + cstd * gauss(drng) for _ in range(outD)] for _ in range(N)]
-        Y = torch.tensor(Yl, dtype=DTYPE, device=_dev())
+        Ymag = torch.tensor([[abs(tgt) + cstd * gauss(drng) for _ in range(outD)] for _ in range(N)],
+                            dtype=DTYPE, device=_dev())                    # |tgt| (+cvar noise); drawn for EVERY ssign (RNG parity)
+        if ssign in ("pos", "neg"):                                       # FORCE all initial residual signs: r=y−f=s·max(|tgt|+noise,floor) ⇒ sign s
+            s = 1.0 if ssign == "pos" else -1.0
+            floor = 0.25 * max(abs(tgt), 1e-6)
+            Y = _TL.model.forward(th, X) + s * Ymag.clamp(min=floor)      # uniform |tgt| residual with the chosen sign (cvar still spreads it)
+        else:
+            Y = Ymag                                                      # off: constant positive target |tgt| (+noise); residuals naturally +
     elif fixedx:
         X = torch.ones(N, inD, dtype=DTYPE, device=_dev())
         if ssign == "off":
