@@ -941,8 +941,8 @@ def _s12_proj_fig(hist, dkey, row_titles, suptitle, ulab="u"):
         return None
     t = list(range(len(recs)))
     P = [r["g4d"][dkey] for r in recs]
-    cols = [("prod", 0, "⟨proj·r⟩", False), ("prod", 1, "σ(proj·r)", False),
-            ("cos", 0, f"⟨|⟨J,{ulab}⟩|/‖J‖⟩", True), ("cos", 1, f"σ(|⟨J,{ulab}⟩|/‖J‖)", False)]
+    cols = [("prod", 0, "mean of proj·r", False), ("prod", 1, "std of proj·r", False),
+            ("cos", 0, f"mean of |⟨J,{ulab}⟩|/‖J‖", True), ("cos", 1, f"std of |⟨J,{ulab}⟩|/‖J‖", False)]
     rows = [("top", row_titles[0], ["#2563eb", "#93c5fd"]),
             ("bot", row_titles[1], ["#dc2626", "#fca5a5"])]
     nrank = max((len(p.get("top", [])) for p in P), default=0)
@@ -994,8 +994,8 @@ def _s12_wproj_fig(hist, pi, title):
         return None
     t = list(range(len(recs)))
     P = [r["g4d"]["wproj"][pi] for r in recs]
-    cols = [("prod", 0, "⟨proj·r⟩", False), ("prod", 1, "σ(proj·r)", False),
-            ("cos", 0, "⟨|⟨J,e⟩|/‖J‖⟩", True), ("cos", 1, "σ(|⟨J,e⟩|/‖J‖)", False)]
+    cols = [("prod", 0, "mean of proj·r", False), ("prod", 1, "std of proj·r", False),
+            ("cos", 0, "mean of |⟨J,e⟩|/‖J‖", True), ("cos", 1, "std of |⟨J,e⟩|/‖J‖", False)]
     rows = [("top", "Row 1 — TOP-2 eigvecs of ⟨Q⟩_w", ["#2563eb", "#93c5fd"]),
             ("bot", "Row 2 — BOTTOM-2 eigvecs of ⟨Q⟩_w", ["#dc2626", "#fca5a5"])]
     nrank = max((len(p.get("top", [])) for p in P), default=0)

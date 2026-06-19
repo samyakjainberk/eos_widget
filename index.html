@@ -1455,8 +1455,8 @@ function s12XpRender(){
 // Panels 4 (TOP-2 eigvecs) & 5 (BOTTOM-2 eigvecs): TWO per-sample quantities vs step, 2 lines/plot (rank-1,rank-2).
 // Row-1 = 4 plots: mean & std of the PRODUCT proj·r = |⟨J,u⟩|·σ·r_i, then mean & std of the ALIGNMENT |⟨J,u⟩|/‖J‖ = |cos∠|.
 // proj.{top,bot}=[{prod:[m,s],pvals, cos:[m,s],vals},…] (one dict per rank). Row-2 = 2 histograms: product, alignment.
-const S12P_TITLE=['mean ⟨proj·r⟩','std σ(proj·r)','mean ⟨|⟨J,u⟩|/‖J‖⟩','std σ(|⟨J,u⟩|/‖J‖)'];
-const S12P_YL=['⟨proj·r⟩','σ(proj·r)','⟨|cos∠(J,u)|⟩','σ(|cos∠(J,u)|)'];   // proj·r=|⟨J,u⟩|·σ·r_i ; |⟨J,u⟩|/‖J‖=|cos∠|∈[0,1]
+const S12P_TITLE=['mean of proj·r','std of proj·r (over samples)','mean of |⟨J,u⟩|/‖J‖','std of |⟨J,u⟩|/‖J‖ (over samples)'];   // "std of X" = the spread over the N samples; NOT an extra eigenvalue σ
+const S12P_YL=['mean(proj·r)','std(proj·r)','mean(|cos∠(J,u)|)','std(|cos∠(J,u)|)'];   // proj·r=|⟨J,u⟩|·σ·r_i (σ=eigenvalue, in the quantity ONCE); these columns are just mean/std of that quantity
 const S12P_STAT=[['prod',0],['prod',1],['cos',0],['cos',1]];   // [key, stat-index] per plot
 const S12P_GRP=[['top','p_s12proj_top','#2563eb','#93c5fd'],['bot','p_s12proj_bot','#dc2626','#fca5a5']];   // panel 4 (top, blue) / panel 5 (bottom, red); 2nd colour = rank-2 shade
 const S12P_NRANK=2;                       // 2 lines per plot: rank-1 (u_{i,1}/u_{i,-1}) and rank-2 (u_{i,2}/u_{i,-2})
