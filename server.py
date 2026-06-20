@@ -422,7 +422,7 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
         bot = torch.sort(e).values[:k].tolist()
         st = [float(e.min()), float(e.max()), float(e.mean()),
               float(torch.quantile(e, 0.25)), float(torch.quantile(e, 0.75))]
-        return top, bot, st
+        return top, bot, st, es.tolist()                      # full spectrum (desc) for the SLQ density (plot 5)
 
     g1 = Jtm1.t() @ rtm1; g2 = Jtm2.t() @ rtm2
     Ktm2 = Jtm2 @ Jtm2.t()
@@ -433,7 +433,7 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
     W = torch.stack([hvp1(Jtm1[i]) for i in range(N)])        # (N_i,N_k,p)
     JSJ = torch.einsum('ikp,lkp->il', W, W)
     A = c2 * (JSJ @ (Imat - c * Ktm2))
-    Atop, Abot, Astat = estats(A)
+    Atop, Abot, Astat, Aeig = estats(A)
 
     a = rtm1 @ hvp2(g2)
     H1a = hvp1(a)
@@ -445,7 +445,7 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
 
     nJt = float((Jt * Jt).sum()); nJtm1 = float((Jtm1 * Jtm1).sum()); nJtm2 = float((Jtm2 * Jtm2).sum())
     D2 = nJt + nJtm2 - 2.0 * nJtm1
-    divP = ((-(I + II - III) + D2) / D2 * 100.0) if abs(D2) > 1e-30 else 0.0
+    divP = ((-2.0 * (I + II - III) + D2) / D2 * 100.0) if abs(D2) > 1e-30 else 0.0  # 2×: terms are ½∂²‖J‖²; D² is the full discrete ∂² ⇒ predict D²≈2(I+II−III); →0 when theory holds
 
     Kt = Jt @ Jt.t()
     evt = torch.linalg.eigh(Kt)
@@ -460,13 +460,13 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
     VI = c2 * float((b * (u1 @ H1z)).sum())
     P = torch.einsum('k,ikp->ip', u1, W)
     Bm = c2 * ((P @ P.t()) @ (Imat - c * Ktm2))
-    Btop, Bbot, Bstat = estats(Bm)
+    Btop, Bbot, Bstat, Beig = estats(Bm)
     Dsig2 = sig_t + sig_tm2 - 2.0 * sig_tm1
-    divS = ((-(IV + V - VI) + Dsig2) / Dsig2 * 100.0) if abs(Dsig2) > 1e-30 else 0.0
+    divS = ((-2.0 * (IV + V - VI) + Dsig2) / Dsig2 * 100.0) if abs(Dsig2) > 1e-30 else 0.0  # 2×: terms are ½∂²σ₁; Dσ² is the full discrete ∂² ⇒ predict Dσ²≈2(IV+V−VI); →0 when theory holds
 
     return {"I": I, "II": II, "III": III, "divP": divP, "Atop": Atop, "Abot": Abot, "Astat": Astat,
             "IV": IV, "V": V, "VI": VI, "divS": divS, "Btop": Btop, "Bbot": Bbot, "Bstat": Bstat,
-            "D2": D2, "Dsig2": Dsig2}
+            "D2": D2, "Dsig2": Dsig2, "Aeig": Aeig, "Beig": Beig}   # Aeig/Beig: full real spectra → SLQ density (plot 5)
 
 
 def _opt_dir(model, g, opt):

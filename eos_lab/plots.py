@@ -1205,14 +1205,15 @@ def plot_section14_ratio(hist):
 
 
 def _s15_panel(hist, terms, divkey, pre, suptitle):
-    """§15 one panel — 4 plots: (1) the three theory terms; (2) divergence %; (3) top-3/bottom-3 real eigenvalues
-    of A (pre='A') resp. B (pre='B'); (4) eigenvalue min/max/mean + IQR band. Reads rec['g15']."""
+    """§15 one panel — 5 plots: (1) the three theory terms; (2) divergence %; (3) top-3/bottom-3 real eigenvalues
+    of A (pre='A') resp. B (pre='B'); (4) eigenvalue min/max/mean + IQR band; (5) SLQ spectral density of A/B
+    (Gaussian-broadened real spectrum) as a step×eigenvalue heatmap over training. Reads rec['g15']."""
     import numpy as np
     recs = [r for r in hist if "g15" in r]
     if len(recs) < 2:
         return None
     t = list(range(len(recs))); G = [r["g15"] for r in recs]
-    fig, axs = plt.subplots(1, 4, figsize=(20, 3.7))
+    fig, axs = plt.subplots(1, 5, figsize=(25, 3.7))
     for nm, col in zip(terms, ["#2563eb", "#16a34a", "#dc2626"]):
         axs[0].plot(t, [g[nm] for g in G], label=nm, color=col, marker="o", ms=3, lw=1.4)
     axs[0].axhline(0, c="#999", lw=0.6); axs[0].legend(fontsize=9)
@@ -1237,6 +1238,21 @@ def _s15_panel(hist, terms, divkey, pre, suptitle):
     axs[3].plot(t, mx, color="#16a34a", lw=1, label="max"); axs[3].plot(t, mn, color="#dc2626", lw=1, label="min")
     axs[3].axhline(0, c="#999", lw=0.6); axs[3].legend(fontsize=7)
     axs[3].set_title(f"{pre}: eigenvalue spread (min/max/mean + IQR)"); axs[3].set_xlabel("step")
+    # plot 5 — SLQ spectral density (Gaussian-broadened real spectrum) of A/B as a step × eigenvalue heatmap
+    eg = pre + "eig"
+    specs = [np.asarray(g.get(eg, []), dtype=float) for g in G]
+    allv = np.concatenate([s for s in specs if s.size]) if any(s.size for s in specs) else np.array([0.0])
+    lo, hi = float(allv.min()), float(allv.max()); span = hi - lo
+    sig = max(span / 40.0, 1e-12 * max(1.0, abs(hi))); pad = max(3 * sig, span * 0.05)
+    grid = np.linspace(lo - pad, hi + pad, 160)
+    dens = np.zeros((grid.size, len(G)))
+    for c, s in enumerate(specs):
+        if s.size:
+            d = np.exp(-((grid[:, None] - s[None, :]) ** 2) / (2 * sig * sig)).sum(1) / (s.size * sig * np.sqrt(2 * np.pi))
+            dens[:, c] = d
+    axs[4].imshow(dens, aspect="auto", origin="lower", cmap="viridis",
+                  extent=(t[0], t[-1] if len(t) > 1 else t[0] + 1, grid[0], grid[-1]))
+    axs[4].set_title(f"{pre}: SLQ spectral density (step × eigenvalue)"); axs[4].set_xlabel("step"); axs[4].set_ylabel("eigenvalue")
     fig.suptitle(suptitle, fontsize=13); fig.tight_layout(rect=(0, 0, 1, 0.93))
     return fig
 
