@@ -1248,11 +1248,14 @@ def _s15_panel(hist, terms, divkey, pre, suptitle):
     dens = np.zeros((grid.size, len(G)))
     for c, s in enumerate(specs):
         if s.size:
-            d = np.exp(-((grid[:, None] - s[None, :]) ** 2) / (2 * sig * sig)).sum(1) / (s.size * sig * np.sqrt(2 * np.pi))
-            dens[:, c] = d
-    axs[4].imshow(dens, aspect="auto", origin="lower", cmap="viridis",
-                  extent=(t[0], t[-1] if len(t) > 1 else t[0] + 1, grid[0], grid[-1]))
-    axs[4].set_title(f"{pre}: SLQ spectral density (step × eigenvalue)"); axs[4].set_xlabel("step"); axs[4].set_ylabel("eigenvalue")
+            d = np.exp(-((grid[:, None] - s[None, :]) ** 2) / (2 * sig * sig)).sum(1)
+            m = d.max()
+            dens[:, c] = d / m if m > 0 else d        # peak-normalize each step → relative density in [0,1]
+    im = axs[4].imshow(dens, aspect="auto", origin="lower", cmap="viridis", vmin=0, vmax=1,
+                       extent=(t[0], t[-1] if len(t) > 1 else t[0] + 1, grid[0], grid[-1]))
+    fig.colorbar(im, ax=axs[4], fraction=0.046, pad=0.04, label="relative density")
+    axs[4].set_title(f"{pre}: eigenvalue density of {pre}  (step × eigenvalue)")
+    axs[4].set_xlabel("step"); axs[4].set_ylabel(f"eigenvalue of {pre}")
     fig.suptitle(suptitle, fontsize=13); fig.tight_layout(rect=(0, 0, 1, 0.93))
     return fig
 
