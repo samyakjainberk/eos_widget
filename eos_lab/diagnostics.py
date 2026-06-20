@@ -28,7 +28,7 @@ from .models import (grad_sum_f, hvp_F, hvp_L, hvp_S, hvp_G, hvp_G2,
 from .linalg import (lanczos_extreme, lanczos_extreme_vals, slq_density, hutch_trace, sym_eig_desc,
                      sign_to, pin_sign, pos_subspace, neg_subspace, principal_angles, randn_vec,
                      sec12_payload, sec13_stats, SEC13_KS, SEC13_DOMS, sec14_payload, SEC12_KFULL,
-                     batched_lanczos_extreme)
+                     batched_lanczos_extreme, sec15_stats)
 from .rng import mulberry32
 
 # §11 render budget: emit only ≤this many points per grid above this size (mirror server.G3D_MAXPTS).
@@ -95,6 +95,8 @@ class Diagnostics:
         self.s20 = P.get("s20", 0)          # §14: Tr(ΔNTK) per-triplet decomposition cubes (shares §12 eigenpairs)
         self.s21 = P.get("s21", 0)          # §13: residual-weighted curvature G1/G2/G3 vs exact ref (own toggle; shares §12 Lanczos)
         self.s22 = P.get("s22", 0)          # §12b: per-sample projection panels (s19=§12a angles+diag-align; both share the §12 Lanczos)
+        self.s23 = P.get("s23", 0)          # §15: 2nd-difference decomposition of ‖J‖²_F & σ₁ (own toggle; holds 3 eig-ticks)
+        self._sec15_hist = []               # §15: rolling buffer of the last 2 eig-ticks' {th, J, r} (need t−1 and t−2)
         self._sec14_rhist = []              # §14: per-sample residual history (last ≤5 ticks) for the eq-③ ratio
         self._sec14_prev = None             # §14: previous eig-tick's {TV,TW,BV,BW,r,Jg} (u,σ,r_j,J_k at t; cur gives J_i,r_k at t+1)
         self._sec13_prev = None             # §13: previous eig-tick's per-sample {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
@@ -309,7 +311,7 @@ class Diagnostics:
         Jc = rr = None
         want_multi = self.multi_ok and (self.s7 or self.s8 or self.s9 or self.s10 or self.s11
                                          or self.s12 or self.s13 or self.s15 or self.s16 or self.s17
-                                         or self.s18 or self.s19 or self.s20 or self.s21 or self.s22)
+                                         or self.s18 or self.s19 or self.s20 or self.s21 or self.s22 or self.s23)
         if want_multi or self.s12single:
             Jc, out_flat = jac_cols(self.model, th, X)
             rr = (-N * cS).reshape(-1)        # generic residual −N·∂L/∂out: Y−f (MSE), onehot−softmax (CE)
@@ -668,6 +670,20 @@ class Diagnostics:
                 if self._sec14_prev is not None:               # need t (prev) for u,σ,r_j,J_k; skip the first eig-tick (like §13)
                     rec["g14"] = sec14_payload(self._sec14_prev, cur14, self.lr, self.grid3dcap, self._sec14_rhist)
                 self._sec14_prev = {k_: v_.detach() for k_, v_ in cur14.items()}
+
+        # ---- §15: 2nd-difference decomposition of ‖J‖²_F & σ₁ (own toggle; multi-only, small-N, holds 3 ticks) ----
+        if self.s23 and self.multi_ok and N <= self.grid3dcap and Jc is not None and rr is not None:
+            lblsel15 = (torch.arange(N, device=dev) * outD + Y.reshape(N, outD).argmax(dim=1)
+                        if outD > 1 else torch.arange(N, device=dev))
+            Jg15 = Jc[lblsel15]; r15 = rr[lblsel15]                # (N,p) GT-grads ∇f_i ; (N,) residual r=y−f
+            if len(self._sec15_hist) >= 2:                         # need t−1 & t−2 → skip the first two eig-ticks
+                tm1, tm2 = self._sec15_hist[-1], self._sec15_hist[-2]
+                hvp1 = lambda v: jac_hvp(self.model, tm1["th"], X, v)[lblsel15]   # {Q_{t−1,k}·v}_k  (N,p)
+                hvp2 = lambda v: jac_hvp(self.model, tm2["th"], X, v)[lblsel15]   # {Q_{t−2,k}·v}_k
+                rec["g15"] = sec15_stats(hvp1, hvp2, Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], self.lr, N)
+            self._sec15_hist.append({"th": th.detach().clone(), "J": Jg15.detach(), "r": r15.detach()})
+            if len(self._sec15_hist) > 2:
+                self._sec15_hist.pop(0)
 
         # ---- §5 SLQ spectral densities (expensive → ~50 snapshots/run via slqStride) ----
         if self.s5 and slq_tick:

@@ -122,6 +122,8 @@ class Config:
                     #   OWN toggle (independent of §12/s19); triggers the shared Lanczos by itself. OFF by default.
     s22: int = 0    # §12b — per-sample projection panels (product |⟨J,u⟩|·σ·r & alignment |⟨J,u⟩|/‖J‖). s19 is now
                     #   §12a (principal angles + diagonal alignment); s22 is §12b. Both share the §12 Lanczos. OFF by default.
+    s23: int = 0    # §15 — 2nd-difference decomposition of ‖J‖²_F & σ₁ into theory terms I/II/III (resp. IV/V/VI) +
+                    #   matrices A/B. Holds 3 consecutive eig-ticks; multi-sample only; small-N (≤grid3dcap). OFF by default.
 
     # ---- test set (held-out) ----
     n_test: int = 0                # held-out test points (0 ⇒ default: max(nsamp, 256), capped per dataset)

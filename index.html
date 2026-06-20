@@ -220,6 +220,7 @@
   <label title="§12b — per-sample projection panels: for the top-2 / bottom-2 eigenvectors of each Q_i, the product |⟨J_i,u⟩|·σ·r_i and the gradient alignment |⟨J_i,u⟩|/‖J_i‖, mean/std over samples + histograms. Shares §12a's Lanczos eigenpairs; multi-sample only; OFF by default."><input type="checkbox" id="en22"> 12b · per-sample projections</label>
   <label title="§13 — residual-weighted curvature: rank-k₀ approximations G1/G2/G3 of the exact reference J_iᵀQ_jJ_k·r_k, from the per-sample Lanczos top-k₀⊕bottom-k₀ eigenpairs, vs the exact reference (N extra HVPs). Multi-sample only, small N (N³); OFF by default. Its OWN toggle — independent of §12; turning it on triggers the shared per-sample Lanczos by itself."><input type="checkbox" id="en21"> 13 · residual-weighted curvature G1/G2/G3</label>
   <label title="§14 — per-triplet (i,j,k) decomposition of Tr(ΔNTK)=Σ a·b·c·d·e over rank-2y eigenpairs of the per-sample function Hessians. 10 panels of N×N×N cubes (sorted-term aggregates, sub-products, eq-③ history ratio). Shares §12's matrix-free Lanczos eigenpairs; multi-sample only, small N (N³ cubes); OFF by default."><input type="checkbox" id="en20"> 14 · Tr(ΔNTK) triplet decomposition</label>
+  <label title="§15 — 2nd-difference decomposition of ‖J‖²_F (=tr NTK) and σ₁ (top NTK eigenvalue) into theory terms I/II/III (resp. IV/V/VI) + the matrices A (resp. B), over GD with step (η/N)Σr_i∇f_i. Holds 3 consecutive eig-ticks; needs the per-sample function-Hessian HVPs at t−1 and t−2. Multi-sample only, small N; OFF by default."><input type="checkbox" id="en23"> 15 · 2nd-difference decomposition (‖J‖² &amp; σ₁)</label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -405,6 +406,17 @@
 <h3 style="margin:12px 0 2px;font-size:14px;color:#475569">Panel 10 — eq-③ multi-step ratio $\big[\prod_{z=0}^{S}(1+\eta\sigma_{j,p}r_{j,t-S+z})\big]/(1+\eta\sigma_{j,p}r_{j,t-S})$, $S=y$ · <b>mean over $i\neq j\neq k$</b>: first element (solid) vs last element (dashed)</h3>
 <div class="plotrow row3"><div id="p_s14ratio_1" class="plot" style="height:300px"></div><div id="p_s14ratio_2" class="plot" style="height:300px"></div><div id="p_s14ratio_5" class="plot" style="height:300px"></div></div>
 </div>
+</div>
+
+<div id="sec_s15" style="display:none">
+<h2>15 · 2nd-difference decomposition of $\lVert J\rVert_F^2$ and $\sigma_1$ over GD</h2>
+<p class="cap">Under gradient descent with step $\Delta\theta=\tfrac{\eta}{N}\sum_i r_i\nabla f_i$ (so $c=\eta/N$), the discrete second difference of $\lVert J\rVert_F^2=\mathrm{tr}(\mathrm{NTK})$ (Panel 1) and of $\sigma_1$ = the top NTK eigenvalue (Panel 2) is decomposed into theory terms + the $N\times N$ matrices $A$ (resp. $B$). Each panel holds <b>3 consecutive eig-ticks</b> $t,t{-}1,t{-}2$ (it skips its first two ticks) and evaluates the per-sample function-Hessian HVPs $Q_{t-1,k}\!\cdot,\,Q_{t-2,k}\!\cdot$. Multi-sample only, small $N$ ($\le$ grid3dcap); OFF by default. Shorthands: $g_s=\sum_i r_{s,i}\nabla f_{s,i}$, $S=\sum_k Q_{t-1,k}^2$, $\tilde Q=\sum_j r_{t-1,j}Q_{t-2,j}$.</p>
+<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — $\tfrac12\partial_t^2\lVert J\rVert_F^2 = \mathrm{I}+\mathrm{II}-\mathrm{III}$ &amp; eigenvalues of $A$</h3>
+<p class="cap">$\mathrm{I}=c^2 g_{t-1}^\top S\,g_{t-1}$ &nbsp;·&nbsp; $\mathrm{II}=c^2\sum_k\nabla f_{t,k}^\top Q_{t-1,k}\,\tilde Q\,g_{t-2}$ &nbsp;·&nbsp; $\mathrm{III}=c^2\sum_k\nabla f_{t,k}^\top Q_{t-1,k}\,(J_{t-1}J_{t-2}^\top J_{t-2}r_{t-2})$ &nbsp;·&nbsp; $A=c^2(J_{t-1}^\top S\,J_{t-1})(I-c\,J_{t-2}^\top J_{t-2})$. <b>Plot 2</b>: divergence$\%=\big[-(\mathrm{I+II-III})+D^2\big]/D^2\times100$, $D^2=\lVert J_t\rVert^2+\lVert J_{t-2}\rVert^2-2\lVert J_{t-1}\rVert^2$. <b>Plots 3–4</b>: top-3/bottom-3 and the min/max/mean+IQR spread of the (real) eigenvalues of $A$.</p>
+<div class="plotrow row4"><div id="p_s15_terms1" class="plot" style="height:290px"></div><div id="p_s15_div1" class="plot" style="height:290px"></div><div id="p_s15_Aeig" class="plot" style="height:290px"></div><div id="p_s15_Aspread" class="plot" style="height:290px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — $\tfrac12\partial_t^2\sigma_1 = \mathrm{IV}+\mathrm{V}-\mathrm{VI}$ &amp; eigenvalues of $B$</h3>
+<p class="cap">Same as Panel 1 but the trace-tie is replaced by the top NTK eigenvector $u_{t,1}$ projection — $S\to(\bar Q^{u})^2$ with $\bar Q^{u}=\sum_k u_{t,1,k}Q_{t-1,k}$: $\mathrm{IV}=c^2 g_{t-1}^\top(\bar Q^{u})^2 g_{t-1}$ ·  $\mathrm{V}=c^2(J_t u_{t,1})^\top\bar Q^{u}\,\tilde Q\,g_{t-2}$ ·  $\mathrm{VI}=c^2(J_t u_{t,1})^\top\bar Q^{u}\,(J_{t-1}J_{t-2}^\top J_{t-2}r_{t-2})$ ·  $B=c^2(J_{t-1}^\top(\bar Q^{u})^2 J_{t-1})(I-c\,J_{t-2}^\top J_{t-2})$. Divergence vs $\sigma_{1,t}+\sigma_{1,t-2}-2\sigma_{1,t-1}$.</p>
+<div class="plotrow row4"><div id="p_s15_terms2" class="plot" style="height:290px"></div><div id="p_s15_div2" class="plot" style="height:290px"></div><div id="p_s15_Beig" class="plot" style="height:290px"></div><div id="p_s15_Bspread" class="plot" style="height:290px"></div></div>
 </div>
 
 <div id="sec_2">
@@ -1878,6 +1890,92 @@ function sec14Payload(prev,cur,N,p,lr,grid3dcap,rhist){
 let S14_RHIST_JS=[];   // §14 client-side training path: last ≤5 per-sample residuals (reset per run via s14Reset)
 let S14_PREV_JS=null;  // §14 client-side: previous eig-tick's {TV,TW,BV,BW,r,Jg} (u,σ,r_j,J_k at t; cur gives J_i,r_k at t+1)
 let S13_PREV_JS=null;  // §13 client-side: previous eig-tick's {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
+let S15_HIST_JS=[];    // §15 client-side: rolling buffer of the last 2 eig-ticks' {th, J, r} (need t−1 and t−2)
+// §15 — 2nd-difference decomposition of ‖J‖²_F & σ₁. hvp1/hvp2(v)→[N Float64Arrays] = {Q_{t-1,k}·v}/{Q_{t-2,k}·v}.
+// Jt/Jtm1/Jtm2 = [N Float64Arrays(p)] per-sample GT-grads; rtm1/rtm2 = [N]. MIRRORS server._sec15_stats / eos_lab.sec15_stats.
+function s15Dotp(a,b,p){let s=0;for(let q=0;q<p;q++)s+=a[q]*b[q];return s;}
+function s15Wsum(vecs,wts,p){const o=new Float64Array(p);for(let k=0;k<vecs.length;k++){const wk=wts[k],vk=vecs[k];for(let q=0;q<p;q++)o[q]+=wk*vk[q];}return o;}   // Σ_k wts[k]·vecs[k]
+function s15Matmul(P,M,N,sc){const O=new Float64Array(N*N);for(let i=0;i<N;i++)for(let j=0;j<N;j++){let s=0;for(let k=0;k<N;k++)s+=P[i*N+k]*M[k*N+j];O[i*N+j]=sc*s;}return O;}
+function s15RealEig(PSD,M,N,sc){   // real eigenvalues of sc·(PSD·M), PSD symmetric-PSD & M symmetric: eig(PSD·M)=eig(PSD^½·M·PSD^½) (symmetric ⇒ jacobiEig)
+  const e=jacobiEig(PSD,N), H=new Float64Array(N*N);                       // PSD^½ = V·diag(√max(λ,0))·Vᵀ ;  V[i*N+c]=comp i of eigvec c
+  for(let i=0;i<N;i++)for(let j=0;j<N;j++){let s=0;for(let c=0;c<N;c++){const sv=Math.sqrt(Math.max(0,e.vals[c]));s+=e.V[i*N+c]*sv*e.V[j*N+c];}H[i*N+j]=s;}
+  const HM=new Float64Array(N*N);for(let i=0;i<N;i++)for(let j=0;j<N;j++){let s=0;for(let k=0;k<N;k++)s+=H[i*N+k]*M[k*N+j];HM[i*N+j]=s;}
+  const sym=new Float64Array(N*N);for(let i=0;i<N;i++)for(let j=0;j<N;j++){let s=0;for(let k=0;k<N;k++)s+=HM[i*N+k]*H[k*N+j];sym[i*N+j]=s;}
+  const es=jacobiEig(sym,N), out=new Float64Array(N);for(let q=0;q<N;q++)out[q]=sc*es.vals[q];return out;
+}
+function s15EigStats(e){const N=e.length, s=Array.from(e).sort((x,y)=>y-x), k=Math.min(3,N), asc=Array.from(e).sort((x,y)=>x-y);
+  const top=s.slice(0,k), bot=asc.slice(0,k);   // top-3 desc, bottom-3 asc
+  let me=0;for(const v of e)me+=v;me/=N;
+  const q=f=>{const idx=f*(N-1),lo=Math.floor(idx),hi=Math.ceil(idx);return asc[lo]+(asc[hi]-asc[lo])*(idx-lo);};
+  return {top,bot,stat:[asc[0],asc[N-1],me,q(0.25),q(0.75)]};}
+function sec15Stats(hvp1,hvp2,Jt,Jtm1,Jtm2,rtm1,rtm2,lr,N,p){
+  const c=lr/N, c2=c*c, D=(a,b)=>s15Dotp(a,b,p), WS=(v,w)=>s15Wsum(v,w,p);
+  const g1=WS(Jtm1,rtm1), g2=WS(Jtm2,rtm2);
+  const Ktm2=new Float64Array(N*N);for(let i=0;i<N;i++)for(let j=0;j<N;j++)Ktm2[i*N+j]=D(Jtm2[i],Jtm2[j]);
+  const Mmat=new Float64Array(N*N);for(let i=0;i<N;i++)for(let j=0;j<N;j++)Mmat[i*N+j]=(i===j?1:0)-c*Ktm2[i*N+j];   // I − c·K_{t−2}
+  const H1g1=hvp1(g1);let I=0;for(let k=0;k<N;k++)I+=D(H1g1[k],H1g1[k]);I*=c2;
+  const W=[];for(let i=0;i<N;i++)W.push(hvp1(Jtm1[i]));                    // W[i][k] = Q_{t−1,k}·∇f_{t−1,i}
+  const JSJ=new Float64Array(N*N);for(let i=0;i<N;i++)for(let l=0;l<N;l++){let s=0;for(let k=0;k<N;k++)s+=D(W[i][k],W[l][k]);JSJ[i*N+l]=s;}
+  const H2g2=hvp2(g2), a=WS(H2g2,rtm1), H1a=hvp1(a);
+  let II=0;for(let k=0;k<N;k++)II+=D(Jt[k],H1a[k]);II*=c2;
+  const wv=new Float64Array(N);for(let i=0;i<N;i++){let s=0;for(let j=0;j<N;j++)s+=Ktm2[i*N+j]*rtm2[j];wv[i]=s;}
+  const z=WS(Jtm1,wv), H1z=hvp1(z);
+  let III=0;for(let k=0;k<N;k++)III+=D(Jt[k],H1z[k]);III*=c2;
+  let nJt=0,nJtm1=0,nJtm2=0;for(let k=0;k<N;k++){nJt+=D(Jt[k],Jt[k]);nJtm1+=D(Jtm1[k],Jtm1[k]);nJtm2+=D(Jtm2[k],Jtm2[k]);}
+  const D2=nJt+nJtm2-2*nJtm1, divP=Math.abs(D2)>1e-30?(-(I+II-III)+D2)/D2*100:0;
+  const Kt=new Float64Array(N*N);for(let i=0;i<N;i++)for(let j=0;j<N;j++)Kt[i*N+j]=D(Jt[i],Jt[j]);
+  const ekt=jacobiEig(Kt,N);let ti=0,tv=-Infinity;for(let q=0;q<N;q++)if(ekt.vals[q]>tv){tv=ekt.vals[q];ti=q;}
+  const sig_t=tv, u1=new Float64Array(N);for(let k=0;k<N;k++)u1[k]=ekt.V[k*N+ti];
+  const topeig=K=>{const e=jacobiEig(K,N);let m=-Infinity;for(let q=0;q<N;q++)if(e.vals[q]>m)m=e.vals[q];return m;};
+  const Ktm1=new Float64Array(N*N);for(let i=0;i<N;i++)for(let j=0;j<N;j++)Ktm1[i*N+j]=D(Jtm1[i],Jtm1[j]);
+  const sig_tm1=topeig(Ktm1), sig_tm2=topeig(Ktm2);
+  const Qg1=WS(H1g1,u1), IV=c2*D(Qg1,Qg1), b=WS(Jt,u1);
+  const V=c2*D(b,WS(H1a,u1)), VI=c2*D(b,WS(H1z,u1));
+  const P=[];for(let i=0;i<N;i++)P.push(WS(W[i],u1));
+  const JQuJ=new Float64Array(N*N);for(let i=0;i<N;i++)for(let l=0;l<N;l++)JQuJ[i*N+l]=D(P[i],P[l]);
+  const Dsig2=sig_t+sig_tm2-2*sig_tm1, divS=Math.abs(Dsig2)>1e-30?(-(IV+V-VI)+Dsig2)/Dsig2*100:0;
+  const Ae=s15EigStats(s15RealEig(JSJ,Mmat,N,c2)), Be=s15EigStats(s15RealEig(JQuJ,Mmat,N,c2));
+  return {I,II,III,divP,Atop:Ae.top,Abot:Ae.bot,Astat:Ae.stat,IV,V,VI,divS,Btop:Be.top,Bbot:Be.bot,Bstat:Be.stat,D2,Dsig2};
+}
+// ── §15 render: 8 time-series plots (2 panels × 4) ──
+let S15_DATA=null, S15_BUILT=false;
+const S15_IDS=['p_s15_terms1','p_s15_div1','p_s15_Aeig','p_s15_Aspread','p_s15_terms2','p_s15_div2','p_s15_Beig','p_s15_Bspread'];
+function s15Build(){
+  S15_BUILT=true;
+  const ln=(name,col,dash)=>({x:[],y:[],mode:'lines+markers',name:name,line:{color:col,width:1.7,dash:dash||'solid'},marker:{size:3,color:col}});
+  const mk=(id,tr,title,yl)=>Plotly.newPlot(id,tr,withZero(baseLayout(title,yl,false)),{responsive:true,displaylogo:false});
+  const eigtr=()=>[ln('top-3','#2563eb'),ln('','#2563eb'),ln('','#2563eb'),ln('bottom-3','#dc2626'),ln('','#dc2626'),ln('','#dc2626')];
+  const band=()=>({x:[],y:[],fill:'toself',fillcolor:'rgba(37,99,235,0.18)',line:{width:0},name:'IQR',hoverinfo:'skip'});
+  const sprtr=()=>[band(),ln('mean','#111827'),ln('max','#16a34a'),ln('min','#dc2626')];
+  mk('p_s15_terms1',[ln('I','#2563eb'),ln('II','#16a34a'),ln('III','#dc2626')],'theory terms  I / II / III  (½∂²‖J‖²)','value');
+  mk('p_s15_div1',[ln('divergence','#7c3aed')],'divergence %  (theory vs empirical 2nd-difference)','%');
+  mk('p_s15_Aeig',eigtr(),'A: top-3 (blue) / bottom-3 (red) real eigenvalues','eigenvalue');
+  mk('p_s15_Aspread',sprtr(),'A: eigenvalue spread  (min/max/mean + IQR)','eigenvalue');
+  mk('p_s15_terms2',[ln('IV','#2563eb'),ln('V','#16a34a'),ln('VI','#dc2626')],'theory terms  IV / V / VI  (½∂²σ₁)','value');
+  mk('p_s15_div2',[ln('divergence','#7c3aed')],'divergence %  (theory vs empirical 2nd-difference)','%');
+  mk('p_s15_Beig',eigtr(),'B: top-3 (blue) / bottom-3 (red) real eigenvalues','eigenvalue');
+  mk('p_s15_Bspread',sprtr(),'B: eigenvalue spread  (min/max/mean + IQR)','eigenvalue');
+}
+function s15Push(m){
+  if(!S15_BUILT)s15Build();
+  if(!S15_DATA)S15_DATA={steps:[],I:[],II:[],III:[],divP:[],Atop:[[],[],[]],Abot:[[],[],[]],Astat:[[],[],[],[],[]],
+                         IV:[],V:[],VI:[],divS:[],Btop:[[],[],[]],Bbot:[[],[],[]],Bstat:[[],[],[],[],[]]};
+  const D=S15_DATA;D.steps.push(m.t);
+  D.I.push(m.I);D.II.push(m.II);D.III.push(m.III);D.divP.push(m.divP);
+  D.IV.push(m.IV);D.V.push(m.V);D.VI.push(m.VI);D.divS.push(m.divS);
+  for(let j=0;j<3;j++){D.Atop[j].push(m.Atop[j]??null);D.Abot[j].push(m.Abot[j]??null);D.Btop[j].push(m.Btop[j]??null);D.Bbot[j].push(m.Bbot[j]??null);}
+  for(let j=0;j<5;j++){D.Astat[j].push(m.Astat[j]);D.Bstat[j].push(m.Bstat[j]);}
+  const t=D.steps, bx=t.concat(t.slice().reverse());
+  Plotly.restyle('p_s15_terms1',{x:[t,t,t],y:[D.I,D.II,D.III]});
+  Plotly.restyle('p_s15_div1',{x:[t],y:[D.divP]});
+  Plotly.restyle('p_s15_Aeig',{x:[t,t,t,t,t,t],y:[D.Atop[0],D.Atop[1],D.Atop[2],D.Abot[0],D.Abot[1],D.Abot[2]]});
+  Plotly.restyle('p_s15_Aspread',{x:[bx,t,t,t],y:[D.Astat[3].concat(D.Astat[4].slice().reverse()),D.Astat[2],D.Astat[1],D.Astat[0]]});
+  Plotly.restyle('p_s15_terms2',{x:[t,t,t],y:[D.IV,D.V,D.VI]});
+  Plotly.restyle('p_s15_div2',{x:[t],y:[D.divS]});
+  Plotly.restyle('p_s15_Beig',{x:[t,t,t,t,t,t],y:[D.Btop[0],D.Btop[1],D.Btop[2],D.Bbot[0],D.Bbot[1],D.Bbot[2]]});
+  Plotly.restyle('p_s15_Bspread',{x:[bx,t,t,t],y:[D.Bstat[3].concat(D.Bstat[4].slice().reverse()),D.Bstat[2],D.Bstat[1],D.Bstat[0]]});
+}
+function s15Reset(){S15_DATA=null;S15_BUILT=false;S15_HIST_JS=[];for(const id of S15_IDS){try{Plotly.purge(id);}catch(e){}}}
 let S13_QJPREV_JS=null;  // §13 panel 4 client-side: previous eig-tick's {QJ[j][i]=Q_iJ_j, r} for the ‖A−B‖/‖A‖ asymmetry
 let OPT={s1:true,s2:true,s3:true,s4:true,s5:true,s6:true,gs:true};
 
@@ -1898,6 +1996,7 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_s13');if(el)el.style.display=(chk('en21')&&multi)?'':'none';}   // §13 residual-weighted curvature alignment (own toggle en21; reuses the §12 Lanczos)
   {const el=document.getElementById('sec_s14');if(el){const vis=(chk('en20')&&multi);el.style.display=vis?'':'none';   // §14 Tr(ΔNTK) per-triplet decomposition (s20, multi-only)
     if(vis&&typeof S14_SNAPS!=='undefined'&&S14_SNAPS.length)requestAnimationFrame(()=>s14RenderNow(S14_CURIDX));}}   // redraw canvases now that the divs have size
+  {const el=document.getElementById('sec_s15');if(el)el.style.display=(chk('en23')&&multi)?'':'none';}   // §15 2nd-difference decomposition (own toggle en23; multi-only)
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
 }
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
@@ -1906,6 +2005,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   s12Reset();   // §12: drop snapshots from the previous run
   s13Reset();   // §13: drop the approximation-comparison time-series from the previous run
   s14Reset();   // §14: drop snapshots from the previous run
+  s15Reset();   // §15: drop the 2nd-difference time-series + 3-tick buffer
   trReset();    // §5: clear the trace-over-iterations curves
   syncSectionVis(multi);   // gate sections by the panel toggles (multi from the actual run)
   const dis=s=>OPT.gs?s:s+'  (off)';
@@ -2275,7 +2375,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
   const qmode=Math.max(1,+val('qmode')||1), tset=Math.max(1,+val('tset')||1);   // qmode (legacy, unused by Eq-22); Eq-29 set-T size
   const nProbe=Math.max(1,+val('slqprobes')), efrac=Math.min(1,Math.max(0.5,(+val('energyp'))/100));
-  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),gs:val('gson')==='1'};
+  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),gs:val('gson')==='1'};
   OPT=opt;
   const {spec,p}=buildSpec(inDim,width,depth,act,useBias,outDim);
   if(p>100000){st.textContent=`p=${p} parameters exceeds the cap (100000). Reduce width/depth.`;ST=null;updateButtons();return;}
@@ -2438,7 +2538,7 @@ async function loop(){                                   // drives ST forward; r
         }
         // §4b/§4c shared base: top-n NTK eigenvectors v_k (sign-tracked) and J·r = Σ_a r_a ∇f_a, r=y−f
         let u1s=null,Jrs=null,Jrns=0,Rn=0,bJc=null,bEk=null,rrs=null;
-        if((O.s9||O.s10||O.s11||O.s12||O.s15||O.s16||O.s18||O.s19||O.s20||O.s21||O.s22)&&(M>1||O.s19||O.s22)){   // §12a/§12b also run for a single sample (M=1)
+        if((O.s9||O.s10||O.s11||O.s12||O.s15||O.s16||O.s18||O.s19||O.s20||O.s21||O.s22||O.s23)&&(M>1||O.s19||O.s22)){   // §12a/§12b also run for a single sample (M=1)
           const dn=M;const jc=jacCols(S.th,spec,X,N,inDim,p);bJc=jc.cols;
           const Km=new Float64Array(dn*dn);for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(bJc[a],bJc[b]);Km[a*dn+b]=v;Km[b*dn+a]=v;}
           bEk=symEigDesc(Km,dn);
@@ -2558,6 +2658,19 @@ async function loop(){                                   // drives ST forward; r
             const cur14={TV:TV,TW:TW,BV:BV,BW:BW,r:r12,Jg:Jg12};
             if(S14_PREV_JS)s14Push({type:'g14',t:S.t,...sec14Payload(S14_PREV_JS,cur14,N,p,S.lr,S.grid3dcap,S14_RHIST_JS)});   // need t (prev); skip first eig-tick
             S14_PREV_JS=cur14;}
+        }
+        if(O.s23&&M>1&&N<=S.grid3dcap&&bJc&&rrs){   // §15: 2nd-difference decomposition of ‖J‖²_F & σ₁ — multi-only, small-N, holds 3 ticks
+          const oD=Math.round(M/N), lblsel=new Array(N);
+          for(let i=0;i<N;i++){if(oD>1){let mx=-Infinity,mi=0;for(let c=0;c<oD;c++){const yv=Y[i*oD+c];if(yv>mx){mx=yv;mi=c;}}lblsel[i]=i*oD+mi;}else lblsel[i]=i;}
+          const Jg15=lblsel.map(a=>bJc[a]), r15=lblsel.map(a=>rrs[a]);   // N Float64Arrays(p) GT-grads ∇f_i ; N residuals r=y−f
+          if(S15_HIST_JS.length>=2){                                     // need t−1 & t−2 → skip the first two eig-ticks
+            const tm1=S15_HIST_JS[S15_HIST_JS.length-1], tm2=S15_HIST_JS[S15_HIST_JS.length-2];
+            const hvp1=v=>{const Q=jacHVP(tm1.th,spec,X,N,inDim,p,v,eps);return lblsel.map(a=>Q[a]);};   // {Q_{t−1,k}·v}_k
+            const hvp2=v=>{const Q=jacHVP(tm2.th,spec,X,N,inDim,p,v,eps);return lblsel.map(a=>Q[a]);};
+            s15Push({type:'g15',t:S.t,...sec15Stats(hvp1,hvp2,Jg15,tm1.J,tm2.J,tm1.r,tm2.r,S.lr,N,p)});
+          }
+          S15_HIST_JS.push({th:S.th.slice(),J:Jg15,r:r15});
+          if(S15_HIST_JS.length>2)S15_HIST_JS.shift();
         }
         // Q[u₁] = Σ_a (u₁)_a ∇²f_a — extreme eigvecs (shared by §4b and §4d), sign-tracked once
         let qe=null;
@@ -2755,6 +2868,7 @@ function resetSim(){
   s12Reset();   // §12: clear the eigvec-similarity grids/cuboids + snapshots/slider too
   s13Reset();   // §13: clear the approximation-comparison time-series too
   s14Reset();   // §14: clear the triplet-decomposition cubes + snapshots/slider too
+  s15Reset();   // §15: clear the 2nd-difference time-series + 3-tick buffer too
   updateButtons();
 }
 
@@ -2774,7 +2888,7 @@ function _zip(files){const enc=new TextEncoder(),parts=[],cd=[];let off=0;
 function _b64bytes(durl){const s=atob(durl.split(',')[1]),a=new Uint8Array(s.length);for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return a;}
 function _cfgText(){const ids=['preset','compute','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','cvar','depth','width','act','bias','fixedx','inputstd','ssign','optimizer','indim','outdim','nsamp','batch','tgt','lr','init','initscheme','steps','seed','neig','kth','eigevery','heavyevery','slqprobes','energyp','gson','qapprox','qmode','tset','cubicapprox'];
   const L=ids.map(id=>{const e=document.getElementById(id);return e?(id+' = '+e.value):null;}).filter(Boolean);
-  L.push('panels: '+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22'].map(id=>id+'='+(chk(id)?1:0)).join(' '));
+  L.push('panels: '+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23'].map(id=>id+'='+(chk(id)?1:0)).join(' '));
   const stt=document.getElementById('status');if(stt&&stt.textContent)L.push('status: '+stt.textContent);
   return 'EoS / Progressive-Sharpening — run configuration\n\n'+L.join('\n')+'\n';}
 // ---- self-contained animated-GIF export of the §11/§12/§13 cubes (rotating) + 2D grids (over snapshots) ----
@@ -2947,13 +3061,14 @@ function openStream(start,resuming){
     }else if(m.type==='g4d'){s12Push(m);
     }else if(m.type==='g13'){s13Push(m);
     }else if(m.type==='g14'){s14Push(m);
+    }else if(m.type==='g15'){s15Push(m);
     }else if(m.type==='done'){st.textContent=`done — through step ${lastT} · p=${m.p} · 2/lr=${(META?META.thr:0).toFixed(3)}.`;finish();
     }else if(m.type==='error'){st.textContent='backend: '+m.error;finish();}
   };
   es.onerror=()=>{if(RUNNING&&!PAUSED)st.textContent='backend connection lost — start it with “python server.py”, then press Run (or switch compute to browser).';finish();};
 }
 function runGPU(){
-  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),gs:val('gson')==='1'};
+  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),gs:val('gson')==='1'};
   lastT=-1;META=null;cursorX=null;openStream(0,false);
 }
 function stopGPU(){ if(RUNNING){PAUSED=true;if(ES){ES.close();ES=null;}RUNNING=false;document.getElementById('status').textContent=`stopped at step ${lastT} — press Resume to continue.`;updateButtons();} }
@@ -3013,7 +3128,7 @@ function syncLossPanels(){
 function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic' && val('arch')==='mlp'){ runLocal(true); } }
 document.getElementById('loss').addEventListener('change',syncLossPanels);
 document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
-['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
 ['s14f_y1','s14f_y2','s14f_y5','s14f_agg','s14f_max','s14f_min','s14f_ratio'].forEach(id=>{const e=document.getElementById(id);if(e)e.addEventListener('change',s14ApplyPanelFilter);});
 if(typeof s14ApplyPanelFilter==='function')s14ApplyPanelFilter();   // apply the default §14 panel selection on load
 {const sl=document.getElementById('g3d_slider');if(sl)sl.addEventListener('input',function(){g3dRenderIdx(+this.value);});}   // §11 scrub past snapshots

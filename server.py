@@ -404,6 +404,71 @@ def _sec14_payload(prev, cur, lr, grid3dcap, rhist):
     return out
 
 
+def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
+    """§15 — 2nd-difference decomposition of ‖J‖²_F (panel 1) and σ₁ (panel 2). hvp1/hvp2 give {Q_{t-1,k}·v}_k /
+    {Q_{t-2,k}·v}_k; Jt/Jtm1/Jtm2 are (N,p) per-sample GT-gradients; rtm1/rtm2 (N,). MIRRORS eos_lab.sec15_stats.
+      I  = c²·g_{t−1}ᵀ S_{t−1} g_{t−1}, S=Σ_k Q²       II = c²·Σ_k ∇f_{t,k}ᵀ Q_{t−1,k} Q̃ g_{t−2}, Q̃=Σⱼ r_{t−1,j}Q_{t−2,j}
+      III= c²·Σ_k ∇f_{t,k}ᵀ Q_{t−1,k}(J_{t−1}J_{t−2}ᵀJ_{t−2}r_{t−2})   A = c²·(J_{t−1}ᵀSJ_{t−1})(I−cJ_{t−2}ᵀJ_{t−2})
+      IV/V/VI/B: σ₁ analogs — S→(Q̄ᵘ)², Q̄ᵘ=Σ_k u_{t,1,k}Q_{t−1,k}, trace-tie→u_{t,1} projection. c=η/N."""
+    dt, dev = Jt.dtype, Jt.device
+    c = lr / N
+    c2 = c * c
+
+    def estats(M):                                            # real eigenvalues of N×N M (A,B are PSD·sym ⇒ real)
+        e = torch.linalg.eigvals(M).real
+        es = torch.sort(e, descending=True).values
+        k = min(3, es.numel())
+        top = es[:k].tolist()
+        bot = torch.sort(e).values[:k].tolist()
+        st = [float(e.min()), float(e.max()), float(e.mean()),
+              float(torch.quantile(e, 0.25)), float(torch.quantile(e, 0.75))]
+        return top, bot, st
+
+    g1 = Jtm1.t() @ rtm1; g2 = Jtm2.t() @ rtm2
+    Ktm2 = Jtm2 @ Jtm2.t()
+    Imat = torch.eye(N, dtype=dt, device=dev)
+
+    H1g1 = hvp1(g1)
+    I = c2 * float((H1g1 * H1g1).sum())
+    W = torch.stack([hvp1(Jtm1[i]) for i in range(N)])        # (N_i,N_k,p)
+    JSJ = torch.einsum('ikp,lkp->il', W, W)
+    A = c2 * (JSJ @ (Imat - c * Ktm2))
+    Atop, Abot, Astat = estats(A)
+
+    a = rtm1 @ hvp2(g2)
+    H1a = hvp1(a)
+    II = c2 * float((Jt * H1a).sum())
+    w = Ktm2 @ rtm2
+    z = Jtm1.t() @ w
+    H1z = hvp1(z)
+    III = c2 * float((Jt * H1z).sum())
+
+    nJt = float((Jt * Jt).sum()); nJtm1 = float((Jtm1 * Jtm1).sum()); nJtm2 = float((Jtm2 * Jtm2).sum())
+    D2 = nJt + nJtm2 - 2.0 * nJtm1
+    divP = ((-(I + II - III) + D2) / D2 * 100.0) if abs(D2) > 1e-30 else 0.0
+
+    Kt = Jt @ Jt.t()
+    evt = torch.linalg.eigh(Kt)
+    sig_t = float(evt.eigenvalues[-1]); u1 = evt.eigenvectors[:, -1]
+    sig_tm1 = float(torch.linalg.eigvalsh(Jtm1 @ Jtm1.t())[-1])
+    sig_tm2 = float(torch.linalg.eigvalsh(Ktm2)[-1])
+
+    Qu_g1 = u1 @ H1g1
+    IV = c2 * float((Qu_g1 * Qu_g1).sum())
+    b = u1 @ Jt
+    V = c2 * float((b * (u1 @ H1a)).sum())
+    VI = c2 * float((b * (u1 @ H1z)).sum())
+    P = torch.einsum('k,ikp->ip', u1, W)
+    Bm = c2 * ((P @ P.t()) @ (Imat - c * Ktm2))
+    Btop, Bbot, Bstat = estats(Bm)
+    Dsig2 = sig_t + sig_tm2 - 2.0 * sig_tm1
+    divS = ((-(IV + V - VI) + Dsig2) / Dsig2 * 100.0) if abs(Dsig2) > 1e-30 else 0.0
+
+    return {"I": I, "II": II, "III": III, "divP": divP, "Atop": Atop, "Abot": Abot, "Astat": Astat,
+            "IV": IV, "V": V, "VI": VI, "divS": divS, "Btop": Btop, "Bbot": Bbot, "Bstat": Bstat,
+            "D2": D2, "Dsig2": Dsig2}
+
+
 def _opt_dir(model, g, opt):
     """Update DIRECTION from the raw gradient g (NO momentum). The actual θ step is θ ← θ − lr·dir.
       gd       → g                       (plain full-batch gradient descent)
@@ -1712,6 +1777,7 @@ def run_stream(P):
     s20 = P.get("s20", 0)                # §14: Tr(ΔNTK) per-triplet (i,j,k) decomposition cubes (small N; shares §12 eigenpairs)
     s21 = P.get("s21", 0)                # §13: residual-weighted curvature G1/G2/G3 vs exact J_iᵀQ_jJ_k·r_k (own toggle; shares §12 Lanczos + adds N HVPs)
     s22 = P.get("s22", 0)                # §12b: per-sample projection panels (s19=§12a angles+diag-align; both share the §12 Lanczos)
+    s23 = P.get("s23", 0)                # §15: 2nd-difference decomposition of ‖J‖²_F & σ₁ (own toggle; holds 3 eig-ticks; multi-only, small-N)
     grid3dcap = max(1, P.get("grid3dcap", 30))
     sec12ncap = max(1, P.get("sec12ncap", 500))    # §12 sample cap (gates N). NOTE: §12 builds dense p×p Hessians
                                                     # (p HVPs + O(p³) eig per sample) → large p is SLOW; keep models small.
@@ -1778,6 +1844,7 @@ def run_stream(P):
     sec14_prev = None         # §14: previous eig-tick's {TV,TW,BV,BW,r,Jg} (u,σ,r_j,J_k at t; cur tick gives J_i,r_k at t+1)
     sec13_prev = None         # §13: previous eig-tick's per-sample {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
     sec13_qjprev = None        # §13 panel 4: previous eig-tick's {QJ=(N_j,N_i,p) Q_iJ_j, r} for the ‖A−B‖/‖A‖ asymmetry
+    sec15_hist = []            # §15: rolling buffer of the last 2 eig-ticks' {th, J, r} (need t−1 and t−2)
     prevTop = [None] * nSub
     prevBot = [None] * nSub
     prevPos = None
@@ -1880,7 +1947,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if (multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22):
+            if (multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s23):
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -2262,7 +2329,7 @@ def run_stream(P):
             # bottom-K12 eigenpairs of each Q_i by Lanczos on v↦Q_i·v — no p×p Hessian is formed. For the MLP
             # the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (a single vectorised forward/backward per
             # step instead of N) — ~4–8× faster on GPU. Other archs fall back to the per-sample loop. Gated on N.
-            sec12 = None; sec14 = None; sec13 = None
+            sec12 = None; sec14 = None; sec13 = None; sec15 = None
             if (s19 or s20 or s21 or s22) and (multi_ok or s12single) and Jc is not None and rr is not None and N <= sec12ncap:
                 lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
                             if outD > 1 else torch.arange(N, device=_dev()))
@@ -2349,6 +2416,19 @@ def run_stream(P):
                         sec14 = _sec14_payload(sec14_prev, cur14, lr, grid3dcap, sec14_rhist)
                     sec14_prev = {kk_: vv_.detach() for kk_, vv_ in cur14.items()}
 
+            if s23 and multi_ok and N <= grid3dcap and Jc is not None and rr is not None:   # §15: 2nd-difference decomposition (own toggle; multi-only, small-N, holds 3 ticks)
+                lblsel15 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
+                            if outD > 1 else torch.arange(N, device=_dev()))
+                Jg15 = Jc[lblsel15]; r15 = rr[lblsel15]
+                if len(sec15_hist) >= 2:                        # need t−1 & t−2 → skip the first two eig-ticks
+                    tm1, tm2 = sec15_hist[-1], sec15_hist[-2]
+                    hvp1 = lambda v: jac_hvp(tm1["th"], X, v)[lblsel15]
+                    hvp2 = lambda v: jac_hvp(tm2["th"], X, v)[lblsel15]
+                    sec15 = _sec15_stats(hvp1, hvp2, Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], lr, N)
+                sec15_hist.append({"th": th.detach().clone(), "J": Jg15.detach(), "r": r15.detach()})
+                if len(sec15_hist) > 2:
+                    sec15_hist.pop(0)
+
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness λmax(∇²L) ≈ λmax(GN) = σ₁/N
             thPr = [(x / N if x is not None else None) for x in thP] if thP else None
             thAr = [(x / N if x is not None else None) for x in thA] if thA else None
@@ -2404,6 +2484,8 @@ def run_stream(P):
                 yield {"type": "g13", "t": t, **sec13}   # §13 G1/G2/G3 approximations vs exact J_iᵀQ_jJ_k·r_k
             if sec14 is not None:
                 yield {"type": "g14", "t": t, **sec14}   # §14 Tr(ΔNTK) per-triplet decomposition snapshot
+            if sec15 is not None:
+                yield {"type": "g15", "t": t, **sec15}   # §15 2nd-difference decomposition of ‖J‖²_F & σ₁
             eigTick += 1
             done += 1
 
@@ -2923,6 +3005,7 @@ def _parse_params(q):
         "s20": g("s20", "0") == "1",     # §14: Tr(ΔNTK) per-triplet decomposition cubes (multi-sample, small N; OFF by default)
         "s21": g("s21", "0") == "1",     # §13: residual-weighted curvature G1/G2/G3 vs exact ref (own toggle; multi-sample, small N; OFF by default)
         "s22": g("s22", "0") == "1",     # §12b: per-sample projection panels (s19=§12a angles+diag-align; both share the §12 Lanczos)
+        "s23": g("s23", "0") == "1",     # §15: 2nd-difference decomposition of ‖J‖²_F & σ₁ (own toggle; multi-sample, small N; OFF by default)
         "grid3dcap": max(1, fi("grid3dcap", 500)),
         "sec12ncap": max(1, fi("sec12ncap", 500)),
         "gs": g("gson", "1") == "1",

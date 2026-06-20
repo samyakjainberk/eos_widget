@@ -550,3 +550,78 @@ def principal_angles(A, B):
         ang.append(math.degrees(math.acos(max(-1.0, min(1.0, s)))))
     ang.sort()
     return {"mx": ang[-1], "mn": sum(ang) / len(ang)}
+
+
+# ───────────────────────── §15 — 2nd-difference decomposition of ‖J‖²_F and σ₁ ─────────────────────────
+# Over GD with step Δθ = (η/N)·Σᵢrᵢ∇fᵢ, the discrete 2nd difference of ‖J‖²_F (= tr NTK) and of σ₁ (top NTK
+# eigenvalue) is decomposed into theory terms I/II/III (resp. IV/V/VI) plus the matrices A (resp. B). All
+# per-sample function-Hessian actions Q_{s,k}·v come from the callables hvp1 (at t−1) and hvp2 (at t−2);
+# Jt/Jtm1/Jtm2 are (N,p) per-sample GT-gradients (row k = ∇f_{s,k}), rtm1/rtm2 are (N,). c = η/N.
+#   I  = c²·g_{t−1}ᵀ S_{t−1} g_{t−1},  S = Σ_k Q_{t−1,k}²,  g_s = Σᵢ r_{s,i}∇f_{s,i}
+#   II = c²·Σ_k ∇f_{t,k}ᵀ Q_{t−1,k}·Q̃·g_{t−2},  Q̃ = Σⱼ r_{t−1,j} Q_{t−2,j}
+#   III= c²·Σ_k ∇f_{t,k}ᵀ Q_{t−1,k}·(J_{t−1} J_{t−2}ᵀ J_{t−2} r_{t−2})
+#   A  = c²·(J_{t−1}ᵀ S_{t−1} J_{t−1})(I − c·J_{t−2}ᵀJ_{t−2})       (N×N, real eigenvalues: PSD·symmetric)
+#   IV/V/VI/B: the σ₁ analogs — S→(Q̄ᵘ)² with Q̄ᵘ=Σ_k u_{t,1,k}Q_{t−1,k}, and the trace-tie → u_{t,1} projection.
+def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
+    dt, dev = Jt.dtype, Jt.device
+    c = lr / N
+    c2 = c * c
+
+    def estats(M):                                            # real eigenvalues of N×N M (A,B are PSD·sym ⇒ real)
+        e = torch.linalg.eigvals(M).real
+        es = torch.sort(e, descending=True).values
+        k = min(3, es.numel())
+        top = es[:k].tolist()
+        bot = torch.sort(e).values[:k].tolist()               # 3 smallest, ascending
+        st = [float(e.min()), float(e.max()), float(e.mean()),
+              float(torch.quantile(e, 0.25)), float(torch.quantile(e, 0.75))]
+        return top, bot, st
+
+    g1 = Jtm1.t() @ rtm1                                      # g_{t−1}  (p,)
+    g2 = Jtm2.t() @ rtm2                                      # g_{t−2}  (p,)
+    Ktm2 = Jtm2 @ Jtm2.t()                                    # NTK at t−2  (N,N)
+    Imat = torch.eye(N, dtype=dt, device=dev)
+
+    H1g1 = hvp1(g1)                                           # (N,p) row k = Q_{t−1,k} g_{t−1}
+    I = c2 * float((H1g1 * H1g1).sum())                       # = c²·Σ_k‖Q_{t−1,k}g_{t−1}‖² = c²·g₁ᵀSg₁
+
+    W = torch.stack([hvp1(Jtm1[i]) for i in range(N)])        # (N_i,N_k,p)  W[i,k]=Q_{t−1,k}∇f_{t−1,i}
+    JSJ = torch.einsum('ikp,lkp->il', W, W)                   # J_{t−1}ᵀ S_{t−1} J_{t−1}  (N,N)
+    A = c2 * (JSJ @ (Imat - c * Ktm2))
+    Atop, Abot, Astat = estats(A)
+
+    a = rtm1 @ hvp2(g2)                                       # Q̃ g_{t−2}  (p,)
+    H1a = hvp1(a)
+    II = c2 * float((Jt * H1a).sum())                         # Σ_k ∇f_{t,k}·(Q_{t−1,k} a)
+
+    w = Ktm2 @ rtm2                                           # J_{t−2}ᵀJ_{t−2} r_{t−2}  (N,)
+    z = Jtm1.t() @ w                                          # J_{t−1} w  (p,)
+    H1z = hvp1(z)
+    III = c2 * float((Jt * H1z).sum())
+
+    nJt = float((Jt * Jt).sum()); nJtm1 = float((Jtm1 * Jtm1).sum()); nJtm2 = float((Jtm2 * Jtm2).sum())
+    D2 = nJt + nJtm2 - 2.0 * nJtm1
+    divP = ((-(I + II - III) + D2) / D2 * 100.0) if abs(D2) > 1e-30 else 0.0
+
+    # ── panel 2 (σ₁): top NTK eigenpair at t,t−1,t−2 + the u₁-projected terms ──
+    Kt = Jt @ Jt.t()
+    evt = torch.linalg.eigh(Kt)
+    sig_t = float(evt.eigenvalues[-1])
+    u1 = evt.eigenvectors[:, -1]                              # top NTK eigenvector at t  (N,)
+    sig_tm1 = float(torch.linalg.eigvalsh(Jtm1 @ Jtm1.t())[-1])
+    sig_tm2 = float(torch.linalg.eigvalsh(Ktm2)[-1])
+
+    Qu_g1 = u1 @ H1g1                                         # Q̄ᵘ g_{t−1}  (p,)
+    IV = c2 * float((Qu_g1 * Qu_g1).sum())
+    b = u1 @ Jt                                               # J_t u_{t,1}  (p,)
+    V = c2 * float((b * (u1 @ H1a)).sum())                    # bᵀ Q̄ᵘ (Q̃ g_{t−2})
+    VI = c2 * float((b * (u1 @ H1z)).sum())                   # bᵀ Q̄ᵘ z
+    P = torch.einsum('k,ikp->ip', u1, W)                      # Q̄ᵘ ∇f_{t−1,i}  (N,p)
+    Bm = c2 * ((P @ P.t()) @ (Imat - c * Ktm2))               # J_{t−1}ᵀ(Q̄ᵘ)²J_{t−1}·(I−cK_{t−2})
+    Btop, Bbot, Bstat = estats(Bm)
+    Dsig2 = sig_t + sig_tm2 - 2.0 * sig_tm1
+    divS = ((-(IV + V - VI) + Dsig2) / Dsig2 * 100.0) if abs(Dsig2) > 1e-30 else 0.0
+
+    return {"I": I, "II": II, "III": III, "divP": divP, "Atop": Atop, "Abot": Abot, "Astat": Astat,
+            "IV": IV, "V": V, "VI": VI, "divS": divS, "Btop": Btop, "Bbot": Bbot, "Bstat": Bstat,
+            "D2": D2, "Dsig2": Dsig2}

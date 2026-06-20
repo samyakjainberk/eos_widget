@@ -1204,6 +1204,55 @@ def plot_section14_ratio(hist):
     return _s14_fig(g["ratio"], _S14_RLAB, N, "§14 panel 10 — eq-③ multi-step ratio (first/last × y, S=y)")
 
 
+def _s15_panel(hist, terms, divkey, pre, suptitle):
+    """§15 one panel — 4 plots: (1) the three theory terms; (2) divergence %; (3) top-3/bottom-3 real eigenvalues
+    of A (pre='A') resp. B (pre='B'); (4) eigenvalue min/max/mean + IQR band. Reads rec['g15']."""
+    import numpy as np
+    recs = [r for r in hist if "g15" in r]
+    if len(recs) < 2:
+        return None
+    t = list(range(len(recs))); G = [r["g15"] for r in recs]
+    fig, axs = plt.subplots(1, 4, figsize=(20, 3.7))
+    for nm, col in zip(terms, ["#2563eb", "#16a34a", "#dc2626"]):
+        axs[0].plot(t, [g[nm] for g in G], label=nm, color=col, marker="o", ms=3, lw=1.4)
+    axs[0].axhline(0, c="#999", lw=0.6); axs[0].legend(fontsize=9)
+    axs[0].set_title("theory terms  " + " / ".join(terms)); axs[0].set_xlabel("step")
+    axs[1].plot(t, [g[divkey] for g in G], color="#7c3aed", marker="o", ms=3, lw=1.4)
+    axs[1].axhline(0, c="#999", lw=0.6); axs[1].set_title("divergence  %"); axs[1].set_xlabel("step")
+    top, bot = pre + "top", pre + "bot"
+    nt = max((len(g[top]) for g in G), default=0); nb = max((len(g[bot]) for g in G), default=0)
+    for j in range(nt):
+        axs[2].plot(t, [g[top][j] if j < len(g[top]) else np.nan for g in G], color="#2563eb", lw=1.2,
+                    label=("top-3" if j == 0 else None))
+    for j in range(nb):
+        axs[2].plot(t, [g[bot][j] if j < len(g[bot]) else np.nan for g in G], color="#dc2626", lw=1.2,
+                    label=("bottom-3" if j == 0 else None))
+    axs[2].axhline(0, c="#999", lw=0.6); axs[2].legend(fontsize=8)
+    axs[2].set_title(f"{pre}: top-3 (blue) / bottom-3 (red) real eigenvalues"); axs[2].set_xlabel("step")
+    st = pre + "stat"   # [min,max,mean,q25,q75]
+    mn = [g[st][0] for g in G]; mx = [g[st][1] for g in G]; me = [g[st][2] for g in G]
+    q25 = [g[st][3] for g in G]; q75 = [g[st][4] for g in G]
+    axs[3].fill_between(t, q25, q75, alpha=0.25, color="#2563eb", label="IQR")
+    axs[3].plot(t, me, color="#111", lw=1.5, label="mean")
+    axs[3].plot(t, mx, color="#16a34a", lw=1, label="max"); axs[3].plot(t, mn, color="#dc2626", lw=1, label="min")
+    axs[3].axhline(0, c="#999", lw=0.6); axs[3].legend(fontsize=7)
+    axs[3].set_title(f"{pre}: eigenvalue spread (min/max/mean + IQR)"); axs[3].set_xlabel("step")
+    fig.suptitle(suptitle, fontsize=13); fig.tight_layout(rect=(0, 0, 1, 0.93))
+    return fig
+
+
+def plot_section15_panel1(hist):
+    """§15 panel 1 — decomposition of ½∂²‖J‖²_F: terms I/II/III, divergence%, and eigenvalues of A."""
+    return _s15_panel(hist, ["I", "II", "III"], "divP", "A",
+                      "§15 panel 1 — ½∂²‖J‖²_F = I+II−III · divergence vs empirical 2nd-difference · eigenvalues of A")
+
+
+def plot_section15_panel2(hist):
+    """§15 panel 2 — decomposition of ½∂²σ₁ (top NTK eigenvalue): terms IV/V/VI, divergence%, eigenvalues of B."""
+    return _s15_panel(hist, ["IV", "V", "VI"], "divS", "B",
+                      "§15 panel 2 — ½∂²σ₁ = IV+V−VI · divergence vs empirical 2nd-difference · eigenvalues of B")
+
+
 def save_section12_panel_gif(hist, k0, path, frames=30, fps=12, dpi=60):
     """A §12 grid panel as a rotating GIF (the 3D (i,j,k) grids spin so the structure is readable)."""
     from matplotlib.animation import FuncAnimation, PillowWriter
@@ -1277,7 +1326,9 @@ def save_panels(results, outdir):
             "section14_y5_agg": plot_section14(hist, 5, "agg"),
             "section14_y5_max": plot_section14(hist, 5, "max"),
             "section14_y5_min": plot_section14(hist, 5, "min"),
-            "section14_ratio": plot_section14_ratio(hist)}
+            "section14_ratio": plot_section14_ratio(hist),
+            "section15_panel1_normJ": plot_section15_panel1(hist),
+            "section15_panel2_sigma1": plot_section15_panel2(hist)}
     written = []
     for name, fig in figs.items():
         if fig is None:
