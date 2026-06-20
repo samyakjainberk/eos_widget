@@ -417,6 +417,12 @@
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — $\tfrac12\partial_t^2\sigma_1 = \mathrm{IV}+\mathrm{V}-\mathrm{VI}$ &amp; eigenvalues of $B$</h3>
 <p class="cap">Same as Panel 1 but the trace-tie is replaced by the top NTK eigenvector $u_{t,1}$ projection — $S\to(\bar Q^{u})^2$ with $\bar Q^{u}=\sum_k u_{t,1,k}Q_{t-1,k}$: $\mathrm{IV}=c^2 g_{t-1}^\top(\bar Q^{u})^2 g_{t-1}$ ·  $\mathrm{V}=c^2(J_t u_{t,1})^\top\bar Q^{u}\,\tilde Q\,g_{t-2}$ ·  $\mathrm{VI}=c^2(J_t u_{t,1})^\top\bar Q^{u}\,(J_{t-1}J_{t-2}^\top J_{t-2}r_{t-2})$ ·  $B=c^2(J_{t-1}^\top(\bar Q^{u})^2 J_{t-1})(I-c\,J_{t-2}^\top J_{t-2})$. Divergence$\%=\big[D_\sigma^2-2(\mathrm{IV+V-VI})\big]/D_\sigma^2\times100$ with $D_\sigma^2=\sigma_{1,t}+\sigma_{1,t-2}-2\sigma_{1,t-1}$ (same 2× as Panel 1). <b>Plot 5</b>: SLQ spectral density of $B$ at the current step.</p>
 <div class="plotrow row5"><div id="p_s15_terms2" class="plot" style="height:290px"></div><div id="p_s15_div2" class="plot" style="height:290px"></div><div id="p_s15_Beig" class="plot" style="height:290px"></div><div id="p_s15_Bspread" class="plot" style="height:290px"></div><div id="p_s15_Bdens" class="plot" style="height:290px"></div></div>
+<h3 style="margin:16px 0 2px;font-size:14px;color:#475569">Panel 3 — $\tfrac12\partial_t^2\lVert J\rVert_F^2 = \mathrm{I}+\mathrm{II}-\mathrm{III}+\mathrm{VII}$ (Q̇≠0) &amp; eigenvalues of $A'$</h3>
+<p class="cap">Same as Panel 1 but adds the <b>third-derivative term VII</b> $=c^2\sum_k\nabla f_{t,k}^\top T_{t-2,k}[\,\cdot\,,g_{t-1},g_{t-2}]$ ($T=\nabla^3 f$, sample-tied to $J_t$); the divergence and matrix use the full $\mathrm{I}+\mathrm{II}-\mathrm{III}+\mathrm{VII}$ with $A'=A+(\text{VII as }r_{t-1}^\top(\cdot)r_{t-2})$. VII is the genuine missing $O(c^2)$ term — with it the theory matches $\tfrac12D^2$ to $O(c^3)$, so <b>the divergence closes as the step shrinks</b> (small lr); at EoS-scale lr the higher-order residual still dominates. Costs $2N^2$ extra HVPs (slower at large $N$).</p>
+<div class="plotrow row5"><div id="p_s15_terms3" class="plot" style="height:290px"></div><div id="p_s15_div3" class="plot" style="height:290px"></div><div id="p_s15_Apeig" class="plot" style="height:290px"></div><div id="p_s15_Apspread" class="plot" style="height:290px"></div><div id="p_s15_Apdens" class="plot" style="height:290px"></div></div>
+<h3 style="margin:16px 0 2px;font-size:14px;color:#475569">Panel 4 — $\tfrac12\partial_t^2\sigma_1 = \mathrm{IV}+\mathrm{V}-\mathrm{VI}+\mathrm{VIII}$ (Q̇≠0) &amp; eigenvalues of $B'$</h3>
+<p class="cap">The $\sigma_1$ analogue: <b>VIII</b> is VII with both $J_t$ and $T_{t-2}$ projected by the top NTK eigenvector $u_{t,1}$, and $B'=B+(\text{VIII})$. Its residual is larger than Panel 3's (converges $\sim c^{2.4}$, not $c^3$): the remainder is $\sigma_1$ <b>eigenvector motion</b> $\dot u_{t,1}$, which the $u_{t,1}$-projection omits.</p>
+<div class="plotrow row5"><div id="p_s15_terms4" class="plot" style="height:290px"></div><div id="p_s15_div4" class="plot" style="height:290px"></div><div id="p_s15_Bpeig" class="plot" style="height:290px"></div><div id="p_s15_Bpspread" class="plot" style="height:290px"></div><div id="p_s15_Bpdens" class="plot" style="height:290px"></div></div>
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 5 — per-sample norm evolution (mean ± std across samples)</h3>
 <p class="cap">Evolution of four per-sample quantities, averaged over the $N$ samples with the <b>±1 std shown as a shaded cloud</b> around the mean. <b>‖gradient‖</b> $=\lVert r_k\nabla f_k\rVert=|r_k|\,\lVert\nabla f_k\rVert$ (per-sample loss-gradient term) · <b>‖Jacobian‖</b> $=\lVert\nabla f_k\rVert$ (function-gradient / row of $J$) · <b>‖function Hessian‖</b> $=\lVert Q_k\rVert_F=\lVert\nabla^2 f_k\rVert_F$ (Frobenius, estimated by Hutchinson: $\mathbb{E}_v\lVert Q_k v\rVert^2=\mathrm{tr}(Q_k^2)$) · <b>‖residual‖</b> $=|r_k|$. All at the current step $t$ (no 3-tick buffer needed, so this panel fills from the start).</p>
 <div class="plotrow row4"><div id="p_s15_ng" class="plot" style="height:290px"></div><div id="p_s15_nj" class="plot" style="height:290px"></div><div id="p_s15_nh" class="plot" style="height:290px"></div><div id="p_s15_nr" class="plot" style="height:290px"></div></div>
@@ -2003,7 +2009,33 @@ function sec15Stats(hvp1,hvp2,Jt,Jtm1,Jtm2,rtm1,rtm2,lr,N,p){
   const AeRaw=realEigParts(Amat,N), BeRaw=realEigParts(Bmat,N);   // sorted-desc real parts of the general A,B
   const Ae=s15EigStats(AeRaw), Be=s15EigStats(BeRaw);
   const Aeig=Array.from(AeRaw).sort((x,y)=>y-x), Beig=Array.from(BeRaw).sort((x,y)=>y-x);   // → SLQ density (plot 5)
-  return {I,II,III,divP,Atop:Ae.top,Abot:Ae.bot,Astat:Ae.stat,IV,V,VI,divS,Btop:Be.top,Bbot:Be.bot,Bstat:Be.stat,D2,Dsig2,Aeig,Beig};
+  return {rec:{I,II,III,divP,Atop:Ae.top,Abot:Ae.bot,Astat:Ae.stat,IV,V,VI,divS,Btop:Be.top,Bbot:Be.bot,Bstat:Be.stat,D2,Dsig2,Aeig,Beig},
+          Amat,Bmat,u1};   // also expose the A,B matrices + top NTK eigvec u₁ for panels 3/4
+}
+// §15 panels 3/4 (Q̇≠0): VII/VIII (3rd-derivative terms) + matrices A'=A+(VII), B'=B+(VIII).
+// hvpAt(theta,v) → [N Float64Arrays(p)] = {Q_k(theta)·v}; a directional FD of it gives T_{t-2,k}. Costs 2N²+2 HVPs.
+function sec15Panel34(hvpAt,thtm2,Jt,Jtm1,Jtm2,rtm1,rtm2,u1,Amat,Bmat,rec,lr,N,p,eps){
+  eps=eps||1e-3; const c=lr/N, c2=c*c, D=(a,b)=>s15Dotp(a,b,p), WS=(v,w)=>s15Wsum(v,w,p);
+  const g1=WS(Jtm1,rtm1), g2=WS(Jtm2,rtm2), b=WS(Jt,u1);                 // b=Σ_k u1ₖ∇f_{t,k}
+  const dirHvp=(dir,sgn,v)=>{const th=thtm2.slice();for(let q=0;q<p;q++)th[q]+=sgn*eps*dir[q];return hvpAt(th,v);};
+  // VII, VIII: directional deriv of {Q_k·g1} along g2 (share Hp/Hm)
+  const Hp=dirHvp(g2,1,g1), Hm=dirHvp(g2,-1,g1), dQg1=Hp.map((h,k)=>{const o=new Float64Array(p);for(let q=0;q<p;q++)o[q]=(h[q]-Hm[k][q])/(2*eps);return o;});
+  let VII=0;for(let k=0;k<N;k++)VII+=D(Jt[k],dQg1[k]);VII*=c2;
+  const ud=WS(dQg1,u1);let VIII=c2*D(b,ud);
+  // A'−A, B'−B: T_{t-2,k}[·,∇f_{t-1,j},∇f_{t-2,i}] over all (i,j)
+  const Ap=Amat.slice(), Bp=Bmat.slice();
+  for(let i=0;i<N;i++){const Hpi=(v)=>dirHvp(Jtm2[i],1,v), Hmi=(v)=>dirHvp(Jtm2[i],-1,v);
+    for(let j=0;j<N;j++){const hp=Hpi(Jtm1[j]), hm=Hmi(Jtm1[j]);
+      const d=hp.map((h,k)=>{const o=new Float64Array(p);for(let q=0;q<p;q++)o[q]=(h[q]-hm[k][q])/(2*eps);return o;});
+      let dA=0;for(let k=0;k<N;k++)dA+=D(Jt[k],d[k]);
+      const ud2=WS(d,u1);let dB=D(b,ud2);
+      Ap[j*N+i]+=c2*dA; Bp[j*N+i]+=c2*dB;}}
+  const ApeRaw=realEigParts(Ap,N), BpeRaw=realEigParts(Bp,N);
+  const Ape=s15EigStats(ApeRaw), Bpe=s15EigStats(BpeRaw);
+  const sJ=rec.I+rec.II-rec.III+VII, sS=rec.IV+rec.V-rec.VI+VIII, D2=rec.D2, Dsig2=rec.Dsig2;
+  return {VII,VIII,divP3:Math.abs(D2)>1e-30?(-2*sJ+D2)/D2*100:0,divS4:Math.abs(Dsig2)>1e-30?(-2*sS+Dsig2)/Dsig2*100:0,
+          Aptop:Ape.top,Apbot:Ape.bot,Apstat:Ape.stat,Apeig:Array.from(ApeRaw).sort((x,y)=>y-x),
+          Bptop:Bpe.top,Bpbot:Bpe.bot,Bpstat:Bpe.stat,Bpeig:Array.from(BpeRaw).sort((x,y)=>y-x)};
 }
 // ── §15 render: 8 time-series plots (2 panels × 4) ──
 let S15_DATA=null, S15_BUILT=false;
@@ -2087,6 +2119,50 @@ function s15nPush(m){
   draw('p_s15_ng','g');draw('p_s15_nj','j');draw('p_s15_nh','h');draw('p_s15_nr','r');
 }
 function s15nReset(){S15N_DATA=null;S15N_BUILT=false;for(const id of S15N_IDS){try{Plotly.purge(id);}catch(e){}}}
+// §15 panels 3/4 (Q̇≠0): same layout as panels 1/2 but with VII/VIII added to plot 1, divergence-with-VII/VIII, and A'/B'.
+const S15P34_IDS=['p_s15_terms3','p_s15_div3','p_s15_Apeig','p_s15_Apspread','p_s15_Apdens',
+                  'p_s15_terms4','p_s15_div4','p_s15_Bpeig','p_s15_Bpspread','p_s15_Bpdens'];
+let S15P34_DATA=null, S15P34_BUILT=false;
+function s15p34Build(){
+  S15P34_BUILT=true;
+  const ln=(name,col,dash)=>({x:[],y:[],mode:'lines+markers',name:name,line:{color:col,width:1.7,dash:dash||'solid'},marker:{size:3,color:col}});
+  const mk=(id,tr,title,yl)=>Plotly.newPlot(id,tr,withZero(baseLayout(title,yl,false)),{responsive:true,displaylogo:false});
+  const TOPC=['#08306b','#2563eb','#80b1ff'], BOTC=['#67000d','#dc2626','#fca5a5'];
+  const eigtr=()=>[ln('top-1',TOPC[0]),ln('top-2',TOPC[1]),ln('top-3',TOPC[2]),ln('bot-1',BOTC[0]),ln('bot-2',BOTC[1]),ln('bot-3',BOTC[2])];
+  const band=(col)=>({x:[],y:[],fill:'toself',fillcolor:col,line:{width:0},hoverinfo:'skip',showlegend:false});
+  const sprtr=()=>[band('rgba(37,99,235,0.08)'),band('rgba(37,99,235,0.24)'),ln('mean','#111827'),ln('max','#16a34a'),ln('min','#dc2626')];
+  const dens=(id,rgb,title)=>{const L=baseLayout(title,'relative density',false);L.xaxis.title.text='eigenvalue';L.showlegend=false;
+    Plotly.newPlot(id,[{x:[],y:[],fill:'tozeroy',fillcolor:'rgba('+rgb+',0.18)',line:{color:'rgb('+rgb+')',width:1.7},name:'ρ(λ)'}],withZero(L),{responsive:true,displaylogo:false});};
+  mk('p_s15_terms3',[ln('I','#2563eb'),ln('II','#16a34a'),ln('III','#dc2626'),ln('VII','#7c3aed'),ln('∂²‖J‖²_F (actual)','#111827','dot')],'I / II / III / VII  +  actual ∂²‖J‖²_F','value');
+  mk('p_s15_div3',[ln('divergence (with VII)','#7c3aed')],'divergence %  (with VII — Q̇≠0)','%');
+  mk('p_s15_Apeig',eigtr(),"A': eigenvalues — top-3 (blue) / bottom-3 (red), real parts",'eigenvalue');
+  mk('p_s15_Apspread',sprtr(),"A': eigenvalue spread  (mean · max · min · IQR + min–max clouds)",'eigenvalue');
+  dens('p_s15_Apdens','37,99,235',"A': eigenvalue density (this step)");
+  mk('p_s15_terms4',[ln('IV','#2563eb'),ln('V','#16a34a'),ln('VI','#dc2626'),ln('VIII','#7c3aed'),ln('∂²σ₁ (actual)','#111827','dot')],'IV / V / VI / VIII  +  actual ∂²σ₁','value');
+  mk('p_s15_div4',[ln('divergence (with VIII)','#7c3aed')],'divergence %  (with VIII — Q̇≠0)','%');
+  mk('p_s15_Bpeig',eigtr(),"B': eigenvalues — top-3 (blue) / bottom-3 (red), real parts",'eigenvalue');
+  mk('p_s15_Bpspread',sprtr(),"B': eigenvalue spread  (mean · max · min · IQR + min–max clouds)",'eigenvalue');
+  dens('p_s15_Bpdens','220,38,38',"B': eigenvalue density (this step)");
+}
+function s15p34Push(m){
+  if(!S15P34_BUILT)s15p34Build();
+  if(!S15P34_DATA)S15P34_DATA={steps:[],VII:[],VIII:[],divP3:[],divS4:[],Aptop:[[],[],[]],Apbot:[[],[],[]],Apstat:[[],[],[],[],[]],Bptop:[[],[],[]],Bpbot:[[],[],[]],Bpstat:[[],[],[],[],[]]};
+  const D=S15P34_DATA;D.steps.push(m.t);D.VII.push(m.VII);D.VIII.push(m.VIII);D.divP3.push(m.divP3);D.divS4.push(m.divS4);
+  for(let j=0;j<3;j++){D.Aptop[j].push(m.Aptop[j]??null);D.Apbot[j].push(m.Apbot[j]??null);D.Bptop[j].push(m.Bptop[j]??null);D.Bpbot[j].push(m.Bpbot[j]??null);}
+  for(let j=0;j<5;j++){D.Apstat[j].push(m.Apstat[j]);D.Bpstat[j].push(m.Bpstat[j]);}
+  const t=D.steps, bx=t.concat(t.slice().reverse()), G=S15_DATA||{I:[],II:[],III:[],IV:[],V:[],VI:[],D2:[],Dsig2:[]};   // I..VI,D² come from the panel-1/2 stream (same ticks)
+  Plotly.restyle('p_s15_terms3',{x:[t,t,t,t,t],y:[G.I,G.II,G.III,D.VII,G.D2]});
+  Plotly.restyle('p_s15_div3',{x:[t],y:[D.divP3]});
+  Plotly.restyle('p_s15_Apeig',{x:[t,t,t,t,t,t],y:[D.Aptop[0],D.Aptop[1],D.Aptop[2],D.Apbot[0],D.Apbot[1],D.Apbot[2]]});
+  Plotly.restyle('p_s15_Apspread',{x:[bx,bx,t,t,t],y:[D.Apstat[0].concat(D.Apstat[1].slice().reverse()),D.Apstat[3].concat(D.Apstat[4].slice().reverse()),D.Apstat[2],D.Apstat[1],D.Apstat[0]]});
+  Plotly.restyle('p_s15_terms4',{x:[t,t,t,t,t],y:[G.IV,G.V,G.VI,D.VIII,G.Dsig2]});
+  Plotly.restyle('p_s15_div4',{x:[t],y:[D.divS4]});
+  Plotly.restyle('p_s15_Bpeig',{x:[t,t,t,t,t,t],y:[D.Bptop[0],D.Bptop[1],D.Bptop[2],D.Bpbot[0],D.Bpbot[1],D.Bpbot[2]]});
+  Plotly.restyle('p_s15_Bpspread',{x:[bx,bx,t,t,t],y:[D.Bpstat[0].concat(D.Bpstat[1].slice().reverse()),D.Bpstat[3].concat(D.Bpstat[4].slice().reverse()),D.Bpstat[2],D.Bpstat[1],D.Bpstat[0]]});
+  if(m.Apeig&&m.Apeig.length){const d=s15Dens(m.Apeig);Plotly.restyle('p_s15_Apdens',{x:[d.x],y:[d.y]});}
+  if(m.Bpeig&&m.Bpeig.length){const d=s15Dens(m.Bpeig);Plotly.restyle('p_s15_Bpdens',{x:[d.x],y:[d.y]});}
+}
+function s15p34Reset(){S15P34_DATA=null;S15P34_BUILT=false;for(const id of S15P34_IDS){try{Plotly.purge(id);}catch(e){}}}
 let S13_QJPREV_JS=null;  // §13 panel 4 client-side: previous eig-tick's {QJ[j][i]=Q_iJ_j, r} for the ‖A−B‖/‖A‖ asymmetry
 let OPT={s1:true,s2:true,s3:true,s4:true,s5:true,s6:true,gs:true};
 
@@ -2108,7 +2184,7 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_s14');if(el){const vis=(chk('en20')&&multi);el.style.display=vis?'':'none';   // §14 Tr(ΔNTK) per-triplet decomposition (s20, multi-only)
     if(vis&&typeof S14_SNAPS!=='undefined'&&S14_SNAPS.length)requestAnimationFrame(()=>s14RenderNow(S14_CURIDX));}}   // redraw canvases now that the divs have size
   {const el=document.getElementById('sec_s15');if(el){const vis=chk('en23');el.style.display=vis?'':'none';   // §15 2nd-difference decomposition (own toggle en23; multi OR single sample)
-    if(vis)requestAnimationFrame(()=>{for(const id of S15_IDS.concat(S15N_IDS)){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}   // re-size §15 plots when the section becomes visible
+    if(vis)requestAnimationFrame(()=>{for(const id of S15_IDS.concat(S15N_IDS).concat(S15P34_IDS)){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}   // re-size §15 plots when the section becomes visible
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
 }
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
@@ -2117,7 +2193,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   s12Reset();   // §12: drop snapshots from the previous run
   s13Reset();   // §13: drop the approximation-comparison time-series from the previous run
   s14Reset();   // §14: drop snapshots from the previous run
-  s15Reset();s15nReset();   // §15: drop the 2nd-difference time-series + 3-tick buffer + norm panel
+  s15Reset();s15nReset();s15p34Reset();   // §15: drop the 2nd-difference time-series + 3-tick buffer + norm panel
   trReset();    // §5: clear the trace-over-iterations curves
   syncSectionVis(multi);   // gate sections by the panel toggles (multi from the actual run)
   const dis=s=>OPT.gs?s:s+'  (off)';
@@ -2789,7 +2865,10 @@ async function loop(){                                   // drives ST forward; r
             const tm1=S15_HIST_JS[S15_HIST_JS.length-1], tm2=S15_HIST_JS[S15_HIST_JS.length-2];
             const hvp1=v=>{const Q=jacHVP(tm1.th,spec,X,N,inDim,p,v,eps);return lblsel.map(a=>Q[a]);};   // {Q_{t−1,k}·v}_k
             const hvp2=v=>{const Q=jacHVP(tm2.th,spec,X,N,inDim,p,v,eps);return lblsel.map(a=>Q[a]);};
-            s15Push({type:'g15',t:S.t,...sec15Stats(hvp1,hvp2,Jg15,tm1.J,tm2.J,tm1.r,tm2.r,S.lr,N,p)});
+            const sres=sec15Stats(hvp1,hvp2,Jg15,tm1.J,tm2.J,tm1.r,tm2.r,S.lr,N,p);
+            s15Push({type:'g15',t:S.t,...sres.rec});
+            const hvpAt=(thx,v)=>{const Q=jacHVP(thx,spec,X,N,inDim,p,v,eps);return lblsel.map(a=>Q[a]);};   // §15 panels 3/4 (Q̇≠0)
+            s15p34Push({type:'g15p34',t:S.t,...sec15Panel34(hvpAt,tm2.th,Jg15,tm1.J,tm2.J,tm1.r,tm2.r,sres.u1,sres.Amat,sres.Bmat,sres.rec,S.lr,N,p)});
           }
           S15_HIST_JS.push({th:S.th.slice(),J:Jg15,r:r15,t:S.t});
           if(S15_HIST_JS.length>2)S15_HIST_JS.shift();
@@ -2990,7 +3069,7 @@ function resetSim(){
   s12Reset();   // §12: clear the eigvec-similarity grids/cuboids + snapshots/slider too
   s13Reset();   // §13: clear the approximation-comparison time-series too
   s14Reset();   // §14: clear the triplet-decomposition cubes + snapshots/slider too
-  s15Reset();s15nReset();   // §15: clear the 2nd-difference time-series + 3-tick buffer + norm panel too
+  s15Reset();s15nReset();s15p34Reset();   // §15: clear the 2nd-difference time-series + 3-tick buffer + norm panel too
   updateButtons();
 }
 
@@ -3185,6 +3264,7 @@ function openStream(start,resuming){
     }else if(m.type==='g14'){s14Push(m);
     }else if(m.type==='g15'){s15Push(m);
     }else if(m.type==='g15n'){s15nPush(m);
+    }else if(m.type==='g15p34'){s15p34Push(m);
     }else if(m.type==='done'){st.textContent=`done — through step ${lastT} · p=${m.p} · 2/lr=${(META?META.thr:0).toFixed(3)}.`;finish();
     }else if(m.type==='error'){st.textContent='backend: '+m.error;finish();}
   };

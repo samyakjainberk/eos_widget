@@ -1273,6 +1273,58 @@ def plot_section15_panel2(hist):
                       "§15 panel 2 — ½∂²σ₁ = IV+V−VI · divergence vs empirical 2nd-difference · eigenvalues of B", "Dsig2")
 
 
+def _s15_panel34(hist, base, viikey, divkey, pre, d2key, supt):
+    """§15 panel 3/4 (Q̇≠0): terms base+VII/VIII (from g15+g15p34) + actual ∂², divergence-with-VII/VIII, and A'/B'."""
+    import numpy as np
+    recs = [r for r in hist if "g15" in r and "g15p34" in r]
+    if len(recs) < 2:
+        return None
+    t = list(range(len(recs))); G = [r["g15"] for r in recs]; P = [r["g15p34"] for r in recs]
+    fig, axs = plt.subplots(1, 5, figsize=(25, 3.7))
+    for nm, col in zip(base, ["#2563eb", "#16a34a", "#dc2626"]):
+        axs[0].plot(t, [g[nm] for g in G], label=nm, color=col, marker="o", ms=3, lw=1.4)
+    axs[0].plot(t, [p[viikey] for p in P], label=viikey, color="#7c3aed", marker="o", ms=3, lw=1.4)
+    axs[0].plot(t, [g.get(d2key, np.nan) for g in G], label="∂² actual", color="#111827", ls=":", lw=1.8)
+    axs[0].axhline(0, c="#999", lw=0.6); axs[0].legend(fontsize=8)
+    axs[0].set_title("terms " + "/".join(base) + f"/{viikey} + actual ∂²"); axs[0].set_xlabel("step")
+    axs[1].plot(t, [p[divkey] for p in P], color="#7c3aed", marker="o", ms=3, lw=1.4)
+    axs[1].axhline(0, c="#999", lw=0.6); axs[1].set_title("divergence %  (with " + viikey + ")"); axs[1].set_xlabel("step")
+    top, bot, st, eg = pre + "top", pre + "bot", pre + "stat", pre + "eig"
+    nt = max((len(p[top]) for p in P), default=0); nb = max((len(p[bot]) for p in P), default=0)
+    for j in range(nt):
+        axs[2].plot(t, [p[top][j] if j < len(p[top]) else np.nan for p in P], color="#2563eb", lw=1.2, label=("top-3" if j == 0 else None))
+    for j in range(nb):
+        axs[2].plot(t, [p[bot][j] if j < len(p[bot]) else np.nan for p in P], color="#dc2626", lw=1.2, label=("bottom-3" if j == 0 else None))
+    axs[2].axhline(0, c="#999", lw=0.6); axs[2].legend(fontsize=8); axs[2].set_title(f"{pre}: top-3 / bottom-3 real eig"); axs[2].set_xlabel("step")
+    mn = [p[st][0] for p in P]; mx = [p[st][1] for p in P]; me = [p[st][2] for p in P]; q25 = [p[st][3] for p in P]; q75 = [p[st][4] for p in P]
+    axs[3].fill_between(t, mn, mx, alpha=0.10, color="#2563eb"); axs[3].fill_between(t, q25, q75, alpha=0.25, color="#2563eb", label="IQR")
+    axs[3].plot(t, me, color="#111", lw=1.5, label="mean"); axs[3].plot(t, mx, color="#16a34a", lw=1, label="max"); axs[3].plot(t, mn, color="#dc2626", lw=1, label="min")
+    axs[3].axhline(0, c="#999", lw=0.6); axs[3].legend(fontsize=7); axs[3].set_title(f"{pre}: eigenvalue spread"); axs[3].set_xlabel("step")
+    specs = [np.asarray(p.get(eg, []), dtype=float) for p in P]
+    allv = np.concatenate([s for s in specs if s.size]) if any(s.size for s in specs) else np.array([0.0])
+    lo, hi = float(allv.min()), float(allv.max()); span = hi - lo
+    sig = max(span / 40.0, 1e-12 * max(1.0, abs(hi))); pad = max(3 * sig, span * 0.05)
+    grid = np.linspace(lo - pad, hi + pad, 160); dens = np.zeros((grid.size, len(P)))
+    for cc, s in enumerate(specs):
+        if s.size:
+            d = np.exp(-((grid[:, None] - s[None, :]) ** 2) / (2 * sig * sig)).sum(1); m = d.max(); dens[:, cc] = d / m if m > 0 else d
+    im = axs[4].imshow(dens, aspect="auto", origin="lower", cmap="viridis", vmin=0, vmax=1,
+                       extent=(t[0], t[-1] if len(t) > 1 else t[0] + 1, grid[0], grid[-1]))
+    fig.colorbar(im, ax=axs[4], fraction=0.046, pad=0.04, label="relative density")
+    axs[4].set_title(f"{pre}: eigenvalue density"); axs[4].set_xlabel("step"); axs[4].set_ylabel("eigenvalue")
+    fig.suptitle(supt, fontsize=13); fig.tight_layout(rect=(0, 0, 1, 0.93)); return fig
+
+
+def plot_section15_panel3(hist):
+    return _s15_panel34(hist, ["I", "II", "III"], "VII", "divP3", "Ap", "D2",
+                        "§15 panel 3 — ½∂²‖J‖²_F = I+II−III+VII (Q̇≠0) · divergence-with-VII · eigenvalues of A'")
+
+
+def plot_section15_panel4(hist):
+    return _s15_panel34(hist, ["IV", "V", "VI"], "VIII", "divS4", "Bp", "Dsig2",
+                        "§15 panel 4 — ½∂²σ₁ = IV+V−VI+VIII (Q̇≠0) · divergence-with-VIII · eigenvalues of B'")
+
+
 def plot_section15_panel5(hist):
     """§15 panel 5 — per-sample norm evolution: ‖gradient‖, ‖Jacobian‖, ‖function Hessian‖, ‖residual‖ (mean ± std cloud)."""
     recs = [r for r in hist if "g15n" in r]
@@ -1370,6 +1422,8 @@ def save_panels(results, outdir):
             "section14_ratio": plot_section14_ratio(hist),
             "section15_panel1_normJ": plot_section15_panel1(hist),
             "section15_panel2_sigma1": plot_section15_panel2(hist),
+            "section15_panel3_normJ_qdot": plot_section15_panel3(hist),
+            "section15_panel4_sigma1_qdot": plot_section15_panel4(hist),
             "section15_panel5_norms": plot_section15_panel5(hist)}
     written = []
     for name, fig in figs.items():
