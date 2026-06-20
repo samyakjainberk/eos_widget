@@ -1912,6 +1912,58 @@ function s15EigStats(e){const N=e.length, s=Array.from(e).sort((x,y)=>y-x), k=Ma
   let me=0;for(const v of e)me+=v;me/=N;
   const q=f=>{const idx=f*(N-1),lo=Math.floor(idx),hi=Math.ceil(idx);return asc[lo]+(asc[hi]-asc[lo])*(idx-lo);};
   return {top,bot,stat:[asc[0],asc[N-1],me,q(0.25),q(0.75)]};}
+// real parts of the eigenvalues of a general real n×n matrix (row-major), via elmhes + Francis-QR (EISPACK hqr).
+// Validated against torch.linalg.eigvals(.).real to 1e-13 (sym / skew / general). Returns real parts sorted desc.
+function realEigParts(Aflat,n){
+  const a=[];for(let i=0;i<n;i++){const row=new Float64Array(n);for(let j=0;j<n;j++)row[j]=Aflat[i*n+j];a.push(row);}
+  for(let m=1;m<n-1;m++){                 // elmhes → upper Hessenberg
+    let x=0.0,i0=m;
+    for(let i=m;i<n;i++){if(Math.abs(a[i][m-1])>Math.abs(x)){x=a[i][m-1];i0=i;}}
+    if(i0!==m){for(let j=m-1;j<n;j++){const tp=a[i0][j];a[i0][j]=a[m][j];a[m][j]=tp;}
+               for(let i=0;i<n;i++){const tp=a[i][i0];a[i][i0]=a[i][m];a[i][m]=tp;}}
+    if(x!==0.0){for(let i=m+1;i<n;i++){let y=a[i][m-1];if(y!==0.0){y/=x;a[i][m-1]=y;
+      for(let j=m;j<n;j++)a[i][j]-=y*a[m][j];for(let j=0;j<n;j++)a[j][m]+=y*a[j][i];}}}
+  }
+  const wr=new Float64Array(n);
+  let anorm=0.0;for(let i=0;i<n;i++)for(let j=Math.max(i-1,0);j<n;j++)anorm+=Math.abs(a[i][j]);
+  let nn=n-1,t=0.0,x,y,w,z,p,q,r,s,u,v,m,l,mmin;
+  while(nn>=0){
+    let its=0;
+    do{
+      for(l=nn;l>=1;l--){s=Math.abs(a[l-1][l-1])+Math.abs(a[l][l]);if(s===0.0)s=anorm;
+        if(Math.abs(a[l][l-1])+s===s){a[l][l-1]=0.0;break;}}
+      x=a[nn][nn];
+      if(l===nn){wr[nn]=x+t;nn--;}
+      else{ y=a[nn-1][nn-1];w=a[nn][nn-1]*a[nn-1][nn];
+        if(l===nn-1){ p=0.5*(y-x);q=p*p+w;z=Math.sqrt(Math.abs(q));x+=t;
+          if(q>=0.0){z=p+(p>=0.0?Math.abs(z):-Math.abs(z));wr[nn-1]=wr[nn]=x+z;if(z!==0.0)wr[nn]=x-w/z;}
+          else{wr[nn-1]=wr[nn]=x+p;} nn-=2; }
+        else{ if(its>=60)break;
+          if(its===10||its===20||its===30){t+=x;for(let i=0;i<=nn;i++)a[i][i]-=x;
+            s=Math.abs(a[nn][nn-1])+Math.abs(a[nn-1][nn-2]);y=x=0.75*s;w=-0.4375*s*s;}
+          ++its;
+          for(m=nn-2;m>=l;m--){z=a[m][m];r=x-z;s=y-z;p=(r*s-w)/a[m+1][m]+a[m][m+1];q=a[m+1][m+1]-z-r-s;r=a[m+2][m+1];
+            s=Math.abs(p)+Math.abs(q)+Math.abs(r);p/=s;q/=s;r/=s;if(m===l)break;
+            u=Math.abs(a[m][m-1])*(Math.abs(q)+Math.abs(r));
+            v=Math.abs(p)*(Math.abs(a[m-1][m-1])+Math.abs(z)+Math.abs(a[m+1][m+1]));if(u+v===v)break;}
+          for(let i=m+2;i<=nn;i++){a[i][i-2]=0.0;if(i!==m+2)a[i][i-3]=0.0;}
+          for(let k=m;k<=nn-1;k++){
+            if(k!==m){p=a[k][k-1];q=a[k+1][k-1];r=0.0;if(k+2<=nn)r=a[k+2][k-1];
+              if((x=Math.abs(p)+Math.abs(q)+Math.abs(r))!==0.0){p/=x;q/=x;r/=x;}}
+            if((s=(p>=0.0?1:-1)*Math.sqrt(p*p+q*q+r*r))!==0.0){
+              if(k===m){if(l!==m)a[k][k-1]=-a[k][k-1];}else a[k][k-1]=-s*x;
+              p+=s;x=p/s;y=q/s;z=r/s;q/=p;r/=p;
+              for(let j=k;j<=nn;j++){p=a[k][j]+q*a[k+1][j];if(k+2<=nn){p+=r*a[k+2][j];a[k+2][j]-=p*z;}a[k+1][j]-=p*y;a[k][j]-=p*x;}
+              mmin=nn<k+3?nn:k+3;
+              for(let i=l;i<=mmin;i++){p=x*a[i][k]+y*a[i][k+1];if(k+2<=nn){p+=z*a[i][k+2];a[i][k+2]-=p*r;}a[i][k+1]-=p*q;a[i][k]-=p;}
+            }
+          }
+        }
+      }
+    } while(l<nn-1);
+  }
+  return Array.from(wr).sort((u,v)=>v-u);
+}
 function sec15Stats(hvp1,hvp2,Jt,Jtm1,Jtm2,rtm1,rtm2,lr,N,p){
   const c=lr/N, c2=c*c, D=(a,b)=>s15Dotp(a,b,p), WS=(v,w)=>s15Wsum(v,w,p);
   const g1=WS(Jtm1,rtm1), g2=WS(Jtm2,rtm2);
@@ -1938,7 +1990,17 @@ function sec15Stats(hvp1,hvp2,Jt,Jtm1,Jtm2,rtm1,rtm2,lr,N,p){
   const P=[];for(let i=0;i<N;i++)P.push(WS(W[i],u1));
   const JQuJ=new Float64Array(N*N);for(let i=0;i<N;i++)for(let l=0;l<N;l++)JQuJ[i*N+l]=D(P[i],P[l]);
   const Dsig2=sig_t+sig_tm2-2*sig_tm1, divS=Math.abs(Dsig2)>1e-30?(-2*(IV+V-VI)+Dsig2)/Dsig2*100:0;  // 2×: terms are ½∂²σ₁; Dσ² is the full discrete ∂² ⇒ predict Dσ²≈2(IV+V−VI); →0 when theory holds
-  const AeRaw=s15RealEig(JSJ,Mmat,N,c2), BeRaw=s15RealEig(JQuJ,Mmat,N,c2);   // full real spectra of A,B
+  // (*)/(**) terms make A,B general (non-symmetric): A=c²JSJ·M + (*) , B=c²JQuJ·M + (**); eigenvalues via realEigParts → real parts
+  const psi=new Float64Array(p);for(let k=0;k<N;k++){const hk=hvp1(Jt[k]);for(let q=0;q<p;q++)psi[q]+=hk[k][q];}   // ψ=Σ_k Q_{t−1,k}∇f_{t,k}
+  const M2=[];for(let i=0;i<N;i++)M2.push(hvp2(Jtm2[i]));                                                          // M2[i][j]=Q_{t−2,j}∇f_{t−2,i}
+  const psiB=WS(hvp1(b),u1);                                                                                       // Q̄ᵘb = Σ_a u1[a]Q_{t−1,a}b
+  const Amat=new Float64Array(N*N), Bmat=new Float64Array(N*N);
+  for(let row=0;row<N;row++)for(let col=0;col<N;col++){
+    let s1=0,s2=0;for(let k=0;k<N;k++){s1+=JSJ[row*N+k]*Mmat[k*N+col];s2+=JQuJ[row*N+k]*Mmat[k*N+col];}
+    Amat[row*N+col]=c2*s1 + c2*D(psi ,M2[col][row]);   // A_part1 + (*) term
+    Bmat[row*N+col]=c2*s2 + c2*D(psiB,M2[col][row]);   // B_part1 + (**) term
+  }
+  const AeRaw=realEigParts(Amat,N), BeRaw=realEigParts(Bmat,N);   // sorted-desc real parts of the general A,B
   const Ae=s15EigStats(AeRaw), Be=s15EigStats(BeRaw);
   const Aeig=Array.from(AeRaw).sort((x,y)=>y-x), Beig=Array.from(BeRaw).sort((x,y)=>y-x);   // → SLQ density (plot 5)
   return {I,II,III,divP,Atop:Ae.top,Abot:Ae.bot,Astat:Ae.stat,IV,V,VI,divS,Btop:Be.top,Bbot:Be.bot,Bstat:Be.stat,D2,Dsig2,Aeig,Beig};

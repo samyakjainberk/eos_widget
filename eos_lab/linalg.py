@@ -587,7 +587,11 @@ def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
 
     W = torch.stack([hvp1(Jtm1[i]) for i in range(N)])        # (N_i,N_k,p)  W[i,k]=Q_{t−1,k}∇f_{t−1,i}
     JSJ = torch.einsum('ikp,lkp->il', W, W)                   # J_{t−1}ᵀ S_{t−1} J_{t−1}  (N,N)
-    A = c2 * (JSJ @ (Imat - c * Ktm2))
+    # (*) term so that I+II = r_{t−1}ᵀ A r_{t−2}:  A_part2[j,i] = c²·Σ_k ∇f_{t,k}ᵀ Q_{t−1,k} Q_{t−2,j} ∇f_{t−2,i}
+    #   = c²·⟨ψ, Q_{t−2,j}∇f_{t−2,i}⟩  with  ψ = Σ_k Q_{t−1,k}∇f_{t,k};  M2[i,j] = Q_{t−2,j}∇f_{t−2,i}
+    psi = torch.stack([hvp1(Jt[k])[k] for k in range(N)]).sum(0)   # Σ_k Q_{t−1,k}∇f_{t,k}  (p,)
+    M2 = torch.stack([hvp2(Jtm2[i]) for i in range(N)])            # (i,j,p)  M2[i,j]=Q_{t−2,j}∇f_{t−2,i}
+    A = c2 * (JSJ @ (Imat - c * Ktm2)) + c2 * torch.einsum('a,ija->ji', psi, M2)   # general (non-symmetric) ⇒ real-part eigenvalues
     Atop, Abot, Astat, Aeig = estats(A)
 
     a = rtm1 @ hvp2(g2)                                       # Q̃ g_{t−2}  (p,)
@@ -618,6 +622,8 @@ def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
     VI = c2 * float((b * (u1 @ H1z)).sum())                   # bᵀ Q̄ᵘ z
     P = torch.einsum('k,ikp->ip', u1, W)                      # Q̄ᵘ ∇f_{t−1,i}  (N,p)
     Bm = c2 * ((P @ P.t()) @ (Imat - c * Ktm2))               # J_{t−1}ᵀ(Q̄ᵘ)²J_{t−1}·(I−cK_{t−2})
+    # (**) term so that IV+V = r_{t−1}ᵀ B r_{t−2}:  B_part2[j,i] = c²·⟨Q̄ᵘ b, Q_{t−2,j}∇f_{t−2,i}⟩,  b=Σ_k u₁ₖ∇f_{t,k}
+    Bm = Bm + c2 * torch.einsum('a,ija->ji', u1 @ hvp1(b), M2)   # Q̄ᵘb = u1·{Q_{t−1,a}b}; reuses M2
     Btop, Bbot, Bstat, Beig = estats(Bm)
     Dsig2 = sig_t + sig_tm2 - 2.0 * sig_tm1
     divS = ((-2.0 * (IV + V - VI) + Dsig2) / Dsig2 * 100.0) if abs(Dsig2) > 1e-30 else 0.0  # 2×: terms are ½∂²σ₁; Dσ² is the full discrete ∂² ⇒ predict Dσ²≈2(IV+V−VI); →0 when theory holds
