@@ -1947,7 +1947,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if (multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s23):
+            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22)) or (s23 and N <= grid3dcap):   # §15 also runs for a single sample
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -2416,7 +2416,7 @@ def run_stream(P):
                         sec14 = _sec14_payload(sec14_prev, cur14, lr, grid3dcap, sec14_rhist)
                     sec14_prev = {kk_: vv_.detach() for kk_, vv_ in cur14.items()}
 
-            if s23 and multi_ok and N <= grid3dcap and Jc is not None and rr is not None:   # §15: 2nd-difference decomposition (own toggle; multi-only, small-N, holds 3 ticks)
+            if s23 and N <= grid3dcap and Jc is not None and rr is not None:   # §15: 2nd-difference decomposition (own toggle; multi OR single sample, small-N, holds 3 ticks)
                 lblsel15 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
                             if outD > 1 else torch.arange(N, device=_dev()))
                 Jg15 = Jc[lblsel15]; r15 = rr[lblsel15]

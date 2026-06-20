@@ -312,7 +312,7 @@ class Diagnostics:
         want_multi = self.multi_ok and (self.s7 or self.s8 or self.s9 or self.s10 or self.s11
                                          or self.s12 or self.s13 or self.s15 or self.s16 or self.s17
                                          or self.s18 or self.s19 or self.s20 or self.s21 or self.s22 or self.s23)
-        if want_multi or self.s12single:
+        if want_multi or self.s12single or (self.s23 and N <= self.grid3dcap):   # §15 also runs for a single sample (N=1)
             Jc, out_flat = jac_cols(self.model, th, X)
             rr = (-N * cS).reshape(-1)        # generic residual −N·∂L/∂out: Y−f (MSE), onehot−softmax (CE)
 
@@ -672,7 +672,7 @@ class Diagnostics:
                 self._sec14_prev = {k_: v_.detach() for k_, v_ in cur14.items()}
 
         # ---- §15: 2nd-difference decomposition of ‖J‖²_F & σ₁ (own toggle; multi-only, small-N, holds 3 ticks) ----
-        if self.s23 and self.multi_ok and N <= self.grid3dcap and Jc is not None and rr is not None:
+        if self.s23 and N <= self.grid3dcap and Jc is not None and rr is not None:   # §15 — multi OR single sample (N≥1); small-N, holds 3 ticks
             lblsel15 = (torch.arange(N, device=dev) * outD + Y.reshape(N, outD).argmax(dim=1)
                         if outD > 1 else torch.arange(N, device=dev))
             Jg15 = Jc[lblsel15]; r15 = rr[lblsel15]                # (N,p) GT-grads ∇f_i ; (N,) residual r=y−f
