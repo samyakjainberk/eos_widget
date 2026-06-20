@@ -2420,12 +2420,12 @@ def run_stream(P):
                 lblsel15 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
                             if outD > 1 else torch.arange(N, device=_dev()))
                 Jg15 = Jc[lblsel15]; r15 = rr[lblsel15]
-                if len(sec15_hist) >= 2:                        # need t−1 & t−2 → skip the first two eig-ticks
+                if (len(sec15_hist) >= 2 and sec15_hist[-1]["t"] == t - 1 and sec15_hist[-2]["t"] == t - 2):   # 3 CONSECUTIVE GD steps (eigevery=1): the per-step 2nd-difference theory requires it
                     tm1, tm2 = sec15_hist[-1], sec15_hist[-2]
                     hvp1 = lambda v: jac_hvp(tm1["th"], X, v)[lblsel15]
                     hvp2 = lambda v: jac_hvp(tm2["th"], X, v)[lblsel15]
                     sec15 = _sec15_stats(hvp1, hvp2, Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], lr, N)
-                sec15_hist.append({"th": th.detach().clone(), "J": Jg15.detach(), "r": r15.detach()})
+                sec15_hist.append({"th": th.detach().clone(), "J": Jg15.detach(), "r": r15.detach(), "t": t})
                 if len(sec15_hist) > 2:
                     sec15_hist.pop(0)
 

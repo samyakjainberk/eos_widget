@@ -410,7 +410,7 @@
 
 <div id="sec_s15" style="display:none">
 <h2>15 · 2nd-difference decomposition of $\lVert J\rVert_F^2$ and $\sigma_1$ over GD</h2>
-<p class="cap">Under gradient descent with step $\Delta\theta=\tfrac{\eta}{N}\sum_i r_i\nabla f_i$ (so $c=\eta/N$), the discrete second difference of $\lVert J\rVert_F^2=\mathrm{tr}(\mathrm{NTK})$ (Panel 1) and of $\sigma_1$ = the top NTK eigenvalue (Panel 2) is decomposed into theory terms + the $N\times N$ matrices $A$ (resp. $B$). Each panel holds <b>3 consecutive eig-ticks</b> $t,t{-}1,t{-}2$ (it skips its first two ticks) and evaluates the per-sample function-Hessian HVPs $Q_{t-1,k}\!\cdot,\,Q_{t-2,k}\!\cdot$. Multi-sample only, small $N$ ($\le$ grid3dcap); OFF by default. Shorthands: $g_s=\sum_i r_{s,i}\nabla f_{s,i}$, $S=\sum_k Q_{t-1,k}^2$, $\tilde Q=\sum_j r_{t-1,j}Q_{t-2,j}$.</p>
+<p class="cap">Under gradient descent with step $\Delta\theta=\tfrac{\eta}{N}\sum_i r_i\nabla f_i$ (so $c=\eta/N$), the discrete second difference of $\lVert J\rVert_F^2=\mathrm{tr}(\mathrm{NTK})$ (Panel 1) and of $\sigma_1$ = the top NTK eigenvalue (Panel 2) is decomposed into theory terms + the $N\times N$ matrices $A$ (resp. $B$). Each panel holds <b>3 consecutive eig-ticks</b> $t,t{-}1,t{-}2$ (it skips its first two ticks) and evaluates the per-sample function-Hessian HVPs $Q_{t-1,k}\!\cdot,\,Q_{t-2,k}\!\cdot$. Multi-sample only, small $N$ ($\le$ grid3dcap); assumes vanilla GD on mean-MSE; OFF by default. <b>Requires <code>eigevery=1</code></b> — the per-GD-step 2nd-difference needs three <i>consecutive</i> steps, so the panels stay empty at a larger eig-stride. The divergence% is an <b>unbounded signed residual</b> (it can go negative or exceed 100% — e.g. at the EoS sawtooth transitions where $D^2$ nearly vanishes), not a 0–100 fraction. Shorthands: $g_s=\sum_i r_{s,i}\nabla f_{s,i}$, $S=\sum_k Q_{t-1,k}^2$, $\tilde Q=\sum_j r_{t-1,j}Q_{t-2,j}$.</p>
 <h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — $\tfrac12\partial_t^2\lVert J\rVert_F^2 = \mathrm{I}+\mathrm{II}-\mathrm{III}$ &amp; eigenvalues of $A$</h3>
 <p class="cap">$\mathrm{I}=c^2 g_{t-1}^\top S\,g_{t-1}$ &nbsp;·&nbsp; $\mathrm{II}=c^2\sum_k\nabla f_{t,k}^\top Q_{t-1,k}\,\tilde Q\,g_{t-2}$ &nbsp;·&nbsp; $\mathrm{III}=c^2\sum_k\nabla f_{t,k}^\top Q_{t-1,k}\,(J_{t-1}J_{t-2}^\top J_{t-2}r_{t-2})$ &nbsp;·&nbsp; $A=c^2(J_{t-1}^\top S\,J_{t-1})(I-c\,J_{t-2}^\top J_{t-2})$. <b>Plot 2</b>: divergence$\%=\big[-(\mathrm{I+II-III})+D^2\big]/D^2\times100$, $D^2=\lVert J_t\rVert^2+\lVert J_{t-2}\rVert^2-2\lVert J_{t-1}\rVert^2$. <b>Plots 3–4</b>: top-3/bottom-3 and the min/max/mean+IQR spread of the (real) eigenvalues of $A$.</p>
 <div class="plotrow row4"><div id="p_s15_terms1" class="plot" style="height:290px"></div><div id="p_s15_div1" class="plot" style="height:290px"></div><div id="p_s15_Aeig" class="plot" style="height:290px"></div><div id="p_s15_Aspread" class="plot" style="height:290px"></div></div>
@@ -2663,13 +2663,13 @@ async function loop(){                                   // drives ST forward; r
           const oD=Math.round(M/N), lblsel=new Array(N);
           for(let i=0;i<N;i++){if(oD>1){let mx=-Infinity,mi=0;for(let c=0;c<oD;c++){const yv=Y[i*oD+c];if(yv>mx){mx=yv;mi=c;}}lblsel[i]=i*oD+mi;}else lblsel[i]=i;}
           const Jg15=lblsel.map(a=>bJc[a]), r15=lblsel.map(a=>rrs[a]);   // N Float64Arrays(p) GT-grads ∇f_i ; N residuals r=y−f
-          if(S15_HIST_JS.length>=2){                                     // need t−1 & t−2 → skip the first two eig-ticks
+          if(S15_HIST_JS.length>=2&&S15_HIST_JS[S15_HIST_JS.length-1].t===S.t-1&&S15_HIST_JS[S15_HIST_JS.length-2].t===S.t-2){   // 3 CONSECUTIVE GD steps (eigevery=1): the per-step 2nd-difference theory requires it
             const tm1=S15_HIST_JS[S15_HIST_JS.length-1], tm2=S15_HIST_JS[S15_HIST_JS.length-2];
             const hvp1=v=>{const Q=jacHVP(tm1.th,spec,X,N,inDim,p,v,eps);return lblsel.map(a=>Q[a]);};   // {Q_{t−1,k}·v}_k
             const hvp2=v=>{const Q=jacHVP(tm2.th,spec,X,N,inDim,p,v,eps);return lblsel.map(a=>Q[a]);};
             s15Push({type:'g15',t:S.t,...sec15Stats(hvp1,hvp2,Jg15,tm1.J,tm2.J,tm1.r,tm2.r,S.lr,N,p)});
           }
-          S15_HIST_JS.push({th:S.th.slice(),J:Jg15,r:r15});
+          S15_HIST_JS.push({th:S.th.slice(),J:Jg15,r:r15,t:S.t});
           if(S15_HIST_JS.length>2)S15_HIST_JS.shift();
         }
         // Q[u₁] = Σ_a (u₁)_a ∇²f_a — extreme eigvecs (shared by §4b and §4d), sign-tracked once

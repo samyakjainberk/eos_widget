@@ -676,12 +676,13 @@ class Diagnostics:
             lblsel15 = (torch.arange(N, device=dev) * outD + Y.reshape(N, outD).argmax(dim=1)
                         if outD > 1 else torch.arange(N, device=dev))
             Jg15 = Jc[lblsel15]; r15 = rr[lblsel15]                # (N,p) GT-grads ∇f_i ; (N,) residual r=y−f
-            if len(self._sec15_hist) >= 2:                         # need t−1 & t−2 → skip the first two eig-ticks
+            if (len(self._sec15_hist) >= 2 and self._sec15_hist[-1]["t"] == t - 1
+                    and self._sec15_hist[-2]["t"] == t - 2):       # 3 CONSECUTIVE GD steps (eigevery=1): the per-step 2nd-difference theory requires it
                 tm1, tm2 = self._sec15_hist[-1], self._sec15_hist[-2]
                 hvp1 = lambda v: jac_hvp(self.model, tm1["th"], X, v)[lblsel15]   # {Q_{t−1,k}·v}_k  (N,p)
                 hvp2 = lambda v: jac_hvp(self.model, tm2["th"], X, v)[lblsel15]   # {Q_{t−2,k}·v}_k
                 rec["g15"] = sec15_stats(hvp1, hvp2, Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], self.lr, N)
-            self._sec15_hist.append({"th": th.detach().clone(), "J": Jg15.detach(), "r": r15.detach()})
+            self._sec15_hist.append({"th": th.detach().clone(), "J": Jg15.detach(), "r": r15.detach(), "t": t})
             if len(self._sec15_hist) > 2:
                 self._sec15_hist.pop(0)
 
