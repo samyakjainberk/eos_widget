@@ -3053,7 +3053,7 @@ function backendURL(start){
    'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar'].forEach(id=>ps.set(id,val(id)));
   [['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
-   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
+   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
   ps.set('start',String(start||0));
   return 'run?'+ps.toString();
 }
