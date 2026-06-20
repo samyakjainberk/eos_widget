@@ -556,13 +556,14 @@ function buildSpec(inDim,width,depth,act,useBias,outDim){
   return {spec,p:off};
 }
 // weight-init scheme → ['normal',std] or ['uniform',half-range]. MIRRORS models.init_kind_scale.
+// mup/xavier_* use their CANONICAL variance and IGNORE init_scale; only default (scale) & custom (std) use init.
 function initKindScale(scheme,init,fanIn,fanOut,isReadout){
   const fi=Math.max(fanIn,1),fo=Math.max(fanOut,1);
-  if(scheme==='xavier_normal')return ['normal',init*Math.sqrt(2/(fi+fo))];
-  if(scheme==='xavier_uniform')return ['uniform',init*Math.sqrt(6/(fi+fo))];
-  if(scheme==='mup')return ['normal',isReadout?init/fi:init/Math.sqrt(fi)];
+  if(scheme==='xavier_normal')return ['normal',Math.sqrt(2/(fi+fo))];           // canonical Glorot; init_scale ignored
+  if(scheme==='xavier_uniform')return ['uniform',Math.sqrt(6/(fi+fo))];          // canonical Glorot uniform; init_scale ignored
+  if(scheme==='mup')return ['normal',isReadout?1/fi:1/Math.sqrt(fi)];            // canonical muP; init_scale ignored
   if(scheme==='custom')return ['normal',init];
-  return ['normal',init/Math.sqrt(fi)];   // default
+  return ['normal',init/Math.sqrt(fi)];   // default — scale/√fan_in (init_scale = the scale)
 }
 function initTheta(spec,p,initScale,seed,scheme){
   scheme=scheme||'default';
@@ -3128,7 +3129,17 @@ const PRESETS={
   chebyshev:{dataset:'chebyshev',arch:'mlp',loss:'mse',depth:6,width:50,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.1,init:0.5,nsamp:20,batch:0,indim:1,outdim:1,degree:3,tgt:1.0,neig:3,kth:1,steps:5000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
 };
 function setVal(id,v){document.getElementById(id).value=String(v);}
-function applyPreset(name){const P=PRESETS[name];if(!P)return;for(const k in P){const el=document.getElementById(k);if(!el)continue;if(el.type==='checkbox')el.checked=!!P[k];else el.value=String(P[k]);}syncLossPanels();updateParamBadge();}
+function applyPreset(name){const P=PRESETS[name];if(!P)return;for(const k in P){const el=document.getElementById(k);if(!el)continue;if(el.type==='checkbox')el.checked=!!P[k];else el.value=String(P[k]);}syncLossPanels();updateParamBadge();syncInitScaleEnabled();}
+// mup / xavier_* set the weight variance from fan-in/fan-out (canonical) — the init_scale knob is unused there,
+// so grey it out to make that explicit. It stays active for default (scale) and custom (Gaussian std).
+function syncInitScaleEnabled(){const sch=val('initscheme'),off=(sch==='mup'||sch==='xavier_normal'||sch==='xavier_uniform');
+  const el=document.getElementById('init');if(!el)return;el.disabled=off;el.style.opacity=off?0.4:'';
+  el.title=off?'ignored — '+sch+' sets the variance from fan-in/fan-out (canonical)':'init_scale (default → std=init/√fan_in · custom → std=init)';}
+document.getElementById('initscheme').addEventListener('change',syncInitScaleEnabled);
+// same greying for each side-by-side comparison panel (ids are prefixed ${pre}_)
+function cmpSyncInitScale(pre){const sc=document.getElementById(pre+'_initscheme'),el=document.getElementById(pre+'_init');if(!sc||!el)return;
+  const off=(sc.value==='mup'||sc.value==='xavier_normal'||sc.value==='xavier_uniform');el.disabled=off;el.style.opacity=off?0.4:'';
+  el.title=off?'ignored — '+sc.value+' sets the variance from fan-in/fan-out (canonical)':'';}
 ['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt','neig','kth','steps','eigevery','slqprobes','energyp','gson','seed','qapprox','qmode','tset','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','cvar']
   .forEach(id=>document.getElementById(id).addEventListener('input',()=>{document.getElementById('preset').value='custom';}));
 ['dataset','arch','loss'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';}));
@@ -3152,6 +3163,7 @@ document.getElementById('preset').addEventListener('change',e=>{if(e.target.valu
 ['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
 ['s14f_y1','s14f_y2','s14f_y5','s14f_agg','s14f_max','s14f_min','s14f_ratio'].forEach(id=>{const e=document.getElementById(id);if(e)e.addEventListener('change',s14ApplyPanelFilter);});
 if(typeof s14ApplyPanelFilter==='function')s14ApplyPanelFilter();   // apply the default §14 panel selection on load
+syncInitScaleEnabled();   // grey out init_scale on load if the current scheme ignores it (mup/xavier_*)
 {const sl=document.getElementById('g3d_slider');if(sl)sl.addEventListener('input',function(){g3dRenderIdx(+this.value);});}   // §11 scrub past snapshots
 {const sl=document.getElementById('s12_slider');if(sl)sl.addEventListener('input',function(){s12RenderIdx(+this.value);});}   // §12 scrub past snapshots
 {const sl=document.getElementById('s13_slider');if(sl)sl.addEventListener('input',function(){s12RenderIdx(+this.value);});}   // §13 scrub (shares §12 snapshots; s12RenderNow re-syncs both sliders)
@@ -3573,18 +3585,20 @@ function makeCompareSection(pre, kind) {
     cmpApplyPreset(pre, e.target.value);
     const lr0 = parseFloat(document.getElementById(pre + '_lr').value) || 0.3;
     const n0 = Math.max(1, parseInt(document.getElementById(pre + '_neig').value) || 3);
-    SEC[pre].thr = 2 / lr0; cmpInit(pre, n0, kind);
+    SEC[pre].thr = 2 / lr0; cmpInit(pre, n0, kind); cmpSyncInitScale(pre);
     document.getElementById(pre + '_status').textContent = 'preset applied — press Run to start.';
   } });
   // editing any control switches this section's preset to "custom"
   ['dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','cvar','depth','width','act','bias','fixedx','inputstd','ssign','optimizer','indim','outdim','nsamp','tgt','lr','init','initscheme','steps','seed','neig','eigevery','every_iter','slqprobes','qmode','tset','c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11','c12']
     .forEach(id => { const el = document.getElementById(pre + '_' + id); if (el) el.addEventListener(el.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input', () => { document.getElementById(pre + '_preset').value = 'custom'; }); });
+  document.getElementById(pre + '_initscheme').addEventListener('change', () => cmpSyncInitScale(pre));   // grey init_scale when mup/xavier_*
   cmpApplyPreset(pre, 'linear');   // default surrogate preset = §1 default ('linear'), so the sections match exactly
   // draw empty, labeled plots right away (like the main widget) so the section isn't blank before Run
   const lr0 = parseFloat(document.getElementById(pre + '_lr').value) || 0.3;
   const n0 = Math.max(1, parseInt(document.getElementById(pre + '_neig').value) || 3);
   SEC[pre].thr = 2 / lr0;
   cmpInit(pre, n0, kind);   // cmpInit already calls cmpVisibility(pre) → initial per-toggle panel visibility
+  cmpSyncInitScale(pre);    // grey out init_scale on load if the panel's scheme ignores it (mup/xavier_*)
   document.getElementById(pre + '_status').textContent = 'press Run to start this ' + kind + ' comparison (needs the GPU backend — python server.py).';
 }
 

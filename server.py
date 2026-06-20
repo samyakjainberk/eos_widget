@@ -664,18 +664,20 @@ def gradW(th, X, c):
 
 def init_kind_scale(scheme, init, fan_in, fan_out, is_readout):
     """Weight-draw spec for `scheme`: ('normal', std) or ('uniform', half-range). MIRRORS
-    eos_lab.models.init_kind_scale / index.html initKindScale. `init` = per-scheme scale/gain/std."""
+    eos_lab.models.init_kind_scale / index.html initKindScale. The named theoretical schemes
+    (mup/xavier_*) use their CANONICAL variance and IGNORE `init`; only default (scale=init/√fan_in)
+    and custom (std=init) use the `init_scale` knob."""
     fi = max(int(fan_in), 1)
     fo = max(int(fan_out), 1)
     if scheme == "xavier_normal":
-        return ("normal", init * math.sqrt(2.0 / (fi + fo)))
+        return ("normal", math.sqrt(2.0 / (fi + fo)))                # canonical Glorot; init_scale ignored
     if scheme == "xavier_uniform":
-        return ("uniform", init * math.sqrt(6.0 / (fi + fo)))
+        return ("uniform", math.sqrt(6.0 / (fi + fo)))               # canonical Glorot uniform; init_scale ignored
     if scheme == "mup":
-        return ("normal", init / fi if is_readout else init / math.sqrt(fi))
+        return ("normal", 1.0 / fi if is_readout else 1.0 / math.sqrt(fi))   # canonical muP; init_scale ignored
     if scheme == "custom":
         return ("normal", float(init))
-    return ("normal", init / math.sqrt(fi))      # "default" — scale/√fan_in (original)
+    return ("normal", init / math.sqrt(fi))      # "default" — scale/√fan_in (init_scale = the scale)
 
 
 def init_theta(spec, p, initScale, seed, scheme="default"):
