@@ -28,7 +28,7 @@ from .models import (grad_sum_f, hvp_F, hvp_L, hvp_S, hvp_G, hvp_G2,
 from .linalg import (lanczos_extreme, lanczos_extreme_vals, slq_density, hutch_trace, sym_eig_desc,
                      sign_to, pin_sign, pos_subspace, neg_subspace, principal_angles, randn_vec,
                      sec12_payload, sec13_stats, SEC13_KS, SEC13_DOMS, sec14_payload, SEC12_KFULL,
-                     batched_lanczos_extreme, sec15_stats)
+                     batched_lanczos_extreme, sec15_stats, sec15_panel34)
 from .rng import mulberry32
 
 # §11 render budget: emit only ≤this many points per grid above this size (mirror server.G3D_MAXPTS).
@@ -693,7 +693,10 @@ class Diagnostics:
                 tm1, tm2 = self._sec15_hist[-1], self._sec15_hist[-2]
                 hvp1 = lambda v: jac_hvp(self.model, tm1["th"], X, v)[lblsel15]   # {Q_{t−1,k}·v}_k  (N,p)
                 hvp2 = lambda v: jac_hvp(self.model, tm2["th"], X, v)[lblsel15]   # {Q_{t−2,k}·v}_k
-                rec["g15"] = sec15_stats(hvp1, hvp2, Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], self.lr, N)
+                g15rec, Amat, Bmat, u1_15 = sec15_stats(hvp1, hvp2, Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], self.lr, N)
+                rec["g15"] = g15rec
+                hvp_at = lambda thx, v: jac_hvp(self.model, thx, X, v)[lblsel15]   # §15 panels 3/4 (Q̇≠0): VII/VIII + A'/B' (2N² extra HVPs)
+                rec["g15p34"] = sec15_panel34(hvp_at, tm2["th"], Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], u1_15, Amat, Bmat, g15rec, self.lr, N)
             self._sec15_hist.append({"th": th.detach().clone(), "J": Jg15.detach(), "r": r15.detach(), "t": t})
             if len(self._sec15_hist) > 2:
                 self._sec15_hist.pop(0)

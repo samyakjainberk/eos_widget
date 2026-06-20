@@ -469,9 +469,44 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
     Dsig2 = sig_t + sig_tm2 - 2.0 * sig_tm1
     divS = ((-2.0 * (IV + V - VI) + Dsig2) / Dsig2 * 100.0) if abs(Dsig2) > 1e-30 else 0.0  # 2×: terms are ½∂²σ₁; Dσ² is the full discrete ∂² ⇒ predict Dσ²≈2(IV+V−VI); →0 when theory holds
 
-    return {"I": I, "II": II, "III": III, "divP": divP, "Atop": Atop, "Abot": Abot, "Astat": Astat,
-            "IV": IV, "V": V, "VI": VI, "divS": divS, "Btop": Btop, "Bbot": Bbot, "Bstat": Bstat,
-            "D2": D2, "Dsig2": Dsig2, "Aeig": Aeig, "Beig": Beig}   # Aeig/Beig: full real spectra → SLQ density (plot 5)
+    rec = {"I": I, "II": II, "III": III, "divP": divP, "Atop": Atop, "Abot": Abot, "Astat": Astat,
+           "IV": IV, "V": V, "VI": VI, "divS": divS, "Btop": Btop, "Bbot": Bbot, "Bstat": Bstat,
+           "D2": D2, "Dsig2": Dsig2, "Aeig": Aeig, "Beig": Beig}   # Aeig/Beig: full real spectra → SLQ density (plot 5)
+    return rec, A, Bm, u1   # also expose A,B and the top NTK eigvec u₁ for panels 3/4 (Q̇≠0)
+
+
+def _eig_stats15(M):   # real-part eigenvalue summary of a general N×N matrix → (top-3, bottom-3, [min,max,mean,q25,q75], full desc)
+    e = torch.linalg.eigvals(M).real
+    es = torch.sort(e, descending=True).values
+    k = min(3, es.numel())
+    return (es[:k].tolist(), torch.sort(e).values[:k].tolist(),
+            [float(e.min()), float(e.max()), float(e.mean()), float(torch.quantile(e, 0.25)), float(torch.quantile(e, 0.75))],
+            es.tolist())
+
+
+def _sec15_panel34(hvp_at, th_tm2, Jt, Jtm1, Jtm2, rtm1, rtm2, u1, A, B, rec, lr, N, eps=1e-3):
+    """Panels 3/4 (Q̇≠0): third-derivative terms VII/VIII + matrices A'=A+(VII), B'=B+(VIII). MIRRORS
+    eos_lab.linalg.sec15_panel34 / index.html sec15Panel34. `hvp_at(theta,v)`={Q_k(theta)·v}_k at any theta;
+    a directional FD of it gives T_{t-2,k}. Costs 2N²+2 HVP evals."""
+    c = lr / N; c2 = c * c
+    g1 = Jtm1.t() @ rtm1; g2 = Jtm2.t() @ rtm2; b = u1 @ Jt
+    dQg1 = (hvp_at(th_tm2 + eps * g2, g1) - hvp_at(th_tm2 - eps * g2, g1)) / (2.0 * eps)
+    VII = c2 * float((Jt * dQg1).sum()); VIII = c2 * float((b * (u1 @ dQg1)).sum())
+    dA = torch.zeros(N, N, dtype=Jt.dtype, device=Jt.device); dB = torch.zeros(N, N, dtype=Jt.dtype, device=Jt.device)
+    for i in range(N):
+        thp = th_tm2 + eps * Jtm2[i]; thm = th_tm2 - eps * Jtm2[i]
+        for j in range(N):
+            d = (hvp_at(thp, Jtm1[j]) - hvp_at(thm, Jtm1[j])) / (2.0 * eps)
+            dA[j, i] = (Jt * d).sum(); dB[j, i] = (b * (u1 @ d)).sum()
+    Aptop, Apbot, Apstat, Apeig = _eig_stats15(A + c2 * dA)
+    Bptop, Bpbot, Bpstat, Bpeig = _eig_stats15(B + c2 * dB)
+    D2 = rec["D2"]; Dsig2 = rec["Dsig2"]
+    sJ = rec["I"] + rec["II"] - rec["III"] + VII; sS = rec["IV"] + rec["V"] - rec["VI"] + VIII
+    return {"VII": VII, "VIII": VIII,
+            "divP3": ((-2.0 * sJ + D2) / D2 * 100.0) if abs(D2) > 1e-30 else 0.0,
+            "divS4": ((-2.0 * sS + Dsig2) / Dsig2 * 100.0) if abs(Dsig2) > 1e-30 else 0.0,
+            "Aptop": Aptop, "Apbot": Apbot, "Apstat": Apstat, "Apeig": Apeig,
+            "Bptop": Bptop, "Bpbot": Bpbot, "Bpstat": Bpstat, "Bpeig": Bpeig}
 
 
 def _opt_dir(model, g, opt):
@@ -2336,7 +2371,7 @@ def run_stream(P):
             # bottom-K12 eigenpairs of each Q_i by Lanczos on v↦Q_i·v — no p×p Hessian is formed. For the MLP
             # the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (a single vectorised forward/backward per
             # step instead of N) — ~4–8× faster on GPU. Other archs fall back to the per-sample loop. Gated on N.
-            sec12 = None; sec14 = None; sec13 = None; sec15 = None; sec15n = None
+            sec12 = None; sec14 = None; sec13 = None; sec15 = None; sec15n = None; sec15p34 = None
             if (s19 or s20 or s21 or s22) and (multi_ok or s12single) and Jc is not None and rr is not None and N <= sec12ncap:
                 lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
                             if outD > 1 else torch.arange(N, device=_dev()))
@@ -2440,7 +2475,9 @@ def run_stream(P):
                     tm1, tm2 = sec15_hist[-1], sec15_hist[-2]
                     hvp1 = lambda v: jac_hvp(tm1["th"], X, v)[lblsel15]
                     hvp2 = lambda v: jac_hvp(tm2["th"], X, v)[lblsel15]
-                    sec15 = _sec15_stats(hvp1, hvp2, Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], lr, N)
+                    sec15, Amat15, Bmat15, u1_15 = _sec15_stats(hvp1, hvp2, Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], lr, N)
+                    hvp_at15 = lambda thx, v: jac_hvp(thx, X, v)[lblsel15]   # §15 panels 3/4 (Q̇≠0): VII/VIII + A'/B' (2N² extra HVPs)
+                    sec15p34 = _sec15_panel34(hvp_at15, tm2["th"], Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], u1_15, Amat15, Bmat15, sec15, lr, N)
                 sec15_hist.append({"th": th.detach().clone(), "J": Jg15.detach(), "r": r15.detach(), "t": t})
                 if len(sec15_hist) > 2:
                     sec15_hist.pop(0)
@@ -2504,6 +2541,8 @@ def run_stream(P):
                 yield {"type": "g15", "t": t, **sec15}   # §15 2nd-difference decomposition of ‖J‖²_F & σ₁
             if sec15n is not None:
                 yield {"type": "g15n", "t": t, **sec15n}  # §15 panel 5 — per-sample norm evolution (mean ± std)
+            if sec15p34 is not None:
+                yield {"type": "g15p34", "t": t, **sec15p34}  # §15 panels 3/4 — Q̇≠0 terms VII/VIII + A'/B'
             eigTick += 1
             done += 1
 

@@ -628,6 +628,53 @@ def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
     Dsig2 = sig_t + sig_tm2 - 2.0 * sig_tm1
     divS = ((-2.0 * (IV + V - VI) + Dsig2) / Dsig2 * 100.0) if abs(Dsig2) > 1e-30 else 0.0  # 2×: terms are ½∂²σ₁; Dσ² is the full discrete ∂² ⇒ predict Dσ²≈2(IV+V−VI); →0 when theory holds
 
-    return {"I": I, "II": II, "III": III, "divP": divP, "Atop": Atop, "Abot": Abot, "Astat": Astat,
-            "IV": IV, "V": V, "VI": VI, "divS": divS, "Btop": Btop, "Bbot": Bbot, "Bstat": Bstat,
-            "D2": D2, "Dsig2": Dsig2, "Aeig": Aeig, "Beig": Beig}   # Aeig/Beig: full real spectra → SLQ density (plot 5)
+    rec = {"I": I, "II": II, "III": III, "divP": divP, "Atop": Atop, "Abot": Abot, "Astat": Astat,
+           "IV": IV, "V": V, "VI": VI, "divS": divS, "Btop": Btop, "Bbot": Bbot, "Bstat": Bstat,
+           "D2": D2, "Dsig2": Dsig2, "Aeig": Aeig, "Beig": Beig}   # Aeig/Beig: full real spectra → SLQ density (plot 5)
+    return rec, A, Bm, u1   # also expose the matrices A,B and the top NTK eigvec u₁ for panels 3/4 (Q̇≠0)
+
+
+def _eig_stats(M):
+    """Real-part eigenvalue summary of a general N×N matrix: (top-3 desc, bottom-3 asc, [min,max,mean,q25,q75], full desc)."""
+    e = torch.linalg.eigvals(M).real
+    es = torch.sort(e, descending=True).values
+    k = min(3, es.numel())
+    return (es[:k].tolist(), torch.sort(e).values[:k].tolist(),
+            [float(e.min()), float(e.max()), float(e.mean()), float(torch.quantile(e, 0.25)), float(torch.quantile(e, 0.75))],
+            es.tolist())
+
+
+def sec15_panel34(hvp_at, th_tm2, Jt, Jtm1, Jtm2, rtm1, rtm2, u1, A, B, rec, lr, N, eps=1e-3):
+    """Panels 3/4 (Q̇≠0): the third-derivative terms VII, VIII and the matrices A'=A+(VII), B'=B+(VIII).
+    `hvp_at(theta, v)` returns the per-sample function-Hessian action {Q_{s,k}(theta)·v}_k (N,p) at an ARBITRARY
+    theta — used to take a directional derivative of the Hessian (finite difference of the FD-HVP, the 3rd derivative
+    T_{t-2,k}).  VII = c²·Σ_k ∇f_{t,k}ᵀ T_{t-2,k}[·,g_{t-1},g_{t-2}] ;  VIII = the u₁-projected analogue.
+      A'[j,i] = A[j,i] + c²·Σ_k ∇f_{t,k}ᵀ T_{t-2,k}[·,∇f_{t-1,j},∇f_{t-2,i}]  (and B' the u₁-projected analogue).
+    Costs 2N²+2 HVP evaluations (the A'/B' matrices dominate)."""
+    c = lr / N; c2 = c * c
+    g1 = Jtm1.t() @ rtm1; g2 = Jtm2.t() @ rtm2
+    b = u1 @ Jt                                              # Σ_k u₁ₖ ∇f_{t,k}  (p,)
+    # ── scalars VII, VIII: directional derivative of {Q_k·g₁} along g₂ (share Hp/Hm) ──
+    dQg1 = (hvp_at(th_tm2 + eps * g2, g1) - hvp_at(th_tm2 - eps * g2, g1)) / (2.0 * eps)   # {T_{t-2,k}[·,g₁,g₂]}_k
+    VII = c2 * float((Jt * dQg1).sum())
+    VIII = c2 * float((b * (u1 @ dQg1)).sum())
+    # ── matrices A'−A, B'−B: T_{t-2,k}[·, ∇f_{t-1,j}, ∇f_{t-2,i}] over all (i,j) ──
+    dA = torch.zeros(N, N, dtype=Jt.dtype, device=Jt.device)
+    dB = torch.zeros(N, N, dtype=Jt.dtype, device=Jt.device)
+    for i in range(N):
+        thp = th_tm2 + eps * Jtm2[i]; thm = th_tm2 - eps * Jtm2[i]
+        for j in range(N):
+            d = (hvp_at(thp, Jtm1[j]) - hvp_at(thm, Jtm1[j])) / (2.0 * eps)   # {T_{t-2,k}[·,∇f_{t-1,j},∇f_{t-2,i}]}_k
+            dA[j, i] = (Jt * d).sum()
+            dB[j, i] = (b * (u1 @ d)).sum()
+    Ap = A + c2 * dA; Bp = B + c2 * dB
+    Aptop, Apbot, Apstat, Apeig = _eig_stats(Ap)
+    Bptop, Bpbot, Bpstat, Bpeig = _eig_stats(Bp)
+    D2 = rec["D2"]; Dsig2 = rec["Dsig2"]
+    sJ = rec["I"] + rec["II"] - rec["III"] + VII             # full ½∂²‖J‖² with the Q̇ term
+    sS = rec["IV"] + rec["V"] - rec["VI"] + VIII             # full ½∂²σ₁ with the Q̇ term
+    divP3 = ((-2.0 * sJ + D2) / D2 * 100.0) if abs(D2) > 1e-30 else 0.0
+    divS4 = ((-2.0 * sS + Dsig2) / Dsig2 * 100.0) if abs(Dsig2) > 1e-30 else 0.0
+    return {"VII": VII, "VIII": VIII, "divP3": divP3, "divS4": divS4,
+            "Aptop": Aptop, "Apbot": Apbot, "Apstat": Apstat, "Apeig": Apeig,
+            "Bptop": Bptop, "Bpbot": Bpbot, "Bpstat": Bpstat, "Bpeig": Bpeig}
