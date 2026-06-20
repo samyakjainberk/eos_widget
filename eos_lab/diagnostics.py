@@ -676,6 +676,18 @@ class Diagnostics:
             lblsel15 = (torch.arange(N, device=dev) * outD + Y.reshape(N, outD).argmax(dim=1)
                         if outD > 1 else torch.arange(N, device=dev))
             Jg15 = Jc[lblsel15]; r15 = rr[lblsel15]                # (N,p) GT-grads ∇f_i ; (N,) residual r=y−f
+            # ---- panel 5: per-sample NORM evolution (mean ± std across the N samples), at the current step t ----
+            jn15 = Jg15.norm(dim=1)                                # ‖∇f_k‖   (per-sample Jacobian-row norm)
+            rn15 = r15.abs()                                       # |r_k|    (per-sample residual)
+            gn15 = rn15 * jn15                                     # ‖r_k∇f_k‖ (per-sample loss-gradient term)
+            acc15 = torch.zeros(N, dtype=dt, device=dev)           # ‖Q_{t,k}‖_F via Hutchinson: E_v‖Q_k v‖²=tr(Q_k²)
+            for pr in range(4):
+                vv15 = randn_vec(p, (0x5EC15 + pr * 0x9E3779B1) & 0xFFFFFFFF, dev, dt)
+                Qv15 = jac_hvp(self.model, th, X, vv15)[lblsel15]
+                acc15 = acc15 + (Qv15 * Qv15).sum(dim=1)
+            hn15 = torch.sqrt(acc15 / 4.0)
+            _ms15 = lambda x: [float(x.mean()), float(x.std(unbiased=False))]
+            rec["g15n"] = {"g": _ms15(gn15), "j": _ms15(jn15), "h": _ms15(hn15), "r": _ms15(rn15)}
             if (len(self._sec15_hist) >= 2 and self._sec15_hist[-1]["t"] == t - 1
                     and self._sec15_hist[-2]["t"] == t - 2):       # 3 CONSECUTIVE GD steps (eigevery=1): the per-step 2nd-difference theory requires it
                 tm1, tm2 = self._sec15_hist[-1], self._sec15_hist[-2]

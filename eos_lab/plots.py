@@ -1204,10 +1204,10 @@ def plot_section14_ratio(hist):
     return _s14_fig(g["ratio"], _S14_RLAB, N, "§14 panel 10 — eq-③ multi-step ratio (first/last × y, S=y)")
 
 
-def _s15_panel(hist, terms, divkey, pre, suptitle):
-    """§15 one panel — 5 plots: (1) the three theory terms; (2) divergence %; (3) top-3/bottom-3 real eigenvalues
-    of A (pre='A') resp. B (pre='B'); (4) eigenvalue min/max/mean + IQR band; (5) SLQ spectral density of A/B
-    (Gaussian-broadened real spectrum) as a step×eigenvalue heatmap over training. Reads rec['g15']."""
+def _s15_panel(hist, terms, divkey, pre, suptitle, d2key):
+    """§15 one panel — 5 plots: (1) the three theory terms + the actual 2nd-difference (d2key); (2) divergence %;
+    (3) top-3/bottom-3 real eigenvalues of A (pre='A') resp. B (pre='B'); (4) eigenvalue min/max/mean + IQR band;
+    (5) SLQ spectral density of A/B as a step×eigenvalue heatmap over training. Reads rec['g15']."""
     import numpy as np
     recs = [r for r in hist if "g15" in r]
     if len(recs) < 2:
@@ -1216,8 +1216,9 @@ def _s15_panel(hist, terms, divkey, pre, suptitle):
     fig, axs = plt.subplots(1, 5, figsize=(25, 3.7))
     for nm, col in zip(terms, ["#2563eb", "#16a34a", "#dc2626"]):
         axs[0].plot(t, [g[nm] for g in G], label=nm, color=col, marker="o", ms=3, lw=1.4)
+    axs[0].plot(t, [g.get(d2key, np.nan) for g in G], label="∂² actual", color="#111827", ls=":", lw=1.8)  # actual 2nd-diff (=2·Σterms in theory)
     axs[0].axhline(0, c="#999", lw=0.6); axs[0].legend(fontsize=9)
-    axs[0].set_title("theory terms  " + " / ".join(terms)); axs[0].set_xlabel("step")
+    axs[0].set_title("terms " + "/".join(terms) + " + actual ∂²"); axs[0].set_xlabel("step")
     axs[1].plot(t, [g[divkey] for g in G], color="#7c3aed", marker="o", ms=3, lw=1.4)
     axs[1].axhline(0, c="#999", lw=0.6); axs[1].set_title("divergence  %"); axs[1].set_xlabel("step")
     top, bot = pre + "top", pre + "bot"
@@ -1261,15 +1262,36 @@ def _s15_panel(hist, terms, divkey, pre, suptitle):
 
 
 def plot_section15_panel1(hist):
-    """§15 panel 1 — decomposition of ½∂²‖J‖²_F: terms I/II/III, divergence%, and eigenvalues of A."""
+    """§15 panel 1 — decomposition of ½∂²‖J‖²_F: terms I/II/III + actual ∂²‖J‖²_F, divergence%, eigenvalues of A."""
     return _s15_panel(hist, ["I", "II", "III"], "divP", "A",
-                      "§15 panel 1 — ½∂²‖J‖²_F = I+II−III · divergence vs empirical 2nd-difference · eigenvalues of A")
+                      "§15 panel 1 — ½∂²‖J‖²_F = I+II−III · divergence vs empirical 2nd-difference · eigenvalues of A", "D2")
 
 
 def plot_section15_panel2(hist):
-    """§15 panel 2 — decomposition of ½∂²σ₁ (top NTK eigenvalue): terms IV/V/VI, divergence%, eigenvalues of B."""
+    """§15 panel 2 — decomposition of ½∂²σ₁ (top NTK eigenvalue): terms IV/V/VI + actual ∂²σ₁, divergence%, eigenvalues of B."""
     return _s15_panel(hist, ["IV", "V", "VI"], "divS", "B",
-                      "§15 panel 2 — ½∂²σ₁ = IV+V−VI · divergence vs empirical 2nd-difference · eigenvalues of B")
+                      "§15 panel 2 — ½∂²σ₁ = IV+V−VI · divergence vs empirical 2nd-difference · eigenvalues of B", "Dsig2")
+
+
+def plot_section15_panel5(hist):
+    """§15 panel 5 — per-sample norm evolution: ‖gradient‖, ‖Jacobian‖, ‖function Hessian‖, ‖residual‖ (mean ± std cloud)."""
+    recs = [r for r in hist if "g15n" in r]
+    if len(recs) < 2:
+        return None
+    t = list(range(len(recs))); G = [r["g15n"] for r in recs]
+    fig, axs = plt.subplots(1, 4, figsize=(20, 3.7))
+    specs = [("g", "‖gradient‖ = |r_k|·‖∇f_k‖", "#2563eb"), ("j", "‖Jacobian‖ = ‖∇f_k‖", "#16a34a"),
+             ("h", "‖function Hessian‖ = ‖Q_k‖_F", "#d97706"), ("r", "‖residual‖ = |r_k|", "#dc2626")]
+    for ax, (key, title, col) in zip(axs, specs):
+        mu = [g[key][0] for g in G]; sd = [g[key][1] for g in G]
+        lo = [m - s for m, s in zip(mu, sd)]; hi = [m + s for m, s in zip(mu, sd)]
+        ax.fill_between(t, lo, hi, alpha=0.2, color=col, label="±1 std")
+        ax.plot(t, mu, color=col, lw=1.7, label="mean")
+        ax.axhline(0, c="#999", lw=0.6); ax.legend(fontsize=8)
+        ax.set_title(title, fontsize=10); ax.set_xlabel("step"); ax.set_ylabel("norm")
+    fig.suptitle("§15 panel 5 — per-sample norm evolution (mean ± std across samples)", fontsize=13)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    return fig
 
 
 def save_section12_panel_gif(hist, k0, path, frames=30, fps=12, dpi=60):
@@ -1347,7 +1369,8 @@ def save_panels(results, outdir):
             "section14_y5_min": plot_section14(hist, 5, "min"),
             "section14_ratio": plot_section14_ratio(hist),
             "section15_panel1_normJ": plot_section15_panel1(hist),
-            "section15_panel2_sigma1": plot_section15_panel2(hist)}
+            "section15_panel2_sigma1": plot_section15_panel2(hist),
+            "section15_panel5_norms": plot_section15_panel5(hist)}
     written = []
     for name, fig in figs.items():
         if fig is None:

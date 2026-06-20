@@ -2331,7 +2331,7 @@ def run_stream(P):
             # bottom-K12 eigenpairs of each Q_i by Lanczos on v↦Q_i·v — no p×p Hessian is formed. For the MLP
             # the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (a single vectorised forward/backward per
             # step instead of N) — ~4–8× faster on GPU. Other archs fall back to the per-sample loop. Gated on N.
-            sec12 = None; sec14 = None; sec13 = None; sec15 = None
+            sec12 = None; sec14 = None; sec13 = None; sec15 = None; sec15n = None
             if (s19 or s20 or s21 or s22) and (multi_ok or s12single) and Jc is not None and rr is not None and N <= sec12ncap:
                 lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
                             if outD > 1 else torch.arange(N, device=_dev()))
@@ -2422,6 +2422,15 @@ def run_stream(P):
                 lblsel15 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
                             if outD > 1 else torch.arange(N, device=_dev()))
                 Jg15 = Jc[lblsel15]; r15 = rr[lblsel15]
+                # ---- panel 5: per-sample NORM evolution (mean ± std across the N samples), at the current step t ----
+                jn15 = Jg15.norm(dim=1); rn15 = r15.abs(); gn15 = rn15 * jn15
+                acc15 = torch.zeros(N, dtype=DTYPE, device=_dev())   # ‖Q_{t,k}‖_F via Hutchinson: E_v‖Q_k v‖²=tr(Q_k²)
+                for pr in range(4):
+                    Qv15 = jac_hvp(th, X, _randn_vec(p, (0x5EC15 + pr * 0x9E3779B1) & 0xFFFFFFFF))[lblsel15]
+                    acc15 = acc15 + (Qv15 * Qv15).sum(dim=1)
+                hn15 = torch.sqrt(acc15 / 4.0)
+                _ms15 = lambda x: [float(x.mean()), float(x.std(unbiased=False))]
+                sec15n = {"g": _ms15(gn15), "j": _ms15(jn15), "h": _ms15(hn15), "r": _ms15(rn15)}
                 if (len(sec15_hist) >= 2 and sec15_hist[-1]["t"] == t - 1 and sec15_hist[-2]["t"] == t - 2):   # 3 CONSECUTIVE GD steps (eigevery=1): the per-step 2nd-difference theory requires it
                     tm1, tm2 = sec15_hist[-1], sec15_hist[-2]
                     hvp1 = lambda v: jac_hvp(tm1["th"], X, v)[lblsel15]
@@ -2488,6 +2497,8 @@ def run_stream(P):
                 yield {"type": "g14", "t": t, **sec14}   # §14 Tr(ΔNTK) per-triplet decomposition snapshot
             if sec15 is not None:
                 yield {"type": "g15", "t": t, **sec15}   # §15 2nd-difference decomposition of ‖J‖²_F & σ₁
+            if sec15n is not None:
+                yield {"type": "g15n", "t": t, **sec15n}  # §15 panel 5 — per-sample norm evolution (mean ± std)
             eigTick += 1
             done += 1
 

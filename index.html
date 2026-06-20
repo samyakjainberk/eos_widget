@@ -417,6 +417,9 @@
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — $\tfrac12\partial_t^2\sigma_1 = \mathrm{IV}+\mathrm{V}-\mathrm{VI}$ &amp; eigenvalues of $B$</h3>
 <p class="cap">Same as Panel 1 but the trace-tie is replaced by the top NTK eigenvector $u_{t,1}$ projection — $S\to(\bar Q^{u})^2$ with $\bar Q^{u}=\sum_k u_{t,1,k}Q_{t-1,k}$: $\mathrm{IV}=c^2 g_{t-1}^\top(\bar Q^{u})^2 g_{t-1}$ ·  $\mathrm{V}=c^2(J_t u_{t,1})^\top\bar Q^{u}\,\tilde Q\,g_{t-2}$ ·  $\mathrm{VI}=c^2(J_t u_{t,1})^\top\bar Q^{u}\,(J_{t-1}J_{t-2}^\top J_{t-2}r_{t-2})$ ·  $B=c^2(J_{t-1}^\top(\bar Q^{u})^2 J_{t-1})(I-c\,J_{t-2}^\top J_{t-2})$. Divergence$\%=\big[D_\sigma^2-2(\mathrm{IV+V-VI})\big]/D_\sigma^2\times100$ with $D_\sigma^2=\sigma_{1,t}+\sigma_{1,t-2}-2\sigma_{1,t-1}$ (same 2× as Panel 1). <b>Plot 5</b>: SLQ spectral density of $B$ at the current step.</p>
 <div class="plotrow row5"><div id="p_s15_terms2" class="plot" style="height:290px"></div><div id="p_s15_div2" class="plot" style="height:290px"></div><div id="p_s15_Beig" class="plot" style="height:290px"></div><div id="p_s15_Bspread" class="plot" style="height:290px"></div><div id="p_s15_Bdens" class="plot" style="height:290px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 5 — per-sample norm evolution (mean ± std across samples)</h3>
+<p class="cap">Evolution of four per-sample quantities, averaged over the $N$ samples with the <b>±1 std shown as a shaded cloud</b> around the mean. <b>‖gradient‖</b> $=\lVert r_k\nabla f_k\rVert=|r_k|\,\lVert\nabla f_k\rVert$ (per-sample loss-gradient term) · <b>‖Jacobian‖</b> $=\lVert\nabla f_k\rVert$ (function-gradient / row of $J$) · <b>‖function Hessian‖</b> $=\lVert Q_k\rVert_F=\lVert\nabla^2 f_k\rVert_F$ (Frobenius, estimated by Hutchinson: $\mathbb{E}_v\lVert Q_k v\rVert^2=\mathrm{tr}(Q_k^2)$) · <b>‖residual‖</b> $=|r_k|$. All at the current step $t$ (no 3-tick buffer needed, so this panel fills from the start).</p>
+<div class="plotrow row4"><div id="p_s15_ng" class="plot" style="height:290px"></div><div id="p_s15_nj" class="plot" style="height:290px"></div><div id="p_s15_nh" class="plot" style="height:290px"></div><div id="p_s15_nr" class="plot" style="height:290px"></div></div>
 </div>
 
 <div id="sec_2">
@@ -1959,44 +1962,69 @@ function s15Build(){
   S15_BUILT=true;
   const ln=(name,col,dash)=>({x:[],y:[],mode:'lines+markers',name:name,line:{color:col,width:1.7,dash:dash||'solid'},marker:{size:3,color:col}});
   const mk=(id,tr,title,yl)=>Plotly.newPlot(id,tr,withZero(baseLayout(title,yl,false)),{responsive:true,displaylogo:false});
-  const eigtr=()=>[ln('top-3','#2563eb'),ln('','#2563eb'),ln('','#2563eb'),ln('bottom-3','#dc2626'),ln('','#dc2626'),ln('','#dc2626')];
-  const band=()=>({x:[],y:[],fill:'toself',fillcolor:'rgba(37,99,235,0.18)',line:{width:0},name:'IQR',hoverinfo:'skip'});
-  const sprtr=()=>[band(),ln('mean','#111827'),ln('max','#16a34a'),ln('min','#dc2626')];
-  mk('p_s15_terms1',[ln('I','#2563eb'),ln('II','#16a34a'),ln('III','#dc2626')],'theory terms  I / II / III  (½∂²‖J‖²)','value');
+  const TOPC=['#08306b','#2563eb','#80b1ff'], BOTC=['#67000d','#dc2626','#fca5a5'];   // dark→light gradient, rank 1→3
+  const eigtr=()=>[ln('top-1',TOPC[0]),ln('top-2',TOPC[1]),ln('top-3',TOPC[2]),ln('bot-1',BOTC[0]),ln('bot-2',BOTC[1]),ln('bot-3',BOTC[2])];
+  const band=(col)=>({x:[],y:[],fill:'toself',fillcolor:col,line:{width:0},hoverinfo:'skip',showlegend:false});
+  const sprtr=()=>[band('rgba(37,99,235,0.08)'),band('rgba(37,99,235,0.24)'),ln('mean','#111827'),ln('max','#16a34a'),ln('min','#dc2626')];   // min–max cloud · IQR cloud · mean/max/min lines
+  mk('p_s15_terms1',[ln('I','#2563eb'),ln('II','#16a34a'),ln('III','#dc2626'),ln('∂²‖J‖²_F (actual)','#111827','dot')],'I / II / III  +  actual ∂²‖J‖²_F  (theory: =2·(I+II−III))','value');
   mk('p_s15_div1',[ln('divergence','#7c3aed')],'divergence %  (theory vs empirical 2nd-difference)','%');
-  mk('p_s15_Aeig',eigtr(),'A: top-3 (blue) / bottom-3 (red) real eigenvalues','eigenvalue');
-  mk('p_s15_Aspread',sprtr(),'A: eigenvalue spread  (min/max/mean + IQR)','eigenvalue');
+  mk('p_s15_Aeig',eigtr(),'A: eigenvalues — top-3 (blue, dark→light) · bottom-3 (red, dark→light)','eigenvalue');
+  mk('p_s15_Aspread',sprtr(),'A: eigenvalue spread  (mean · max · min lines · IQR + min–max clouds)','eigenvalue');
   {const L=baseLayout('A: eigenvalue density  (‖J‖²_F curvature matrix, this step)','relative density',false);L.xaxis.title.text='eigenvalue of A';L.showlegend=false;
    Plotly.newPlot('p_s15_Adens',[{x:[],y:[],fill:'tozeroy',fillcolor:'rgba(37,99,235,0.18)',line:{color:'#2563eb',width:1.7},name:'ρ(λ)'}],withZero(L),{responsive:true,displaylogo:false});}
-  mk('p_s15_terms2',[ln('IV','#2563eb'),ln('V','#16a34a'),ln('VI','#dc2626')],'theory terms  IV / V / VI  (½∂²σ₁)','value');
+  mk('p_s15_terms2',[ln('IV','#2563eb'),ln('V','#16a34a'),ln('VI','#dc2626'),ln('∂²σ₁ (actual)','#111827','dot')],'IV / V / VI  +  actual ∂²σ₁  (theory: =2·(IV+V−VI))','value');
   mk('p_s15_div2',[ln('divergence','#7c3aed')],'divergence %  (theory vs empirical 2nd-difference)','%');
-  mk('p_s15_Beig',eigtr(),'B: top-3 (blue) / bottom-3 (red) real eigenvalues','eigenvalue');
-  mk('p_s15_Bspread',sprtr(),'B: eigenvalue spread  (min/max/mean + IQR)','eigenvalue');
+  mk('p_s15_Beig',eigtr(),'B: eigenvalues — top-3 (blue, dark→light) · bottom-3 (red, dark→light)','eigenvalue');
+  mk('p_s15_Bspread',sprtr(),'B: eigenvalue spread  (mean · max · min lines · IQR + min–max clouds)','eigenvalue');
   {const L=baseLayout('B: eigenvalue density  (σ₁ curvature matrix, this step)','relative density',false);L.xaxis.title.text='eigenvalue of B';L.showlegend=false;
    Plotly.newPlot('p_s15_Bdens',[{x:[],y:[],fill:'tozeroy',fillcolor:'rgba(220,38,38,0.16)',line:{color:'#dc2626',width:1.7},name:'ρ(λ)'}],withZero(L),{responsive:true,displaylogo:false});}
 }
 function s15Push(m){
   if(!S15_BUILT)s15Build();
-  if(!S15_DATA)S15_DATA={steps:[],I:[],II:[],III:[],divP:[],Atop:[[],[],[]],Abot:[[],[],[]],Astat:[[],[],[],[],[]],
+  if(!S15_DATA)S15_DATA={steps:[],I:[],II:[],III:[],divP:[],D2:[],Dsig2:[],Atop:[[],[],[]],Abot:[[],[],[]],Astat:[[],[],[],[],[]],
                          IV:[],V:[],VI:[],divS:[],Btop:[[],[],[]],Bbot:[[],[],[]],Bstat:[[],[],[],[],[]]};
   const D=S15_DATA;D.steps.push(m.t);
-  D.I.push(m.I);D.II.push(m.II);D.III.push(m.III);D.divP.push(m.divP);
+  D.I.push(m.I);D.II.push(m.II);D.III.push(m.III);D.divP.push(m.divP);D.D2.push(m.D2);D.Dsig2.push(m.Dsig2);
   D.IV.push(m.IV);D.V.push(m.V);D.VI.push(m.VI);D.divS.push(m.divS);
   for(let j=0;j<3;j++){D.Atop[j].push(m.Atop[j]??null);D.Abot[j].push(m.Abot[j]??null);D.Btop[j].push(m.Btop[j]??null);D.Bbot[j].push(m.Bbot[j]??null);}
   for(let j=0;j<5;j++){D.Astat[j].push(m.Astat[j]);D.Bstat[j].push(m.Bstat[j]);}
   const t=D.steps, bx=t.concat(t.slice().reverse());
-  Plotly.restyle('p_s15_terms1',{x:[t,t,t],y:[D.I,D.II,D.III]});
+  Plotly.restyle('p_s15_terms1',{x:[t,t,t,t],y:[D.I,D.II,D.III,D.D2]});
   Plotly.restyle('p_s15_div1',{x:[t],y:[D.divP]});
   Plotly.restyle('p_s15_Aeig',{x:[t,t,t,t,t,t],y:[D.Atop[0],D.Atop[1],D.Atop[2],D.Abot[0],D.Abot[1],D.Abot[2]]});
-  Plotly.restyle('p_s15_Aspread',{x:[bx,t,t,t],y:[D.Astat[3].concat(D.Astat[4].slice().reverse()),D.Astat[2],D.Astat[1],D.Astat[0]]});
-  Plotly.restyle('p_s15_terms2',{x:[t,t,t],y:[D.IV,D.V,D.VI]});
+  Plotly.restyle('p_s15_Aspread',{x:[bx,bx,t,t,t],y:[D.Astat[0].concat(D.Astat[1].slice().reverse()),D.Astat[3].concat(D.Astat[4].slice().reverse()),D.Astat[2],D.Astat[1],D.Astat[0]]});   // min–max cloud · IQR cloud · mean · max · min
+  Plotly.restyle('p_s15_terms2',{x:[t,t,t,t],y:[D.IV,D.V,D.VI,D.Dsig2]});
   Plotly.restyle('p_s15_div2',{x:[t],y:[D.divS]});
   Plotly.restyle('p_s15_Beig',{x:[t,t,t,t,t,t],y:[D.Btop[0],D.Btop[1],D.Btop[2],D.Bbot[0],D.Bbot[1],D.Bbot[2]]});
-  Plotly.restyle('p_s15_Bspread',{x:[bx,t,t,t],y:[D.Bstat[3].concat(D.Bstat[4].slice().reverse()),D.Bstat[2],D.Bstat[1],D.Bstat[0]]});
+  Plotly.restyle('p_s15_Bspread',{x:[bx,bx,t,t,t],y:[D.Bstat[0].concat(D.Bstat[1].slice().reverse()),D.Bstat[3].concat(D.Bstat[4].slice().reverse()),D.Bstat[2],D.Bstat[1],D.Bstat[0]]});   // min–max cloud · IQR cloud · mean · max · min
   if(m.Aeig&&m.Aeig.length){const dA=s15Dens(m.Aeig);Plotly.restyle('p_s15_Adens',{x:[dA.x],y:[dA.y]});}   // plot 5: SLQ density at the current step (replaces each tick, like §5)
   if(m.Beig&&m.Beig.length){const dB=s15Dens(m.Beig);Plotly.restyle('p_s15_Bdens',{x:[dB.x],y:[dB.y]});}
 }
 function s15Reset(){S15_DATA=null;S15_BUILT=false;S15_HIST_JS=[];for(const id of S15_IDS){try{Plotly.purge(id);}catch(e){}}}
+// §15 panel 5 — per-sample norm evolution (mean line + ±1 std shaded cloud), 4 plots
+const S15N_IDS=['p_s15_ng','p_s15_nj','p_s15_nh','p_s15_nr'];
+let S15N_DATA=null, S15N_BUILT=false;
+function s15nBuild(){
+  S15N_BUILT=true;
+  const mk=(id,rgb,title)=>{const cloud={x:[],y:[],fill:'toself',fillcolor:'rgba('+rgb+',0.20)',line:{width:0},hoverinfo:'skip',showlegend:false};
+    const mean={x:[],y:[],mode:'lines',name:'mean',line:{color:'rgb('+rgb+')',width:1.8}};
+    Plotly.newPlot(id,[cloud,mean],withZero(baseLayout(title,'norm',false)),{responsive:true,displaylogo:false});};
+  mk('p_s15_ng','37,99,235','‖gradient‖ = |r_k|·‖∇f_k‖   (mean ± std)');
+  mk('p_s15_nj','22,163,74','‖Jacobian‖ = ‖∇f_k‖   (mean ± std)');
+  mk('p_s15_nh','217,119,6','‖function Hessian‖ = ‖Q_k‖_F   (mean ± std)');
+  mk('p_s15_nr','220,38,38','‖residual‖ = |r_k|   (mean ± std)');
+}
+function s15nPush(m){
+  if(!S15N_BUILT)s15nBuild();
+  if(!S15N_DATA)S15N_DATA={steps:[],g:[[],[]],j:[[],[]],h:[[],[]],r:[[],[]]};
+  const D=S15N_DATA;D.steps.push(m.t);
+  for(const k of ['g','j','h','r']){D[k][0].push(m[k][0]);D[k][1].push(m[k][1]);}
+  const t=D.steps, bx=t.concat(t.slice().reverse());
+  const draw=(id,k)=>{const mu=D[k][0],sd=D[k][1],lo=mu.map((v,i)=>v-sd[i]),hi=mu.map((v,i)=>v+sd[i]);
+    Plotly.restyle(id,{x:[bx,t],y:[lo.concat(hi.slice().reverse()),mu]});};
+  draw('p_s15_ng','g');draw('p_s15_nj','j');draw('p_s15_nh','h');draw('p_s15_nr','r');
+}
+function s15nReset(){S15N_DATA=null;S15N_BUILT=false;for(const id of S15N_IDS){try{Plotly.purge(id);}catch(e){}}}
 let S13_QJPREV_JS=null;  // §13 panel 4 client-side: previous eig-tick's {QJ[j][i]=Q_iJ_j, r} for the ‖A−B‖/‖A‖ asymmetry
 let OPT={s1:true,s2:true,s3:true,s4:true,s5:true,s6:true,gs:true};
 
@@ -2018,7 +2046,7 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_s14');if(el){const vis=(chk('en20')&&multi);el.style.display=vis?'':'none';   // §14 Tr(ΔNTK) per-triplet decomposition (s20, multi-only)
     if(vis&&typeof S14_SNAPS!=='undefined'&&S14_SNAPS.length)requestAnimationFrame(()=>s14RenderNow(S14_CURIDX));}}   // redraw canvases now that the divs have size
   {const el=document.getElementById('sec_s15');if(el){const vis=chk('en23');el.style.display=vis?'':'none';   // §15 2nd-difference decomposition (own toggle en23; multi OR single sample)
-    if(vis)requestAnimationFrame(()=>{for(const id of S15_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}   // re-size §15 plots when the section becomes visible
+    if(vis)requestAnimationFrame(()=>{for(const id of S15_IDS.concat(S15N_IDS)){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}   // re-size §15 plots when the section becomes visible
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
 }
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
@@ -2027,7 +2055,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   s12Reset();   // §12: drop snapshots from the previous run
   s13Reset();   // §13: drop the approximation-comparison time-series from the previous run
   s14Reset();   // §14: drop snapshots from the previous run
-  s15Reset();   // §15: drop the 2nd-difference time-series + 3-tick buffer
+  s15Reset();s15nReset();   // §15: drop the 2nd-difference time-series + 3-tick buffer + norm panel
   trReset();    // §5: clear the trace-over-iterations curves
   syncSectionVis(multi);   // gate sections by the panel toggles (multi from the actual run)
   const dis=s=>OPT.gs?s:s+'  (off)';
@@ -2685,6 +2713,16 @@ async function loop(){                                   // drives ST forward; r
           const oD=Math.round(M/N), lblsel=new Array(N);
           for(let i=0;i<N;i++){if(oD>1){let mx=-Infinity,mi=0;for(let c=0;c<oD;c++){const yv=Y[i*oD+c];if(yv>mx){mx=yv;mi=c;}}lblsel[i]=i*oD+mi;}else lblsel[i]=i;}
           const Jg15=lblsel.map(a=>bJc[a]), r15=lblsel.map(a=>rrs[a]);   // N Float64Arrays(p) GT-grads ∇f_i ; N residuals r=y−f
+          // panel 5 — per-sample norms (mean ± std across samples), every eig-tick
+          {const jn=Jg15.map(g=>Math.sqrt(s15Dotp(g,g,p))), rn=r15.map(Math.abs), gn=jn.map((jj,k)=>rn[k]*jj);
+           const accH=new Float64Array(N);
+           for(let pr=0;pr<4;pr++){const seed=(0x5EC15+pr*0x9E3779B1)>>>0,rng=mulberry32(seed),v=new Float64Array(p);
+             for(let q=0;q<p;q++)v[q]=gauss(rng);
+             const Qv=jacHVP(S.th,spec,X,N,inDim,p,v,eps);
+             for(let k=0;k<N;k++){const q=Qv[lblsel[k]];accH[k]+=s15Dotp(q,q,p);}}
+           const hn=Array.from(accH,a=>Math.sqrt(a/4));
+           const ms=arr=>{let mu=0;for(const x of arr)mu+=x;mu/=N;let vv=0;for(const x of arr)vv+=(x-mu)*(x-mu);return [mu,Math.sqrt(vv/N)];};
+           s15nPush({type:'g15n',t:S.t,g:ms(gn),j:ms(jn),h:ms(hn),r:ms(rn)});}
           if(S15_HIST_JS.length>=2&&S15_HIST_JS[S15_HIST_JS.length-1].t===S.t-1&&S15_HIST_JS[S15_HIST_JS.length-2].t===S.t-2){   // 3 CONSECUTIVE GD steps (eigevery=1): the per-step 2nd-difference theory requires it
             const tm1=S15_HIST_JS[S15_HIST_JS.length-1], tm2=S15_HIST_JS[S15_HIST_JS.length-2];
             const hvp1=v=>{const Q=jacHVP(tm1.th,spec,X,N,inDim,p,v,eps);return lblsel.map(a=>Q[a]);};   // {Q_{t−1,k}·v}_k
@@ -2890,7 +2928,7 @@ function resetSim(){
   s12Reset();   // §12: clear the eigvec-similarity grids/cuboids + snapshots/slider too
   s13Reset();   // §13: clear the approximation-comparison time-series too
   s14Reset();   // §14: clear the triplet-decomposition cubes + snapshots/slider too
-  s15Reset();   // §15: clear the 2nd-difference time-series + 3-tick buffer too
+  s15Reset();s15nReset();   // §15: clear the 2nd-difference time-series + 3-tick buffer + norm panel too
   updateButtons();
 }
 
@@ -3084,6 +3122,7 @@ function openStream(start,resuming){
     }else if(m.type==='g13'){s13Push(m);
     }else if(m.type==='g14'){s14Push(m);
     }else if(m.type==='g15'){s15Push(m);
+    }else if(m.type==='g15n'){s15nPush(m);
     }else if(m.type==='done'){st.textContent=`done — through step ${lastT} · p=${m.p} · 2/lr=${(META?META.thr:0).toFixed(3)}.`;finish();
     }else if(m.type==='error'){st.textContent='backend: '+m.error;finish();}
   };
