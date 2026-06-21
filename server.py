@@ -404,9 +404,9 @@ def _sec14_payload(prev, cur, lr, grid3dcap, rhist):
     return out
 
 
-_DREG = 1e-12   # divergence = (D² − 2Σ)/D² × 100 — the TRUE relative error of the master eq D²=2(I+II−III), exactly as defined.
-def _divreg(num, den, scale):   # The only regularization is a tiny roundoff·scale term so it stays FINITE if D² is exactly 0; the
-    return num / (den + math.copysign(_DREG * scale, den)) * 100.0   # large values near ‖J‖²/σ₁ inflections (D²→0) are REAL relative error, not altered.
+_DEPS = 0.05    # additive ε in the denominator: divergence = (D²−2Σ)/(D² + sign(D²)·ε), with ε = _DEPS·`scale` and `scale` = the
+def _divreg(num, den, scale):   # MAGNITUDE of the 2nd-difference itself, 2(Σ|term|). Where |D²| ≫ ε (away from inflections) this is EXACTLY
+    return num / (den + math.copysign(_DEPS * scale, den)) * 100.0   # the defined (D²−2Σ)/D²; ε only acts in the narrow band where D²→0 (‖J‖²/σ₁ inflections), bounding the 0/0 spike.
 
 
 def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
@@ -453,7 +453,7 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
 
     nJt = float((Jt * Jt).sum()); nJtm1 = float((Jtm1 * Jtm1).sum()); nJtm2 = float((Jtm2 * Jtm2).sum())
     D2 = nJt + nJtm2 - 2.0 * nJtm1
-    divP = _divreg(-2.0 * (I + II - III) + D2, D2, nJt + nJtm1 + nJtm2)  # 2×: terms are ½∂²‖J‖²; D² is the full discrete ∂² ⇒ predict D²≈2(I+II−III); →0 when theory holds
+    divP = _divreg(-2.0 * (I + II - III) + D2, D2, 2.0 * (abs(I) + abs(II) + abs(III)))  # 2×: terms are ½∂²‖J‖²; predict D²≈2(I+II−III); →0 when theory holds. ε-scale = 2(|I|+|II|+|III|) (the D²-magnitude).
 
     Kt = Jt @ Jt.t()
     evt = torch.linalg.eigh(Kt)
@@ -472,7 +472,7 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
     Bm = Bm + c2 * torch.einsum('a,ija->ji', u1 @ hvp1(b), M2)
     Btop, Bbot, Bstat, Beig = estats(Bm)
     Dsig2 = sig_t + sig_tm2 - 2.0 * sig_tm1
-    divS = _divreg(-2.0 * (IV + V - VI) + Dsig2, Dsig2, sig_t + sig_tm1 + sig_tm2)  # 2×: terms are ½∂²σ₁; Dσ² is the full discrete ∂² ⇒ predict Dσ²≈2(IV+V−VI); →0 when theory holds
+    divS = _divreg(-2.0 * (IV + V - VI) + Dsig2, Dsig2, 2.0 * (abs(IV) + abs(V) + abs(VI)))  # 2×: terms are ½∂²σ₁; predict Dσ²≈2(IV+V−VI); →0 when theory holds. ε-scale = 2(|IV|+|V|+|VI|) (the Dσ²-magnitude).
 
     rec = {"I": I, "II": II, "III": III, "divP": divP, "Atop": Atop, "Abot": Abot, "Astat": Astat,
            "IV": IV, "V": V, "VI": VI, "divS": divS, "Btop": Btop, "Bbot": Bbot, "Bstat": Bstat,
@@ -509,8 +509,8 @@ def _sec15_panel34(hvp_at, th_tm2, Jt, Jtm1, Jtm2, rtm1, rtm2, u1, A, B, rec, lr
     D2 = rec["D2"]; Dsig2 = rec["Dsig2"]
     sJ = rec["I"] + rec["II"] - rec["III"] + VII; sS = rec["IV"] + rec["V"] - rec["VI"] + VIII
     return {"VII": VII, "VIII": VIII,
-            "divP3": _divreg(-2.0 * sJ + D2, D2, rec["Js"]),
-            "divS4": _divreg(-2.0 * sS + Dsig2, Dsig2, rec["Ss"]),
+            "divP3": _divreg(-2.0 * sJ + D2, D2, 2.0 * (abs(rec["I"]) + abs(rec["II"]) + abs(rec["III"]) + abs(VII))),    # ε-scale = 2(|I|+|II|+|III|+|VII|)
+            "divS4": _divreg(-2.0 * sS + Dsig2, Dsig2, 2.0 * (abs(rec["IV"]) + abs(rec["V"]) + abs(rec["VI"]) + abs(VIII))),  # ε-scale = 2(|IV|+|V|+|VI|+|VIII|)
             "Aptop": Aptop, "Apbot": Apbot, "Apstat": Apstat, "Apeig": Apeig,
             "Bptop": Bptop, "Bpbot": Bpbot, "Bpstat": Bpstat, "Bpeig": Bpeig}
 

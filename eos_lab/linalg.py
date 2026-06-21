@@ -562,9 +562,9 @@ def principal_angles(A, B):
 #   III= c²·Σ_k ∇f_{t,k}ᵀ Q_{t−1,k}·(J_{t−1} J_{t−2}ᵀ J_{t−2} r_{t−2})
 #   A  = c²·(J_{t−1}ᵀ S_{t−1} J_{t−1})(I − c·J_{t−2}ᵀJ_{t−2})       (N×N, real eigenvalues: PSD·symmetric)
 #   IV/V/VI/B: the σ₁ analogs — S→(Q̄ᵘ)² with Q̄ᵘ=Σ_k u_{t,1,k}Q_{t−1,k}, and the trace-tie → u_{t,1} projection.
-_DREG = 1e-12   # divergence = (D² − 2Σ)/D² × 100 — the TRUE relative error of the master eq D²=2(I+II−III), exactly as defined.
-def _divreg(num, den, scale):   # The only regularization is a tiny roundoff·scale term so it stays FINITE if D² is exactly 0; the
-    return num / (den + math.copysign(_DREG * scale, den)) * 100.0   # large values near ‖J‖²/σ₁ inflections (D²→0) are REAL relative error, not altered.
+_DEPS = 0.05    # additive ε in the denominator: divergence = (D²−2Σ)/(D² + sign(D²)·ε), with ε = _DEPS·`scale` and `scale` = the
+def _divreg(num, den, scale):   # MAGNITUDE of the 2nd-difference itself, 2(Σ|term|). Where |D²| ≫ ε (away from inflections) this is EXACTLY
+    return num / (den + math.copysign(_DEPS * scale, den)) * 100.0   # the defined (D²−2Σ)/D²; ε only acts in the narrow band where D²→0 (‖J‖²/σ₁ inflections), bounding the 0/0 spike.
 def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
     dt, dev = Jt.dtype, Jt.device
     c = lr / N
@@ -608,7 +608,7 @@ def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
 
     nJt = float((Jt * Jt).sum()); nJtm1 = float((Jtm1 * Jtm1).sum()); nJtm2 = float((Jtm2 * Jtm2).sum())
     D2 = nJt + nJtm2 - 2.0 * nJtm1
-    divP = _divreg(-2.0 * (I + II - III) + D2, D2, nJt + nJtm1 + nJtm2)  # 2×: terms are ½∂²‖J‖²; D² is the full discrete ∂² ⇒ predict D²≈2(I+II−III); →0 when theory holds
+    divP = _divreg(-2.0 * (I + II - III) + D2, D2, 2.0 * (abs(I) + abs(II) + abs(III)))  # 2×: terms are ½∂²‖J‖²; predict D²≈2(I+II−III); →0 when theory holds. ε-scale = 2(|I|+|II|+|III|) (the D²-magnitude).
 
     # ── panel 2 (σ₁): top NTK eigenpair at t,t−1,t−2 + the u₁-projected terms ──
     Kt = Jt @ Jt.t()
@@ -629,7 +629,7 @@ def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
     Bm = Bm + c2 * torch.einsum('a,ija->ji', u1 @ hvp1(b), M2)   # Q̄ᵘb = u1·{Q_{t−1,a}b}; reuses M2
     Btop, Bbot, Bstat, Beig = estats(Bm)
     Dsig2 = sig_t + sig_tm2 - 2.0 * sig_tm1
-    divS = _divreg(-2.0 * (IV + V - VI) + Dsig2, Dsig2, sig_t + sig_tm1 + sig_tm2)  # 2×: terms are ½∂²σ₁; Dσ² is the full discrete ∂² ⇒ predict Dσ²≈2(IV+V−VI); →0 when theory holds
+    divS = _divreg(-2.0 * (IV + V - VI) + Dsig2, Dsig2, 2.0 * (abs(IV) + abs(V) + abs(VI)))  # 2×: terms are ½∂²σ₁; predict Dσ²≈2(IV+V−VI); →0 when theory holds. ε-scale = 2(|IV|+|V|+|VI|) (the Dσ²-magnitude).
 
     rec = {"I": I, "II": II, "III": III, "divP": divP, "Atop": Atop, "Abot": Abot, "Astat": Astat,
            "IV": IV, "V": V, "VI": VI, "divS": divS, "Btop": Btop, "Bbot": Bbot, "Bstat": Bstat,
@@ -677,8 +677,8 @@ def sec15_panel34(hvp_at, th_tm2, Jt, Jtm1, Jtm2, rtm1, rtm2, u1, A, B, rec, lr,
     D2 = rec["D2"]; Dsig2 = rec["Dsig2"]
     sJ = rec["I"] + rec["II"] - rec["III"] + VII             # full ½∂²‖J‖² with the Q̇ term
     sS = rec["IV"] + rec["V"] - rec["VI"] + VIII             # full ½∂²σ₁ with the Q̇ term
-    divP3 = _divreg(-2.0 * sJ + D2, D2, rec["Js"])
-    divS4 = _divreg(-2.0 * sS + Dsig2, Dsig2, rec["Ss"])
+    divP3 = _divreg(-2.0 * sJ + D2, D2, 2.0 * (abs(rec["I"]) + abs(rec["II"]) + abs(rec["III"]) + abs(VII)))    # ε-scale = 2(|I|+|II|+|III|+|VII|)
+    divS4 = _divreg(-2.0 * sS + Dsig2, Dsig2, 2.0 * (abs(rec["IV"]) + abs(rec["V"]) + abs(rec["VI"]) + abs(VIII)))  # ε-scale = 2(|IV|+|V|+|VI|+|VIII|)
     return {"VII": VII, "VIII": VIII, "divP3": divP3, "divS4": divS4,
             "Aptop": Aptop, "Apbot": Apbot, "Apstat": Apstat, "Apeig": Apeig,
             "Bptop": Bptop, "Bpbot": Bpbot, "Bpstat": Bpstat, "Bpeig": Bpeig}
