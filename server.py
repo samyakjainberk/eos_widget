@@ -588,7 +588,7 @@ def _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol):
                 b, dd, fdd = dd, c, fc; c = b - gr * (b - a); fc = lossv(th + c * direction, mask)
             else:
                 a, c, fc = c, dd, fdd; dd = a + gr * (b - a); fdd = lossv(th + dd * direction, mask)
-        al = round((a + b) / 2.0, 2)
+        al = math.floor((a + b) / 2.0 * 100.0 + 0.5) / 100.0   # half-up, matches JS Math.round (α≥0)
         return al if lossv(th + al * direction, mask) <= lossv(th, mask) else 0.0
     th = th0.detach().clone()
     for it in range(int(warmup) + int(iters)):
