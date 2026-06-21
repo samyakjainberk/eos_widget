@@ -137,7 +137,7 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
     # ── §16: standalone curvature-aligned per-residual-sign optimizer (own iteration axis), run from θ₀ ──
     sec16 = None
     if getattr(cfg, "s24", 0) and isinstance(model, MlpModel) and loss.name == "mse" and out_dim == 1 \
-            and model.p <= 8000 and N <= 64:
+            and model.p <= 40000 and N <= 64:
         from .sec16 import sec16_run
         if progress:
             print(f"  §16: standalone optimizer — {cfg.s24warm} GD warmup + {cfg.s24iter} iters from θ₀")
