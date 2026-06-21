@@ -1366,6 +1366,59 @@ def save_section12_panel_gif(hist, k0, path, frames=30, fps=12, dpi=60):
     return path
 
 
+def plot_section16(recs):
+    """§16 — standalone curvature-aligned optimizer. 4 figures (Panel 1: loss×4 + coeffs;
+    Panel 2: loss-Hessian top-k eig ×4; Panel 3: function-Hessian top/bottom-k eig ×4;
+    Panel 4: per-sample residuals ×4), each over the pos/neg/mean/best-(β,s) update look-aheads."""
+    import matplotlib.pyplot as plt
+    if not recs:
+        return {}
+    nn = math.nan
+    it = [r["i"] for r in recs]
+    scen = ["pos", "neg", "mean", "beta"]
+    slab = {"pos": "pos-only", "neg": "neg-only", "mean": "mean", "beta": "best (β,s)"}
+    k = len(recs[0]["lH"]["beta"]); Nres = len(recs[0]["res"]["beta"])
+    TOPC = ["#08306b", "#2563eb", "#80b1ff"]; BOTC = ["#67000d", "#dc2626", "#fca5a5"]
+    figs = {}
+    # Panel 1 — loss under each update + coefficients
+    f1, ax = plt.subplots(1, 5, figsize=(26, 4))
+    for j, sc in enumerate(scen):
+        ys = [(r["L"][sc] if r["L"].get(sc) is not None else nn) for r in recs]
+        ax[j].plot(it, ys, "-o", ms=3, color="#7c3aed"); ax[j].set_title(f"full loss — {slab[sc]}")
+        ax[j].set_xlabel("§16 iteration"); ax[j].grid(alpha=.3)
+    for nm, key, col in [("α_pos", "apos", "#2563eb"), ("α_neg", "aneg", "#dc2626"), ("β", "beta", "#16a34a"), ("s", "scale", "#d97706")]:
+        ax[4].plot(it, [(r[key] if r[key] is not None else nn) for r in recs], "-o", ms=3, label=nm, color=col)
+    ax[4].set_title("coefficients  α_pos · α_neg · β · s"); ax[4].legend(fontsize=7); ax[4].grid(alpha=.3); ax[4].set_xlabel("§16 iteration")
+    f1.suptitle("§16 Panel 1 — full loss under each update + coefficients"); f1.tight_layout(); figs["section16_panel1_loss"] = f1
+    # Panel 2 — loss-Hessian top-k eigenvalues
+    f2, ax = plt.subplots(1, 4, figsize=(22, 4))
+    for j, sc in enumerate(scen):
+        for rk in range(k):
+            ys = [(r["lH"][sc][rk] if r["lH"].get(sc) is not None else nn) for r in recs]
+            ax[j].plot(it, ys, "-o", ms=2, color=TOPC[rk % 3], label=f"λ{rk+1}")
+        ax[j].set_title(f"loss-Hessian top-{k} — {slab[sc]}"); ax[j].set_xlabel("§16 iteration"); ax[j].grid(alpha=.3); ax[j].legend(fontsize=7)
+    f2.suptitle("§16 Panel 2 — top-k eigenvalues of the loss Hessian ∇²L"); f2.tight_layout(); figs["section16_panel2_lossH_eig"] = f2
+    # Panel 3 — function-Hessian top-k & bottom-k
+    f3, ax = plt.subplots(1, 4, figsize=(22, 4))
+    for j, sc in enumerate(scen):
+        for rk in range(k):
+            yt = [(r["fH"][sc]["top"][rk] if r["fH"].get(sc) is not None else nn) for r in recs]
+            yb = [(r["fH"][sc]["bot"][rk] if r["fH"].get(sc) is not None else nn) for r in recs]
+            ax[j].plot(it, yt, "-o", ms=2, color=TOPC[rk % 3], label=f"top{rk+1}")
+            ax[j].plot(it, yb, "-o", ms=2, color=BOTC[rk % 3], label=f"bot{rk+1}")
+        ax[j].set_title(f"H̄ top/bottom-{k} — {slab[sc]}"); ax[j].set_xlabel("§16 iteration"); ax[j].grid(alpha=.3); ax[j].legend(fontsize=6)
+    f3.suptitle("§16 Panel 3 — top-k & bottom-k eigenvalues of the function Hessian H̄"); f3.tight_layout(); figs["section16_panel3_funcH_eig"] = f3
+    # Panel 4 — per-sample residuals
+    f4, ax = plt.subplots(1, 4, figsize=(22, 4))
+    for j, sc in enumerate(scen):
+        for s in range(Nres):
+            ys = [(r["res"][sc][s] if r["res"].get(sc) is not None else nn) for r in recs]
+            ax[j].plot(it, ys, "-", lw=.8)
+        ax[j].set_title(f"per-sample residual r=y−f — {slab[sc]}"); ax[j].set_xlabel("§16 iteration"); ax[j].grid(alpha=.3); ax[j].axhline(0, color="#94a3b8", lw=.7)
+    f4.suptitle("§16 Panel 4 — per-sample residuals"); f4.tight_layout(); figs["section16_panel4_residuals"] = f4
+    return figs
+
+
 def save_panels(results, outdir):
     """Render every supported section to PNGs in `outdir`. Returns the list of files written."""
     os.makedirs(outdir, exist_ok=True)
@@ -1425,6 +1478,8 @@ def save_panels(results, outdir):
             "section15_panel3_normJ_qdot": plot_section15_panel3(hist),
             "section15_panel4_sigma1_qdot": plot_section15_panel4(hist),
             "section15_panel5_norms": plot_section15_panel5(hist)}
+    if results.get("sec16"):                          # §16 — standalone optimizer (4 panels)
+        figs.update(plot_section16(results["sec16"]))
     written = []
     for name, fig in figs.items():
         if fig is None:

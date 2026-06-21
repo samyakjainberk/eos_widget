@@ -14,7 +14,7 @@ import time
 import numpy as np
 import torch
 
-from .models import build_model, build_loss, grad_loss, opt_dir
+from .models import build_model, build_loss, grad_loss, opt_dir, MlpModel
 from .data import init_data_theta, make_test_set
 from .diagnostics import Diagnostics
 
@@ -71,6 +71,7 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
     N = cfg.nsamp
     th, X, Y, pos_rows, neg_rows = init_data_theta(model, P, cfg.dataset, N, in_dim, out_dim,
                                                    dev, dtype, cifar_dir)
+    th0 = th.detach().clone()      # §16 standalone optimizer starts from θ₀ (the GD loop reassigns `th`)
     n_test = cfg.n_test if cfg.n_test > 0 else min(max(N, 256), 1000)
     test = make_test_set(model, P, cfg.dataset, n_test, in_dim, out_dim, dev, dtype, cifar_dir)
 
@@ -133,8 +134,18 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
         if t < cfg.steps:
             th = th - cfg.lr * opt_dir(model, grad_loss(model, loss, th, Xb, Yb)[0], cfg.optimizer)
 
+    # ── §16: standalone curvature-aligned per-residual-sign optimizer (own iteration axis), run from θ₀ ──
+    sec16 = None
+    if getattr(cfg, "s24", 0) and isinstance(model, MlpModel) and loss.name == "mse" and out_dim == 1 \
+            and model.p <= 8000 and N <= 64:
+        from .sec16 import sec16_run
+        if progress:
+            print(f"  §16: standalone optimizer — {cfg.s24warm} GD warmup + {cfg.s24iter} iters from θ₀")
+        sec16 = list(sec16_run(model, loss, th0, X, Y, cfg.lr, cfg.s24warm, cfg.s24iter,
+                               cfg.neig, min(model.p, 24), cfg.seed, 1e-12))
+
     meta["wall_sec"] = time.time() - t0
-    return {"meta": meta, "config": cfg, "history": history, "series": _to_series(history)}
+    return {"meta": meta, "config": cfg, "history": history, "series": _to_series(history), "sec16": sec16}
 
 
 # every per-step key that is a list-of-numbers and should become one track-per-index in `series`

@@ -124,6 +124,11 @@ class Config:
                     #   §12a (principal angles + diagonal alignment); s22 is §12b. Both share the §12 Lanczos. OFF by default.
     s23: int = 0    # §15 — 2nd-difference decomposition of ‖J‖²_F & σ₁ into theory terms I/II/III (resp. IV/V/VI) +
                     #   matrices A/B. Holds 3 consecutive eig-ticks; multi-sample only; small-N (≤grid3dcap). OFF by default.
+    divreg: float = 0.3   # §15 divergence ε: softens the 0/0 spike where D²→0 at ‖J‖²/σ₁ inflections (0 ⇒ exact /D²).
+    s24: int = 0    # §16 — standalone curvature-aligned per-residual-sign optimizer (own iteration axis). MLP+MSE+scalar,
+                    #   small N & p. OFF by default.
+    s24warm: int = 5      # §16: standard-GD warmup steps from θ₀ before the §16 optimization begins.
+    s24iter: int = 40     # §16: number of §16 iterations after the warmup.
 
     # ---- test set (held-out) ----
     n_test: int = 0                # held-out test points (0 ⇒ default: max(nsamp, 256), capped per dataset)
