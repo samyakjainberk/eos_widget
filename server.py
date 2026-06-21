@@ -404,6 +404,11 @@ def _sec14_payload(prev, cur, lr, grid3dcap, rhist):
     return out
 
 
+_DREG = 1e-12   # divergence divides by the 2nd difference D²/Dσ², which can hit 0 at an inflection of ‖J‖²/σ₁.
+def _divreg(num, den, scale):   # regularize the DENOMINATOR by ~roundoff·scale so it is defined at D²=0 (NOT clipping; value stays unbounded)
+    return num / (den + math.copysign(_DREG * scale, den)) * 100.0
+
+
 def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
     """§15 — 2nd-difference decomposition of ‖J‖²_F (panel 1) and σ₁ (panel 2). hvp1/hvp2 give {Q_{t-1,k}·v}_k /
     {Q_{t-2,k}·v}_k; Jt/Jtm1/Jtm2 are (N,p) per-sample GT-gradients; rtm1/rtm2 (N,). MIRRORS eos_lab.sec15_stats.
@@ -448,7 +453,7 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
 
     nJt = float((Jt * Jt).sum()); nJtm1 = float((Jtm1 * Jtm1).sum()); nJtm2 = float((Jtm2 * Jtm2).sum())
     D2 = nJt + nJtm2 - 2.0 * nJtm1
-    divP = ((-2.0 * (I + II - III) + D2) / D2 * 100.0) if abs(D2) > 1e-30 else 0.0  # 2×: terms are ½∂²‖J‖²; D² is the full discrete ∂² ⇒ predict D²≈2(I+II−III); →0 when theory holds
+    divP = _divreg(-2.0 * (I + II - III) + D2, D2, nJt + nJtm1 + nJtm2)  # 2×: terms are ½∂²‖J‖²; D² is the full discrete ∂² ⇒ predict D²≈2(I+II−III); →0 when theory holds
 
     Kt = Jt @ Jt.t()
     evt = torch.linalg.eigh(Kt)
@@ -467,11 +472,12 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
     Bm = Bm + c2 * torch.einsum('a,ija->ji', u1 @ hvp1(b), M2)
     Btop, Bbot, Bstat, Beig = estats(Bm)
     Dsig2 = sig_t + sig_tm2 - 2.0 * sig_tm1
-    divS = ((-2.0 * (IV + V - VI) + Dsig2) / Dsig2 * 100.0) if abs(Dsig2) > 1e-30 else 0.0  # 2×: terms are ½∂²σ₁; Dσ² is the full discrete ∂² ⇒ predict Dσ²≈2(IV+V−VI); →0 when theory holds
+    divS = _divreg(-2.0 * (IV + V - VI) + Dsig2, Dsig2, sig_t + sig_tm1 + sig_tm2)  # 2×: terms are ½∂²σ₁; Dσ² is the full discrete ∂² ⇒ predict Dσ²≈2(IV+V−VI); →0 when theory holds
 
     rec = {"I": I, "II": II, "III": III, "divP": divP, "Atop": Atop, "Abot": Abot, "Astat": Astat,
            "IV": IV, "V": V, "VI": VI, "divS": divS, "Btop": Btop, "Bbot": Bbot, "Bstat": Bstat,
-           "D2": D2, "Dsig2": Dsig2, "Aeig": Aeig, "Beig": Beig}   # Aeig/Beig: full real spectra → SLQ density (plot 5)
+           "D2": D2, "Dsig2": Dsig2, "Aeig": Aeig, "Beig": Beig,
+           "Js": nJt + nJtm1 + nJtm2, "Ss": sig_t + sig_tm1 + sig_tm2}
     return rec, A, Bm, u1   # also expose A,B and the top NTK eigvec u₁ for panels 3/4 (Q̇≠0)
 
 
@@ -503,8 +509,8 @@ def _sec15_panel34(hvp_at, th_tm2, Jt, Jtm1, Jtm2, rtm1, rtm2, u1, A, B, rec, lr
     D2 = rec["D2"]; Dsig2 = rec["Dsig2"]
     sJ = rec["I"] + rec["II"] - rec["III"] + VII; sS = rec["IV"] + rec["V"] - rec["VI"] + VIII
     return {"VII": VII, "VIII": VIII,
-            "divP3": ((-2.0 * sJ + D2) / D2 * 100.0) if abs(D2) > 1e-30 else 0.0,
-            "divS4": ((-2.0 * sS + Dsig2) / Dsig2 * 100.0) if abs(Dsig2) > 1e-30 else 0.0,
+            "divP3": _divreg(-2.0 * sJ + D2, D2, rec["Js"]),
+            "divS4": _divreg(-2.0 * sS + Dsig2, Dsig2, rec["Ss"]),
             "Aptop": Aptop, "Apbot": Apbot, "Apstat": Apstat, "Apeig": Apeig,
             "Bptop": Bptop, "Bpbot": Bpbot, "Bpstat": Bpstat, "Bpeig": Bpeig}
 
@@ -2461,24 +2467,30 @@ def run_stream(P):
             if s23 and N <= grid3dcap and Jc is not None and rr is not None:   # §15: 2nd-difference decomposition (own toggle; multi OR single sample, small-N, holds 3 ticks)
                 lblsel15 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
                             if outD > 1 else torch.arange(N, device=_dev()))
-                Jg15 = Jc[lblsel15]; r15 = rr[lblsel15]
+                # §15 in float64: the FD 2nd-difference D² is precision-critical at tiny ‖J‖² scales (e.g. chebyshev), where
+                # float32 cancellation noise dominates the divergence. MLP forward is dtype-pure ⇒ safe to recompute in f64.
+                f64_15 = isinstance(_TL.model, MlpModel) and DTYPE != torch.float64
+                X15 = X.double() if f64_15 else X
+                th15 = th.double() if f64_15 else th
+                Jg15 = (_TL.model.jac_cols(th15, X15)[0][lblsel15] if f64_15 else Jc[lblsel15])
+                r15 = (rr[lblsel15].double() if f64_15 else rr[lblsel15])
                 # ---- panel 5: per-sample NORM evolution (mean ± std across the N samples), at the current step t ----
                 jn15 = Jg15.norm(dim=1); rn15 = r15.abs(); gn15 = rn15 * jn15
                 acc15 = torch.zeros(N, dtype=DTYPE, device=_dev())   # ‖Q_{t,k}‖_F via Hutchinson: E_v‖Q_k v‖²=tr(Q_k²)
                 for pr in range(4):
-                    Qv15 = jac_hvp(th, X, _randn_vec(p, (0x5EC15 + pr * 0x9E3779B1) & 0xFFFFFFFF))[lblsel15]
+                    Qv15 = jac_hvp(th15, X15, _randn_vec(p, (0x5EC15 + pr * 0x9E3779B1) & 0xFFFFFFFF))[lblsel15]
                     acc15 = acc15 + (Qv15 * Qv15).sum(dim=1)
                 hn15 = torch.sqrt(acc15 / 4.0)
                 _ms15 = lambda x: [float(x.mean()), float(x.std(unbiased=False))]
                 sec15n = {"g": _ms15(gn15), "j": _ms15(jn15), "h": _ms15(hn15), "r": _ms15(rn15)}
                 if (len(sec15_hist) >= 2 and sec15_hist[-1]["t"] == t - 1 and sec15_hist[-2]["t"] == t - 2):   # 3 CONSECUTIVE GD steps (eigevery=1): the per-step 2nd-difference theory requires it
                     tm1, tm2 = sec15_hist[-1], sec15_hist[-2]
-                    hvp1 = lambda v: jac_hvp(tm1["th"], X, v)[lblsel15]
-                    hvp2 = lambda v: jac_hvp(tm2["th"], X, v)[lblsel15]
+                    hvp1 = lambda v: jac_hvp(tm1["th"], X15, v)[lblsel15]
+                    hvp2 = lambda v: jac_hvp(tm2["th"], X15, v)[lblsel15]
                     sec15, Amat15, Bmat15, u1_15 = _sec15_stats(hvp1, hvp2, Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], lr, N)
-                    hvp_at15 = lambda thx, v: jac_hvp(thx, X, v)[lblsel15]   # §15 panels 3/4 (Q̇≠0): VII/VIII + A'/B' (2N² extra HVPs)
+                    hvp_at15 = lambda thx, v: jac_hvp(thx, X15, v)[lblsel15]   # §15 panels 3/4 (Q̇≠0): VII/VIII + A'/B' (2N² extra HVPs)
                     sec15p34 = _sec15_panel34(hvp_at15, tm2["th"], Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], u1_15, Amat15, Bmat15, sec15, lr, N)
-                sec15_hist.append({"th": th.detach().clone(), "J": Jg15.detach(), "r": r15.detach(), "t": t})
+                sec15_hist.append({"th": th15.detach().clone(), "J": Jg15.detach(), "r": r15.detach(), "t": t})
                 if len(sec15_hist) > 2:
                     sec15_hist.pop(0)
 

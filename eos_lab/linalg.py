@@ -562,6 +562,9 @@ def principal_angles(A, B):
 #   III= c²·Σ_k ∇f_{t,k}ᵀ Q_{t−1,k}·(J_{t−1} J_{t−2}ᵀ J_{t−2} r_{t−2})
 #   A  = c²·(J_{t−1}ᵀ S_{t−1} J_{t−1})(I − c·J_{t−2}ᵀJ_{t−2})       (N×N, real eigenvalues: PSD·symmetric)
 #   IV/V/VI/B: the σ₁ analogs — S→(Q̄ᵘ)² with Q̄ᵘ=Σ_k u_{t,1,k}Q_{t−1,k}, and the trace-tie → u_{t,1} projection.
+_DREG = 1e-12   # the divergence divides by the 2nd difference D² (resp Dσ²), which can hit 0 at an inflection of ‖J‖²/σ₁.
+def _divreg(num, den, scale):   # regularize the DENOMINATOR by a tiny perturbation ~roundoff·scale so it is defined at D²=0
+    return num / (den + math.copysign(_DREG * scale, den)) * 100.0   # absorbs float cancellation; value stays UNBOUNDED (no clipping)
 def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
     dt, dev = Jt.dtype, Jt.device
     c = lr / N
@@ -605,7 +608,7 @@ def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
 
     nJt = float((Jt * Jt).sum()); nJtm1 = float((Jtm1 * Jtm1).sum()); nJtm2 = float((Jtm2 * Jtm2).sum())
     D2 = nJt + nJtm2 - 2.0 * nJtm1
-    divP = ((-2.0 * (I + II - III) + D2) / D2 * 100.0) if abs(D2) > 1e-30 else 0.0  # 2×: terms are ½∂²‖J‖²; D² is the full discrete ∂² ⇒ predict D²≈2(I+II−III); →0 when theory holds
+    divP = _divreg(-2.0 * (I + II - III) + D2, D2, nJt + nJtm1 + nJtm2)  # 2×: terms are ½∂²‖J‖²; D² is the full discrete ∂² ⇒ predict D²≈2(I+II−III); →0 when theory holds
 
     # ── panel 2 (σ₁): top NTK eigenpair at t,t−1,t−2 + the u₁-projected terms ──
     Kt = Jt @ Jt.t()
@@ -626,11 +629,12 @@ def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
     Bm = Bm + c2 * torch.einsum('a,ija->ji', u1 @ hvp1(b), M2)   # Q̄ᵘb = u1·{Q_{t−1,a}b}; reuses M2
     Btop, Bbot, Bstat, Beig = estats(Bm)
     Dsig2 = sig_t + sig_tm2 - 2.0 * sig_tm1
-    divS = ((-2.0 * (IV + V - VI) + Dsig2) / Dsig2 * 100.0) if abs(Dsig2) > 1e-30 else 0.0  # 2×: terms are ½∂²σ₁; Dσ² is the full discrete ∂² ⇒ predict Dσ²≈2(IV+V−VI); →0 when theory holds
+    divS = _divreg(-2.0 * (IV + V - VI) + Dsig2, Dsig2, sig_t + sig_tm1 + sig_tm2)  # 2×: terms are ½∂²σ₁; Dσ² is the full discrete ∂² ⇒ predict Dσ²≈2(IV+V−VI); →0 when theory holds
 
     rec = {"I": I, "II": II, "III": III, "divP": divP, "Atop": Atop, "Abot": Abot, "Astat": Astat,
            "IV": IV, "V": V, "VI": VI, "divS": divS, "Btop": Btop, "Bbot": Bbot, "Bstat": Bstat,
-           "D2": D2, "Dsig2": Dsig2, "Aeig": Aeig, "Beig": Beig}   # Aeig/Beig: full real spectra → SLQ density (plot 5)
+           "D2": D2, "Dsig2": Dsig2, "Aeig": Aeig, "Beig": Beig,
+           "Js": nJt + nJtm1 + nJtm2, "Ss": sig_t + sig_tm1 + sig_tm2}   # Aeig/Beig: full real spectra → SLQ density (plot 5)
     return rec, A, Bm, u1   # also expose the matrices A,B and the top NTK eigvec u₁ for panels 3/4 (Q̇≠0)
 
 
@@ -673,8 +677,8 @@ def sec15_panel34(hvp_at, th_tm2, Jt, Jtm1, Jtm2, rtm1, rtm2, u1, A, B, rec, lr,
     D2 = rec["D2"]; Dsig2 = rec["Dsig2"]
     sJ = rec["I"] + rec["II"] - rec["III"] + VII             # full ½∂²‖J‖² with the Q̇ term
     sS = rec["IV"] + rec["V"] - rec["VI"] + VIII             # full ½∂²σ₁ with the Q̇ term
-    divP3 = ((-2.0 * sJ + D2) / D2 * 100.0) if abs(D2) > 1e-30 else 0.0
-    divS4 = ((-2.0 * sS + Dsig2) / Dsig2 * 100.0) if abs(Dsig2) > 1e-30 else 0.0
+    divP3 = _divreg(-2.0 * sJ + D2, D2, rec["Js"])
+    divS4 = _divreg(-2.0 * sS + Dsig2, Dsig2, rec["Ss"])
     return {"VII": VII, "VIII": VIII, "divP3": divP3, "divS4": divS4,
             "Aptop": Aptop, "Apbot": Apbot, "Apstat": Apstat, "Apeig": Apeig,
             "Bptop": Bptop, "Bpbot": Bpbot, "Bpstat": Bpstat, "Bpeig": Bpeig}
