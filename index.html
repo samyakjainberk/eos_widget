@@ -224,7 +224,7 @@
   <label title="§13 — residual-weighted curvature: rank-k₀ approximations G1/G2/G3 of the exact reference J_iᵀQ_jJ_k·r_k, from the per-sample Lanczos top-k₀⊕bottom-k₀ eigenpairs, vs the exact reference (N extra HVPs). Multi-sample only, small N (N³); OFF by default. Its OWN toggle — independent of §12; turning it on triggers the shared per-sample Lanczos by itself."><input type="checkbox" id="en21"> 13 · residual-weighted curvature G1/G2/G3</label>
   <label title="§14 — per-triplet (i,j,k) decomposition of Tr(ΔNTK)=Σ a·b·c·d·e over rank-2y eigenpairs of the per-sample function Hessians. 10 panels of N×N×N cubes (sorted-term aggregates, sub-products, eq-③ history ratio). Shares §12's matrix-free Lanczos eigenpairs; multi-sample only, small N (N³ cubes); OFF by default."><input type="checkbox" id="en20"> 14 · Tr(ΔNTK) triplet decomposition</label>
   <label title="§15 — 2nd-difference decomposition of ‖J‖²_F (=tr NTK) and σ₁ (top NTK eigenvalue) into theory terms I/II/III (resp. IV/V/VI) + the matrices A (resp. B), over GD with step (η/N)Σr_i∇f_i. Holds 3 consecutive GD steps (run with eigevery=1); needs the per-sample function-Hessian HVPs at t−1 and t−2. Single OR multi-sample, small N; OFF by default."><input type="checkbox" id="en23"> 15 · 2nd-difference decomposition (‖J‖² &amp; σ₁)</label>
-  <label title="§16 — standalone curvature-aligned per-residual-sign optimizer. From θ₀: `GD warmup` standard-GD steps, then per iteration form the sample-averaged function Hessian H̄, push positive-residual samples along its top eigenvector and negative-residual samples along its bottom eigenvector (each projection ×its eigenvalue), line-search α_pos/α_neg on each set, then a (β,s) search for the advancing step (loss monotone non-increasing). 4 panels: loss / loss-Hessian eig / function-Hessian eig / per-sample residuals, each under the pos/neg/mean/best-(β,s) update. MLP+MSE, small N & p; OFF by default."><input type="checkbox" id="en24"> 16 · curvature-aligned per-residual-sign optimizer</label>
+  <label title="§16 — standalone curvature-aligned per-residual-sign optimizer. From θ₀: `GD warmup` standard-GD steps, then per iteration form the sample-averaged function Hessian H̄, push positive-residual samples along its top eigenvector and negative-residual samples along its bottom eigenvector (each projection ×its eigenvalue), line-search α_pos/α_neg on each set, then advance by the better of the (β,s) curvature step or a gradient-descent step so the loss strictly decreases. 4 panels: loss / loss-Hessian eig / function-Hessian eig / per-sample residuals, each under the pos/neg/mean/advancing update; plot 5 adds the GD scale t_gd. MLP+MSE, small N & p; OFF by default."><input type="checkbox" id="en24"> 16 · curvature-aligned per-residual-sign optimizer</label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -434,7 +434,7 @@
 
 <div id="sec_s16" style="display:none">
 <h2>16 · Curvature-aligned per-residual-sign optimizer (standalone)</h2>
-<p class="cap">A <b>standalone</b> optimizer (its own iteration axis $i$, independent of the GD run above). From $\theta_0$ it runs <b>warmup</b> standard-GD steps ($\theta\leftarrow\theta+\tfrac{\eta}{N}\sum_k r_k\nabla f_k$, residual $r=y-f(x)$, update <b>added</b>), then switches to the §16 update: form the sample-averaged function Hessian $\bar H=\tfrac1N\sum_k\nabla^2 f_k$ and take its top $(\sigma_1,u_1)$ and bottom $(\sigma_{-1},u_{-1})$ eigenpairs (Lanczos). For the <b>positive-residual</b> samples $g_+=\sum_{r_k>0}r_k\nabla f_k$, $\mathrm{proj}_{u_1}=\langle g_+,u_1\rangle\,\sigma_1\,u_1$; for the <b>negative-residual</b> samples $g_-=\sum_{r_k<0}r_k\nabla f_k$, $\mathrm{proj}_{u_{-1}}=\langle g_-,u_{-1}\rangle\,\sigma_{-1}\,u_{-1}$ (each scaled by its eigenvalue). $\alpha_{\rm pos},\alpha_{\rm neg}\in[0,10]$ are line-searched to minimize the <i>positive/negative set</i> loss; the advancing step is searched over $\beta\in[0,1]$ (mix) $\times\,s\in[0,1]$ (scale) to minimize the <i>full</i> loss at $\theta+s(\beta\,u_{\rm pos}+(1-\beta)u_{\rm neg})$ ($s{=}0$ is a no-op, so the real path's loss is <b>monotone non-increasing</b>); $\theta\leftarrow\theta+u_\beta$. Each panel shows the four update look-aheads <b>pos / neg / mean / best-$(\beta,s)$</b> (the last is the real path). MLP + MSE, small $N$ &amp; $p$; OFF by default.</p>
+<p class="cap">A <b>standalone</b> optimizer (its own iteration axis $i$, independent of the GD run above). From $\theta_0$ it runs <b>warmup</b> standard-GD steps ($\theta\leftarrow\theta+\tfrac{\eta}{N}\sum_k r_k\nabla f_k$, residual $r=y-f(x)$, update <b>added</b>), then switches to the §16 update: form the sample-averaged function Hessian $\bar H=\tfrac1N\sum_k\nabla^2 f_k$ and take its top $(\sigma_1,u_1)$ and bottom $(\sigma_{-1},u_{-1})$ eigenpairs (Lanczos). For the <b>positive-residual</b> samples $g_+=\sum_{r_k>0}r_k\nabla f_k$, $\mathrm{proj}_{u_1}=\langle g_+,u_1\rangle\,\sigma_1\,u_1$; for the <b>negative-residual</b> samples $g_-=\sum_{r_k<0}r_k\nabla f_k$, $\mathrm{proj}_{u_{-1}}=\langle g_-,u_{-1}\rangle\,\sigma_{-1}\,u_{-1}$ (each scaled by its eigenvalue). $\alpha_{\rm pos},\alpha_{\rm neg}\in[0,10]$ are line-searched to minimize the <i>positive/negative set</i> loss; the §16 curvature step is searched over $\beta\in[0,1]$ (mix) $\times\,s\in[0,1]$ (scale) of $\theta+s(\beta\,u_{\rm pos}+(1-\beta)u_{\rm neg})$. The real path then ADVANCES by whichever of {this §16 step, a line-searched <b>gradient-descent step</b> $t_{\rm gd}\tfrac1N J^\top r$} lowers the full loss more, so the loss <b>strictly decreases</b> every iteration (the curvature step is used when it beats GD, recorded $t_{\rm gd}{=}0$; otherwise GD). Each panel shows the four update look-aheads <b>pos / neg / mean / best (the advancing step)</b>; Plot 5 adds $t_{\rm gd}$. MLP + MSE, small $N$ &amp; $p$; OFF by default.</p>
 <h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — full-loss evolution under each update  +  $\alpha_{\rm pos},\alpha_{\rm neg},\beta,s$</h3>
 <p class="cap">Full training loss at each look-ahead point $\theta+u_{\bullet}$ (Plots 1–4: pos-only, neg-only, mean, best-$(\beta,s)$ = the advancing path), then the chosen coefficients vs iteration (Plot 5). During the GD-warmup phase only the real (Plot 4) curve has data.</p>
 <div class="plotrow row5"><div id="p_s16_Lpos" class="plot" style="height:290px"></div><div id="p_s16_Lneg" class="plot" style="height:290px"></div><div id="p_s16_Lmean" class="plot" style="height:290px"></div><div id="p_s16_Lbeta" class="plot" style="height:290px"></div><div id="p_s16_coef" class="plot" style="height:290px"></div></div>
@@ -2217,7 +2217,7 @@ function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,push
   let th=th0.slice();
   for(let it=0;it<warmup+iters;it++){
     const sd=(seed+1000*it)&0x7FFFFFFF;
-    if(it<warmup){const real=metrics(th,sd);push({type:'g16',i:it,phase:'gd',apos:null,aneg:null,beta:null,scale:null,loss:real.L,...pack(real,null)});
+    if(it<warmup){const real=metrics(th,sd);push({type:'g16',i:it,phase:'gd',apos:null,aneg:null,beta:null,scale:null,tgd:null,loss:real.L,...pack(real,null)});
       const J=jacCols(th,spec,X,N,inDim,p).cols,r=resid(th),g=new Float64Array(p);for(let a=0;a<N;a++)for(let q=0;q<p;q++)g[q]+=J[a][q]*r[a];const cc=lr/N;th=th.slice();for(let q=0;q<p;q++)th[q]+=cc*g[q];continue;}
     const r=resid(th),J=jacCols(th,spec,X,N,inDim,p).cols,ex=lanczosExtreme(Hbar(th),p,k,mlan,sd);
     const u1=ex.topVecs[0],um1=ex.botVecs[0],sig1=ex.topVals[0],sigm1=ex.botVals[0];
@@ -2228,9 +2228,13 @@ function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,push
     const apos=lineSearch(th,projP,mpos),aneg=lineSearch(th,projN,mneg);
     const uPos=new Float64Array(p),uNeg=new Float64Array(p),uMean=new Float64Array(p);for(let q=0;q<p;q++){uPos[q]=apos*projP[q];uNeg[q]=aneg*projN[q];uMean[q]=0.5*(uPos[q]+uNeg[q]);}
     let beta=0,scale=0,bestL=Infinity;for(const bb of grid)for(const ss of grid){const u=new Float64Array(p);for(let q=0;q<p;q++)u[q]=ss*(bb*uPos[q]+(1-bb)*uNeg[q]);const L=lossM(_addV(th,u),null);if(L<bestL){bestL=L;beta=bb;scale=ss;}}
-    const uBeta=new Float64Array(p);for(let q=0;q<p;q++)uBeta[q]=scale*(beta*uPos[q]+(1-beta)*uNeg[q]);
+    const uSec16=new Float64Array(p);for(let q=0;q<p;q++)uSec16[q]=scale*(beta*uPos[q]+(1-beta)*uNeg[q]);
+    // GD step (full-loss line-search along the gradient) ⇒ the advancing loss STRICTLY decreases
+    const dGd=new Float64Array(p);for(let a=0;a<N;a++)for(let q=0;q<p;q++)dGd[q]+=J[a][q]*r[a];for(let q=0;q<p;q++)dGd[q]/=N;
+    const tGd=lineSearch(th,dGd,null);const uGd=new Float64Array(p);for(let q=0;q<p;q++)uGd[q]=tGd*dGd[q];
+    let uBeta,tgd;if(lossM(_addV(th,uGd),null)<lossM(_addV(th,uSec16),null)){uBeta=uGd;tgd=tGd;}else{uBeta=uSec16;tgd=0;}   // GD when §16 step doesn't help (else tgd=0)
     const look={pos:metrics(_addV(th,uPos),sd+1),neg:metrics(_addV(th,uNeg),sd+2),mean:metrics(_addV(th,uMean),sd+3),beta:metrics(_addV(th,uBeta),sd+4)};
-    push({type:'g16',i:it,phase:'sec16',apos,aneg,beta,scale,loss:look.beta.L,...pack(look.beta,look)});
+    push({type:'g16',i:it,phase:'sec16',apos,aneg,beta,scale,tgd,loss:look.beta.L,...pack(look.beta,look)});
     th=_addV(th,uBeta);
     if(lossM(th,null)<tol)break;
   }
@@ -2248,7 +2252,7 @@ function s16Build(m){
   const TOPC=['#08306b','#2563eb','#80b1ff'],BOTC=['#67000d','#dc2626','#fca5a5'];
   // Panel 1 — loss under each update + coefficients
   for(const sc of S16_SCEN)mk('p_s16_L'+sc,[ln('loss','#7c3aed')],'full loss — '+S16_SLAB[sc]+' update','loss');
-  mk('p_s16_coef',[ln('α_pos','#2563eb'),ln('α_neg','#dc2626'),ln('β','#16a34a'),ln('s (scale)','#d97706')],'coefficients  α_pos · α_neg · β · s','value');
+  mk('p_s16_coef',[ln('α_pos','#2563eb'),ln('α_neg','#dc2626'),ln('β','#16a34a'),ln('s (scale)','#d97706'),ln('t_gd (GD step)','#0891b2')],'coefficients  α_pos · α_neg · β · s · t_gd','value');
   // Panel 2 — loss-Hessian top-k
   const ktr=()=>{const a=[];for(let j=0;j<S16_K;j++)a.push(ln('λ'+(j+1),TOPC[j%3]));return a;};
   for(const sc of S16_SCEN)mk('p_s16_lH'+sc,ktr(),'loss-Hessian top-'+S16_K+' eig — '+S16_SLAB[sc],'eigenvalue');
@@ -2261,19 +2265,19 @@ function s16Build(m){
 }
 function s16Push(m){
   if(!S16_BUILT){S16_K=(m.lH&&m.lH.beta?m.lH.beta.length:3);S16_N=(m.res&&m.res.beta?m.res.beta.length:0);s16Build(m);
-    S16_DATA={i:[],L:{pos:[],neg:[],mean:[],beta:[]},coef:{apos:[],aneg:[],beta:[],scale:[]},
+    S16_DATA={i:[],L:{pos:[],neg:[],mean:[],beta:[]},coef:{apos:[],aneg:[],beta:[],scale:[],tgd:[]},
       lH:{},fHt:{},fHb:{},res:{}};
     for(const sc of S16_SCEN){S16_DATA.lH[sc]=Array.from({length:S16_K},()=>[]);S16_DATA.fHt[sc]=Array.from({length:S16_K},()=>[]);S16_DATA.fHb[sc]=Array.from({length:S16_K},()=>[]);S16_DATA.res[sc]=Array.from({length:S16_N},()=>[]);}}
   const D=S16_DATA;D.i.push(m.i);const t=D.i;
   for(const sc of S16_SCEN)D.L[sc].push(m.L&&m.L[sc]!=null?m.L[sc]:null);
-  D.coef.apos.push(m.apos);D.coef.aneg.push(m.aneg);D.coef.beta.push(m.beta);D.coef.scale.push(m.scale);
+  D.coef.apos.push(m.apos);D.coef.aneg.push(m.aneg);D.coef.beta.push(m.beta);D.coef.scale.push(m.scale);D.coef.tgd.push(m.tgd);
   for(const sc of S16_SCEN){
     const lh=m.lH&&m.lH[sc],fh=m.fH&&m.fH[sc],rs=m.res&&m.res[sc];
     for(let j=0;j<S16_K;j++){D.lH[sc][j].push(lh?lh[j]:null);D.fHt[sc][j].push(fh?fh.top[j]:null);D.fHb[sc][j].push(fh?fh.bot[j]:null);}
     for(let j=0;j<S16_N;j++)D.res[sc][j].push(rs?rs[j]:null);
   }
   for(const sc of S16_SCEN)Plotly.restyle('p_s16_L'+sc,{x:[t],y:[D.L[sc]]});
-  Plotly.restyle('p_s16_coef',{x:[t,t,t,t],y:[D.coef.apos,D.coef.aneg,D.coef.beta,D.coef.scale]});
+  Plotly.restyle('p_s16_coef',{x:[t,t,t,t,t],y:[D.coef.apos,D.coef.aneg,D.coef.beta,D.coef.scale,D.coef.tgd]});
   for(const sc of S16_SCEN){
     Plotly.restyle('p_s16_lH'+sc,{x:Array(S16_K).fill(t),y:D.lH[sc]});
     Plotly.restyle('p_s16_fH'+sc,{x:Array(2*S16_K).fill(t),y:D.fHt[sc].concat(D.fHb[sc])});

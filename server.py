@@ -595,7 +595,7 @@ def _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol):
         sd = (int(seed) + 1000 * it) & 0x7FFFFFFF
         if it < warmup:                                                # standard GD warmup: θ ← θ + (lr/N)·Jᵀr (r=y−f; ADDED)
             real = metrics(th, sd)
-            yield {"i": it, "phase": "gd", "apos": None, "aneg": None, "beta": None, "scale": None,
+            yield {"i": it, "phase": "gd", "apos": None, "aneg": None, "beta": None, "scale": None, "tgd": None,
                    "loss": real["L"], **pack(real)}
             th = th + (lr / N) * (jac_cols(th, X)[0].t() @ resid(th)); continue
         r = resid(th); J = jac_cols(th, X)[0]
@@ -610,12 +610,18 @@ def _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol):
         u_pos, u_neg = a_pos * proj_pos, a_neg * proj_neg; u_mean = 0.5 * (u_pos + u_neg)
         beta, scale = min(((bb, ss) for bb in grid for ss in grid),
                           key=lambda bs: lossv(th + bs[1] * (bs[0] * u_pos + (1 - bs[0]) * u_neg)))
-        u_beta = scale * (beta * u_pos + (1 - beta) * u_neg)
+        u_sec16 = scale * (beta * u_pos + (1 - beta) * u_neg)
+        d_gd = (J.t() @ resid(th)) / N                                 # GD step (full-loss line-search) ⇒ loss STRICTLY decreases
+        t_gd = line_search(th, d_gd, None); u_gd = t_gd * d_gd
+        if lossv(th + u_gd) < lossv(th + u_sec16):
+            u_beta = u_gd; tgd = t_gd                                  # GD when the §16 curvature step doesn't help
+        else:
+            u_beta = u_sec16; tgd = 0.0                                # §16 curvature step when it beats GD (tgd=0)
         look = {"pos": metrics(th + u_pos, sd + 1), "neg": metrics(th + u_neg, sd + 2),
                 "mean": metrics(th + u_mean, sd + 3), "beta": metrics(th + u_beta, sd + 4)}
-        yield {"i": it, "phase": "sec16", "apos": a_pos, "aneg": a_neg, "beta": beta, "scale": scale,
+        yield {"i": it, "phase": "sec16", "apos": a_pos, "aneg": a_neg, "beta": beta, "scale": scale, "tgd": tgd,
                "loss": look["beta"]["L"], **pack(look["beta"], look)}
-        th = th + u_beta                                               # ADVANCE (added); non-increasing (s=0 available)
+        th = th + u_beta                                               # ADVANCE — loss goes DOWN every iteration
         if lossv(th) < tol:
             break
 

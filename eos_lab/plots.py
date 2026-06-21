@@ -1386,8 +1386,8 @@ def plot_section16(recs):
         ys = [(r["L"][sc] if r["L"].get(sc) is not None else nn) for r in recs]
         ax[j].plot(it, ys, "-o", ms=3, color="#7c3aed"); ax[j].set_title(f"full loss — {slab[sc]}")
         ax[j].set_xlabel("§16 iteration"); ax[j].grid(alpha=.3)
-    for nm, key, col in [("α_pos", "apos", "#2563eb"), ("α_neg", "aneg", "#dc2626"), ("β", "beta", "#16a34a"), ("s", "scale", "#d97706")]:
-        ax[4].plot(it, [(r[key] if r[key] is not None else nn) for r in recs], "-o", ms=3, label=nm, color=col)
+    for nm, key, col in [("α_pos", "apos", "#2563eb"), ("α_neg", "aneg", "#dc2626"), ("β", "beta", "#16a34a"), ("s", "scale", "#d97706"), ("t_gd", "tgd", "#0891b2")]:
+        ax[4].plot(it, [(r.get(key) if r.get(key) is not None else nn) for r in recs], "-o", ms=3, label=nm, color=col)
     ax[4].set_title("coefficients  α_pos · α_neg · β · s"); ax[4].legend(fontsize=7); ax[4].grid(alpha=.3); ax[4].set_xlabel("§16 iteration")
     f1.suptitle("§16 Panel 1 — full loss under each update + coefficients"); f1.tight_layout(); figs["section16_panel1_loss"] = f1
     # Panel 2 — loss-Hessian top-k eigenvalues

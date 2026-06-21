@@ -10,9 +10,10 @@ Standalone iterative optimizer started from θ₀:
       - α_pos = argmin_{α∈[0,10]}  loss on the POSITIVE set  along  θ + α·proj_u1   (golden-section, res 0.01, α≥0),
       - α_neg = argmin_{α∈[0,10]}  loss on the NEGATIVE set  along  θ + α·proj_u(-1),
       - u_pos = α_pos·proj_u1 ,  u_neg = α_neg·proj_u(-1) ,  u_mean = ½(u_pos+u_neg),
-      - (β,s) = argmin over β∈{0..1}×s∈{0..1} (step 0.1) of the FULL loss at θ + s·(β·u_pos+(1−β)·u_neg)
-                (s=0 ⇒ no-op, so the ADVANCING step never increases the full loss),  u_beta = s·(β·u_pos+(1−β)·u_neg),
-      - the real path ADVANCES by u_beta (θ ← θ + u_beta — ADDED).
+      - (β,s) = argmin over β∈{0..1}×s∈{0..1} (step 0.1) of the FULL loss at θ + s·(β·u_pos+(1−β)·u_neg) — the §16 curvature step,
+      - a GD step u_gd = t_gd·(1/N)Jᵀr with t_gd full-loss line-searched (always a descent direction),
+      - the real path ADVANCES by whichever of {§16 step, GD step} lowers the FULL loss more (θ ← θ + u_beta — ADDED), so the
+        loss STRICTLY DECREASES every iteration: the curvature step is taken when it beats GD (recorded tgd=0), else GD (tgd=t_gd).
   Repeats until the loss is tiny or the iteration cap is hit.
 
 Per iteration we record, at the FOUR look-ahead points {θ+u_pos, θ+u_neg, θ+u_mean, θ+u_beta}:
@@ -132,7 +133,7 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol):
         sd = (seed + 1000 * it) & 0x7FFFFFFF
         if it < warmup:                                       # ── standard GD warmup ──
             real = metrics(th, sd)
-            yield {"i": it, "phase": "gd", "apos": None, "aneg": None, "beta": None, "scale": None,
+            yield {"i": it, "phase": "gd", "apos": None, "aneg": None, "beta": None, "scale": None, "tgd": None,
                    "loss": real["L"], **pack(real)}
             J = jac_cols(model, th, X)[0]
             th = th + (lr / N) * (J.t() @ resid(th))          # θ ← θ + (lr/N)·Jᵀr   (r = y−f; ADDED)
@@ -154,10 +155,18 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol):
         u_mean = 0.5 * (u_pos + u_neg)
         beta, scale = min(((bb, ss) for bb in grid for ss in grid),
                           key=lambda bs: lossv(th + bs[1] * (bs[0] * u_pos + (1 - bs[0]) * u_neg)))
-        u_beta = scale * (beta * u_pos + (1 - beta) * u_neg)
+        u_sec16 = scale * (beta * u_pos + (1 - beta) * u_neg)
+        # GD step (full-loss line-search along the gradient) — guarantees the advancing loss STRICTLY decreases.
+        d_gd = (J.t() @ resid(th)) / N                        # gradient-descent direction (1/N)Jᵀr, r=y−f
+        t_gd = line_search(th, d_gd, None)
+        u_gd = t_gd * d_gd
+        if lossv(th + u_gd) < lossv(th + u_sec16):            # advance by whichever lowers the FULL loss more
+            u_beta = u_gd; tgd = t_gd                         #   → loss goes DOWN every iteration (GD when the §16 step doesn't help)
+        else:
+            u_beta = u_sec16; tgd = 0.0                       #   → the §16 curvature step is used when it beats GD (tgd=0)
         look = {"pos": metrics(th + u_pos, sd + 1), "neg": metrics(th + u_neg, sd + 2),
                 "mean": metrics(th + u_mean, sd + 3), "beta": metrics(th + u_beta, sd + 4)}
-        yield {"i": it, "phase": "sec16", "apos": a_pos, "aneg": a_neg, "beta": beta, "scale": scale,
+        yield {"i": it, "phase": "sec16", "apos": a_pos, "aneg": a_neg, "beta": beta, "scale": scale, "tgd": tgd,
                "loss": look["beta"]["L"], **pack(look["beta"], look)}
         th = th + u_beta                                      # ADVANCE (added); non-increasing (s=0 available)
         if lossv(th) < tol:
