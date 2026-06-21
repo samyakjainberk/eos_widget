@@ -1972,7 +1972,10 @@ function realEigParts(Aflat,n){
 }
 // the divergence divides by the 2nd difference D²/Dσ², which can hit 0 at an inflection of ‖J‖²/σ₁.
 // Regularize the DENOMINATOR by a tiny perturbation (~roundoff·scale) so it's defined at D²=0 — NOT clipping; the value stays unbounded.
-function _divreg(num,den,scale){return num/(den+(den>=0?1:-1)*1e-12*scale)*100;}
+// divergence divides by D²/Dσ², which LEGITIMATELY crosses 0 at every ‖J‖²/σ₁ inflection during EoS ⇒ the %-metric blows up (0/0).
+// FLOOR |den| at 5% of the term-magnitude scale (which does NOT vanish at an inflection — the terms cancel, not individually vanish).
+// Identical to num/den when |den| is large; only bounds the narrow band around den≈0. NOT clipping the value — flooring the denominator.
+function _divreg(num,den,scale){let floor=0.05*Math.abs(scale); if(floor<=0)floor=1e-12; if(Math.abs(den)<floor)den=(den!==0?(den>0?floor:-floor):floor); return num/den*100;}
 function sec15Stats(hvp1,hvp2,Jt,Jtm1,Jtm2,rtm1,rtm2,lr,N,p){
   const c=lr/N, c2=c*c, D=(a,b)=>s15Dotp(a,b,p), WS=(v,w)=>s15Wsum(v,w,p);
   const g1=WS(Jtm1,rtm1), g2=WS(Jtm2,rtm2);
@@ -1987,7 +1990,7 @@ function sec15Stats(hvp1,hvp2,Jt,Jtm1,Jtm2,rtm1,rtm2,lr,N,p){
   const z=WS(Jtm1,wv), H1z=hvp1(z);
   let III=0;for(let k=0;k<N;k++)III+=D(Jt[k],H1z[k]);III*=c2;
   let nJt=0,nJtm1=0,nJtm2=0;for(let k=0;k<N;k++){nJt+=D(Jt[k],Jt[k]);nJtm1+=D(Jtm1[k],Jtm1[k]);nJtm2+=D(Jtm2[k],Jtm2[k]);}
-  const D2=nJt+nJtm2-2*nJtm1, divP=_divreg(-2*(I+II-III)+D2,D2,nJt+nJtm1+nJtm2);  // 2×: terms are ½∂²‖J‖²; denom regularized so it's defined at D²=0 (not clipped)
+  const D2=nJt+nJtm2-2*nJtm1, divP=_divreg(-2*(I+II-III)+D2,D2,2*(Math.abs(I)+Math.abs(II)+Math.abs(III)));  // 2×: terms are ½∂²‖J‖²; den floored at 5% of 2(|I|+|II|+|III|) (not clipped)
   const Kt=new Float64Array(N*N);for(let i=0;i<N;i++)for(let j=0;j<N;j++)Kt[i*N+j]=D(Jt[i],Jt[j]);
   const ekt=jacobiEig(Kt,N);let ti=0,tv=-Infinity;for(let q=0;q<N;q++)if(ekt.vals[q]>tv){tv=ekt.vals[q];ti=q;}
   const sig_t=tv, u1=new Float64Array(N);for(let k=0;k<N;k++)u1[k]=ekt.V[k*N+ti];
@@ -1998,7 +2001,7 @@ function sec15Stats(hvp1,hvp2,Jt,Jtm1,Jtm2,rtm1,rtm2,lr,N,p){
   const V=c2*D(b,WS(H1a,u1)), VI=c2*D(b,WS(H1z,u1));
   const P=[];for(let i=0;i<N;i++)P.push(WS(W[i],u1));
   const JQuJ=new Float64Array(N*N);for(let i=0;i<N;i++)for(let l=0;l<N;l++)JQuJ[i*N+l]=D(P[i],P[l]);
-  const Dsig2=sig_t+sig_tm2-2*sig_tm1, divS=_divreg(-2*(IV+V-VI)+Dsig2,Dsig2,sig_t+sig_tm1+sig_tm2);  // σ₁ side; denom regularized at Dσ²=0 (not clipped)
+  const Dsig2=sig_t+sig_tm2-2*sig_tm1, divS=_divreg(-2*(IV+V-VI)+Dsig2,Dsig2,2*(Math.abs(IV)+Math.abs(V)+Math.abs(VI)));  // σ₁ side; den floored at 5% of 2(|IV|+|V|+|VI|) (not clipped)
   // (*)/(**) terms make A,B general (non-symmetric): A=c²JSJ·M + (*) , B=c²JQuJ·M + (**); eigenvalues via realEigParts → real parts
   const psi=new Float64Array(p);for(let k=0;k<N;k++){const hk=hvp1(Jt[k]);for(let q=0;q<p;q++)psi[q]+=hk[k][q];}   // ψ=Σ_k Q_{t−1,k}∇f_{t,k}
   const M2=[];for(let i=0;i<N;i++)M2.push(hvp2(Jtm2[i]));                                                          // M2[i][j]=Q_{t−2,j}∇f_{t−2,i}
@@ -2037,7 +2040,7 @@ function sec15Panel34(hvpAt,thtm2,Jt,Jtm1,Jtm2,rtm1,rtm2,u1,Amat,Bmat,rec,lr,N,p
   const ApeRaw=realEigParts(Ap,N), BpeRaw=realEigParts(Bp,N);
   const Ape=s15EigStats(ApeRaw), Bpe=s15EigStats(BpeRaw);
   const sJ=rec.I+rec.II-rec.III+VII, sS=rec.IV+rec.V-rec.VI+VIII, D2=rec.D2, Dsig2=rec.Dsig2;
-  return {VII,VIII,divP3:_divreg(-2*sJ+D2,D2,rec.Js),divS4:_divreg(-2*sS+Dsig2,Dsig2,rec.Ss),
+  return {VII,VIII,divP3:_divreg(-2*sJ+D2,D2,2*(Math.abs(rec.I)+Math.abs(rec.II)+Math.abs(rec.III)+Math.abs(VII))),divS4:_divreg(-2*sS+Dsig2,Dsig2,2*(Math.abs(rec.IV)+Math.abs(rec.V)+Math.abs(rec.VI)+Math.abs(VIII))),
           Aptop:Ape.top,Apbot:Ape.bot,Apstat:Ape.stat,Apeig:Array.from(ApeRaw).sort((x,y)=>y-x),
           Bptop:Bpe.top,Bpbot:Bpe.bot,Bpstat:Bpe.stat,Bpeig:Array.from(BpeRaw).sort((x,y)=>y-x)};
 }

@@ -562,9 +562,15 @@ def principal_angles(A, B):
 #   III= c²·Σ_k ∇f_{t,k}ᵀ Q_{t−1,k}·(J_{t−1} J_{t−2}ᵀ J_{t−2} r_{t−2})
 #   A  = c²·(J_{t−1}ᵀ S_{t−1} J_{t−1})(I − c·J_{t−2}ᵀJ_{t−2})       (N×N, real eigenvalues: PSD·symmetric)
 #   IV/V/VI/B: the σ₁ analogs — S→(Q̄ᵘ)² with Q̄ᵘ=Σ_k u_{t,1,k}Q_{t−1,k}, and the trace-tie → u_{t,1} projection.
-_DREG = 1e-12   # the divergence divides by the 2nd difference D² (resp Dσ²), which can hit 0 at an inflection of ‖J‖²/σ₁.
-def _divreg(num, den, scale):   # regularize the DENOMINATOR by a tiny perturbation ~roundoff·scale so it is defined at D²=0
-    return num / (den + math.copysign(_DREG * scale, den)) * 100.0   # absorbs float cancellation; value stays UNBOUNDED (no clipping)
+_DREG = 1e-12     # degenerate fallback (truly frozen ⇒ all terms 0 ⇒ scale 0): a tiny absolute floor so we never divide by 0.
+_DFLOOR = 0.05    # the divergence divides by D² (resp Dσ²), which LEGITIMATELY crosses 0 at every ‖J‖²/σ₁ inflection during EoS
+def _divreg(num, den, scale):   # ⇒ the %-metric blows up there (0/0). FLOOR |den| at 5% of the term-magnitude scale (which does NOT
+    floor = _DFLOOR * abs(scale)                          # vanish at an inflection — the terms cancel, they don't individually vanish).
+    if floor <= 0.0:                                      # Identical to num/den when |den| is large; only bounds the narrow band around
+        floor = _DREG                                     # den≈0. NOT clipping the value — flooring the denominator (per user guidance).
+    if abs(den) < floor:
+        den = math.copysign(floor, den) if den != 0.0 else floor
+    return num / den * 100.0
 def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
     dt, dev = Jt.dtype, Jt.device
     c = lr / N
@@ -608,7 +614,7 @@ def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
 
     nJt = float((Jt * Jt).sum()); nJtm1 = float((Jtm1 * Jtm1).sum()); nJtm2 = float((Jtm2 * Jtm2).sum())
     D2 = nJt + nJtm2 - 2.0 * nJtm1
-    divP = _divreg(-2.0 * (I + II - III) + D2, D2, nJt + nJtm1 + nJtm2)  # 2×: terms are ½∂²‖J‖²; D² is the full discrete ∂² ⇒ predict D²≈2(I+II−III); →0 when theory holds
+    divP = _divreg(-2.0 * (I + II - III) + D2, D2, 2.0 * (abs(I) + abs(II) + abs(III)))  # 2×: terms are ½∂²‖J‖²; D² is the full discrete ∂² ⇒ predict D²≈2(I+II−III); →0 when theory holds. Floor den at 5% of 2(|I|+|II|+|III|).
 
     # ── panel 2 (σ₁): top NTK eigenpair at t,t−1,t−2 + the u₁-projected terms ──
     Kt = Jt @ Jt.t()
@@ -629,7 +635,7 @@ def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
     Bm = Bm + c2 * torch.einsum('a,ija->ji', u1 @ hvp1(b), M2)   # Q̄ᵘb = u1·{Q_{t−1,a}b}; reuses M2
     Btop, Bbot, Bstat, Beig = estats(Bm)
     Dsig2 = sig_t + sig_tm2 - 2.0 * sig_tm1
-    divS = _divreg(-2.0 * (IV + V - VI) + Dsig2, Dsig2, sig_t + sig_tm1 + sig_tm2)  # 2×: terms are ½∂²σ₁; Dσ² is the full discrete ∂² ⇒ predict Dσ²≈2(IV+V−VI); →0 when theory holds
+    divS = _divreg(-2.0 * (IV + V - VI) + Dsig2, Dsig2, 2.0 * (abs(IV) + abs(V) + abs(VI)))  # 2×: terms are ½∂²σ₁; Dσ² is the full discrete ∂² ⇒ predict Dσ²≈2(IV+V−VI); →0 when theory holds. Floor den at 5% of 2(|IV|+|V|+|VI|).
 
     rec = {"I": I, "II": II, "III": III, "divP": divP, "Atop": Atop, "Abot": Abot, "Astat": Astat,
            "IV": IV, "V": V, "VI": VI, "divS": divS, "Btop": Btop, "Bbot": Bbot, "Bstat": Bstat,
@@ -677,8 +683,8 @@ def sec15_panel34(hvp_at, th_tm2, Jt, Jtm1, Jtm2, rtm1, rtm2, u1, A, B, rec, lr,
     D2 = rec["D2"]; Dsig2 = rec["Dsig2"]
     sJ = rec["I"] + rec["II"] - rec["III"] + VII             # full ½∂²‖J‖² with the Q̇ term
     sS = rec["IV"] + rec["V"] - rec["VI"] + VIII             # full ½∂²σ₁ with the Q̇ term
-    divP3 = _divreg(-2.0 * sJ + D2, D2, rec["Js"])
-    divS4 = _divreg(-2.0 * sS + Dsig2, Dsig2, rec["Ss"])
+    divP3 = _divreg(-2.0 * sJ + D2, D2, 2.0 * (abs(rec["I"]) + abs(rec["II"]) + abs(rec["III"]) + abs(VII)))    # floor den at 5% of 2(|I|+|II|+|III|+|VII|)
+    divS4 = _divreg(-2.0 * sS + Dsig2, Dsig2, 2.0 * (abs(rec["IV"]) + abs(rec["V"]) + abs(rec["VI"]) + abs(VIII)))  # floor den at 5% of 2(|IV|+|V|+|VI|+|VIII|)
     return {"VII": VII, "VIII": VIII, "divP3": divP3, "divS4": divS4,
             "Aptop": Aptop, "Apbot": Apbot, "Apstat": Apstat, "Apeig": Apeig,
             "Bptop": Bptop, "Bpbot": Bpbot, "Bpstat": Bpstat, "Bpeig": Bpeig}
