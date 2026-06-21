@@ -142,7 +142,8 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
         if progress:
             print(f"  §16: standalone optimizer — {cfg.s24warm} GD warmup + {cfg.s24iter} iters from θ₀")
         sec16 = list(sec16_run(model, loss, th0, X, Y, cfg.lr, cfg.s24warm, cfg.s24iter,
-                               min(max(1, cfg.neig), max(1, model.p // 2)), min(model.p, 24), cfg.seed, 1e-12))   # clamp neig like server/browser
+                               min(max(1, cfg.neig), max(1, model.p // 2)), min(model.p, 24), cfg.seed, 1e-12,
+                               getattr(cfg, 's24grid', 0.1), getattr(cfg, 's24ares', 0.01)))   # clamp neig like server/browser; finer β,s/α search
 
     meta["wall_sec"] = time.time() - t0
     return {"meta": meta, "config": cfg, "history": history, "series": _to_series(history), "sec16": sec16}

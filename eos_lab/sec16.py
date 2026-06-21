@@ -68,13 +68,14 @@ def _lanc16_ext(hvp, p, n, m, seed, dev, dt):                # top-n & bottom-n 
     return tv, bv, tval, bval
 
 
-def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol):
+def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, ares=0.01):
     dev, dt = th0.device, th0.dtype
     p = model.p
     N = X.shape[0]
     Yf = Y.reshape(-1)
     k = max(1, int(neig))
-    grid = [i / 10.0 for i in range(11)]
+    mg = max(1, int(round(1.0 / max(1e-9, bgrid))))      # β,s search grid {0,1/mg,…,1} (bgrid = step); finer ⇒ more descent, costs mg² loss-evals
+    grid = [i / mg for i in range(mg + 1)]
 
     def fwd(th):
         return model.forward(th, X).reshape(-1)
@@ -115,7 +116,7 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol):
         rec["fH"]["beta"] = {"top": real["fHt"], "bot": real["fHb"]}; rec["res"]["beta"] = real["res"]
         return rec
 
-    def line_search(th, direction, mask, lo=0.0, hi=10.0, ls_tol=0.01):
+    def line_search(th, direction, mask, lo=0.0, hi=10.0, ls_tol=ares):
         gr = (math.sqrt(5) - 1) / 2
         a, b = lo, hi
         c = b - gr * (b - a); dd = a + gr * (b - a)
@@ -125,7 +126,7 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol):
                 b, dd, fdd = dd, c, fc; c = b - gr * (b - a); fc = lossv(th + c * direction, mask)
             else:
                 a, c, fc = c, dd, fdd; dd = a + gr * (b - a); fdd = lossv(th + dd * direction, mask)
-        al = math.floor((a + b) / 2.0 * 100.0 + 0.5) / 100.0   # half-up, matches JS Math.round (α≥0)
+        al = math.floor((a + b) / 2.0 / ares + 0.5) * ares     # snap to the `ares` grid (half-up; identical in JS), α≥0
         return al if lossv(th + al * direction, mask) <= lossv(th, mask) else 0.0   # α≥0; never worse than α=0
 
     th = th0.detach().clone()

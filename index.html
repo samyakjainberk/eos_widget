@@ -171,7 +171,9 @@
       <div class="ctl"><label title="§11 3D-grid cap: skip the N×N×N Hessian–NTK grids when N·d_out exceeds this. The grid is N³ points and costs N Hessian-vector products, so it is feasible only for small N.">3D-grid cap (N·d_out)</label><input id="grid3dcap" type="number" value="500" min="1" max="600" step="1"></div>
       <div class="ctl"><label title="§15 divergence ε: the divergence% = (D²−2Σ)/(D²+sign(D²)·ε·2Σ|term|). ε→0 gives the exact (D²−2Σ)/D² (which spikes to ±∞ at every ‖J‖²/σ₁ inflection where D²→0); larger ε softens those 0/0 spikes (ε≳1 ≈ error relative to the curvature activity). Default 0.3.">§15 divergence ε</label><input id="divreg" type="number" value="0.3" min="0" max="5" step="0.05"></div>
       <div class="ctl"><label title="§16: number of standard gradient-descent warmup steps from θ₀ before the §16 curvature-aligned optimization begins.">§16 GD warmup</label><input id="s24warm" type="number" value="5" min="0" max="500" step="1"></div>
-      <div class="ctl"><label title="§16: number of §16 optimizer iterations after the GD warmup.">§16 iterations</label><input id="s24iter" type="number" value="40" min="1" max="500" step="1"></div>
+      <div class="ctl"><label title="§16: number of §16 optimizer iterations after the GD warmup.">§16 iterations</label><input id="s24iter" type="number" value="100" min="1" max="2000" step="1"></div>
+      <div class="ctl"><label title="§16: (β,s) search grid step. Finer (smaller) ⇒ more descent extracted per iteration, but costs (1/step)² loss evaluations. Default 0.1.">§16 β,s grid step</label><input id="s24grid" type="number" value="0.1" min="0.01" max="0.5" step="0.01"></div>
+      <div class="ctl"><label title="§16: α line-search resolution. Finer (smaller) ⇒ finds smaller beneficial steps near the plateau. Default 0.01.">§16 α resolution</label><input id="s24ares" type="number" value="0.01" min="0.001" max="0.1" step="0.001"></div>
       <div class="ctl"><label title="§12 sample cap: skip §12 when the number of samples N exceeds this. §12 extracts each sample's top-/bottom-15 Hessian eigenpairs MATRIX-FREE via Lanczos (no p×p matrix is formed), so it scales to large models like §1–§3; the grid is N×N so only N is capped.">§12 N-cap</label><input id="sec12ncap" type="number" value="500" min="1" max="600" step="1"></div>
       <div class="ctl"><label>SLQ probes</label><input id="slqprobes" type="number" value="4" min="1" max="12" step="1"></div>
       <div class="ctl"><label>subspace energy %</label><input id="energyp" type="number" value="99" min="50" max="100" step="1"></div>
@@ -2199,8 +2201,8 @@ function s15p34Reset(){S15P34_DATA=null;S15P34_BUILT=false;for(const id of S15P3
 // from θ₀ and calls push(record) per iteration. r = y−f(x); the weight update is ADDED.
 function _addS(th,dir,c){const n=th.length,o=new Float64Array(n);for(let i=0;i<n;i++)o[i]=th[i]+c*dir[i];return o;}
 function _addV(th,vec){const n=th.length,o=new Float64Array(n);for(let i=0;i<n;i++)o[i]=th[i]+vec[i];return o;}
-function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,push){
-  const k=Math.max(1,neig|0),eps=1e-3,grid=[];for(let i=0;i<=10;i++)grid.push(i/10);
+function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,push){
+  const k=Math.max(1,neig|0),eps=1e-3,mg=Math.max(1,Math.round(1/Math.max(1e-9,bgrid))),grid=[];for(let i=0;i<=mg;i++)grid.push(i/mg);
   const Yf=Y;
   const out_=th=>forward(th,spec,X,N,inDim).out;
   const resid=th=>{const o=out_(th),r=new Float64Array(N);for(let i=0;i<N;i++)r[i]=Yf[i]-o[i];return r;};
@@ -2212,8 +2214,8 @@ function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,push
     for(const kk of keys){const d=look&&look[kk];rec.L[kk]=d?d.L:null;rec.lH[kk]=d?d.lH:null;rec.fH[kk]=d?{top:d.fHt,bot:d.fHb}:null;rec.res[kk]=d?d.res:null;}
     rec.L.beta=real.L;rec.lH.beta=real.lH;rec.fH.beta={top:real.fHt,bot:real.fHb};rec.res.beta=real.res;return rec;};
   const lineSearch=(th,dir,mask)=>{const gr=(Math.sqrt(5)-1)/2;let a=0,b=10,c=b-gr*(b-a),d=a+gr*(b-a),fc=lossM(_addS(th,dir,c),mask),fd=lossM(_addS(th,dir,d),mask);
-    while(b-a>0.01){if(fc<fd){b=d;d=c;fd=fc;c=b-gr*(b-a);fc=lossM(_addS(th,dir,c),mask);}else{a=c;c=d;fc=fd;d=a+gr*(b-a);fd=lossM(_addS(th,dir,d),mask);}}
-    const al=Math.round((a+b)/2*100)/100;return lossM(_addS(th,dir,al),mask)<=lossM(th,mask)?al:0;};
+    while(b-a>ares){if(fc<fd){b=d;d=c;fd=fc;c=b-gr*(b-a);fc=lossM(_addS(th,dir,c),mask);}else{a=c;c=d;fc=fd;d=a+gr*(b-a);fd=lossM(_addS(th,dir,d),mask);}}
+    const al=Math.floor((a+b)/2/ares+0.5)*ares;return lossM(_addS(th,dir,al),mask)<=lossM(th,mask)?al:0;};
   let th=th0.slice();
   for(let it=0;it<warmup+iters;it++){
     const sd=(seed+1000*it)&0x7FFFFFFF;
@@ -2751,7 +2753,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   // §16: standalone curvature-aligned optimizer (browser compute). Runs ONCE from θ₀ (synchronous; gated to small MLP+MSE+scalar).
   if(opt.s24 && val('arch')==='mlp' && val('loss')==='mse' && outDim===1 && p<=40000 && N<=64){
     s16Reset();
-    try{ sec16Run(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||40),n,Math.min(p,24),+val('seed')||0,1e-12,s16Push); }
+    try{ sec16Run(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||100),n,Math.min(p,24),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),s16Push); }
     catch(e){ console.error('§16 error',e); }
   }
   loop();
@@ -3363,7 +3365,7 @@ async function downloadPlots(){
 function backendURL(start){
   const ps=new URLSearchParams();
   ['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
-   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','s24warm','s24iter',
+   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','s24warm','s24iter','s24grid','s24ares',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg'].forEach(id=>ps.set(id,val(id)));
   [['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
    ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));

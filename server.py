@@ -554,9 +554,9 @@ def _lanc16_ext(hvp, p, n, m, seed):                 # top-n & bottom-n (eigVEC,
     tval = [float(mu[int(idx[min(i, k - 1)])]) for i in range(n)]; bval = [float(mu[int(idx[max(0, k - 1 - i)])]) for i in range(n)]
     return tv, bv, tval, bval
 
-def _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol):
+def _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, ares=0.01):
     p = th0.numel(); N = X.shape[0]; Yf = Y.reshape(-1)
-    k = max(1, int(neig)); grid = [i / 10.0 for i in range(11)]
+    k = max(1, int(neig)); mg = max(1, int(round(1.0 / max(1e-9, bgrid)))); grid = [i / mg for i in range(mg + 1)]
     fwd = lambda th: _TL.model.forward(th, X).reshape(-1)
     resid = lambda th: Yf - fwd(th)                                    # y − f(x)
     def lossv(th, mask=None):
@@ -579,7 +579,7 @@ def _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol):
         rec["L"]["beta"] = real["L"]; rec["lH"]["beta"] = real["lH"]
         rec["fH"]["beta"] = {"top": real["fHt"], "bot": real["fHb"]}; rec["res"]["beta"] = real["res"]
         return rec
-    def line_search(th, direction, mask, lo=0.0, hi=10.0, ls_tol=0.01):
+    def line_search(th, direction, mask, lo=0.0, hi=10.0, ls_tol=ares):
         gr = (math.sqrt(5) - 1) / 2; a, b = lo, hi
         c = b - gr * (b - a); dd = a + gr * (b - a)
         fc = lossv(th + c * direction, mask); fdd = lossv(th + dd * direction, mask)
@@ -588,7 +588,7 @@ def _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol):
                 b, dd, fdd = dd, c, fc; c = b - gr * (b - a); fc = lossv(th + c * direction, mask)
             else:
                 a, c, fc = c, dd, fdd; dd = a + gr * (b - a); fdd = lossv(th + dd * direction, mask)
-        al = math.floor((a + b) / 2.0 * 100.0 + 0.5) / 100.0   # half-up, matches JS Math.round (α≥0)
+        al = math.floor((a + b) / 2.0 / ares + 0.5) * ares     # snap to the `ares` grid (half-up; identical in JS), α≥0
         return al if lossv(th + al * direction, mask) <= lossv(th, mask) else 0.0
     th = th0.detach().clone()
     for it in range(int(warmup) + int(iters)):
@@ -2041,8 +2041,9 @@ def run_stream(P):
     #    streams g16 records, then the normal GD loop below proceeds (for the other sections). Independent of the GD θ. ──
     if P.get("s24", 0) and start == 0 and isinstance(_TL.model, MlpModel) and _TL.loss.name == "mse" and outD == 1 and p <= 40000 and Nfull <= 64:
         th16 = th.double(); X16 = Xpool.double(); Y16 = Ypool.double()   # start==0: only on a FRESH run (don't re-stream §16 on resume ⇒ no double-curve)
-        for rec16 in _sec16_run(th16, X16, Y16, lr, P.get("s24warm", 5), P.get("s24iter", 40),
-                                n, min(p, 24), P.get("seed", 0), 1e-12):
+        for rec16 in _sec16_run(th16, X16, Y16, lr, P.get("s24warm", 5), P.get("s24iter", 100),
+                                n, min(p, 24), P.get("seed", 0), 1e-12,
+                                P.get("s24grid", 0.1), P.get("s24ares", 0.01)):
             if mytok != RUN_TOKEN.get(_devkey, mytok):
                 return
             yield {"type": "g16", **rec16}
@@ -3213,7 +3214,9 @@ def _parse_params(q):
         "s23": g("s23", "0") == "1",     # §15: 2nd-difference decomposition of ‖J‖²_F & σ₁ (own toggle; multi-sample, small N; OFF by default)
         "s24": g("s24", "0") == "1",     # §16: curvature-aligned per-residual-sign optimizer (standalone; own iteration axis; OFF by default)
         "s24warm": max(0, fi("s24warm", 5)),    # §16: standard-GD warmup steps before the §16 optimization begins
-        "s24iter": max(1, fi("s24iter", 40)),   # §16: number of §16 iterations after the warmup
+        "s24iter": max(1, fi("s24iter", 100)),  # §16: number of §16 iterations after the warmup
+        "s24grid": min(0.5, max(0.01, ff("s24grid", 0.1))),   # §16: (β,s) search grid step (finer ⇒ more descent, costs (1/step)² loss-evals)
+        "s24ares": min(0.1, max(0.001, ff("s24ares", 0.01))), # §16: α line-search resolution (finer ⇒ extracts smaller steps near the plateau)
         "grid3dcap": max(1, fi("grid3dcap", 500)),
         "sec12ncap": max(1, fi("sec12ncap", 500)),
         "gs": g("gson", "1") == "1",
