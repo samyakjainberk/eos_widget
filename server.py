@@ -549,7 +549,7 @@ def _lanc16_vals(hvp, p, n, m, seed):                # top-n & bottom-n eigenVAL
 
 def _lanc16_ext(hvp, p, n, m, seed):                 # top-n & bottom-n (eigVEC, eigVAL) pairs (float64)
     Qm, T, k = _lanczos16_core(hvp, p, m, seed); mu, Sv = torch.linalg.eigh(T); idx = torch.argsort(mu, descending=True)
-    ritz = lambda col: Sv[:, col].to(torch.float64) @ Qm
+    ritz = lambda col: Sv[:, col].to(dtype=torch.float64, device=Qm.device) @ Qm   # Sv (CPU eigh) → Qm's device for the matmul
     tv = [ritz(int(idx[min(i, k - 1)])) for i in range(n)]; bv = [ritz(int(idx[max(0, k - 1 - i)])) for i in range(n)]
     tval = [float(mu[int(idx[min(i, k - 1)])]) for i in range(n)]; bval = [float(mu[int(idx[max(0, k - 1 - i)])]) for i in range(n)]
     return tv, bv, tval, bval
