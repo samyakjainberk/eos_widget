@@ -96,6 +96,7 @@ class Diagnostics:
         self.s21 = P.get("s21", 0)          # §13: residual-weighted curvature G1/G2/G3 vs exact ref (own toggle; shares §12 Lanczos)
         self.s22 = P.get("s22", 0)          # §12b: per-sample projection panels (s19=§12a angles+diag-align; both share the §12 Lanczos)
         self.s23 = P.get("s23", 0)          # §15: 2nd-difference decomposition of ‖J‖²_F & σ₁ (own toggle; holds 3 eig-ticks)
+        self.divreg = float(P.get("divreg", 0.3))   # §15 divergence ε: softens the 0/0 spike at D²→0 inflections (0 = exact /D²)
         self._sec15_hist = []               # §15: rolling buffer of the last 2 eig-ticks' {th, J, r} (need t−1 and t−2)
         self._sec14_rhist = []              # §14: per-sample residual history (last ≤5 ticks) for the eq-③ ratio
         self._sec14_prev = None             # §14: previous eig-tick's {TV,TW,BV,BW,r,Jg} (u,σ,r_j,J_k at t; cur gives J_i,r_k at t+1)
@@ -693,10 +694,10 @@ class Diagnostics:
                 tm1, tm2 = self._sec15_hist[-1], self._sec15_hist[-2]
                 hvp1 = lambda v: jac_hvp(self.model, tm1["th"], X, v)[lblsel15]   # {Q_{t−1,k}·v}_k  (N,p)
                 hvp2 = lambda v: jac_hvp(self.model, tm2["th"], X, v)[lblsel15]   # {Q_{t−2,k}·v}_k
-                g15rec, Amat, Bmat, u1_15 = sec15_stats(hvp1, hvp2, Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], self.lr, N)
+                g15rec, Amat, Bmat, u1_15 = sec15_stats(hvp1, hvp2, Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], self.lr, N, diveps=self.divreg)
                 rec["g15"] = g15rec
                 hvp_at = lambda thx, v: jac_hvp(self.model, thx, X, v)[lblsel15]   # §15 panels 3/4 (Q̇≠0): VII/VIII + A'/B' (2N² extra HVPs)
-                rec["g15p34"] = sec15_panel34(hvp_at, tm2["th"], Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], u1_15, Amat, Bmat, g15rec, self.lr, N)
+                rec["g15p34"] = sec15_panel34(hvp_at, tm2["th"], Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], u1_15, Amat, Bmat, g15rec, self.lr, N, diveps=self.divreg)
             self._sec15_hist.append({"th": th.detach().clone(), "J": Jg15.detach(), "r": r15.detach(), "t": t})
             if len(self._sec15_hist) > 2:
                 self._sec15_hist.pop(0)

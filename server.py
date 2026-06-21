@@ -404,12 +404,12 @@ def _sec14_payload(prev, cur, lr, grid3dcap, rhist):
     return out
 
 
-_DEPS = 0.05    # additive ε in the denominator: divergence = (D²−2Σ)/(D² + sign(D²)·ε), with ε = _DEPS·`scale` and `scale` = the
-def _divreg(num, den, scale):   # MAGNITUDE of the 2nd-difference itself, 2(Σ|term|). Where |D²| ≫ ε (away from inflections) this is EXACTLY
-    return num / (den + math.copysign(_DEPS * scale, den)) * 100.0   # the defined (D²−2Σ)/D²; ε only acts in the narrow band where D²→0 (‖J‖²/σ₁ inflections), bounding the 0/0 spike.
+_DEPS = 0.3     # default additive-ε strength (UI hyperparameter `divreg`). divergence = (D²−2Σ)/(D² + sign(D²)·ε·scale), scale =
+def _divreg(num, den, scale, eps=_DEPS):   # MAGNITUDE of the 2nd-difference 2(Σ|term|). eps→0 ⇒ exactly the defined (D²−2Σ)/D² (spiky at D²→0);
+    return num / (den + math.copysign(eps * scale, den)) * 100.0   # larger eps softens the 0/0 spike at ‖J‖²/σ₁ inflections (eps≳1 ⇒ ≈ residual/scale). User-tunable.
 
 
-def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
+def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N, diveps=_DEPS):
     """§15 — 2nd-difference decomposition of ‖J‖²_F (panel 1) and σ₁ (panel 2). hvp1/hvp2 give {Q_{t-1,k}·v}_k /
     {Q_{t-2,k}·v}_k; Jt/Jtm1/Jtm2 are (N,p) per-sample GT-gradients; rtm1/rtm2 (N,). MIRRORS eos_lab.sec15_stats.
       I  = c²·g_{t−1}ᵀ S_{t−1} g_{t−1}, S=Σ_k Q²       II = c²·Σ_k ∇f_{t,k}ᵀ Q_{t−1,k} Q̃ g_{t−2}, Q̃=Σⱼ r_{t−1,j}Q_{t−2,j}
@@ -453,7 +453,7 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
 
     nJt = float((Jt * Jt).sum()); nJtm1 = float((Jtm1 * Jtm1).sum()); nJtm2 = float((Jtm2 * Jtm2).sum())
     D2 = nJt + nJtm2 - 2.0 * nJtm1
-    divP = _divreg(-2.0 * (I + II - III) + D2, D2, 2.0 * (abs(I) + abs(II) + abs(III)))  # 2×: terms are ½∂²‖J‖²; predict D²≈2(I+II−III); →0 when theory holds. ε-scale = 2(|I|+|II|+|III|) (the D²-magnitude).
+    divP = _divreg(-2.0 * (I + II - III) + D2, D2, 2.0 * (abs(I) + abs(II) + abs(III)), diveps)  # 2×: terms are ½∂²‖J‖²; predict D²≈2(I+II−III); →0 when theory holds. ε-scale = 2(|I|+|II|+|III|) (the D²-magnitude).
 
     Kt = Jt @ Jt.t()
     evt = torch.linalg.eigh(Kt)
@@ -472,7 +472,7 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
     Bm = Bm + c2 * torch.einsum('a,ija->ji', u1 @ hvp1(b), M2)
     Btop, Bbot, Bstat, Beig = estats(Bm)
     Dsig2 = sig_t + sig_tm2 - 2.0 * sig_tm1
-    divS = _divreg(-2.0 * (IV + V - VI) + Dsig2, Dsig2, 2.0 * (abs(IV) + abs(V) + abs(VI)))  # 2×: terms are ½∂²σ₁; predict Dσ²≈2(IV+V−VI); →0 when theory holds. ε-scale = 2(|IV|+|V|+|VI|) (the Dσ²-magnitude).
+    divS = _divreg(-2.0 * (IV + V - VI) + Dsig2, Dsig2, 2.0 * (abs(IV) + abs(V) + abs(VI)), diveps)  # 2×: terms are ½∂²σ₁; predict Dσ²≈2(IV+V−VI); →0 when theory holds. ε-scale = 2(|IV|+|V|+|VI|) (the Dσ²-magnitude).
 
     rec = {"I": I, "II": II, "III": III, "divP": divP, "Atop": Atop, "Abot": Abot, "Astat": Astat,
            "IV": IV, "V": V, "VI": VI, "divS": divS, "Btop": Btop, "Bbot": Bbot, "Bstat": Bstat,
@@ -490,7 +490,7 @@ def _eig_stats15(M):   # real-part eigenvalue summary of a general N×N matrix �
             es.tolist())
 
 
-def _sec15_panel34(hvp_at, th_tm2, Jt, Jtm1, Jtm2, rtm1, rtm2, u1, A, B, rec, lr, N, eps=1e-3):
+def _sec15_panel34(hvp_at, th_tm2, Jt, Jtm1, Jtm2, rtm1, rtm2, u1, A, B, rec, lr, N, eps=1e-3, diveps=_DEPS):
     """Panels 3/4 (Q̇≠0): third-derivative terms VII/VIII + matrices A'=A+(VII), B'=B+(VIII). MIRRORS
     eos_lab.linalg.sec15_panel34 / index.html sec15Panel34. `hvp_at(theta,v)`={Q_k(theta)·v}_k at any theta;
     a directional FD of it gives T_{t-2,k}. Costs 2N²+2 HVP evals."""
@@ -509,8 +509,8 @@ def _sec15_panel34(hvp_at, th_tm2, Jt, Jtm1, Jtm2, rtm1, rtm2, u1, A, B, rec, lr
     D2 = rec["D2"]; Dsig2 = rec["Dsig2"]
     sJ = rec["I"] + rec["II"] - rec["III"] + VII; sS = rec["IV"] + rec["V"] - rec["VI"] + VIII
     return {"VII": VII, "VIII": VIII,
-            "divP3": _divreg(-2.0 * sJ + D2, D2, 2.0 * (abs(rec["I"]) + abs(rec["II"]) + abs(rec["III"]) + abs(VII))),    # ε-scale = 2(|I|+|II|+|III|+|VII|)
-            "divS4": _divreg(-2.0 * sS + Dsig2, Dsig2, 2.0 * (abs(rec["IV"]) + abs(rec["V"]) + abs(rec["VI"]) + abs(VIII))),  # ε-scale = 2(|IV|+|V|+|VI|+|VIII|)
+            "divP3": _divreg(-2.0 * sJ + D2, D2, 2.0 * (abs(rec["I"]) + abs(rec["II"]) + abs(rec["III"]) + abs(VII)), diveps),    # ε-scale = 2(|I|+|II|+|III|+|VII|)
+            "divS4": _divreg(-2.0 * sS + Dsig2, Dsig2, 2.0 * (abs(rec["IV"]) + abs(rec["V"]) + abs(rec["VI"]) + abs(VIII)), diveps),  # ε-scale = 2(|IV|+|V|+|VI|+|VIII|)
             "Aptop": Aptop, "Apbot": Apbot, "Apstat": Apstat, "Apeig": Apeig,
             "Bptop": Bptop, "Bpbot": Bpbot, "Bpstat": Bpstat, "Bpeig": Bpeig}
 
@@ -2498,9 +2498,9 @@ def run_stream(P):
                     tm1, tm2 = sec15_hist[-1], sec15_hist[-2]
                     hvp1 = lambda v: jac_hvp(tm1["th"], X15, v)[lblsel15]
                     hvp2 = lambda v: jac_hvp(tm2["th"], X15, v)[lblsel15]
-                    sec15, Amat15, Bmat15, u1_15 = _sec15_stats(hvp1, hvp2, Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], lr, N)
+                    sec15, Amat15, Bmat15, u1_15 = _sec15_stats(hvp1, hvp2, Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], lr, N, diveps=P.get("divreg", 0.3))
                     hvp_at15 = lambda thx, v: jac_hvp(thx, X15, v)[lblsel15]   # §15 panels 3/4 (Q̇≠0): VII/VIII + A'/B' (2N² extra HVPs)
-                    sec15p34 = _sec15_panel34(hvp_at15, tm2["th"], Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], u1_15, Amat15, Bmat15, sec15, lr, N)
+                    sec15p34 = _sec15_panel34(hvp_at15, tm2["th"], Jg15, tm1["J"], tm2["J"], tm1["r"], tm2["r"], u1_15, Amat15, Bmat15, sec15, lr, N, diveps=P.get("divreg", 0.3))
                 sec15_hist.append({"th": th15.detach().clone(), "J": Jg15.detach(), "r": r15.detach(), "t": t})
                 if len(sec15_hist) > 2:
                     sec15_hist.pop(0)
@@ -3071,6 +3071,7 @@ def _parse_params(q):
         "chmul": ff("chmul", 0.25), "nlayer": fi("nlayer", 2), "nhead": fi("nhead", 4),
         "dmodel": fi("dmodel", 64), "seqlen": fi("seqlen", 16), "vocab": fi("vocab", 50257),
         "degree": fi("degree", 3),       # Chebyshev polynomial degree (chebyshev dataset)
+        "divreg": ff("divreg", 0.3),     # §15 divergence ε strength: softens the 0/0 spike at D²→0 inflections (0 ⇒ exact /D²)
         "cvar": ff("cvar", 0.0),         # const dataset: variance of Gaussian noise added to the constant target (0 ⇒ exact constant)
         "initscheme": g("initscheme", "default"),
         "surrogate": g("surrogate", "quad"), "mode": g("mode", "run"),
