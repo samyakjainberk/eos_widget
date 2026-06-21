@@ -138,12 +138,15 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
     sec16 = None
     if getattr(cfg, "s24", 0) and isinstance(model, MlpModel) and loss.name == "mse" and out_dim == 1 \
             and model.p <= 40000 and N <= 64:
-        from .sec16 import sec16_run
+        from .sec16 import sec16_driver, sec16_chebyshev_testset
         if progress:
             print(f"  §16: standalone optimizer — {cfg.s24warm} GD warmup + {cfg.s24iter} iters from θ₀")
-        sec16 = list(sec16_run(model, loss, th0, X, Y, cfg.lr, cfg.s24warm, cfg.s24iter,
-                               min(max(1, cfg.neig), max(1, model.p // 2)), min(model.p, 24), cfg.seed, 1e-12,
-                               getattr(cfg, 's24grid', 0.1), getattr(cfg, 's24ares', 0.01)))   # clamp neig like server/browser; finer β,s/α search
+        Xt16, Yt16 = (sec16_chebyshev_testset(N, cfg.degree, dev, dtype)
+                      if cfg.dataset == "chebyshev" else (None, None))   # §16 Panel 5 held-out test set
+        sec16 = list(sec16_driver(model, loss, th0, X, Y, cfg.lr, cfg.s24warm, cfg.s24iter,
+                                  min(max(1, cfg.neig), max(1, model.p // 2)), min(model.p, 24), cfg.seed, 1e-12,
+                                  getattr(cfg, 's24grid', 0.1), getattr(cfg, 's24ares', 0.01),
+                                  Xt16, Yt16, getattr(cfg, 's24base', 0)))   # baselines A/B if s24base
 
     meta["wall_sec"] = time.time() - t0
     return {"meta": meta, "config": cfg, "history": history, "series": _to_series(history), "sec16": sec16}

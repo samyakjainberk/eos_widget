@@ -131,6 +131,7 @@ class Config:
     s24iter: int = 100    # §16: number of §16 iterations after the warmup.
     s24grid: float = 0.1  # §16: (β,s) search grid step (finer ⇒ more descent, costs (1/step)² loss-evals).
     s24ares: float = 0.01 # §16: α line-search resolution (finer ⇒ smaller beneficial steps near the plateau).
+    s24base: int = 0      # §16: compute the two dotted baselines (A=random dirs, B=shuffled ± sets). OFF (≈3× cost).
 
     # ---- test set (held-out) ----
     n_test: int = 0                # held-out test points (0 ⇒ default: max(nsamp, 256), capped per dataset)

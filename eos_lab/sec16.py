@@ -36,6 +36,14 @@ def _randvec16(p, seed, dev, dt):
     rng = mulberry32(u32(int(seed)))
     return torch.tensor([gauss(rng) for _ in range(p)], dtype=dt, device=dev)
 
+def _shuffle_idx(N, seed):                                   # Fisher–Yates permutation of range(N) — IDENTICAL across backends (mulberry32)
+    rng = mulberry32(u32(int(seed)))
+    idx = list(range(N))
+    for i in range(N - 1, 0, -1):
+        j = int(rng() * (i + 1))
+        idx[i], idx[j] = idx[j], idx[i]
+    return idx
+
 def _lanc16_core(hvp, p, m, seed, dev, dt):
     q = _randvec16(p, seed, dev, dt); q = q / q.norm()
     Q = []; al = []; be = []
@@ -68,11 +76,16 @@ def _lanc16_ext(hvp, p, n, m, seed, dev, dt):                # top-n & bottom-n 
     return tv, bv, tval, bval
 
 
-def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, ares=0.01):
+def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, ares=0.01,
+              Xtest=None, Ytest=None, mode="eig", use_gd=True):
+    # mode: 'eig' (top/bottom eigvecs of H̄, true ± sets) · 'random' (two random unit vectors, KEEP σ₁/σ₋₁) ·
+    #       'shuffle' (eigvecs, but ± set membership permuted, counts preserved). use_gd: advance by best{curvature,GD}
+    #       (the main §16 — loss ↓) vs the PURE curvature step (the baselines — genuinely separate trajectories).
     dev, dt = th0.device, th0.dtype
     p = model.p
     N = X.shape[0]
     Yf = Y.reshape(-1)
+    Ytf = Ytest.reshape(-1) if Ytest is not None else None
     k = max(1, int(neig))
     mg = max(1, int(round(1.0 / max(1e-9, bgrid))))      # β,s search grid {0,1/mg,…,1} (bgrid = step); finer ⇒ more descent, costs mg² loss-evals
     grid = [i / mg for i in range(mg + 1)]
@@ -90,6 +103,11 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
         n = int(mask.sum())
         return float(loss.value(out[mask], Yf[mask], max(1, n))) if n else 0.0
 
+    def losstest(th):                                         # held-out test loss (None if no test set)
+        if Xtest is None:
+            return None
+        return float(loss.value(model.forward(th, Xtest).reshape(-1), Ytf, Xtest.shape[0]))
+
     def Hbar_hvp(th):                                         # H̄·v = (1/N) Σ_k ∇²f_k · v
         return lambda v: jac_hvp(model, th, X, v).mean(0)
 
@@ -97,22 +115,22 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
         return lambda v: (grad_loss(model, loss, th + FD_EPS * v, X, Y)[0]
                           - grad_loss(model, loss, th - FD_EPS * v, X, Y)[0]) / (2 * FD_EPS)
 
-    def metrics(th, sd):                                      # loss + residuals + lossH top-k + funcH top-k/bot-k
+    def metrics(th, sd):                                      # loss + test loss + residuals + lossH top-k + funcH top-k/bot-k
         lHt, _ = _lanc16_vals(lossH_hvp(th), p, k, mlan, sd, dev, dt)
         fHt, fHb = _lanc16_vals(Hbar_hvp(th), p, k, mlan, sd + 7, dev, dt)
-        return {"L": lossv(th), "res": resid(th).detach().cpu().tolist(),
+        return {"L": lossv(th), "Lt": losstest(th), "res": resid(th).detach().cpu().tolist(),
                 "lH": lHt, "fHt": fHt, "fHb": fHb}
 
     def pack(real, look=None):                               # build a streamed record from look-ahead metric dicts
         keys = ("pos", "neg", "mean", "beta")
         d = look if look is not None else {}
-        getL = lambda kk: (d[kk]["L"] if kk in d else None)
-        getlH = lambda kk: (d[kk]["lH"] if kk in d else None)
-        getfH = lambda kk: ({"top": d[kk]["fHt"], "bot": d[kk]["fHb"]} if kk in d else None)
-        getr = lambda kk: (d[kk]["res"] if kk in d else None)
-        rec = {"L": {kk: getL(kk) for kk in keys}, "lH": {kk: getlH(kk) for kk in keys},
-               "fH": {kk: getfH(kk) for kk in keys}, "res": {kk: getr(kk) for kk in keys}}
-        rec["L"]["beta"] = real["L"]; rec["lH"]["beta"] = real["lH"]
+        g = lambda kk, f: (f(d[kk]) if kk in d else None)
+        rec = {"L": {kk: g(kk, lambda x: x["L"]) for kk in keys},
+               "Lt": {kk: g(kk, lambda x: x["Lt"]) for kk in keys},
+               "lH": {kk: g(kk, lambda x: x["lH"]) for kk in keys},
+               "fH": {kk: g(kk, lambda x: {"top": x["fHt"], "bot": x["fHb"]}) for kk in keys},
+               "res": {kk: g(kk, lambda x: x["res"]) for kk in keys}}
+        rec["L"]["beta"] = real["L"]; rec["Lt"]["beta"] = real["Lt"]; rec["lH"]["beta"] = real["lH"]
         rec["fH"]["beta"] = {"top": real["fHt"], "bot": real["fHb"]}; rec["res"]["beta"] = real["res"]
         return rec
 
@@ -142,10 +160,24 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
         # ── §16 iteration ──
         r = resid(th)
         J = jac_cols(model, th, X)[0]                         # rows ∇f_k
-        tv, bv, tval, bval = _lanc16_ext(Hbar_hvp(th), p, k, mlan, sd, dev, dt)
-        u1, um1 = tv[0], bv[0]
-        sig1, sigm1 = tval[0], bval[0]                        # top/bottom eigenvalues of H̄
-        pos, neg = r > 0, r < 0
+        if mode == "random":                                 # BASELINE A: two random unit vectors instead of u₁/u₋₁ (keep σ₁/σ₋₁)
+            tH, bH = _lanc16_vals(Hbar_hvp(th), p, k, mlan, sd, dev, dt)
+            sig1, sigm1 = tH[0], bH[0]
+            u1 = _randvec16(p, sd ^ 0x16A1, dev, dt); u1 = u1 / u1.norm()
+            um1 = _randvec16(p, sd ^ 0x16A2, dev, dt); um1 = um1 / um1.norm()
+        else:                                                # 'eig' / 'shuffle': real top/bottom eigenpairs of H̄
+            tv, bv, tval, bval = _lanc16_ext(Hbar_hvp(th), p, k, mlan, sd, dev, dt)
+            u1, um1 = tv[0], bv[0]; sig1, sigm1 = tval[0], bval[0]
+        if mode == "shuffle":                                # BASELINE B: permute ± set membership (keep counts; each sample keeps its real r_k)
+            n_pos = int((r > 0).sum()); n_neg = int((r < 0).sum())
+            sidx = _shuffle_idx(N, sd ^ 0x16B0)
+            pos = torch.zeros(N, dtype=torch.bool, device=dev); neg = torch.zeros(N, dtype=torch.bool, device=dev)
+            if n_pos:
+                pos[torch.tensor(sidx[:n_pos], dtype=torch.long, device=dev)] = True
+            if n_neg:
+                neg[torch.tensor(sidx[n_pos:n_pos + n_neg], dtype=torch.long, device=dev)] = True
+        else:
+            pos, neg = r > 0, r < 0
         g_pos = (J[pos].t() @ r[pos]) if bool(pos.any()) else torch.zeros(p, dtype=dt, device=dev)
         g_neg = (J[neg].t() @ r[neg]) if bool(neg.any()) else torch.zeros(p, dtype=dt, device=dev)
         proj_pos = (float(g_pos @ u1) * sig1) * u1            # ⟨g₊,u₁⟩·σ₁·u₁   (×eigenvalue; sign-invariant in u₁)
@@ -157,14 +189,16 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
         beta, scale = min(((bb, ss) for bb in grid for ss in grid),
                           key=lambda bs: lossv(th + bs[1] * (bs[0] * u_pos + (1 - bs[0]) * u_neg)))
         u_sec16 = scale * (beta * u_pos + (1 - beta) * u_neg)
-        # GD step (full-loss line-search along the gradient) — guarantees the advancing loss STRICTLY decreases.
-        d_gd = (J.t() @ resid(th)) / N                        # gradient-descent direction (1/N)Jᵀr, r=y−f
-        t_gd = line_search(th, d_gd, None)
-        u_gd = t_gd * d_gd
-        if lossv(th + u_gd) < lossv(th + u_sec16):            # advance by whichever lowers the FULL loss more
-            u_beta = u_gd; tgd = t_gd                         #   → loss goes DOWN every iteration (GD when the §16 step doesn't help)
+        if use_gd:
+            # GD step (full-loss line-search along the gradient) — guarantees the advancing loss STRICTLY decreases.
+            d_gd = (J.t() @ resid(th)) / N                    # gradient-descent direction (1/N)Jᵀr, r=y−f
+            t_gd = line_search(th, d_gd, None); u_gd = t_gd * d_gd
+            if lossv(th + u_gd) < lossv(th + u_sec16):        # advance by whichever lowers the FULL loss more
+                u_beta = u_gd; tgd = t_gd                     #   → loss goes DOWN every iteration (GD when the §16 step doesn't help)
+            else:
+                u_beta = u_sec16; tgd = 0.0                   #   → the §16 curvature step is used when it beats GD (tgd=0)
         else:
-            u_beta = u_sec16; tgd = 0.0                       #   → the §16 curvature step is used when it beats GD (tgd=0)
+            u_beta = u_sec16; tgd = 0.0                       # baseline: PURE curvature step (no GD fallback) ⇒ a genuinely separate trajectory
         look = {"pos": metrics(th + u_pos, sd + 1), "neg": metrics(th + u_neg, sd + 2),
                 "mean": metrics(th + u_mean, sd + 3), "beta": metrics(th + u_beta, sd + 4)}
         yield {"i": it, "phase": "sec16", "apos": a_pos, "aneg": a_neg, "beta": beta, "scale": scale, "tgd": tgd,
@@ -172,3 +206,36 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
         th = th + u_beta                                      # ADVANCE (added); non-increasing (s=0 available)
         if lossv(th) < tol:
             break
+
+
+def sec16_chebyshev_testset(N, degree, dev, dt):
+    """Held-out chebyshev test set for §16 Panel 5: the N-1 MIDPOINTS of the training grid linspace(-1,1,N),
+    labelled by T_degree (genuinely held out from training). MIRRORS server / index.html."""
+    xt = torch.linspace(-1.0, 1.0, max(int(N), 1), dtype=dt, device=dev)
+    xm = (xt[:-1] + xt[1:]) / 2.0 if int(N) > 1 else xt.clone()
+    if int(degree) <= 0:
+        y = torch.ones_like(xm)
+    else:
+        tm2, tm1 = torch.ones_like(xm), xm.clone()
+        for _ in range(2, int(degree) + 1):
+            tm2, tm1 = tm1, 2 * xm * tm1 - tm2
+        y = tm1
+    return xm.unsqueeze(1), y.unsqueeze(1)
+
+
+def sec16_driver(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, ares=0.01,
+                 Xtest=None, Ytest=None, baselines=False):
+    """Run §16 (mode='eig') and, if `baselines`, two extra trajectories — 'random' (Baseline A) and 'shuffle'
+    (Baseline B) — in lockstep from the SAME θ₀, attaching their per-iteration metrics as rec['bA']/rec['bB']."""
+    gmain = sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, "eig", True)
+    if not baselines:
+        yield from gmain
+        return
+    # baselines: PURE curvature (use_gd=False), never early-stop (tol=-1) so all three stay the same length (lockstep)
+    gA = sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, "random", False)
+    gB = sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, "shuffle", False)
+    sub = lambda r: {kk: r[kk] for kk in ("L", "Lt", "lH", "fH", "res")}
+    for rec in gmain:
+        rec = dict(rec)
+        rec["bA"] = sub(next(gA)); rec["bB"] = sub(next(gB))
+        yield rec
