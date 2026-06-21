@@ -2248,7 +2248,7 @@ const S16_SCEN=['pos','neg','mean','beta'],S16_SLAB={pos:'pos-only',neg:'neg-onl
 function s16Build(m){
   S16_BUILT=true;
   const ln=(name,col,dash)=>({x:[],y:[],mode:'lines+markers',name,line:{color:col,width:1.7,dash:dash||'solid'},marker:{size:3,color:col}});
-  const mk=(id,tr,title,yl)=>Plotly.newPlot(id,tr,withZero(baseLayout(title,yl,false)),{responsive:true,displaylogo:false});
+  const mk=(id,tr,title,yl)=>{const L=withZero(baseLayout(title,yl,false));L.xaxis.title.text='§16 iteration';return Plotly.newPlot(id,tr,L,{responsive:true,displaylogo:false});};
   const TOPC=['#08306b','#2563eb','#80b1ff'],BOTC=['#67000d','#dc2626','#fca5a5'];
   // Panel 1 — loss under each update + coefficients
   for(const sc of S16_SCEN)mk('p_s16_L'+sc,[ln('loss','#7c3aed')],'full loss — '+S16_SLAB[sc]+' update','loss');
@@ -2264,6 +2264,7 @@ function s16Build(m){
   for(const sc of S16_SCEN)mk('p_s16_r'+sc,rtr(),'per-sample residual r=y−f — '+S16_SLAB[sc],'residual');
 }
 function s16Push(m){
+  if(m.i===0 && S16_DATA && S16_DATA.i.length){s16Reset();}   // a fresh §16 run (iteration index reset to 0) → clear stale data so the curve can't double back over a previous run
   if(!S16_BUILT){S16_K=(m.lH&&m.lH.beta?m.lH.beta.length:3);S16_N=(m.res&&m.res.beta?m.res.beta.length:0);s16Build(m);
     S16_DATA={i:[],L:{pos:[],neg:[],mean:[],beta:[]},coef:{apos:[],aneg:[],beta:[],scale:[],tgd:[]},
       lH:{},fHt:{},fHb:{},res:{}};
