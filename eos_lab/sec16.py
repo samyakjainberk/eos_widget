@@ -24,7 +24,47 @@ import math
 import torch
 
 from .models import jac_cols, jac_hvp, grad_loss, FD_EPS
-from .linalg import lanczos_extreme, lanczos_extreme_vals
+from .rng import mulberry32, u32, gauss
+
+
+# §16 uses a mulberry32+gauss Lanczos start vector — IDENTICAL across server/eos_lab/browser (the same
+# primitive that makes θ₀ cross-backend-identical). H̄'s spectrum is clustered, so at finite Lanczos m the
+# eigenpair estimate is start-vector-dependent; sharing the start makes the §16 trajectory bit-consistent
+# across all three backends (the shared torch-RNG Lanczos in linalg.py would NOT match the browser).
+def _randvec16(p, seed, dev, dt):
+    rng = mulberry32(u32(int(seed)))
+    return torch.tensor([gauss(rng) for _ in range(p)], dtype=dt, device=dev)
+
+def _lanc16_core(hvp, p, m, seed, dev, dt):
+    q = _randvec16(p, seed, dev, dt); q = q / q.norm()
+    Q = []; al = []; be = []
+    qp = torch.zeros(p, dtype=dt, device=dev); beta = torch.zeros((), dtype=dt, device=dev)
+    for _ in range(min(p, m)):
+        Q.append(q); w = hvp(q); a = (w @ q); al.append(float(a)); w = w - a * q - beta * qp
+        Qm = torch.stack(Q)
+        for _ in range(2):
+            w = w - Qm.t() @ (Qm @ w)
+        beta = w.norm(); be.append(float(beta))
+        if float(beta) < 1e-10:
+            break
+        qp = q; q = w / beta
+    k = len(Q); T = torch.zeros(k, k, dtype=torch.float64)
+    for i in range(k):
+        T[i, i] = al[i]
+    for i in range(k - 1):
+        T[i, i + 1] = be[i]; T[i + 1, i] = be[i]
+    return torch.stack(Q), T, k
+
+def _lanc16_vals(hvp, p, n, m, seed, dev, dt):                # top-n & bottom-n eigenVALUES
+    _, T, k = _lanc16_core(hvp, p, m, seed, dev, dt); mu = torch.sort(torch.linalg.eigvalsh(T), descending=True).values
+    return [float(mu[min(i, k - 1)]) for i in range(n)], [float(mu[max(0, k - 1 - i)]) for i in range(n)]
+
+def _lanc16_ext(hvp, p, n, m, seed, dev, dt):                # top-n & bottom-n (eigVEC, eigVAL) pairs
+    Qm, T, k = _lanc16_core(hvp, p, m, seed, dev, dt); mu, Sv = torch.linalg.eigh(T); idx = torch.argsort(mu, descending=True)
+    ritz = lambda c: Sv[:, c].to(dt) @ Qm
+    tv = [ritz(int(idx[min(i, k - 1)])) for i in range(n)]; bv = [ritz(int(idx[max(0, k - 1 - i)])) for i in range(n)]
+    tval = [float(mu[int(idx[min(i, k - 1)])]) for i in range(n)]; bval = [float(mu[int(idx[max(0, k - 1 - i)])]) for i in range(n)]
+    return tv, bv, tval, bval
 
 
 def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol):
@@ -56,8 +96,8 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol):
                           - grad_loss(model, loss, th - FD_EPS * v, X, Y)[0]) / (2 * FD_EPS)
 
     def metrics(th, sd):                                      # loss + residuals + lossH top-k + funcH top-k/bot-k
-        lHt, _ = lanczos_extreme_vals(lossH_hvp(th), p, k, mlan, sd, dev, dt)
-        fHt, fHb = lanczos_extreme_vals(Hbar_hvp(th), p, k, mlan, sd + 7, dev, dt)
+        lHt, _ = _lanc16_vals(lossH_hvp(th), p, k, mlan, sd, dev, dt)
+        fHt, fHb = _lanc16_vals(Hbar_hvp(th), p, k, mlan, sd + 7, dev, dt)
         return {"L": lossv(th), "res": resid(th).detach().cpu().tolist(),
                 "lH": lHt, "fHt": fHt, "fHb": fHb}
 
@@ -100,7 +140,7 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol):
         # ── §16 iteration ──
         r = resid(th)
         J = jac_cols(model, th, X)[0]                         # rows ∇f_k
-        tv, bv, tval, bval = lanczos_extreme(Hbar_hvp(th), p, k, mlan, sd, dev, dt)
+        tv, bv, tval, bval = _lanc16_ext(Hbar_hvp(th), p, k, mlan, sd, dev, dt)
         u1, um1 = tv[0], bv[0]
         sig1, sigm1 = tval[0], bval[0]                        # top/bottom eigenvalues of H̄
         pos, neg = r > 0, r < 0

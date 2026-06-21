@@ -519,9 +519,12 @@ def _sec15_panel34(hvp_at, th_tm2, Jt, Jtm1, Jtm2, rtm1, rtm2, u1, A, B, rec, lr
 # MIRRORS eos_lab.sec16.sec16_run / index.html sec16Run. Runs in float64 (no catastrophic cancellation, but float64
 # keeps the line-search/eig trajectory identical to the float64 eos_lab/browser backends). The server's shared Lanczos
 # is DTYPE(float32)-typed, so §16 uses its own tiny float64 Lanczos below.
+def _randvec16(p, seed):   # mulberry32+gauss start vector — IDENTICAL across server/eos_lab/browser (cross-backend §16 sync;
+    rng = mulberry32(u32(int(seed)))                            # H̄'s clustered spectrum makes the eigenpair start-dependent at finite m)
+    return torch.tensor([gauss(rng) for _ in range(p)], dtype=torch.float64, device=_dev())
+
 def _lanczos16_core(hvp, p, m, seed):
-    g = torch.Generator(); g.manual_seed(int(seed) & 0x7FFFFFFF)
-    q = torch.randn(p, generator=g, dtype=torch.float64).to(_dev()); q = q / q.norm()
+    q = _randvec16(p, seed); q = q / q.norm()
     Q = []; al = []; be = []
     qp = torch.zeros(p, dtype=torch.float64, device=_dev()); beta = torch.zeros((), dtype=torch.float64, device=_dev())
     for _ in range(min(p, m)):
