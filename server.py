@@ -515,6 +515,108 @@ def _sec15_panel34(hvp_at, th_tm2, Jt, Jtm1, Jtm2, rtm1, rtm2, u1, A, B, rec, lr
             "Bptop": Bptop, "Bpbot": Bpbot, "Bpstat": Bpstat, "Bpeig": Bpeig}
 
 
+# ===================== §16: curvature-aligned per-residual-sign optimizer (standalone) =====================
+# MIRRORS eos_lab.sec16.sec16_run / index.html sec16Run. Runs in float64 (no catastrophic cancellation, but float64
+# keeps the line-search/eig trajectory identical to the float64 eos_lab/browser backends). The server's shared Lanczos
+# is DTYPE(float32)-typed, so §16 uses its own tiny float64 Lanczos below.
+def _lanczos16_core(hvp, p, m, seed):
+    g = torch.Generator(); g.manual_seed(int(seed) & 0x7FFFFFFF)
+    q = torch.randn(p, generator=g, dtype=torch.float64).to(_dev()); q = q / q.norm()
+    Q = []; al = []; be = []
+    qp = torch.zeros(p, dtype=torch.float64, device=_dev()); beta = torch.zeros((), dtype=torch.float64, device=_dev())
+    for _ in range(min(p, m)):
+        Q.append(q); w = hvp(q); a = (w @ q); al.append(float(a)); w = w - a * q - beta * qp
+        Qm = torch.stack(Q)
+        for _ in range(2):
+            w = w - Qm.t() @ (Qm @ w)
+        beta = w.norm(); be.append(float(beta))
+        if float(beta) < 1e-10:
+            break
+        qp = q; q = w / beta
+    k = len(Q); T = torch.zeros(k, k, dtype=torch.float64)
+    for i in range(k):
+        T[i, i] = al[i]
+    for i in range(k - 1):
+        T[i, i + 1] = be[i]; T[i + 1, i] = be[i]
+    return torch.stack(Q), T, k
+
+def _lanc16_vals(hvp, p, n, m, seed):                # top-n & bottom-n eigenVALUES (float64)
+    _, T, k = _lanczos16_core(hvp, p, m, seed); mu = torch.sort(torch.linalg.eigvalsh(T), descending=True).values
+    return [float(mu[min(i, k - 1)]) for i in range(n)], [float(mu[max(0, k - 1 - i)]) for i in range(n)]
+
+def _lanc16_ext(hvp, p, n, m, seed):                 # top-n & bottom-n (eigVEC, eigVAL) pairs (float64)
+    Qm, T, k = _lanczos16_core(hvp, p, m, seed); mu, Sv = torch.linalg.eigh(T); idx = torch.argsort(mu, descending=True)
+    ritz = lambda col: Sv[:, col].to(torch.float64) @ Qm
+    tv = [ritz(int(idx[min(i, k - 1)])) for i in range(n)]; bv = [ritz(int(idx[max(0, k - 1 - i)])) for i in range(n)]
+    tval = [float(mu[int(idx[min(i, k - 1)])]) for i in range(n)]; bval = [float(mu[int(idx[max(0, k - 1 - i)])]) for i in range(n)]
+    return tv, bv, tval, bval
+
+def _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol):
+    p = th0.numel(); N = X.shape[0]; Yf = Y.reshape(-1)
+    k = max(1, int(neig)); grid = [i / 10.0 for i in range(11)]
+    fwd = lambda th: _TL.model.forward(th, X).reshape(-1)
+    resid = lambda th: Yf - fwd(th)                                    # y − f(x)
+    def lossv(th, mask=None):
+        out = fwd(th)
+        if mask is None:
+            return float(_TL.loss.value(out, Yf, out.numel()))
+        nn = int(mask.sum()); return float(_TL.loss.value(out[mask], Yf[mask], max(1, nn))) if nn else 0.0
+    Hbar = lambda th: (lambda v: jac_hvp(th, X, v).mean(0))            # (1/N)Σ ∇²f_k·v
+    lossH = lambda th: (lambda v: (gradL(th + EPS * v, X, Y)[0] - gradL(th - EPS * v, X, Y)[0]) / (2 * EPS))
+    def metrics(th, sd):
+        lHt, _ = _lanc16_vals(lossH(th), p, k, mlan, sd)
+        fHt, fHb = _lanc16_vals(Hbar(th), p, k, mlan, sd + 7)
+        return {"L": lossv(th), "res": resid(th).detach().cpu().tolist(), "lH": lHt, "fHt": fHt, "fHb": fHb}
+    def pack(real, look=None):
+        keys = ("pos", "neg", "mean", "beta"); d = look or {}
+        rec = {"L": {kk: (d[kk]["L"] if kk in d else None) for kk in keys},
+               "lH": {kk: (d[kk]["lH"] if kk in d else None) for kk in keys},
+               "fH": {kk: ({"top": d[kk]["fHt"], "bot": d[kk]["fHb"]} if kk in d else None) for kk in keys},
+               "res": {kk: (d[kk]["res"] if kk in d else None) for kk in keys}}
+        rec["L"]["beta"] = real["L"]; rec["lH"]["beta"] = real["lH"]
+        rec["fH"]["beta"] = {"top": real["fHt"], "bot": real["fHb"]}; rec["res"]["beta"] = real["res"]
+        return rec
+    def line_search(th, direction, mask, lo=0.0, hi=10.0, ls_tol=0.01):
+        gr = (math.sqrt(5) - 1) / 2; a, b = lo, hi
+        c = b - gr * (b - a); dd = a + gr * (b - a)
+        fc = lossv(th + c * direction, mask); fdd = lossv(th + dd * direction, mask)
+        while (b - a) > ls_tol:
+            if fc < fdd:
+                b, dd, fdd = dd, c, fc; c = b - gr * (b - a); fc = lossv(th + c * direction, mask)
+            else:
+                a, c, fc = c, dd, fdd; dd = a + gr * (b - a); fdd = lossv(th + dd * direction, mask)
+        al = round((a + b) / 2.0, 2)
+        return al if lossv(th + al * direction, mask) <= lossv(th, mask) else 0.0
+    th = th0.detach().clone()
+    for it in range(int(warmup) + int(iters)):
+        sd = (int(seed) + 1000 * it) & 0x7FFFFFFF
+        if it < warmup:                                                # standard GD warmup: θ ← θ + (lr/N)·Jᵀr (r=y−f; ADDED)
+            real = metrics(th, sd)
+            yield {"i": it, "phase": "gd", "apos": None, "aneg": None, "beta": None, "scale": None,
+                   "loss": real["L"], **pack(real)}
+            th = th + (lr / N) * (jac_cols(th, X)[0].t() @ resid(th)); continue
+        r = resid(th); J = jac_cols(th, X)[0]
+        tv, bv, tval, bval = _lanc16_ext(Hbar(th), p, k, mlan, sd)
+        u1, um1 = tv[0], bv[0]; sig1, sigm1 = tval[0], bval[0]
+        pos, neg = r > 0, r < 0
+        g_pos = (J[pos].t() @ r[pos]) if bool(pos.any()) else torch.zeros(p, dtype=th.dtype, device=th.device)
+        g_neg = (J[neg].t() @ r[neg]) if bool(neg.any()) else torch.zeros(p, dtype=th.dtype, device=th.device)
+        proj_pos = (float(g_pos @ u1) * sig1) * u1                     # ⟨g₊,u₁⟩·σ₁·u₁
+        proj_neg = (float(g_neg @ um1) * sigm1) * um1                  # ⟨g₋,u₋₁⟩·σ₋₁·u₋₁
+        a_pos = line_search(th, proj_pos, pos); a_neg = line_search(th, proj_neg, neg)
+        u_pos, u_neg = a_pos * proj_pos, a_neg * proj_neg; u_mean = 0.5 * (u_pos + u_neg)
+        beta, scale = min(((bb, ss) for bb in grid for ss in grid),
+                          key=lambda bs: lossv(th + bs[1] * (bs[0] * u_pos + (1 - bs[0]) * u_neg)))
+        u_beta = scale * (beta * u_pos + (1 - beta) * u_neg)
+        look = {"pos": metrics(th + u_pos, sd + 1), "neg": metrics(th + u_neg, sd + 2),
+                "mean": metrics(th + u_mean, sd + 3), "beta": metrics(th + u_beta, sd + 4)}
+        yield {"i": it, "phase": "sec16", "apos": a_pos, "aneg": a_neg, "beta": beta, "scale": scale,
+               "loss": look["beta"]["L"], **pack(look["beta"], look)}
+        th = th + u_beta                                               # ADVANCE (added); non-increasing (s=0 available)
+        if lossv(th) < tol:
+            break
+
+
 def _opt_dir(model, g, opt):
     """Update DIRECTION from the raw gradient g (NO momentum). The actual θ step is θ ← θ − lr·dir.
       gd       → g                       (plain full-batch gradient descent)
@@ -1926,6 +2028,16 @@ def run_stream(P):
               "cn": max(1, min(nProbe, 4)), "multi": multi, "multi_ok": multi_ok}
     cubSt = cubic_init_state()
 
+    # ── §16: standalone curvature-aligned optimizer (own iteration axis i). Runs from θ₀ in float64 (MLP+MSE+small),
+    #    streams g16 records, then the normal GD loop below proceeds (for the other sections). Independent of the GD θ. ──
+    if P.get("s24", 0) and isinstance(_TL.model, MlpModel) and _TL.loss.name == "mse" and p <= 8000 and Nfull <= 64:
+        th16 = th.double(); X16 = Xpool.double(); Y16 = Ypool.double()
+        for rec16 in _sec16_run(th16, X16, Y16, lr, P.get("s24warm", 5), P.get("s24iter", 40),
+                                n, min(p, 24), P.get("seed", 0), 1e-12):
+            if mytok != RUN_TOKEN.get(_devkey, mytok):
+                return
+            yield {"type": "g16", **rec16}
+
     for t in range(steps + 1):
         if mytok != RUN_TOKEN.get(_devkey, mytok):
             return            # a newer /run started → drop this stale stream so it stops using the GPU
@@ -3090,6 +3202,9 @@ def _parse_params(q):
         "s21": g("s21", "0") == "1",     # §13: residual-weighted curvature G1/G2/G3 vs exact ref (own toggle; multi-sample, small N; OFF by default)
         "s22": g("s22", "0") == "1",     # §12b: per-sample projection panels (s19=§12a angles+diag-align; both share the §12 Lanczos)
         "s23": g("s23", "0") == "1",     # §15: 2nd-difference decomposition of ‖J‖²_F & σ₁ (own toggle; multi-sample, small N; OFF by default)
+        "s24": g("s24", "0") == "1",     # §16: curvature-aligned per-residual-sign optimizer (standalone; own iteration axis; OFF by default)
+        "s24warm": max(0, fi("s24warm", 5)),    # §16: standard-GD warmup steps before the §16 optimization begins
+        "s24iter": max(1, fi("s24iter", 40)),   # §16: number of §16 iterations after the warmup
         "grid3dcap": max(1, fi("grid3dcap", 500)),
         "sec12ncap": max(1, fi("sec12ncap", 500)),
         "gs": g("gson", "1") == "1",
