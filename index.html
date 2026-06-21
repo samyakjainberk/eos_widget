@@ -1972,10 +1972,10 @@ function realEigParts(Aflat,n){
 }
 // the divergence divides by the 2nd difference D²/Dσ², which can hit 0 at an inflection of ‖J‖²/σ₁.
 // Regularize the DENOMINATOR by a tiny perturbation (~roundoff·scale) so it's defined at D²=0 — NOT clipping; the value stays unbounded.
-// divergence divides by D²/Dσ², which LEGITIMATELY crosses 0 at every ‖J‖²/σ₁ inflection during EoS ⇒ the %-metric blows up (0/0).
-// FLOOR |den| at 5% of the term-magnitude scale (which does NOT vanish at an inflection — the terms cancel, not individually vanish).
-// Identical to num/den when |den| is large; only bounds the narrow band around den≈0. NOT clipping the value — flooring the denominator.
-function _divreg(num,den,scale){let floor=0.05*Math.abs(scale); if(floor<=0)floor=1e-12; if(Math.abs(den)<floor)den=(den!==0?(den>0?floor:-floor):floor); return num/den*100;}
+// num = D² − 2Σ (residual); `scale` = term-magnitude scale 2(Σ|term|); `den` (=D²) unused. Normalize the residual by `scale`,
+// NOT by D². D²/Dσ² LEGITIMATELY crosses 0 at every ‖J‖²/σ₁ inflection during EoS, so num/D² spikes there (0/0) even though the
+// theory holds. `scale` doesn't vanish at an inflection (the terms cancel — I≥0 ⇒ II−III=−I≠0), so num/scale is SMOOTH and →0 when theory holds.
+function _divreg(num,den,scale){return scale>0?num/scale*100:0;}
 function sec15Stats(hvp1,hvp2,Jt,Jtm1,Jtm2,rtm1,rtm2,lr,N,p){
   const c=lr/N, c2=c*c, D=(a,b)=>s15Dotp(a,b,p), WS=(v,w)=>s15Wsum(v,w,p);
   const g1=WS(Jtm1,rtm1), g2=WS(Jtm2,rtm2);

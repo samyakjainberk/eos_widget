@@ -562,15 +562,12 @@ def principal_angles(A, B):
 #   III= c²·Σ_k ∇f_{t,k}ᵀ Q_{t−1,k}·(J_{t−1} J_{t−2}ᵀ J_{t−2} r_{t−2})
 #   A  = c²·(J_{t−1}ᵀ S_{t−1} J_{t−1})(I − c·J_{t−2}ᵀJ_{t−2})       (N×N, real eigenvalues: PSD·symmetric)
 #   IV/V/VI/B: the σ₁ analogs — S→(Q̄ᵘ)² with Q̄ᵘ=Σ_k u_{t,1,k}Q_{t−1,k}, and the trace-tie → u_{t,1} projection.
-_DREG = 1e-12     # degenerate fallback (truly frozen ⇒ all terms 0 ⇒ scale 0): a tiny absolute floor so we never divide by 0.
-_DFLOOR = 0.05    # the divergence divides by D² (resp Dσ²), which LEGITIMATELY crosses 0 at every ‖J‖²/σ₁ inflection during EoS
-def _divreg(num, den, scale):   # ⇒ the %-metric blows up there (0/0). FLOOR |den| at 5% of the term-magnitude scale (which does NOT
-    floor = _DFLOOR * abs(scale)                          # vanish at an inflection — the terms cancel, they don't individually vanish).
-    if floor <= 0.0:                                      # Identical to num/den when |den| is large; only bounds the narrow band around
-        floor = _DREG                                     # den≈0. NOT clipping the value — flooring the denominator (per user guidance).
-    if abs(den) < floor:
-        den = math.copysign(floor, den) if den != 0.0 else floor
-    return num / den * 100.0
+def _divreg(num, den, scale):   # num = D² − 2Σ (the residual); `scale` = the term-magnitude scale 2(Σ|term|); `den` (=D²) unused.
+    # The %-divergence normalizes the residual by `scale` rather than by D². D² (resp Dσ²) LEGITIMATELY crosses 0 at every
+    # ‖J‖²/σ₁ inflection during EoS, so num/D² blows up there (0/0 spike) even though the theory is fine. `scale` does NOT vanish
+    # at an inflection (the terms CANCEL there — I≥0 ⇒ II−III=−I≠0 — they don't individually vanish), so num/scale is SMOOTH
+    # through the crossing (no spike) and →0 when theory holds. Reads as "error relative to the total curvature activity".
+    return num / scale * 100.0 if scale > 0.0 else 0.0    # scale=0 ⇒ truly frozen (no dynamics) ⇒ no divergence
 def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
     dt, dev = Jt.dtype, Jt.device
     c = lr / N

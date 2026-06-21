@@ -404,15 +404,11 @@ def _sec14_payload(prev, cur, lr, grid3dcap, rhist):
     return out
 
 
-_DREG = 1e-12     # degenerate fallback (truly frozen ⇒ all terms 0 ⇒ scale 0): a tiny absolute floor so we never divide by 0.
-_DFLOOR = 0.05    # divergence divides by D²/Dσ², which LEGITIMATELY crosses 0 at every ‖J‖²/σ₁ inflection during EoS ⇒ the %-metric
-def _divreg(num, den, scale):   # blows up there (0/0). FLOOR |den| at 5% of the term-magnitude scale (which doesn't vanish at an inflection —
-    floor = _DFLOOR * abs(scale)                          # the terms cancel, not individually vanish). Identical to num/den when |den| large;
-    if floor <= 0.0:                                      # only bounds the narrow band around den≈0. NOT clipping — flooring the denominator.
-        floor = _DREG
-    if abs(den) < floor:
-        den = math.copysign(floor, den) if den != 0.0 else floor
-    return num / den * 100.0
+def _divreg(num, den, scale):   # num = D² − 2Σ (residual); `scale` = term-magnitude scale 2(Σ|term|); `den` (=D²) unused.
+    # Normalize the residual by `scale`, NOT by D². D²/Dσ² LEGITIMATELY crosses 0 at every ‖J‖²/σ₁ inflection during EoS, so
+    # num/D² spikes there (0/0) even though the theory holds. `scale` doesn't vanish at an inflection (the terms cancel — I≥0 ⇒
+    # II−III=−I≠0 — they don't individually vanish), so num/scale is SMOOTH through the crossing and →0 when theory holds.
+    return num / scale * 100.0 if scale > 0.0 else 0.0    # scale=0 ⇒ truly frozen ⇒ no divergence
 
 
 def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
