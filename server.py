@@ -404,11 +404,9 @@ def _sec14_payload(prev, cur, lr, grid3dcap, rhist):
     return out
 
 
-def _divreg(num, den, scale):   # num = D² − 2Σ (residual); `scale` = term-magnitude scale 2(Σ|term|); `den` (=D²) unused.
-    # Normalize the residual by `scale`, NOT by D². D²/Dσ² LEGITIMATELY crosses 0 at every ‖J‖²/σ₁ inflection during EoS, so
-    # num/D² spikes there (0/0) even though the theory holds. `scale` doesn't vanish at an inflection (the terms cancel — I≥0 ⇒
-    # II−III=−I≠0 — they don't individually vanish), so num/scale is SMOOTH through the crossing and →0 when theory holds.
-    return num / scale * 100.0 if scale > 0.0 else 0.0    # scale=0 ⇒ truly frozen ⇒ no divergence
+_DREG = 1e-12   # divergence = (D² − 2Σ)/D² × 100 — the TRUE relative error of the master eq D²=2(I+II−III), exactly as defined.
+def _divreg(num, den, scale):   # The only regularization is a tiny roundoff·scale term so it stays FINITE if D² is exactly 0; the
+    return num / (den + math.copysign(_DREG * scale, den)) * 100.0   # large values near ‖J‖²/σ₁ inflections (D²→0) are REAL relative error, not altered.
 
 
 def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
@@ -455,7 +453,7 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
 
     nJt = float((Jt * Jt).sum()); nJtm1 = float((Jtm1 * Jtm1).sum()); nJtm2 = float((Jtm2 * Jtm2).sum())
     D2 = nJt + nJtm2 - 2.0 * nJtm1
-    divP = _divreg(-2.0 * (I + II - III) + D2, D2, 2.0 * (abs(I) + abs(II) + abs(III)))  # 2×: terms are ½∂²‖J‖²; D² is the full discrete ∂² ⇒ predict D²≈2(I+II−III); →0 when theory holds. Floor den at 5% of 2(|I|+|II|+|III|).
+    divP = _divreg(-2.0 * (I + II - III) + D2, D2, nJt + nJtm1 + nJtm2)  # 2×: terms are ½∂²‖J‖²; D² is the full discrete ∂² ⇒ predict D²≈2(I+II−III); →0 when theory holds
 
     Kt = Jt @ Jt.t()
     evt = torch.linalg.eigh(Kt)
@@ -474,7 +472,7 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N):
     Bm = Bm + c2 * torch.einsum('a,ija->ji', u1 @ hvp1(b), M2)
     Btop, Bbot, Bstat, Beig = estats(Bm)
     Dsig2 = sig_t + sig_tm2 - 2.0 * sig_tm1
-    divS = _divreg(-2.0 * (IV + V - VI) + Dsig2, Dsig2, 2.0 * (abs(IV) + abs(V) + abs(VI)))  # 2×: terms are ½∂²σ₁; Dσ² is the full discrete ∂² ⇒ predict Dσ²≈2(IV+V−VI); →0 when theory holds. Floor den at 5% of 2(|IV|+|V|+|VI|).
+    divS = _divreg(-2.0 * (IV + V - VI) + Dsig2, Dsig2, sig_t + sig_tm1 + sig_tm2)  # 2×: terms are ½∂²σ₁; Dσ² is the full discrete ∂² ⇒ predict Dσ²≈2(IV+V−VI); →0 when theory holds
 
     rec = {"I": I, "II": II, "III": III, "divP": divP, "Atop": Atop, "Abot": Abot, "Astat": Astat,
            "IV": IV, "V": V, "VI": VI, "divS": divS, "Btop": Btop, "Bbot": Bbot, "Bstat": Bstat,
@@ -511,8 +509,8 @@ def _sec15_panel34(hvp_at, th_tm2, Jt, Jtm1, Jtm2, rtm1, rtm2, u1, A, B, rec, lr
     D2 = rec["D2"]; Dsig2 = rec["Dsig2"]
     sJ = rec["I"] + rec["II"] - rec["III"] + VII; sS = rec["IV"] + rec["V"] - rec["VI"] + VIII
     return {"VII": VII, "VIII": VIII,
-            "divP3": _divreg(-2.0 * sJ + D2, D2, 2.0 * (abs(rec["I"]) + abs(rec["II"]) + abs(rec["III"]) + abs(VII))),    # floor den at 5% of 2(|I|+|II|+|III|+|VII|)
-            "divS4": _divreg(-2.0 * sS + Dsig2, Dsig2, 2.0 * (abs(rec["IV"]) + abs(rec["V"]) + abs(rec["VI"]) + abs(VIII))),  # floor den at 5% of 2(|IV|+|V|+|VI|+|VIII|)
+            "divP3": _divreg(-2.0 * sJ + D2, D2, rec["Js"]),
+            "divS4": _divreg(-2.0 * sS + Dsig2, Dsig2, rec["Ss"]),
             "Aptop": Aptop, "Apbot": Apbot, "Apstat": Apstat, "Apeig": Apeig,
             "Bptop": Bptop, "Bpbot": Bpbot, "Bpstat": Bpstat, "Bpeig": Bpeig}
 
