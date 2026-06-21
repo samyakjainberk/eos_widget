@@ -2030,7 +2030,7 @@ def run_stream(P):
 
     # ── §16: standalone curvature-aligned optimizer (own iteration axis i). Runs from θ₀ in float64 (MLP+MSE+small),
     #    streams g16 records, then the normal GD loop below proceeds (for the other sections). Independent of the GD θ. ──
-    if P.get("s24", 0) and isinstance(_TL.model, MlpModel) and _TL.loss.name == "mse" and p <= 8000 and Nfull <= 64:
+    if P.get("s24", 0) and isinstance(_TL.model, MlpModel) and _TL.loss.name == "mse" and outD == 1 and p <= 8000 and Nfull <= 64:
         th16 = th.double(); X16 = Xpool.double(); Y16 = Ypool.double()
         for rec16 in _sec16_run(th16, X16, Y16, lr, P.get("s24warm", 5), P.get("s24iter", 40),
                                 n, min(p, 24), P.get("seed", 0), 1e-12):

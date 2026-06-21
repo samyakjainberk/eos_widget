@@ -170,6 +170,8 @@
       <div class="ctl"><label title="§10 cubic-approximation window: every N steps freeze θ₀, J₀, Q₀ and the 3rd-derivative tensor T, then propagate J & Q over the window to predict the NTK-σ₁ change. Smaller = more frequent re-anchoring and cheaper (cost is O(window²) HVPs).">cubic window</label><input id="cubicapprox" type="number" value="10" min="2" max="50" step="1"></div>
       <div class="ctl"><label title="§11 3D-grid cap: skip the N×N×N Hessian–NTK grids when N·d_out exceeds this. The grid is N³ points and costs N Hessian-vector products, so it is feasible only for small N.">3D-grid cap (N·d_out)</label><input id="grid3dcap" type="number" value="500" min="1" max="600" step="1"></div>
       <div class="ctl"><label title="§15 divergence ε: the divergence% = (D²−2Σ)/(D²+sign(D²)·ε·2Σ|term|). ε→0 gives the exact (D²−2Σ)/D² (which spikes to ±∞ at every ‖J‖²/σ₁ inflection where D²→0); larger ε softens those 0/0 spikes (ε≳1 ≈ error relative to the curvature activity). Default 0.3.">§15 divergence ε</label><input id="divreg" type="number" value="0.3" min="0" max="5" step="0.05"></div>
+      <div class="ctl"><label title="§16: number of standard gradient-descent warmup steps from θ₀ before the §16 curvature-aligned optimization begins.">§16 GD warmup</label><input id="s24warm" type="number" value="5" min="0" max="500" step="1"></div>
+      <div class="ctl"><label title="§16: number of §16 optimizer iterations after the GD warmup.">§16 iterations</label><input id="s24iter" type="number" value="40" min="1" max="500" step="1"></div>
       <div class="ctl"><label title="§12 sample cap: skip §12 when the number of samples N exceeds this. §12 extracts each sample's top-/bottom-15 Hessian eigenpairs MATRIX-FREE via Lanczos (no p×p matrix is formed), so it scales to large models like §1–§3; the grid is N×N so only N is capped.">§12 N-cap</label><input id="sec12ncap" type="number" value="500" min="1" max="600" step="1"></div>
       <div class="ctl"><label>SLQ probes</label><input id="slqprobes" type="number" value="4" min="1" max="12" step="1"></div>
       <div class="ctl"><label>subspace energy %</label><input id="energyp" type="number" value="99" min="50" max="100" step="1"></div>
@@ -222,6 +224,7 @@
   <label title="§13 — residual-weighted curvature: rank-k₀ approximations G1/G2/G3 of the exact reference J_iᵀQ_jJ_k·r_k, from the per-sample Lanczos top-k₀⊕bottom-k₀ eigenpairs, vs the exact reference (N extra HVPs). Multi-sample only, small N (N³); OFF by default. Its OWN toggle — independent of §12; turning it on triggers the shared per-sample Lanczos by itself."><input type="checkbox" id="en21"> 13 · residual-weighted curvature G1/G2/G3</label>
   <label title="§14 — per-triplet (i,j,k) decomposition of Tr(ΔNTK)=Σ a·b·c·d·e over rank-2y eigenpairs of the per-sample function Hessians. 10 panels of N×N×N cubes (sorted-term aggregates, sub-products, eq-③ history ratio). Shares §12's matrix-free Lanczos eigenpairs; multi-sample only, small N (N³ cubes); OFF by default."><input type="checkbox" id="en20"> 14 · Tr(ΔNTK) triplet decomposition</label>
   <label title="§15 — 2nd-difference decomposition of ‖J‖²_F (=tr NTK) and σ₁ (top NTK eigenvalue) into theory terms I/II/III (resp. IV/V/VI) + the matrices A (resp. B), over GD with step (η/N)Σr_i∇f_i. Holds 3 consecutive GD steps (run with eigevery=1); needs the per-sample function-Hessian HVPs at t−1 and t−2. Single OR multi-sample, small N; OFF by default."><input type="checkbox" id="en23"> 15 · 2nd-difference decomposition (‖J‖² &amp; σ₁)</label>
+  <label title="§16 — standalone curvature-aligned per-residual-sign optimizer. From θ₀: `GD warmup` standard-GD steps, then per iteration form the sample-averaged function Hessian H̄, push positive-residual samples along its top eigenvector and negative-residual samples along its bottom eigenvector (each projection ×its eigenvalue), line-search α_pos/α_neg on each set, then a (β,s) search for the advancing step (loss monotone non-increasing). 4 panels: loss / loss-Hessian eig / function-Hessian eig / per-sample residuals, each under the pos/neg/mean/best-(β,s) update. MLP+MSE, small N & p; OFF by default."><input type="checkbox" id="en24"> 16 · curvature-aligned per-residual-sign optimizer</label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -427,6 +430,23 @@
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 5 — per-sample norm evolution (mean ± std across samples)</h3>
 <p class="cap">Evolution of four per-sample quantities, averaged over the $N$ samples with the <b>±1 std shown as a shaded cloud</b> around the mean. <b>‖gradient‖</b> $=\lVert r_k\nabla f_k\rVert=|r_k|\,\lVert\nabla f_k\rVert$ (per-sample loss-gradient term) · <b>‖Jacobian‖</b> $=\lVert\nabla f_k\rVert$ (function-gradient / row of $J$) · <b>‖function Hessian‖</b> $=\lVert Q_k\rVert_F=\lVert\nabla^2 f_k\rVert_F$ (Frobenius, estimated by Hutchinson: $\mathbb{E}_v\lVert Q_k v\rVert^2=\mathrm{tr}(Q_k^2)$) · <b>‖residual‖</b> $=|r_k|$. All at the current step $t$ (no 3-tick buffer needed, so this panel fills from the start).</p>
 <div class="plotrow row4"><div id="p_s15_ng" class="plot" style="height:290px"></div><div id="p_s15_nj" class="plot" style="height:290px"></div><div id="p_s15_nh" class="plot" style="height:290px"></div><div id="p_s15_nr" class="plot" style="height:290px"></div></div>
+</div>
+
+<div id="sec_s16" style="display:none">
+<h2>16 · Curvature-aligned per-residual-sign optimizer (standalone)</h2>
+<p class="cap">A <b>standalone</b> optimizer (its own iteration axis $i$, independent of the GD run above). From $\theta_0$ it runs <b>warmup</b> standard-GD steps ($\theta\leftarrow\theta+\tfrac{\eta}{N}\sum_k r_k\nabla f_k$, residual $r=y-f(x)$, update <b>added</b>), then switches to the §16 update: form the sample-averaged function Hessian $\bar H=\tfrac1N\sum_k\nabla^2 f_k$ and take its top $(\sigma_1,u_1)$ and bottom $(\sigma_{-1},u_{-1})$ eigenpairs (Lanczos). For the <b>positive-residual</b> samples $g_+=\sum_{r_k>0}r_k\nabla f_k$, $\mathrm{proj}_{u_1}=\langle g_+,u_1\rangle\,\sigma_1\,u_1$; for the <b>negative-residual</b> samples $g_-=\sum_{r_k<0}r_k\nabla f_k$, $\mathrm{proj}_{u_{-1}}=\langle g_-,u_{-1}\rangle\,\sigma_{-1}\,u_{-1}$ (each scaled by its eigenvalue). $\alpha_{\rm pos},\alpha_{\rm neg}\in[0,10]$ are line-searched to minimize the <i>positive/negative set</i> loss; the advancing step is searched over $\beta\in[0,1]$ (mix) $\times\,s\in[0,1]$ (scale) to minimize the <i>full</i> loss at $\theta+s(\beta\,u_{\rm pos}+(1-\beta)u_{\rm neg})$ ($s{=}0$ is a no-op, so the real path's loss is <b>monotone non-increasing</b>); $\theta\leftarrow\theta+u_\beta$. Each panel shows the four update look-aheads <b>pos / neg / mean / best-$(\beta,s)$</b> (the last is the real path). MLP + MSE, small $N$ &amp; $p$; OFF by default.</p>
+<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — full-loss evolution under each update  +  $\alpha_{\rm pos},\alpha_{\rm neg},\beta,s$</h3>
+<p class="cap">Full training loss at each look-ahead point $\theta+u_{\bullet}$ (Plots 1–4: pos-only, neg-only, mean, best-$(\beta,s)$ = the advancing path), then the chosen coefficients vs iteration (Plot 5). During the GD-warmup phase only the real (Plot 4) curve has data.</p>
+<div class="plotrow row5"><div id="p_s16_Lpos" class="plot" style="height:290px"></div><div id="p_s16_Lneg" class="plot" style="height:290px"></div><div id="p_s16_Lmean" class="plot" style="height:290px"></div><div id="p_s16_Lbeta" class="plot" style="height:290px"></div><div id="p_s16_coef" class="plot" style="height:290px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — top-$k$ eigenvalues of the loss Hessian $\nabla^2 L$ at each look-ahead</h3>
+<p class="cap">Same four update look-aheads, but the top-$k$ ($k$ = neig) eigenvalues of the loss Hessian (Lanczos) at $\theta+u_{\bullet}$.</p>
+<div class="plotrow row4"><div id="p_s16_lHpos" class="plot" style="height:290px"></div><div id="p_s16_lHneg" class="plot" style="height:290px"></div><div id="p_s16_lHmean" class="plot" style="height:290px"></div><div id="p_s16_lHbeta" class="plot" style="height:290px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — top-$k$ &amp; bottom-$k$ eigenvalues of the function Hessian $\bar H$ at each look-ahead</h3>
+<p class="cap">Same four update look-aheads, but the top-$k$ (blue) and bottom-$k$ (red) eigenvalues of the sample-averaged function Hessian $\bar H$ (Lanczos) at $\theta+u_{\bullet}$.</p>
+<div class="plotrow row4"><div id="p_s16_fHpos" class="plot" style="height:290px"></div><div id="p_s16_fHneg" class="plot" style="height:290px"></div><div id="p_s16_fHmean" class="plot" style="height:290px"></div><div id="p_s16_fHbeta" class="plot" style="height:290px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — per-sample residuals $r_k=y_k-f_k$ at each look-ahead</h3>
+<p class="cap">Same four update look-aheads, but every sample's residual (one line per sample) at $\theta+u_{\bullet}$.</p>
+<div class="plotrow row4"><div id="p_s16_rpos" class="plot" style="height:290px"></div><div id="p_s16_rneg" class="plot" style="height:290px"></div><div id="p_s16_rmean" class="plot" style="height:290px"></div><div id="p_s16_rbeta" class="plot" style="height:290px"></div></div>
 </div>
 
 <div id="sec_2">
@@ -2173,6 +2193,94 @@ function s15p34Push(m){
   if(m.Bpeig&&m.Bpeig.length){const d=s15Dens(m.Bpeig);Plotly.restyle('p_s15_Bpdens',{x:[d.x],y:[d.y]});}
 }
 function s15p34Reset(){S15P34_DATA=null;S15P34_BUILT=false;for(const id of S15P34_IDS){try{Plotly.purge(id);}catch(e){}}}
+
+// ═══════════════ §16: curvature-aligned per-residual-sign optimizer (standalone) ═══════════════
+// MIRRORS eos_lab.sec16.sec16_run / server._sec16_run (float64). Computes the whole standalone trajectory
+// from θ₀ and calls push(record) per iteration. r = y−f(x); the weight update is ADDED.
+function _addS(th,dir,c){const n=th.length,o=new Float64Array(n);for(let i=0;i<n;i++)o[i]=th[i]+c*dir[i];return o;}
+function _addV(th,vec){const n=th.length,o=new Float64Array(n);for(let i=0;i<n;i++)o[i]=th[i]+vec[i];return o;}
+function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,push){
+  const k=Math.max(1,neig|0),eps=1e-3,grid=[];for(let i=0;i<=10;i++)grid.push(i/10);
+  const Yf=Y;
+  const out_=th=>forward(th,spec,X,N,inDim).out;
+  const resid=th=>{const o=out_(th),r=new Float64Array(N);for(let i=0;i<N;i++)r[i]=Yf[i]-o[i];return r;};
+  const lossM=(th,mask)=>{const o=out_(th);if(!mask)return lossOf(o,Yf,o.length);let s=0,nn=0;for(let i=0;i<o.length;i++)if(mask[i]){s+=(o[i]-Yf[i])**2;nn++;}return nn?0.5*s/nn:0;};
+  const Hbar=th=>(v=>{const Q=jacHVP(th,spec,X,N,inDim,p,v,eps),o=new Float64Array(p),inv=1/Q.length;for(let a=0;a<Q.length;a++)for(let q=0;q<p;q++)o[q]+=Q[a][q];for(let q=0;q<p;q++)o[q]*=inv;return o;});
+  const lossH=th=>(v=>{const gp=gradL(_addS(th,v,eps),spec,X,Y,N,inDim,p).grad,gm=gradL(_addS(th,v,-eps),spec,X,Y,N,inDim,p).grad,o=new Float64Array(p);for(let q=0;q<p;q++)o[q]=(gp[q]-gm[q])/(2*eps);return o;});
+  const metrics=(th,sd)=>{const lH=lanczosExtremeVals(lossH(th),p,k,mlan,sd).top;const fv=lanczosExtremeVals(Hbar(th),p,k,mlan,sd+7);return {L:lossM(th,null),res:Array.from(resid(th)),lH,fHt:fv.top,fHb:fv.bot};};
+  const pack=(real,look)=>{const keys=['pos','neg','mean','beta'],rec={L:{},lH:{},fH:{},res:{}};
+    for(const kk of keys){const d=look&&look[kk];rec.L[kk]=d?d.L:null;rec.lH[kk]=d?d.lH:null;rec.fH[kk]=d?{top:d.fHt,bot:d.fHb}:null;rec.res[kk]=d?d.res:null;}
+    rec.L.beta=real.L;rec.lH.beta=real.lH;rec.fH.beta={top:real.fHt,bot:real.fHb};rec.res.beta=real.res;return rec;};
+  const lineSearch=(th,dir,mask)=>{const gr=(Math.sqrt(5)-1)/2;let a=0,b=10,c=b-gr*(b-a),d=a+gr*(b-a),fc=lossM(_addS(th,dir,c),mask),fd=lossM(_addS(th,dir,d),mask);
+    while(b-a>0.01){if(fc<fd){b=d;d=c;fd=fc;c=b-gr*(b-a);fc=lossM(_addS(th,dir,c),mask);}else{a=c;c=d;fc=fd;d=a+gr*(b-a);fd=lossM(_addS(th,dir,d),mask);}}
+    const al=Math.round((a+b)/2*100)/100;return lossM(_addS(th,dir,al),mask)<=lossM(th,mask)?al:0;};
+  let th=th0.slice();
+  for(let it=0;it<warmup+iters;it++){
+    const sd=(seed+1000*it)&0x7FFFFFFF;
+    if(it<warmup){const real=metrics(th,sd);push({type:'g16',i:it,phase:'gd',apos:null,aneg:null,beta:null,scale:null,loss:real.L,...pack(real,null)});
+      const J=jacCols(th,spec,X,N,inDim,p).cols,r=resid(th),g=new Float64Array(p);for(let a=0;a<N;a++)for(let q=0;q<p;q++)g[q]+=J[a][q]*r[a];const cc=lr/N;th=th.slice();for(let q=0;q<p;q++)th[q]+=cc*g[q];continue;}
+    const r=resid(th),J=jacCols(th,spec,X,N,inDim,p).cols,ex=lanczosExtreme(Hbar(th),p,k,mlan,sd);
+    const u1=ex.topVecs[0],um1=ex.botVecs[0],sig1=ex.topVals[0],sigm1=ex.botVals[0];
+    const gpos=new Float64Array(p),gneg=new Float64Array(p);for(let a=0;a<N;a++){if(r[a]>0)for(let q=0;q<p;q++)gpos[q]+=r[a]*J[a][q];else if(r[a]<0)for(let q=0;q<p;q++)gneg[q]+=r[a]*J[a][q];}
+    let dp=0,dn=0;for(let q=0;q<p;q++){dp+=gpos[q]*u1[q];dn+=gneg[q]*um1[q];}
+    const sp=dp*sig1,sn=dn*sigm1,projP=new Float64Array(p),projN=new Float64Array(p);for(let q=0;q<p;q++){projP[q]=sp*u1[q];projN[q]=sn*um1[q];}
+    const mpos=Array.from(r,x=>x>0),mneg=Array.from(r,x=>x<0);
+    const apos=lineSearch(th,projP,mpos),aneg=lineSearch(th,projN,mneg);
+    const uPos=new Float64Array(p),uNeg=new Float64Array(p),uMean=new Float64Array(p);for(let q=0;q<p;q++){uPos[q]=apos*projP[q];uNeg[q]=aneg*projN[q];uMean[q]=0.5*(uPos[q]+uNeg[q]);}
+    let beta=0,scale=0,bestL=Infinity;for(const bb of grid)for(const ss of grid){const u=new Float64Array(p);for(let q=0;q<p;q++)u[q]=ss*(bb*uPos[q]+(1-bb)*uNeg[q]);const L=lossM(_addV(th,u),null);if(L<bestL){bestL=L;beta=bb;scale=ss;}}
+    const uBeta=new Float64Array(p);for(let q=0;q<p;q++)uBeta[q]=scale*(beta*uPos[q]+(1-beta)*uNeg[q]);
+    const look={pos:metrics(_addV(th,uPos),sd+1),neg:metrics(_addV(th,uNeg),sd+2),mean:metrics(_addV(th,uMean),sd+3),beta:metrics(_addV(th,uBeta),sd+4)};
+    push({type:'g16',i:it,phase:'sec16',apos,aneg,beta,scale,loss:look.beta.L,...pack(look.beta,look)});
+    th=_addV(th,uBeta);
+    if(lossM(th,null)<tol)break;
+  }
+}
+// ── §16 render: Panel 1 (5 plots) + Panels 2/3/4 (4 plots each) ──
+const S16_IDS=['p_s16_Lpos','p_s16_Lneg','p_s16_Lmean','p_s16_Lbeta','p_s16_coef',
+  'p_s16_lHpos','p_s16_lHneg','p_s16_lHmean','p_s16_lHbeta','p_s16_fHpos','p_s16_fHneg','p_s16_fHmean','p_s16_fHbeta',
+  'p_s16_rpos','p_s16_rneg','p_s16_rmean','p_s16_rbeta'];
+let S16_BUILT=false,S16_DATA=null,S16_K=3,S16_N=0;
+const S16_SCEN=['pos','neg','mean','beta'],S16_SLAB={pos:'pos-only',neg:'neg-only',mean:'mean',beta:'best (β,s)'};
+function s16Build(m){
+  S16_BUILT=true;
+  const ln=(name,col,dash)=>({x:[],y:[],mode:'lines+markers',name,line:{color:col,width:1.7,dash:dash||'solid'},marker:{size:3,color:col}});
+  const mk=(id,tr,title,yl)=>Plotly.newPlot(id,tr,withZero(baseLayout(title,yl,false)),{responsive:true,displaylogo:false});
+  const TOPC=['#08306b','#2563eb','#80b1ff'],BOTC=['#67000d','#dc2626','#fca5a5'];
+  // Panel 1 — loss under each update + coefficients
+  for(const sc of S16_SCEN)mk('p_s16_L'+sc,[ln('loss','#7c3aed')],'full loss — '+S16_SLAB[sc]+' update','loss');
+  mk('p_s16_coef',[ln('α_pos','#2563eb'),ln('α_neg','#dc2626'),ln('β','#16a34a'),ln('s (scale)','#d97706')],'coefficients  α_pos · α_neg · β · s','value');
+  // Panel 2 — loss-Hessian top-k
+  const ktr=()=>{const a=[];for(let j=0;j<S16_K;j++)a.push(ln('λ'+(j+1),TOPC[j%3]));return a;};
+  for(const sc of S16_SCEN)mk('p_s16_lH'+sc,ktr(),'loss-Hessian top-'+S16_K+' eig — '+S16_SLAB[sc],'eigenvalue');
+  // Panel 3 — function-Hessian top-k & bottom-k
+  const tbtr=()=>{const a=[];for(let j=0;j<S16_K;j++)a.push(ln('top'+(j+1),TOPC[j%3]));for(let j=0;j<S16_K;j++)a.push(ln('bot'+(j+1),BOTC[j%3]));return a;};
+  for(const sc of S16_SCEN)mk('p_s16_fH'+sc,tbtr(),'function-Hessian H̄ top/bottom-'+S16_K+' eig — '+S16_SLAB[sc],'eigenvalue');
+  // Panel 4 — per-sample residuals (N traces, sized from the first record)
+  const rtr=()=>{const a=[];for(let j=0;j<S16_N;j++)a.push({x:[],y:[],mode:'lines',name:'r'+j,line:{width:1},showlegend:S16_N<=12});return a;};
+  for(const sc of S16_SCEN)mk('p_s16_r'+sc,rtr(),'per-sample residual r=y−f — '+S16_SLAB[sc],'residual');
+}
+function s16Push(m){
+  if(!S16_BUILT){S16_K=(m.lH&&m.lH.beta?m.lH.beta.length:3);S16_N=(m.res&&m.res.beta?m.res.beta.length:0);s16Build(m);
+    S16_DATA={i:[],L:{pos:[],neg:[],mean:[],beta:[]},coef:{apos:[],aneg:[],beta:[],scale:[]},
+      lH:{},fHt:{},fHb:{},res:{}};
+    for(const sc of S16_SCEN){S16_DATA.lH[sc]=Array.from({length:S16_K},()=>[]);S16_DATA.fHt[sc]=Array.from({length:S16_K},()=>[]);S16_DATA.fHb[sc]=Array.from({length:S16_K},()=>[]);S16_DATA.res[sc]=Array.from({length:S16_N},()=>[]);}}
+  const D=S16_DATA;D.i.push(m.i);const t=D.i;
+  for(const sc of S16_SCEN)D.L[sc].push(m.L&&m.L[sc]!=null?m.L[sc]:null);
+  D.coef.apos.push(m.apos);D.coef.aneg.push(m.aneg);D.coef.beta.push(m.beta);D.coef.scale.push(m.scale);
+  for(const sc of S16_SCEN){
+    const lh=m.lH&&m.lH[sc],fh=m.fH&&m.fH[sc],rs=m.res&&m.res[sc];
+    for(let j=0;j<S16_K;j++){D.lH[sc][j].push(lh?lh[j]:null);D.fHt[sc][j].push(fh?fh.top[j]:null);D.fHb[sc][j].push(fh?fh.bot[j]:null);}
+    for(let j=0;j<S16_N;j++)D.res[sc][j].push(rs?rs[j]:null);
+  }
+  for(const sc of S16_SCEN)Plotly.restyle('p_s16_L'+sc,{x:[t],y:[D.L[sc]]});
+  Plotly.restyle('p_s16_coef',{x:[t,t,t,t],y:[D.coef.apos,D.coef.aneg,D.coef.beta,D.coef.scale]});
+  for(const sc of S16_SCEN){
+    Plotly.restyle('p_s16_lH'+sc,{x:Array(S16_K).fill(t),y:D.lH[sc]});
+    Plotly.restyle('p_s16_fH'+sc,{x:Array(2*S16_K).fill(t),y:D.fHt[sc].concat(D.fHb[sc])});
+    if(S16_N)Plotly.restyle('p_s16_r'+sc,{x:Array(S16_N).fill(t),y:D.res[sc]});
+  }
+}
+function s16Reset(){S16_DATA=null;S16_BUILT=false;for(const id of S16_IDS){try{Plotly.purge(id);}catch(e){}}}
 let S13_QJPREV_JS=null;  // §13 panel 4 client-side: previous eig-tick's {QJ[j][i]=Q_iJ_j, r} for the ‖A−B‖/‖A‖ asymmetry
 let OPT={s1:true,s2:true,s3:true,s4:true,s5:true,s6:true,gs:true};
 
@@ -2195,6 +2303,8 @@ function syncSectionVis(multi){
     if(vis&&typeof S14_SNAPS!=='undefined'&&S14_SNAPS.length)requestAnimationFrame(()=>s14RenderNow(S14_CURIDX));}}   // redraw canvases now that the divs have size
   {const el=document.getElementById('sec_s15');if(el){const vis=chk('en23');el.style.display=vis?'':'none';   // §15 2nd-difference decomposition (own toggle en23; multi OR single sample)
     if(vis)requestAnimationFrame(()=>{for(const id of S15_IDS.concat(S15N_IDS).concat(S15P34_IDS)){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}   // re-size §15 plots when the section becomes visible
+  {const el=document.getElementById('sec_s16');if(el){const vis=chk('en24');el.style.display=vis?'':'none';   // §16 standalone optimizer (own toggle en24)
+    if(vis)requestAnimationFrame(()=>{for(const id of S16_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}   // re-size §16 plots when the section becomes visible
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
 }
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
@@ -2203,7 +2313,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   s12Reset();   // §12: drop snapshots from the previous run
   s13Reset();   // §13: drop the approximation-comparison time-series from the previous run
   s14Reset();   // §14: drop snapshots from the previous run
-  s15Reset();s15nReset();s15p34Reset();   // §15: drop the 2nd-difference time-series + 3-tick buffer + norm panel
+  s15Reset();s15nReset();s15p34Reset();s16Reset();   // §15+§16: drop the 2nd-difference + optimizer time-series
   trReset();    // §5: clear the trace-over-iterations curves
   syncSectionVis(multi);   // gate sections by the panel toggles (multi from the actual run)
   const dis=s=>OPT.gs?s:s+'  (off)';
@@ -2573,7 +2683,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
   const qmode=Math.max(1,+val('qmode')||1), tset=Math.max(1,+val('tset')||1);   // qmode (legacy, unused by Eq-22); Eq-29 set-T size
   const nProbe=Math.max(1,+val('slqprobes')), efrac=Math.min(1,Math.max(0.5,(+val('energyp'))/100));
-  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),gs:val('gson')==='1'};
+  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),gs:val('gson')==='1'};
   OPT=opt;
   const {spec,p}=buildSpec(inDim,width,depth,act,useBias,outDim);
   if(p>100000){st.textContent=`p=${p} parameters exceeds the cap (100000). Reduce width/depth.`;ST=null;updateButtons();return;}
@@ -2633,6 +2743,12 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
       thJ0:null,thF0:null,thDth:null,thJ_d:null,thProd3_d:1,thProd4_d:1,thProd5_d:1,thAcc2_d:0,thAccPSD_d:0,   // §9d: quad-self-residual predictions
       thJp0:null,thF0s:0,thDth_s:null,thJp_d:null,thAcc1_d:0,thAccPSD1_d:0,
       t:0,eigTick:0,done:0};
+  // §16: standalone curvature-aligned optimizer (browser compute). Runs ONCE from θ₀ (synchronous; gated to small MLP+MSE+scalar).
+  if(opt.s24 && val('arch')==='mlp' && val('loss')==='mse' && outDim===1 && p<=8000 && N<=64){
+    s16Reset();
+    try{ sec16Run(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||40),n,Math.min(p,24),+val('seed')||0,1e-12,s16Push); }
+    catch(e){ console.error('§16 error',e); }
+  }
   loop();
 }
 function stopLocal(){ if(RUNNING)PAUSED=true; }          // pause, keep state + plots
@@ -3079,7 +3195,7 @@ function resetSim(){
   s12Reset();   // §12: clear the eigvec-similarity grids/cuboids + snapshots/slider too
   s13Reset();   // §13: clear the approximation-comparison time-series too
   s14Reset();   // §14: clear the triplet-decomposition cubes + snapshots/slider too
-  s15Reset();s15nReset();s15p34Reset();   // §15: clear the 2nd-difference time-series + 3-tick buffer + norm panel too
+  s15Reset();s15nReset();s15p34Reset();s16Reset();   // §15+§16: clear the time-series too
   updateButtons();
 }
 
@@ -3242,10 +3358,10 @@ async function downloadPlots(){
 function backendURL(start){
   const ps=new URLSearchParams();
   ['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
-   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap',
+   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','s24warm','s24iter',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg'].forEach(id=>ps.set(id,val(id)));
   [['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
-   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
+   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
   ps.set('start',String(start||0));
   return 'run?'+ps.toString();
 }
@@ -3275,13 +3391,14 @@ function openStream(start,resuming){
     }else if(m.type==='g15'){s15Push(m);
     }else if(m.type==='g15n'){s15nPush(m);
     }else if(m.type==='g15p34'){s15p34Push(m);
+    }else if(m.type==='g16'){s16Push(m);
     }else if(m.type==='done'){st.textContent=`done — through step ${lastT} · p=${m.p} · 2/lr=${(META?META.thr:0).toFixed(3)}.`;finish();
     }else if(m.type==='error'){st.textContent='backend: '+m.error;finish();}
   };
   es.onerror=()=>{if(RUNNING&&!PAUSED)st.textContent='backend connection lost — start it with “python server.py”, then press Run (or switch compute to browser).';finish();};
 }
 function runGPU(){
-  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),gs:val('gson')==='1'};
+  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),gs:val('gson')==='1'};
   lastT=-1;META=null;cursorX=null;openStream(0,false);
 }
 function stopGPU(){ if(RUNNING){PAUSED=true;if(ES){ES.close();ES=null;}RUNNING=false;document.getElementById('status').textContent=`stopped at step ${lastT} — press Resume to continue.`;updateButtons();} }
