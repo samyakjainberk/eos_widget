@@ -1893,6 +1893,12 @@ def run_stream(P):
     sec13_prev = None         # §13: previous eig-tick's per-sample {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
     sec13_qjprev = None        # §13 panel 4: previous eig-tick's {QJ=(N_j,N_i,p) Q_iJ_j, r} for the ‖A−B‖/‖A‖ asymmetry
     sec15_hist = []            # §15: rolling buffer of the last 2 eig-ticks' {th, J, r} (need t−1 and t−2)
+    sec15_th64 = None          # §15: float64 SHADOW GD trajectory (MLP only). D²=‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖² is a ~9-digit
+                               #   catastrophic cancellation when the net is near-stationary (e.g. chebyshev init=0.2: ‖J‖²≈21,
+                               #   true D²≈1e-8). The displayed trajectory is float32 (≈7 digits) ⇒ D² is pure roundoff ⇒ divergence%
+                               #   garbage. We mirror the GD in float64 (seeded at θ₀, same per-step minibatch) so the consecutive θ's
+                               #   are float64-consistent and D² is clean — matching the float64 browser/eos_lab backends. Verified:
+                               #   float64 trajectory ⇒ divP→0.00% exactly (theory IS correct); float32 ⇒ ±500% swings.
     prevTop = [None] * nSub
     prevBot = [None] * nSub
     prevPos = None
@@ -2471,7 +2477,12 @@ def run_stream(P):
                 # float32 cancellation noise dominates the divergence. MLP forward is dtype-pure ⇒ safe to recompute in f64.
                 f64_15 = isinstance(_TL.model, MlpModel) and DTYPE != torch.float64
                 X15 = X.double() if f64_15 else X
-                th15 = th.double() if f64_15 else th
+                if f64_15:
+                    if sec15_th64 is None:
+                        sec15_th64 = th.double()          # seed the float64 shadow at the current θ (θ₀ on the first §15 tick)
+                    th15 = sec15_th64                     # evaluate §15 on the float64 shadow trajectory (clean D²)
+                else:
+                    th15 = th                             # DTYPE already float64 (CPU server) ⇒ displayed trajectory is exact
                 Jg15 = (_TL.model.jac_cols(th15, X15)[0][lblsel15] if f64_15 else Jc[lblsel15])
                 r15 = (rr[lblsel15].double() if f64_15 else rr[lblsel15])
                 # ---- panel 5: per-sample NORM evolution (mean ± std across the N samples), at the current step t ----
@@ -2493,6 +2504,9 @@ def run_stream(P):
                 sec15_hist.append({"th": th15.detach().clone(), "J": Jg15.detach(), "r": r15.detach(), "t": t})
                 if len(sec15_hist) > 2:
                     sec15_hist.pop(0)
+                if f64_15:                                # advance the float64 shadow one GD step (same rule/minibatch as the displayed
+                    sec15_th64 = sec15_th64 - lr * _opt_dir(   # float32 trajectory, but in float64 ⇒ next step's D² stays cancellation-free)
+                        _TL.model, gradL(sec15_th64, X15, Y.double())[0], opt)
 
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness λmax(∇²L) ≈ λmax(GN) = σ₁/N
             thPr = [(x / N if x is not None else None) for x in thP] if thP else None
