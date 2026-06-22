@@ -2307,11 +2307,12 @@ function s16Build(m){
   const ln=(name,col,dash)=>({x:[],y:[],mode:'lines+markers',name,line:{color:col,width:1.7,dash:dash||'solid'},marker:{size:3,color:col}});
   const lnB=(name,col,dash,op)=>({x:[],y:[],mode:'lines',name:name||'',showlegend:name!=null,line:{color:col,width:1.3,dash},opacity:op});   // dotted baseline trace
   const mk=(id,tr,title,yl)=>{const L=withZero(baseLayout(title,yl,false));L.xaxis.title.text='§16 iteration';return Plotly.newPlot(id,tr,L,{responsive:true,displaylogo:false});};
+  const mkA=(id,tr,title,yl)=>{const L=baseLayout(title,yl,false);L.xaxis.title.text='§16 iteration';L.yaxis.autorange=true;return Plotly.newPlot(id,tr,L,{responsive:true,displaylogo:false});};   // auto-range y (loss/test-loss plateau near a small value; forcing 0 squishes the curve into a flat line at the top)
   const TOPC=S16_TOPC,BOTC=S16_BOTC;
   // single-line (loss / test-loss) panel: main + 2 accent-coloured dotted baselines
   const oneTr=mainName=>{const a=[ln(mainName,'#7c3aed')];if(S16_BASE){a.push(lnB('A · random',S16_ACOL,'dot',0.95));a.push(lnB('B · shuffle',S16_BCOL,'dashdot',0.95));}return a;};
   // Panel 1 — loss under each update + coefficients
-  for(const sc of S16_SCEN)mk('p_s16_L'+sc,oneTr('loss'),'full loss — '+S16_SLAB[sc]+' update','loss');
+  for(const sc of S16_SCEN)mkA('p_s16_L'+sc,oneTr('loss'),'full loss — '+S16_SLAB[sc]+' update','loss');
   mk('p_s16_coef',[ln('α_pos','#2563eb'),ln('α_neg','#dc2626'),ln('β','#16a34a'),ln('s (scale)','#d97706'),ln('t_gd (GD step)','#0891b2')],'coefficients  α_pos · α_neg · β · s · t_gd','value');
   // Panel 2 — loss-Hessian top-k  (baselines: same colours, dotted, legend once)
   const ktr=()=>{const a=[];for(let j=0;j<S16_K;j++)a.push(ln('λ'+(j+1),TOPC[j%3]));
@@ -2327,7 +2328,7 @@ function s16Build(m){
     if(S16_BASE){for(let j=0;j<S16_N;j++)a.push(lnB(j===0?'A · random':null,S16_ACOL,'dot',0.3));for(let j=0;j<S16_N;j++)a.push(lnB(j===0?'B · shuffle':null,S16_BCOL,'dashdot',0.3));}return a;};
   for(const sc of S16_SCEN)mk('p_s16_r'+sc,rtr(),'per-sample residual r=y−f — '+S16_SLAB[sc],'residual');
   // Panel 5 — held-out test loss under each update (single-line + baselines)
-  for(const sc of S16_SCEN)mk('p_s16_Lt'+sc,oneTr('test loss'),'held-out test loss — '+S16_SLAB[sc]+' update','test loss');
+  for(const sc of S16_SCEN)mkA('p_s16_Lt'+sc,oneTr('test loss'),'held-out test loss — '+S16_SLAB[sc]+' update','test loss');
 }
 function s16Push(m){
   if(m.i===0 && S16_DATA && S16_DATA.i.length){s16Reset();}   // a fresh §16 run (iteration index reset to 0) → clear stale data so the curve can't double back over a previous run
