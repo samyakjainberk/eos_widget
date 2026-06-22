@@ -2102,7 +2102,7 @@ def run_stream(P):
         Xt16 = Yt16 = None
         if dataset == "chebyshev":                                       # §16 Panel 5 held-out test set
             Xt16, Yt16 = _sec16_chebyshev_testset(Nfull, P.get("degree", 3), torch.float64)
-        for rec16 in _sec16_driver(th16, X16, Y16, lr, P.get("s24warm", 5), P.get("s24iter", 100),
+        for rec16 in _sec16_driver(th16, X16, Y16, lr, P.get("s24warm", 5), P.get("s24iter", 250),
                                    n, min(p, 24), P.get("seed", 0), 1e-12,
                                    P.get("s24grid", 0.1), P.get("s24ares", 0.01),
                                    Xt16, Yt16, P.get("s24base", 0)):
@@ -3276,7 +3276,7 @@ def _parse_params(q):
         "s23": g("s23", "0") == "1",     # §15: 2nd-difference decomposition of ‖J‖²_F & σ₁ (own toggle; multi-sample, small N; OFF by default)
         "s24": g("s24", "0") == "1",     # §16: curvature-aligned per-residual-sign optimizer (standalone; own iteration axis; OFF by default)
         "s24warm": max(0, fi("s24warm", 5)),    # §16: standard-GD warmup steps before the §16 optimization begins
-        "s24iter": max(1, fi("s24iter", 100)),  # §16: number of §16 iterations after the warmup
+        "s24iter": max(1, fi("s24iter", 250)),  # §16: number of §16 iterations after the warmup
         "s24grid": min(0.5, max(0.01, ff("s24grid", 0.1))),   # §16: (β,s) search grid step (finer ⇒ more descent, costs (1/step)² loss-evals)
         "s24ares": min(0.1, max(0.001, ff("s24ares", 0.01))), # §16: α line-search resolution (finer ⇒ extracts smaller steps near the plateau)
         "s24base": g("s24base", "0") == "1",  # §16: compute the two dotted baselines (A=random dirs, B=shuffled ± sets); ≈3× cost

@@ -128,7 +128,7 @@ class Config:
     s24: int = 0    # §16 — standalone curvature-aligned per-residual-sign optimizer (own iteration axis). MLP+MSE+scalar,
                     #   small N & p. OFF by default.
     s24warm: int = 5      # §16: standard-GD warmup steps from θ₀ before the §16 optimization begins.
-    s24iter: int = 100    # §16: number of §16 iterations after the warmup.
+    s24iter: int = 250    # §16: number of §16 iterations after the warmup.
     s24grid: float = 0.1  # §16: (β,s) search grid step (finer ⇒ more descent, costs (1/step)² loss-evals).
     s24ares: float = 0.01 # §16: α line-search resolution (finer ⇒ smaller beneficial steps near the plateau).
     s24base: int = 0      # §16: compute the two dotted baselines (A=random dirs, B=shuffled ± sets). OFF (≈3× cost).

@@ -171,7 +171,7 @@
       <div class="ctl"><label title="§11 3D-grid cap: skip the N×N×N Hessian–NTK grids when N·d_out exceeds this. The grid is N³ points and costs N Hessian-vector products, so it is feasible only for small N.">3D-grid cap (N·d_out)</label><input id="grid3dcap" type="number" value="500" min="1" max="600" step="1"></div>
       <div class="ctl"><label title="§15 divergence ε: the divergence% = (D²−2Σ)/(D²+sign(D²)·ε·2Σ|term|). ε→0 gives the exact (D²−2Σ)/D² (which spikes to ±∞ at every ‖J‖²/σ₁ inflection where D²→0); larger ε softens those 0/0 spikes (ε≳1 ≈ error relative to the curvature activity). Default 0.3.">§15 divergence ε</label><input id="divreg" type="number" value="0.3" min="0" max="5" step="0.05"></div>
       <div class="ctl"><label title="§16: number of standard gradient-descent warmup steps from θ₀ before the §16 curvature-aligned optimization begins.">§16 GD warmup</label><input id="s24warm" type="number" value="5" min="0" max="500" step="1"></div>
-      <div class="ctl"><label title="§16: number of §16 optimizer iterations after the GD warmup.">§16 iterations</label><input id="s24iter" type="number" value="100" min="1" max="2000" step="1"></div>
+      <div class="ctl"><label title="§16: number of §16 optimizer iterations after the GD warmup.">§16 iterations</label><input id="s24iter" type="number" value="250" min="1" max="2000" step="1"></div>
       <div class="ctl"><label title="§16: (β,s) search grid step. Finer (smaller) ⇒ more descent extracted per iteration, but costs (1/step)² loss evaluations. Default 0.1.">§16 β,s grid step</label><input id="s24grid" type="number" value="0.1" min="0.01" max="0.5" step="0.01"></div>
       <div class="ctl"><label title="§16: α line-search resolution. Finer (smaller) ⇒ finds smaller beneficial steps near the plateau. Default 0.01.">§16 α resolution</label><input id="s24ares" type="number" value="0.01" min="0.001" max="0.1" step="0.001"></div>
       <div class="ctl"><label title="§16: also compute the two dotted baselines in every panel — A: replace u₁/u₋₁ with two random unit vectors (KEEP σ₁/σ₋₁ of H̄, pure-curvature step); B: keep u₁/u₋₁/σ but randomly shuffle the ± sample-set membership (counts preserved). Both are PURE-curvature trajectories. ≈3× cost. OFF by default.">§16 baselines</label><input type="checkbox" id="en24base"></div>
@@ -2744,7 +2744,7 @@ function updateParamBadge(){
 function updateButtons(){
   document.getElementById('run').disabled=RUNNING;
   document.getElementById('stop').disabled=!RUNNING;
-  const canResume=(curMode()==='gpu')?(META&&!RUNNING&&lastT>=0&&lastT<(+val('steps')))
+  const canResume=(curMode()==='gpu')?(META&&!RUNNING&&(lastT<0||lastT<(+val('steps'))))   // lastT<0 ⇒ paused during the §16 pre-GD phase (Resume restarts)
                                      :(ST&&!RUNNING&&ST.t<=ST.steps);
   document.getElementById('resume').disabled=!canResume;
 }
@@ -2826,7 +2826,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   if(opt.s24 && val('arch')==='mlp' && val('loss')==='mse' && outDim===1 && p<=40000 && N<=64){
     s16Reset();
     const cb16=(val('dataset')==='chebyshev')?sec16Cheb(N,Math.max(1,+val('degree')||3)):null;   // Panel-5 held-out test set
-    try{ sec16Driver(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||100),n,Math.min(p,24),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),cb16&&cb16.X,cb16&&cb16.Y,cb16&&cb16.N,chk('en24base'),s16Push); }
+    try{ sec16Driver(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||250),n,Math.min(p,24),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),cb16&&cb16.X,cb16&&cb16.Y,cb16&&cb16.N,chk('en24base'),s16Push); }
     catch(e){ console.error('§16 error',e); }
   }
   loop();
@@ -3490,8 +3490,13 @@ function runGPU(){
   OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),gs:val('gson')==='1'};
   lastT=-1;META=null;cursorX=null;openStream(0,false);
 }
-function stopGPU(){ if(RUNNING){PAUSED=true;if(ES){ES.close();ES=null;}RUNNING=false;document.getElementById('status').textContent=`stopped at step ${lastT} — press Resume to continue.`;updateButtons();} }
-function resumeGPU(){ if(META&&!RUNNING&&lastT>=0&&lastT<(+val('steps')))openStream(lastT+1,true); }
+function stopGPU(){ if(RUNNING){PAUSED=true;if(ES){ES.close();ES=null;}RUNNING=false;
+  document.getElementById('status').textContent=(lastT<0)
+    ?'stopped during §16 (no mid-run checkpoint) — press Resume to restart.'
+    :`stopped at step ${lastT} — press Resume to continue.`;updateButtons();} }
+function resumeGPU(){ if(!META||RUNNING)return;
+  if(lastT<0){ runGPU(); return; }                               // paused during the §16 pre-GD phase — §16 can't resume mid-run, so restart cleanly (g16 i=0 resets the plots, no double curve)
+  if(lastT<(+val('steps')))openStream(lastT+1,true); }
 
 // ---- dispatchers: pick the backend by #compute ----
 async function run(){
