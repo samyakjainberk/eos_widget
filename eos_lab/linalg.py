@@ -567,7 +567,8 @@ def _divreg(num, den, scale, eps=_DEPS):   # MAGNITUDE of the 2nd-difference 2(�
     return num / (den + math.copysign(eps * scale, den)) * 100.0   # larger eps softens the 0/0 spike at ‖J‖²/σ₁ inflections (eps≳1 ⇒ ≈ residual/scale). User-tunable.
 def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N, diveps=_DEPS):
     dt, dev = Jt.dtype, Jt.device
-    c = lr / N
+    c = lr / N                                                # c = η/N uses the N INPUT samples (GD-step coefficient)
+    Ne = Jt.shape[0]                                          # effective samples = N·d_out (J/r rows); A,B are Ne×Ne
     c2 = c * c
 
     def estats(M):                                            # real eigenvalues of N×N M (A,B are PSD·sym ⇒ real)
@@ -583,17 +584,17 @@ def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N, diveps=_DEPS):
     g1 = Jtm1.t() @ rtm1                                      # g_{t−1}  (p,)
     g2 = Jtm2.t() @ rtm2                                      # g_{t−2}  (p,)
     Ktm2 = Jtm2 @ Jtm2.t()                                    # NTK at t−2  (N,N)
-    Imat = torch.eye(N, dtype=dt, device=dev)
+    Imat = torch.eye(Ne, dtype=dt, device=dev)
 
     H1g1 = hvp1(g1)                                           # (N,p) row k = Q_{t−1,k} g_{t−1}
     I = c2 * float((H1g1 * H1g1).sum())                       # = c²·Σ_k‖Q_{t−1,k}g_{t−1}‖² = c²·g₁ᵀSg₁
 
-    W = torch.stack([hvp1(Jtm1[i]) for i in range(N)])        # (N_i,N_k,p)  W[i,k]=Q_{t−1,k}∇f_{t−1,i}
+    W = torch.stack([hvp1(Jtm1[i]) for i in range(Ne)])        # (N_i,N_k,p)  W[i,k]=Q_{t−1,k}∇f_{t−1,i}
     JSJ = torch.einsum('ikp,lkp->il', W, W)                   # J_{t−1}ᵀ S_{t−1} J_{t−1}  (N,N)
     # (*) term so that I+II = r_{t−1}ᵀ A r_{t−2}:  A_part2[j,i] = c²·Σ_k ∇f_{t,k}ᵀ Q_{t−1,k} Q_{t−2,j} ∇f_{t−2,i}
     #   = c²·⟨ψ, Q_{t−2,j}∇f_{t−2,i}⟩  with  ψ = Σ_k Q_{t−1,k}∇f_{t,k};  M2[i,j] = Q_{t−2,j}∇f_{t−2,i}
-    psi = torch.stack([hvp1(Jt[k])[k] for k in range(N)]).sum(0)   # Σ_k Q_{t−1,k}∇f_{t,k}  (p,)
-    M2 = torch.stack([hvp2(Jtm2[i]) for i in range(N)])            # (i,j,p)  M2[i,j]=Q_{t−2,j}∇f_{t−2,i}
+    psi = torch.stack([hvp1(Jt[k])[k] for k in range(Ne)]).sum(0)   # Σ_k Q_{t−1,k}∇f_{t,k}  (p,)
+    M2 = torch.stack([hvp2(Jtm2[i]) for i in range(Ne)])            # (i,j,p)  M2[i,j]=Q_{t−2,j}∇f_{t−2,i}
     A = c2 * (JSJ @ (Imat - c * Ktm2)) + c2 * torch.einsum('a,ija->ji', psi, M2)   # general (non-symmetric) ⇒ real-part eigenvalues
     Atop, Abot, Astat, Aeig = estats(A)
 

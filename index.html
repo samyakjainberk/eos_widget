@@ -2305,9 +2305,10 @@ function sec16Holdout(dataset,N,inDim,outDim,seed,tgt,inStd,fixedx,ssign,cvar){ 
 function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,mode,useGd,push){
   const k=Math.max(1,neig|0),eps=1e-3,mg=Math.max(1,Math.round(1/Math.max(1e-9,bgrid))),grid=[];for(let i=0;i<=mg;i++)grid.push(i/mg);
   const Yf=Y;
+  const M=N*spec[spec.length-1].dout;   // EFFECTIVE samples = N·d_out (residual / Jacobian-row dimension)
   const out_=th=>forward(th,spec,X,N,inDim).out;
-  const resid=th=>{const o=out_(th),r=new Float64Array(N);for(let i=0;i<N;i++)r[i]=Yf[i]-o[i];return r;};
-  const lossM=(th,mask)=>{const o=out_(th);if(!mask)return lossOf(o,Yf,o.length);let s=0,nn=0;for(let i=0;i<o.length;i++)if(mask[i]){s+=(o[i]-Yf[i])**2;nn++;}return nn?0.5*s/nn:0;};
+  const resid=th=>{const o=out_(th),r=new Float64Array(M);for(let i=0;i<M;i++)r[i]=Yf[i]-o[i];return r;};
+  const lossM=(th,mask)=>{const o=out_(th);if(!mask)return lossOf(o,Yf,N);let s=0,nn=0;for(let i=0;i<o.length;i++)if(mask[i]){s+=(o[i]-Yf[i])**2;nn++;}return nn?0.5*s/nn:0;};
   const lossT=th=>{if(!Xt)return null;const o=forward(th,spec,Xt,Nt,inDim).out;return lossOf(o,Yt,Nt);};   // held-out test loss (Panel 5)
   const Hbar=th=>(v=>{const Q=jacHVP(th,spec,X,N,inDim,p,v,eps),o=new Float64Array(p),inv=1/Q.length;for(let a=0;a<Q.length;a++)for(let q=0;q<p;q++)o[q]+=Q[a][q];for(let q=0;q<p;q++)o[q]*=inv;return o;});
   const lossH=th=>(v=>{const gp=gradL(_addS(th,v,eps),spec,X,Y,N,inDim,p).grad,gm=gradL(_addS(th,v,-eps),spec,X,Y,N,inDim,p).grad,o=new Float64Array(p);for(let q=0;q<p;q++)o[q]=(gp[q]-gm[q])/(2*eps);return o;});
@@ -2322,7 +2323,7 @@ function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgri
   for(let it=0;it<warmup+iters;it++){
     const sd=(seed+1000*it)&0x7FFFFFFF;
     if(it<warmup){const real=metrics(th,sd);
-      const J=jacCols(th,spec,X,N,inDim,p).cols,r=resid(th),g=new Float64Array(p);for(let a=0;a<N;a++)for(let q=0;q<p;q++)g[q]+=J[a][q]*r[a];const cc=lr/N;
+      const J=jacCols(th,spec,X,N,inDim,p).cols,r=resid(th),g=new Float64Array(p);for(let a=0;a<M;a++)for(let q=0;q<p;q++)g[q]+=J[a][q]*r[a];const cc=lr/N;
       let un=0;for(let q=0;q<p;q++){const u=cc*g[q];un+=u*u;}   // Panel 6: ‖warmup GD step‖₂
       recs.push({i:it,phase:'gd',apos:null,aneg:null,beta:null,scale:null,tgd:null,loss:real.L,unorm:{pos:null,neg:null,mean:null,beta:Math.sqrt(un)},...pack(real,null)});
       th=th.slice();for(let q=0;q<p;q++)th[q]+=cc*g[q];continue;}
@@ -2333,11 +2334,11 @@ function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgri
       n1=Math.sqrt(n1);n2=Math.sqrt(n2);u1=new Float64Array(p);um1=new Float64Array(p);for(let q=0;q<p;q++){u1[q]=rv1[q]/n1;um1[q]=rv2[q]/n2;}}
     else{const ex=lanczosExtreme(Hbar(th),p,k,mlan,sd);u1=ex.topVecs[0];um1=ex.botVecs[0];sig1=ex.topVals[0];sigm1=ex.botVals[0];}
     let mpos,mneg;
-    if(mode==='shuffle'){let np=0,nn=0;for(let a=0;a<N;a++){if(r[a]>0)np++;else if(r[a]<0)nn++;}   // BASELINE B: permute ± set membership (keep counts; each sample keeps its real r)
-      const sidx=_shuffle16(N,(sd^0x16B0)>>>0);mpos=new Array(N).fill(false);mneg=new Array(N).fill(false);
+    if(mode==='shuffle'){let np=0,nn=0;for(let a=0;a<M;a++){if(r[a]>0)np++;else if(r[a]<0)nn++;}   // BASELINE B: permute ± set membership over the M effective samples (keep counts; each keeps its real r)
+      const sidx=_shuffle16(M,(sd^0x16B0)>>>0);mpos=new Array(M).fill(false);mneg=new Array(M).fill(false);
       for(let a=0;a<np;a++)mpos[sidx[a]]=true;for(let a=0;a<nn;a++)mneg[sidx[np+a]]=true;}
     else{mpos=Array.from(r,x=>x>0);mneg=Array.from(r,x=>x<0);}
-    const gpos=new Float64Array(p),gneg=new Float64Array(p);for(let a=0;a<N;a++){if(mpos[a])for(let q=0;q<p;q++)gpos[q]+=r[a]*J[a][q];else if(mneg[a])for(let q=0;q<p;q++)gneg[q]+=r[a]*J[a][q];}
+    const gpos=new Float64Array(p),gneg=new Float64Array(p);for(let a=0;a<M;a++){if(mpos[a])for(let q=0;q<p;q++)gpos[q]+=r[a]*J[a][q];else if(mneg[a])for(let q=0;q<p;q++)gneg[q]+=r[a]*J[a][q];}
     let dp=0,dn=0;for(let q=0;q<p;q++){dp+=gpos[q]*u1[q];dn+=gneg[q]*um1[q];}
     const sp=dp*sig1,sn=dn*sigm1,projP=new Float64Array(p),projN=new Float64Array(p);for(let q=0;q<p;q++){projP[q]=sp*u1[q];projN[q]=sn*um1[q];}
     const apos=lineSearch(th,projP,mpos),aneg=lineSearch(th,projN,mneg);
@@ -2346,7 +2347,7 @@ function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgri
     const uSec16=new Float64Array(p);for(let q=0;q<p;q++)uSec16[q]=scale*(beta*uPos[q]+(1-beta)*uNeg[q]);
     let uBeta,tgd;
     if(useGd){   // GD step (full-loss line-search along the gradient) ⇒ the advancing loss STRICTLY decreases
-      const dGd=new Float64Array(p);for(let a=0;a<N;a++)for(let q=0;q<p;q++)dGd[q]+=J[a][q]*r[a];for(let q=0;q<p;q++)dGd[q]/=N;
+      const dGd=new Float64Array(p);for(let a=0;a<M;a++)for(let q=0;q<p;q++)dGd[q]+=J[a][q]*r[a];for(let q=0;q<p;q++)dGd[q]/=N;
       const tGd=lineSearch(th,dGd,null);const uGd=new Float64Array(p);for(let q=0;q<p;q++)uGd[q]=tGd*dGd[q];
       if(lossM(_addV(th,uGd),null)<lossM(_addV(th,uSec16),null)){uBeta=uGd;tgd=tGd;}else{uBeta=uSec16;tgd=0;}   // GD when §16 step doesn't help (else tgd=0)
     }else{uBeta=uSec16;tgd=0;}   // baseline: PURE curvature step (no GD fallback) ⇒ a genuinely separate trajectory
@@ -2949,7 +2950,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
       thJp0:null,thF0s:0,thDth_s:null,thJp_d:null,thAcc1_d:0,thAccPSD1_d:0,
       t:0,eigTick:0,done:0};
   // §16: standalone curvature-aligned optimizer (browser compute). Runs ONCE from θ₀ (synchronous; gated to small MLP+MSE+scalar).
-  if(opt.s24 && val('arch')==='mlp' && val('loss')==='mse' && outDim===1 && p<=40000 && N<=64){
+  if(opt.s24 && val('arch')==='mlp' && val('loss')==='mse' && N*outDim<=256 && N*outDim*p<=300000000 && N<=64){   // §16 multi-output: effective samples M=N·d_out
     s16Reset();
     const cb16=(val('dataset')==='chebyshev')?sec16Cheb(N,Math.max(1,+val('degree')||3))   // Panel-5 held-out test set (chebyshev midpoints; synthetic/const fresh iid-Gaussian)
               :sec16Holdout(val('dataset'),N,inDim,outDim,+val('seed')||0,+val('tgt'),+val('inputstd'),val('fixedx'),val('ssign'),+val('cvar')||0);

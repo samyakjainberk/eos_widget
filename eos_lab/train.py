@@ -135,17 +135,21 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
             th = th - cfg.lr * opt_dir(model, grad_loss(model, loss, th, Xb, Yb)[0], cfg.optimizer)
 
     # ── §16: standalone curvature-aligned per-residual-sign optimizer (own iteration axis), run from θ₀ ──
+    # MULTI-OUTPUT: the effective samples are the M = N·d_out outputs (residual / Jacobian-row dim), so cifar10 (d=10) /
+    # sorting-GPT (d=seqlen) work too. Gate on M=N·d (jac_cols = M backward) + M·p memory; any arch, MSE only.
     sec16 = None
-    if getattr(cfg, "s24", 0) and isinstance(model, MlpModel) and loss.name == "mse" and out_dim == 1 \
-            and model.p <= 40000 and N <= 64:
+    M16 = N * out_dim
+    if getattr(cfg, "s24", 0) and loss.name == "mse" and M16 <= 256 and M16 * model.p <= 300_000_000 and N <= 64:
         from .sec16 import sec16_driver, sec16_chebyshev_testset
         if progress:
-            print(f"  §16: standalone optimizer — {cfg.s24warm} GD warmup + {cfg.s24iter} iters from θ₀")
+            print(f"  §16: standalone optimizer — {cfg.s24warm} GD warmup + {cfg.s24iter} iters from θ₀  (M=N·d={M16})")
         if cfg.dataset == "chebyshev":                                  # §16 Panel 5 held-out test set
             Xt16, Yt16 = sec16_chebyshev_testset(N, cfg.degree, dev, dtype)
-        else:                                                           # synthetic / const: fresh iid-Gaussian held-out set (make_test_set)
+        elif cfg.dataset in ("synthetic", "const"):                     # synthetic / const: fresh iid-Gaussian held-out set
             _ts16 = make_test_set(model, P, cfg.dataset, N, in_dim, out_dim, dev, dtype, cifar_dir)
             Xt16, Yt16 = _ts16 if _ts16 is not None else (None, None)
+        else:                                                           # cifar10 / sorting: no §16 test set yet ⇒ Panel 5 empty
+            Xt16, Yt16 = None, None
         sec16 = list(sec16_driver(model, loss, th0, X, Y, cfg.lr, cfg.s24warm, cfg.s24iter,
                                   min(max(1, cfg.neig), max(1, model.p // 2)), min(model.p, 24), cfg.seed, 1e-12,
                                   getattr(cfg, 's24grid', 0.1), getattr(cfg, 's24ares', 0.01),

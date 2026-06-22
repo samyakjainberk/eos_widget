@@ -418,6 +418,7 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N, diveps=_DEPS):
     dt, dev = Jt.dtype, Jt.device
     c = lr / N
     c2 = c * c
+    Ne = Jt.shape[0]                                          # effective samples = N·d_out (A,B are Ne×Ne); c uses N input samples
 
     def estats(M):                                            # real eigenvalues of N×N M (A,B are PSD·sym ⇒ real)
         e = torch.linalg.eigvals(M).real
@@ -431,15 +432,15 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N, diveps=_DEPS):
 
     g1 = Jtm1.t() @ rtm1; g2 = Jtm2.t() @ rtm2
     Ktm2 = Jtm2 @ Jtm2.t()
-    Imat = torch.eye(N, dtype=dt, device=dev)
+    Imat = torch.eye(Ne, dtype=dt, device=dev)
 
     H1g1 = hvp1(g1)
     I = c2 * float((H1g1 * H1g1).sum())
-    W = torch.stack([hvp1(Jtm1[i]) for i in range(N)])        # (N_i,N_k,p)
+    W = torch.stack([hvp1(Jtm1[i]) for i in range(Ne)])        # (N_i,N_k,p)
     JSJ = torch.einsum('ikp,lkp->il', W, W)
     # (*) term so I+II = r_{t−1}ᵀ A r_{t−2}: A_part2[j,i]=c²⟨ψ,Q_{t−2,j}∇f_{t−2,i}⟩, ψ=Σ_k Q_{t−1,k}∇f_{t,k}; M2[i,j]=Q_{t−2,j}∇f_{t−2,i}
-    psi = torch.stack([hvp1(Jt[k])[k] for k in range(N)]).sum(0)
-    M2 = torch.stack([hvp2(Jtm2[i]) for i in range(N)])
+    psi = torch.stack([hvp1(Jt[k])[k] for k in range(Ne)]).sum(0)
+    M2 = torch.stack([hvp2(Jtm2[i]) for i in range(Ne)])
     A = c2 * (JSJ @ (Imat - c * Ktm2)) + c2 * torch.einsum('a,ija->ji', psi, M2)   # general (non-symmetric) ⇒ real-part eigenvalues
     Atop, Abot, Astat, Aeig = estats(A)
 
@@ -586,14 +587,15 @@ def _lanc16_ext(hvp, p, n, m, seed):                 # top-n & bottom-n (eigVEC,
 def _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, ares=0.01,
                Xtest=None, Ytest=None, mode="eig", use_gd=True):
     p = th0.numel(); N = X.shape[0]; Yf = Y.reshape(-1)
+    M = Yf.numel()                                                    # EFFECTIVE samples = N·d_out (the residual / Jacobian-row dimension)
     Ytf = Ytest.reshape(-1) if Ytest is not None else None
     k = max(1, int(neig)); mg = max(1, int(round(1.0 / max(1e-9, bgrid)))); grid = [i / mg for i in range(mg + 1)]
-    fwd = lambda th: _TL.model.forward(th, X).reshape(-1)
-    resid = lambda th: Yf - fwd(th)                                    # y − f(x)
+    fwd = lambda th: _TL.model.forward(th, X).reshape(-1)             # flat (M,) over all N·d_out outputs
+    resid = lambda th: Yf - fwd(th)                                    # y − f(x)   (M,)
     def lossv(th, mask=None):
         out = fwd(th)
         if mask is None:
-            return float(_TL.loss.value(out, Yf, out.numel()))
+            return float(_TL.loss.value(out, Yf, N))                  # full loss normalised by N input samples (matches the main GD)
         nn = int(mask.sum()); return float(_TL.loss.value(out[mask], Yf[mask], max(1, nn))) if nn else 0.0
     def losstest(th):
         if Xtest is None:
@@ -643,9 +645,9 @@ def _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, a
         else:
             tv, bv, tval, bval = _lanc16_ext(Hbar(th), p, k, mlan, sd)
             u1, um1 = tv[0], bv[0]; sig1, sigm1 = tval[0], bval[0]
-        if mode == "shuffle":                                         # Baseline B: permute ± membership (counts preserved)
-            n_pos = int((r > 0).sum()); n_neg = int((r < 0).sum()); sidx = _shuffle16(N, sd ^ 0x16B0)
-            pos = torch.zeros(N, dtype=torch.bool, device=th.device); neg = torch.zeros(N, dtype=torch.bool, device=th.device)
+        if mode == "shuffle":                                         # Baseline B: permute ± membership over the M effective samples (counts preserved)
+            n_pos = int((r > 0).sum()); n_neg = int((r < 0).sum()); sidx = _shuffle16(M, sd ^ 0x16B0)
+            pos = torch.zeros(M, dtype=torch.bool, device=th.device); neg = torch.zeros(M, dtype=torch.bool, device=th.device)
             if n_pos:
                 pos[torch.tensor(sidx[:n_pos], dtype=torch.long, device=th.device)] = True
             if n_neg:
@@ -2147,15 +2149,19 @@ def run_stream(P):
               "cn": max(1, min(nProbe, 4)), "multi": multi, "multi_ok": multi_ok}
     cubSt = cubic_init_state()
 
-    # ── §16: standalone curvature-aligned optimizer (own iteration axis i). Runs from θ₀ in float64 (MLP+MSE+small),
-    #    streams g16 records, then the normal GD loop below proceeds (for the other sections). Independent of the GD θ. ──
-    if P.get("s24", 0) and start == 0 and isinstance(_TL.model, MlpModel) and _TL.loss.name == "mse" and outD == 1 and p <= 40000 and Nfull <= 64:
-        th16 = th.double(); X16 = Xpool.double(); Y16 = Ypool.double()   # start==0: only on a FRESH run (don't re-stream §16 on resume ⇒ no double-curve)
+    # ── §16: standalone curvature-aligned optimizer (own iteration axis i). Runs from θ₀ in float64, streams g16 records,
+    #    then the normal GD loop below proceeds. Independent of the GD θ. MULTI-OUTPUT: the effective samples are the
+    #    M = N·d_out outputs (residual / Jacobian-row dimension), so cifar10 (d=10) / sorting-GPT (d=seqlen) work too. ──
+    M16 = Nfull * outD                                                   # effective samples = N·d_out
+    if (P.get("s24", 0) and start == 0 and _TL.loss.name == "mse"
+            and M16 <= 256 and M16 * p <= 300_000_000 and Nfull <= 64):  # any arch; gate on M=N·d (jac_cols = M backward) + M·p memory
+        th16 = th.double(); X16 = Xpool.double() if Xpool.is_floating_point() else Xpool   # start==0 only (no §16 re-stream on resume)
+        Y16 = Ypool.double() if Ypool.is_floating_point() else Ypool
         Xt16 = Yt16 = None
         if dataset == "chebyshev":                                       # §16 Panel 5 held-out test set
             Xt16, Yt16 = _sec16_chebyshev_testset(Nfull, P.get("degree", 3), torch.float64)
-        else:                                                            # synthetic / const get a fresh iid-Gaussian held-out set
-            Xt16, Yt16 = _sec16_holdout(dataset, Nfull, P, inD, outD)
+        elif dataset in ("synthetic", "const"):                          # synthetic / const get a fresh iid-Gaussian held-out set
+            Xt16, Yt16 = _sec16_holdout(dataset, Nfull, P, inD, outD)    # (cifar10 / sorting: no §16 test set yet ⇒ Panel 5 empty)
         for rec16 in _sec16_driver(th16, X16, Y16, lr, P.get("s24warm", 5), P.get("s24iter", 250),
                                    n, min(p, 24), P.get("seed", 0), 1e-12,
                                    P.get("s24grid", 0.1), P.get("s24ares", 0.01),

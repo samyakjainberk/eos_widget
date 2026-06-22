@@ -85,21 +85,22 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
     p = model.p
     N = X.shape[0]
     Yf = Y.reshape(-1)
+    M = Yf.numel()                                       # EFFECTIVE samples = N·d_out (residual / Jacobian-row dimension)
     Ytf = Ytest.reshape(-1) if Ytest is not None else None
     k = max(1, int(neig))
     mg = max(1, int(round(1.0 / max(1e-9, bgrid))))      # β,s search grid {0,1/mg,…,1} (bgrid = step); finer ⇒ more descent, costs mg² loss-evals
     grid = [i / mg for i in range(mg + 1)]
 
     def fwd(th):
-        return model.forward(th, X).reshape(-1)
+        return model.forward(th, X).reshape(-1)           # flat (M,) over all N·d_out outputs
 
     def resid(th):
-        return Yf - fwd(th)                                   # y − f(x)  (NOT f−y)
+        return Yf - fwd(th)                                   # y − f(x)  (NOT f−y)  (M,)
 
     def lossv(th, mask=None):
         out = fwd(th)
         if mask is None:
-            return float(loss.value(out, Yf, out.numel()))
+            return float(loss.value(out, Yf, N))              # full loss normalised by N input samples (matches the main GD)
         n = int(mask.sum())
         return float(loss.value(out[mask], Yf[mask], max(1, n))) if n else 0.0
 
@@ -172,8 +173,8 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
             u1, um1 = tv[0], bv[0]; sig1, sigm1 = tval[0], bval[0]
         if mode == "shuffle":                                # BASELINE B: permute ± set membership (keep counts; each sample keeps its real r_k)
             n_pos = int((r > 0).sum()); n_neg = int((r < 0).sum())
-            sidx = _shuffle_idx(N, sd ^ 0x16B0)
-            pos = torch.zeros(N, dtype=torch.bool, device=dev); neg = torch.zeros(N, dtype=torch.bool, device=dev)
+            sidx = _shuffle_idx(M, sd ^ 0x16B0)               # permute ± membership over the M effective samples
+            pos = torch.zeros(M, dtype=torch.bool, device=dev); neg = torch.zeros(M, dtype=torch.bool, device=dev)
             if n_pos:
                 pos[torch.tensor(sidx[:n_pos], dtype=torch.long, device=dev)] = True
             if n_neg:
