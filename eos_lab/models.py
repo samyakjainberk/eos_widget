@@ -52,6 +52,8 @@ def actf(name, z):
         return torch.tanh(z)
     if name == "elu":
         return torch.where(z > 0, z, torch.expm1(z))
+    if name == "quadratic":
+        return z * z
     return z
 
 

@@ -829,6 +829,8 @@ def actf(name, z):
         return torch.tanh(z)
     if name == "elu":
         return torch.where(z > 0, z, torch.expm1(z))
+    if name == "quadratic":
+        return z * z
     return z
 
 
@@ -838,6 +840,8 @@ def actd(name, z):
         return 1 - t * t
     if name == "elu":
         return torch.where(z > 0, torch.ones_like(z), torch.exp(z))
+    if name == "quadratic":
+        return 2 * z
     return torch.ones_like(z)
 
 

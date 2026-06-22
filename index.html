@@ -145,7 +145,7 @@
     <div class="grid">
       <div class="ctl"><label>depth (hidden layers)</label><input id="depth" type="number" value="4" min="1" max="12" step="1"></div>
       <div class="ctl"><label>width</label><input id="width" type="number" value="100" min="1" max="256" step="1"></div>
-      <div class="ctl"><label>activation</label><select id="act"><option value="linear" selected>linear</option><option value="tanh">tanh</option><option value="elu">elu</option></select></div>
+      <div class="ctl"><label>activation</label><select id="act"><option value="linear" selected>linear</option><option value="tanh">tanh</option><option value="elu">elu</option><option value="quadratic">quadratic (x²)</option></select></div>
       <div class="ctl"><label>bias</label><select id="bias"><option value="1">on</option><option value="0" selected>off</option></select></div>
       <div class="ctl"><label>data sampling</label><select id="fixedx"><option value="1" selected>fixed sample (x=1)</option><option value="0">iid Gaussian</option></select></div>
       <div class="ctl"><label>input std (iid)</label><input id="inputstd" type="number" value="1.0" min="0" step="0.1"></div>
@@ -602,8 +602,8 @@ function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a
 function gauss(rng){let u=0,v=0;while(u===0)u=rng();while(v===0)v=rng();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
 function dot(a,b){let s=0;for(let i=0;i<a.length;i++)s+=a[i]*b[i];return s;}
 function norm(a){return Math.sqrt(dot(a,a));}
-function actf(name,z){if(name==='tanh')return Math.tanh(z);if(name==='elu')return z>0?z:Math.expm1(z);return z;}
-function actd(name,z){if(name==='tanh'){const t=Math.tanh(z);return 1-t*t;}if(name==='elu')return z>0?1:Math.exp(z);return 1;}
+function actf(name,z){if(name==='tanh')return Math.tanh(z);if(name==='elu')return z>0?z:Math.expm1(z);if(name==='quadratic')return z*z;return z;}
+function actd(name,z){if(name==='tanh'){const t=Math.tanh(z);return 1-t*t;}if(name==='elu')return z>0?1:Math.exp(z);if(name==='quadratic')return 2*z;return 1;}
 
 function buildSpec(inDim,width,depth,act,useBias,outDim){
   const spec=[]; let off=0; let din=inDim;
@@ -3741,7 +3741,7 @@ function cmpHTML(pre, kind) {
     <div class="panel"><div class="panel-title">Model</div><div class="grid">
       ${C('depth', 'depth', 4, 1)}
       ${C('width', 'width', 100, 1)}
-      ${C('act', 'activation', '', '', [['linear', 'linear', 0], ['tanh', 'tanh', 1], ['elu', 'elu', 0]])}
+      ${C('act', 'activation', '', '', [['linear', 'linear', 0], ['tanh', 'tanh', 1], ['elu', 'elu', 0], ['quadratic', 'quadratic (x²)', 0]])}
       ${C('bias', 'bias', '', '', [['1', 'on', 0], ['0', 'off', 1]])}
       ${C('fixedx', 'data sampling', '', '', [['1', 'fixed (x=1)', 0], ['0', 'iid Gaussian', 1]])}
       ${C('inputstd', 'input std', 1.0, 0.1)}
