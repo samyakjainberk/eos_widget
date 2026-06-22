@@ -608,9 +608,10 @@ def _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, a
         sd = (int(seed) + 1000 * it) & 0x7FFFFFFF
         if it < warmup:                                                # standard GD warmup: θ ← θ + (lr/N)·Jᵀr (r=y−f; ADDED)
             real = metrics(th, sd)
+            upd = (lr / N) * (jac_cols(th, X)[0].t() @ resid(th))      # the warmup GD step (Panel 6: ‖update‖₂)
             yield {"i": it, "phase": "gd", "apos": None, "aneg": None, "beta": None, "scale": None, "tgd": None,
-                   "loss": real["L"], **pack(real)}
-            th = th + (lr / N) * (jac_cols(th, X)[0].t() @ resid(th)); continue
+                   "loss": real["L"], "unorm": {"pos": None, "neg": None, "mean": None, "beta": float(upd.norm())}, **pack(real)}
+            th = th + upd; continue
         r = resid(th); J = jac_cols(th, X)[0]
         if mode == "random":                                          # Baseline A: random unit vectors, KEEP σ₁/σ₋₁
             tH, bH = _lanc16_vals(Hbar(th), p, k, mlan, sd); sig1, sigm1 = tH[0], bH[0]
@@ -649,7 +650,9 @@ def _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, a
         look = {"pos": metrics(th + u_pos, sd + 1), "neg": metrics(th + u_neg, sd + 2),
                 "mean": metrics(th + u_mean, sd + 3), "beta": metrics(th + u_beta, sd + 4)}
         yield {"i": it, "phase": "sec16", "apos": a_pos, "aneg": a_neg, "beta": beta, "scale": scale, "tgd": tgd,
-               "loss": look["beta"]["L"], **pack(look["beta"], look)}
+               "loss": look["beta"]["L"],                              # Panel 6: ‖u_•‖₂ of each look-ahead update
+               "unorm": {"pos": float(u_pos.norm()), "neg": float(u_neg.norm()),
+                         "mean": float(u_mean.norm()), "beta": float(u_beta.norm())}, **pack(look["beta"], look)}
         th = th + u_beta                                               # ADVANCE — loss goes DOWN every iteration
         if lossv(th) < tol:
             break
@@ -669,6 +672,26 @@ def _sec16_chebyshev_testset(N, degree, dt):
     return xm.unsqueeze(1), y.unsqueeze(1)
 
 
+def _sec16_holdout(dataset, N, P, inD, outD):
+    """Held-out §16 test set for synthetic/const (fresh iid Gaussian X from the disjoint seed*7919+99991 stream;
+    MIRRORS eos_lab.make_test_set / index.html sec16Holdout). float64. Returns (None, None) when ill-defined
+    (fixed-input or sign-forced synthetic / sign-forced const → no clean held-out split, matches make_test_set)."""
+    if dataset not in ("synthetic", "const") or P.get("ssign", "off") != "off":
+        return None, None
+    if dataset == "synthetic" and P.get("fixedx", "0") == "1":
+        return None, None
+    trng = mulberry32(u32(int(P["seed"]) * 7919 + 99991))      # separate stream ⇒ disjoint from training (seed*7919+1)
+    tgt = float(P["tgt"]); inStd = float(P["inputstd"]); dev = _dev()
+    Xl = [[inStd * gauss(trng) for _ in range(int(inD))] for _ in range(int(N))]      # X drawn first, then Y (order matches make_test_set)
+    if dataset == "const":
+        cstd = max(0.0, float(P.get("cvar", 0.0))) ** 0.5
+        Yl = [[abs(tgt) + cstd * gauss(trng) for _ in range(int(outD))] for _ in range(int(N))]
+    else:
+        Yl = [[tgt * gauss(trng) for _ in range(int(outD))] for _ in range(int(N))]
+    return (torch.tensor(Xl, dtype=torch.float64, device=dev),
+            torch.tensor(Yl, dtype=torch.float64, device=dev))
+
+
 def _sec16_driver(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, baselines):
     """§16 main ('eig', GD-best-of) and, if `baselines`, two PURE-curvature trajectories — 'random' (A) and
     'shuffle' (B) — in lockstep from the SAME θ₀, attaching rec['bA']/rec['bB']."""
@@ -678,7 +701,7 @@ def _sec16_driver(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ar
         return
     gA = _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, "random", False)
     gB = _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, "shuffle", False)
-    sub = lambda r: {kk: r[kk] for kk in ("L", "Lt", "lH", "fH", "res")}
+    sub = lambda r: {kk: r[kk] for kk in ("L", "Lt", "lH", "fH", "res", "unorm")}
     for rec in gmain:
         rec = dict(rec); rec["bA"] = sub(next(gA)); rec["bB"] = sub(next(gB))
         yield rec
@@ -2102,6 +2125,8 @@ def run_stream(P):
         Xt16 = Yt16 = None
         if dataset == "chebyshev":                                       # §16 Panel 5 held-out test set
             Xt16, Yt16 = _sec16_chebyshev_testset(Nfull, P.get("degree", 3), torch.float64)
+        else:                                                            # synthetic / const get a fresh iid-Gaussian held-out set
+            Xt16, Yt16 = _sec16_holdout(dataset, Nfull, P, inD, outD)
         for rec16 in _sec16_driver(th16, X16, Y16, lr, P.get("s24warm", 5), P.get("s24iter", 250),
                                    n, min(p, 24), P.get("seed", 0), 1e-12,
                                    P.get("s24grid", 0.1), P.get("s24ares", 0.01),

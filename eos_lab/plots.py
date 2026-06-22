@@ -1450,6 +1450,17 @@ def plot_section16(recs):
                     ax[j].plot(it, yb, ls=bstyle, lw=1.2, color=(ACOL if bkey == "bA" else BCOL), label=blab)
             ax[j].set_title(f"held-out test loss — {slab[sc]}"); ax[j].set_xlabel("§16 iteration"); ax[j].grid(alpha=.3); ax[j].legend(fontsize=6)
         f5.suptitle("§16 Panel 5 — held-out test loss under each update"); f5.tight_layout(); figs["section16_panel5_testloss"] = f5
+    # Panel 6 — ℓ2 norm of the applied update at each look-ahead (single-line + baselines)
+    if any(r.get("unorm", {}).get("beta") is not None for r in recs):
+        f6, ax = plt.subplots(1, 4, figsize=(22, 4))
+        for j, sc in enumerate(scen):
+            ax[j].plot(it, [(r["unorm"][sc] if r.get("unorm", {}).get(sc) is not None else nn) for r in recs], "-o", ms=3, color="#7c3aed", label="main")
+            if has_base:
+                for bkey, blab, bstyle in BASES:
+                    yb = [((r[bkey]["unorm"][sc] if (bkey in r and r[bkey]["unorm"].get(sc) is not None) else nn)) for r in recs]
+                    ax[j].plot(it, yb, ls=bstyle, lw=1.2, color=(ACOL if bkey == "bA" else BCOL), label=blab)
+            ax[j].set_title(f"‖update‖₂ — {slab[sc]}"); ax[j].set_xlabel("§16 iteration"); ax[j].grid(alpha=.3); ax[j].legend(fontsize=6)
+        f6.suptitle("§16 Panel 6 — ℓ2 norm of the applied update ‖u‖₂"); f6.tight_layout(); figs["section16_panel6_updatenorm"] = f6
     return figs
 
 

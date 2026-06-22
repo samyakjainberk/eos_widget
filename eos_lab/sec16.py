@@ -152,10 +152,12 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
         sd = (seed + 1000 * it) & 0x7FFFFFFF
         if it < warmup:                                       # ── standard GD warmup ──
             real = metrics(th, sd)
-            yield {"i": it, "phase": "gd", "apos": None, "aneg": None, "beta": None, "scale": None, "tgd": None,
-                   "loss": real["L"], **pack(real)}
             J = jac_cols(model, th, X)[0]
-            th = th + (lr / N) * (J.t() @ resid(th))          # θ ← θ + (lr/N)·Jᵀr   (r = y−f; ADDED)
+            upd = (lr / N) * (J.t() @ resid(th))              # the warmup GD step θ ← θ + (lr/N)·Jᵀr (r = y−f; ADDED)
+            yield {"i": it, "phase": "gd", "apos": None, "aneg": None, "beta": None, "scale": None, "tgd": None,
+                   "loss": real["L"],                          # Panel 6: ‖update‖₂ — only the real (beta) path exists during warmup
+                   "unorm": {"pos": None, "neg": None, "mean": None, "beta": float(upd.norm())}, **pack(real)}
+            th = th + upd
             continue
         # ── §16 iteration ──
         r = resid(th)
@@ -202,7 +204,9 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
         look = {"pos": metrics(th + u_pos, sd + 1), "neg": metrics(th + u_neg, sd + 2),
                 "mean": metrics(th + u_mean, sd + 3), "beta": metrics(th + u_beta, sd + 4)}
         yield {"i": it, "phase": "sec16", "apos": a_pos, "aneg": a_neg, "beta": beta, "scale": scale, "tgd": tgd,
-               "loss": look["beta"]["L"], **pack(look["beta"], look)}
+               "loss": look["beta"]["L"],                       # Panel 6: ‖u_•‖₂ of each look-ahead update
+               "unorm": {"pos": float(u_pos.norm()), "neg": float(u_neg.norm()),
+                         "mean": float(u_mean.norm()), "beta": float(u_beta.norm())}, **pack(look["beta"], look)}
         th = th + u_beta                                      # ADVANCE (added); non-increasing (s=0 available)
         if lossv(th) < tol:
             break
@@ -234,7 +238,7 @@ def sec16_driver(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, to
     # baselines: PURE curvature (use_gd=False), never early-stop (tol=-1) so all three stay the same length (lockstep)
     gA = sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, "random", False)
     gB = sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, "shuffle", False)
-    sub = lambda r: {kk: r[kk] for kk in ("L", "Lt", "lH", "fH", "res")}
+    sub = lambda r: {kk: r[kk] for kk in ("L", "Lt", "lH", "fH", "res", "unorm")}
     for rec in gmain:
         rec = dict(rec)
         rec["bA"] = sub(next(gA)); rec["bB"] = sub(next(gB))

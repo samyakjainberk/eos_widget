@@ -453,6 +453,9 @@
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 5 — held-out <b>test-loss</b> evolution under each update (chebyshev only)</h3>
 <p class="cap">Same four update look-aheads, but the test loss on the held-out set (the $N{-}1$ midpoints of the training grid, labelled $T_{\rm degree}$) at $\theta+u_{\bullet}$. The two <b>dotted baselines</b> (A = random directions, B = shuffled ± sets) appear in this and every panel above when <b>§16 baselines</b> is enabled.</p>
 <div class="plotrow row4"><div id="p_s16_Ltpos" class="plot" style="height:290px"></div><div id="p_s16_Ltneg" class="plot" style="height:290px"></div><div id="p_s16_Ltmean" class="plot" style="height:290px"></div><div id="p_s16_Ltbeta" class="plot" style="height:290px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 6 — $\ell_2$ norm of the applied update $\lVert u_{\bullet}\rVert_2$ at each look-ahead</h3>
+<p class="cap">The $\ell_2$ norm of the weight update applied at each look-ahead point (Plots 1–4: $\lVert u_{\rm pos}\rVert,\lVert u_{\rm neg}\rVert,\lVert u_{\rm mean}\rVert,\lVert u_{\rm beta}\rVert$, matching Panel 1's four updates), for the main run plus the two <b>dotted baselines</b> (A = random directions, B = shuffled ± sets). During the GD-warmup phase only the real (beta) update exists.</p>
+<div class="plotrow row4"><div id="p_s16_nupos" class="plot" style="height:290px"></div><div id="p_s16_nuneg" class="plot" style="height:290px"></div><div id="p_s16_numean" class="plot" style="height:290px"></div><div id="p_s16_nubeta" class="plot" style="height:290px"></div></div>
 </div>
 
 <div id="sec_2">
@@ -2216,6 +2219,17 @@ function sec16Cheb(N,degree){   // §16 Panel 5 held-out test set — N−1 MIDP
   const d=degree|0;for(let i=0;i<m;i++){if(d<=0){Yt[i]=1;continue;}let t2=1,t1=xm[i];for(let kk=2;kk<=d;kk++){const t=2*xm[i]*t1-t2;t2=t1;t1=t;}Yt[i]=t1;}
   return {X:xm,Y:Yt,N:m};
 }
+function sec16Holdout(dataset,N,inDim,outDim,seed,tgt,inStd,fixedx,ssign,cvar){   // §16 Panel 5 held-out set for synthetic/const — MIRRORS eos_lab.make_test_set / server._sec16_holdout
+  if(ssign!=='off')return null;                                                   // sign-forced ⇒ no clean held-out split
+  if(dataset==='synthetic'&&fixedx==='1')return null;
+  if(dataset!=='synthetic'&&dataset!=='const')return null;
+  const rng=mulberry32((seed*7919+99991)>>>0);                                    // disjoint from training (seed*7919+1)
+  const X=new Float64Array(N*inDim),Y=new Float64Array(N*outDim);
+  for(let i=0;i<N*inDim;i++)X[i]=inStd*gauss(rng);                                // X drawn first, then Y (order matches make_test_set)
+  if(dataset==='const'){const cstd=Math.sqrt(Math.max(0,cvar));for(let i=0;i<N*outDim;i++)Y[i]=Math.abs(tgt)+cstd*gauss(rng);}
+  else{for(let i=0;i<N*outDim;i++)Y[i]=tgt*gauss(rng);}
+  return {X:X,Y:Y,N:N};
+}
 // mode: 'eig' (top/bottom eigvecs of H̄, true ± sets) · 'random' (two random unit vectors, KEEP σ₁/σ₋₁) ·
 //       'shuffle' (eigvecs, ± set membership permuted, counts kept). useGd: advance by best{curvature,GD} (main §16 — loss ↓)
 //       vs the PURE curvature step (baselines — genuinely separate trajectories). Xt/Yt/Nt: Panel-5 held-out test set (or null).
@@ -2238,8 +2252,11 @@ function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgri
   const recs=[];let th=th0.slice();
   for(let it=0;it<warmup+iters;it++){
     const sd=(seed+1000*it)&0x7FFFFFFF;
-    if(it<warmup){const real=metrics(th,sd);recs.push({i:it,phase:'gd',apos:null,aneg:null,beta:null,scale:null,tgd:null,loss:real.L,...pack(real,null)});
-      const J=jacCols(th,spec,X,N,inDim,p).cols,r=resid(th),g=new Float64Array(p);for(let a=0;a<N;a++)for(let q=0;q<p;q++)g[q]+=J[a][q]*r[a];const cc=lr/N;th=th.slice();for(let q=0;q<p;q++)th[q]+=cc*g[q];continue;}
+    if(it<warmup){const real=metrics(th,sd);
+      const J=jacCols(th,spec,X,N,inDim,p).cols,r=resid(th),g=new Float64Array(p);for(let a=0;a<N;a++)for(let q=0;q<p;q++)g[q]+=J[a][q]*r[a];const cc=lr/N;
+      let un=0;for(let q=0;q<p;q++){const u=cc*g[q];un+=u*u;}   // Panel 6: ‖warmup GD step‖₂
+      recs.push({i:it,phase:'gd',apos:null,aneg:null,beta:null,scale:null,tgd:null,loss:real.L,unorm:{pos:null,neg:null,mean:null,beta:Math.sqrt(un)},...pack(real,null)});
+      th=th.slice();for(let q=0;q<p;q++)th[q]+=cc*g[q];continue;}
     const r=resid(th),J=jacCols(th,spec,X,N,inDim,p).cols;
     let u1,um1,sig1,sigm1;
     if(mode==='random'){const fv=lanczosExtremeVals(Hbar(th),p,k,mlan,sd);sig1=fv.top[0];sigm1=fv.bot[0];   // BASELINE A: random unit vectors, KEEP σ₁/σ₋₁
@@ -2265,7 +2282,8 @@ function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgri
       if(lossM(_addV(th,uGd),null)<lossM(_addV(th,uSec16),null)){uBeta=uGd;tgd=tGd;}else{uBeta=uSec16;tgd=0;}   // GD when §16 step doesn't help (else tgd=0)
     }else{uBeta=uSec16;tgd=0;}   // baseline: PURE curvature step (no GD fallback) ⇒ a genuinely separate trajectory
     const look={pos:metrics(_addV(th,uPos),sd+1),neg:metrics(_addV(th,uNeg),sd+2),mean:metrics(_addV(th,uMean),sd+3),beta:metrics(_addV(th,uBeta),sd+4)};
-    recs.push({i:it,phase:'sec16',apos,aneg,beta,scale,tgd,loss:look.beta.L,...pack(look.beta,look)});
+    const _n2=v=>{let s=0;for(let q=0;q<p;q++)s+=v[q]*v[q];return Math.sqrt(s);};   // Panel 6: ‖u_•‖₂
+    recs.push({i:it,phase:'sec16',apos,aneg,beta,scale,tgd,loss:look.beta.L,unorm:{pos:_n2(uPos),neg:_n2(uNeg),mean:_n2(uMean),beta:_n2(uBeta)},...pack(look.beta,look)});
     th=_addV(th,uBeta);
     if(lossM(th,null)<tol)break;
   }
@@ -2278,7 +2296,7 @@ function sec16Driver(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,b
   if(!baselines){for(const rec of gmain)push({type:'g16',...rec});return;}
   const gA=sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,-1,bgrid,ares,Xt,Yt,Nt,'random',false,push);
   const gB=sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,-1,bgrid,ares,Xt,Yt,Nt,'shuffle',false,push);
-  const sub=r=>({L:r.L,Lt:r.Lt,lH:r.lH,fH:r.fH,res:r.res});
+  const sub=r=>({L:r.L,Lt:r.Lt,lH:r.lH,fH:r.fH,res:r.res,unorm:r.unorm});
   for(let i=0;i<gmain.length;i++){const rec={...gmain[i]};if(i<gA.length)rec.bA=sub(gA[i]);if(i<gB.length)rec.bB=sub(gB[i]);push({type:'g16',...rec});}
 }
 // ── §16 render: Panel 1 (5 plots) + Panels 2/3/4/5 (4 plots each) ──
@@ -2286,17 +2304,19 @@ function sec16Driver(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,b
 // B = shuffled ± sets (dash 'dashdot') — appended after the main traces in a fixed order so restyle stays aligned.
 const S16_IDS=['p_s16_Lpos','p_s16_Lneg','p_s16_Lmean','p_s16_Lbeta','p_s16_coef',
   'p_s16_lHpos','p_s16_lHneg','p_s16_lHmean','p_s16_lHbeta','p_s16_fHpos','p_s16_fHneg','p_s16_fHmean','p_s16_fHbeta',
-  'p_s16_rpos','p_s16_rneg','p_s16_rmean','p_s16_rbeta','p_s16_Ltpos','p_s16_Ltneg','p_s16_Ltmean','p_s16_Ltbeta'];
+  'p_s16_rpos','p_s16_rneg','p_s16_rmean','p_s16_rbeta','p_s16_Ltpos','p_s16_Ltneg','p_s16_Ltmean','p_s16_Ltbeta',
+  'p_s16_nupos','p_s16_nuneg','p_s16_numean','p_s16_nubeta'];
 let S16_BUILT=false,S16_DATA=null,S16_K=3,S16_N=0,S16_BASE=false;
 const S16_SCEN=['pos','neg','mean','beta'],S16_SLAB={pos:'pos-only',neg:'neg-only',mean:'mean',beta:'best (β,s)'};
 const S16_TOPC=['#08306b','#2563eb','#80b1ff'],S16_BOTC=['#67000d','#dc2626','#fca5a5'];
 const S16_ACOL='#0891b2',S16_BCOL='#f59e0b';   // baseline A (random) / B (shuffled) accent colours for single-line panels
-function s16Store(K,Nn){const s={L:{},Lt:{},lH:{},fHt:{},fHb:{},res:{}};
-  for(const sc of S16_SCEN){s.L[sc]=[];s.Lt[sc]=[];s.lH[sc]=Array.from({length:K},()=>[]);s.fHt[sc]=Array.from({length:K},()=>[]);s.fHb[sc]=Array.from({length:K},()=>[]);s.res[sc]=Array.from({length:Nn},()=>[]);}return s;}
+function s16Store(K,Nn){const s={L:{},Lt:{},nu:{},lH:{},fHt:{},fHb:{},res:{}};
+  for(const sc of S16_SCEN){s.L[sc]=[];s.Lt[sc]=[];s.nu[sc]=[];s.lH[sc]=Array.from({length:K},()=>[]);s.fHt[sc]=Array.from({length:K},()=>[]);s.fHb[sc]=Array.from({length:K},()=>[]);s.res[sc]=Array.from({length:Nn},()=>[]);}return s;}
 function s16Acc(store,src,K,Nn){   // append one iteration of metrics from `src` (a record or a bA/bB sub-record)
   for(const sc of S16_SCEN){
     store.L[sc].push(src&&src.L&&src.L[sc]!=null?src.L[sc]:null);
     store.Lt[sc].push(src&&src.Lt&&src.Lt[sc]!=null?src.Lt[sc]:null);
+    store.nu[sc].push(src&&src.unorm&&src.unorm[sc]!=null?src.unorm[sc]:null);
     const lh=src&&src.lH&&src.lH[sc],fh=src&&src.fH&&src.fH[sc],rs=src&&src.res&&src.res[sc];
     for(let j=0;j<K;j++){store.lH[sc][j].push(lh?lh[j]:null);store.fHt[sc][j].push(fh?fh.top[j]:null);store.fHb[sc][j].push(fh?fh.bot[j]:null);}
     for(let j=0;j<Nn;j++)store.res[sc][j].push(rs?rs[j]:null);
@@ -2329,6 +2349,8 @@ function s16Build(m){
   for(const sc of S16_SCEN)mk('p_s16_r'+sc,rtr(),'per-sample residual r=y−f — '+S16_SLAB[sc],'residual');
   // Panel 5 — held-out test loss under each update (single-line + baselines)
   for(const sc of S16_SCEN)mkA('p_s16_Lt'+sc,oneTr('test loss'),'held-out test loss — '+S16_SLAB[sc]+' update','test loss');
+  // Panel 6 — ℓ2 norm of the applied update (single-line + baselines)
+  for(const sc of S16_SCEN)mkA('p_s16_nu'+sc,oneTr('‖update‖₂'),'‖update‖₂ — '+S16_SLAB[sc]+' update','‖update‖₂');
 }
 function s16Push(m){
   if(m.i===0 && S16_DATA && S16_DATA.i.length){s16Reset();}   // a fresh §16 run (iteration index reset to 0) → clear stale data so the curve can't double back over a previous run
@@ -2345,8 +2367,10 @@ function s16Push(m){
     // Panel 1 & 5 — single-line loss / test-loss (+ A,B baselines)
     const yL=S16_BASE?[D.main.L[sc],D.bA.L[sc],D.bB.L[sc]]:[D.main.L[sc]];
     const yLt=S16_BASE?[D.main.Lt[sc],D.bA.Lt[sc],D.bB.Lt[sc]]:[D.main.Lt[sc]];
+    const ynu=S16_BASE?[D.main.nu[sc],D.bA.nu[sc],D.bB.nu[sc]]:[D.main.nu[sc]];
     Plotly.restyle('p_s16_L'+sc,{x:xs(yL.length),y:yL});
     Plotly.restyle('p_s16_Lt'+sc,{x:xs(yLt.length),y:yLt});
+    Plotly.restyle('p_s16_nu'+sc,{x:xs(ynu.length),y:ynu});
     // Panel 2 — loss-Hessian top-k (+ A,B)
     const ylH=S16_BASE?cat(D.main.lH[sc],D.bA.lH[sc],D.bB.lH[sc]):D.main.lH[sc];
     Plotly.restyle('p_s16_lH'+sc,{x:xs(ylH.length),y:ylH});
@@ -2825,7 +2849,8 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   // §16: standalone curvature-aligned optimizer (browser compute). Runs ONCE from θ₀ (synchronous; gated to small MLP+MSE+scalar).
   if(opt.s24 && val('arch')==='mlp' && val('loss')==='mse' && outDim===1 && p<=40000 && N<=64){
     s16Reset();
-    const cb16=(val('dataset')==='chebyshev')?sec16Cheb(N,Math.max(1,+val('degree')||3)):null;   // Panel-5 held-out test set
+    const cb16=(val('dataset')==='chebyshev')?sec16Cheb(N,Math.max(1,+val('degree')||3))   // Panel-5 held-out test set (chebyshev midpoints; synthetic/const fresh iid-Gaussian)
+              :sec16Holdout(val('dataset'),N,inDim,outDim,+val('seed')||0,+val('tgt'),+val('inputstd'),val('fixedx'),val('ssign'),+val('cvar')||0);
     try{ sec16Driver(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||250),n,Math.min(p,24),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),cb16&&cb16.X,cb16&&cb16.Y,cb16&&cb16.N,chk('en24base'),s16Push); }
     catch(e){ console.error('§16 error',e); }
   }
