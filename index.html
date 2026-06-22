@@ -3417,10 +3417,19 @@ async function _gifPass(files){
 async function downloadPlots(){
   const st=document.getElementById('status'),prev=st?st.textContent:'';
   const files=[];let i=1;
-  for(const id of PLOT_IDS){const gd=document.getElementById(id);
-    if(!gd||!gd._fullLayout||gd.offsetParent===null)continue;             // visible + initialized plots only
-    let t=(gd.layout&&gd.layout.title&&gd.layout.title.text)||id;
-    t=String(t).replace(/<[^>]*>/g,'').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,56)||id;
+  // _gifPass (below) OWNS these: the GIF-animated cubes/heatmaps/square AND the static companion panels it
+  // PNG-exports (§12 evo/proj/hist, §13, §14). Skip them in the generic sweep so nothing exports twice.
+  const gifOwned=new Set(['p_g3d1','p_g3d2','p_g3d3','p_g3d4','p_s12ang_0','p_s12ang_1','p_s12ang_2','p_s12ang_3']
+    .concat(typeof s12EvoIds==='function'?s12EvoIds():[]).concat(typeof s12ProjIds==='function'?s12ProjIds():[])
+    .concat(typeof s12HistIds==='function'?s12HistIds():[]).concat(typeof s13Ids==='function'?s13Ids():[])
+    .concat(typeof s14CubeIds==='function'?s14CubeIds():[]).concat(typeof s14RatioIds==='function'?s14RatioIds():[]));
+  const is3d=gd=>{const fl=gd._fullLayout;return !!(fl&&(fl.scene||(fl._has&&fl._has('gl3d'))));};   // 3D/WebGL scenes go through _gifPass (toImage on them is fragile + exhausts the WebGL budget)
+  // Export EVERY visible, initialized 2D Plotly panel in document (top-to-bottom) order — not just PLOT_IDS — so
+  // §11–§16 and the §12 sub-panels (gproj/wproj/dal/xp) are included too. (Previously only PLOT_IDS = §1–§10 was swept.)
+  for(const gd of document.querySelectorAll('div.plot')){
+    if(!gd||!gd._fullLayout||gd.offsetParent===null||gifOwned.has(gd.id)||is3d(gd))continue;   // visible + initialized 2D, not _gifPass-owned
+    let t=(gd.layout&&gd.layout.title&&gd.layout.title.text)||gd.id;
+    t=String(t).replace(/<[^>]*>/g,'').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,56)||gd.id;
     if(st)st.textContent='exporting plots… '+i;
     try{const durl=await Plotly.toImage(gd,{format:'png',scale:2,width:gd._fullLayout.width||640,height:gd._fullLayout.height||320});
       files.push({name:String(i).padStart(2,'0')+'_'+t+'.png',data:_b64bytes(durl)});i++;}catch(e){}
