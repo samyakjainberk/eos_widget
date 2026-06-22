@@ -1359,13 +1359,13 @@ def plot_section15_panel6(hist):
     cols = ["#2563eb", "#16a34a", "#d97706", "#0891b2", "#7c3aed"]
     fig, axs = plt.subplots(1, 4, figsize=(22, 3.8))
     for ax, (key, title, labels) in zip(axs, plots):
-        series = [[r["g15"][key][j] for r in recs] for j in range(len(labels))]
+        series = [[abs(r["g15"][key][j]) for r in recs] for j in range(len(labels))]   # |value| (log axis spans the chain's many OOM)
         for j, (lab, ys) in enumerate(zip(labels, series)):
-            term = lab in ("II", "III", "|II|")
-            ax.plot(t, ys, color=("#111827" if lab in ("II", "III") else cols[j % len(cols)]),
-                    lw=1.7, ls=("--" if lab in ("II", "III") else "-"), label=lab)
-        ax.axhline(0, c="#999", lw=0.6); ax.legend(fontsize=7); ax.set_title(title, fontsize=10)
-        ax.set_xlabel("step"); ax.set_ylabel("value")
+            isterm = lab in ("II", "III")
+            ax.plot(t, ys, color=("#111827" if isterm else cols[j % len(cols)]),
+                    lw=1.7, ls=("--" if isterm else "-"), label=("|%s|" % lab if isterm else lab))
+        ax.set_yscale("log"); ax.legend(fontsize=7); ax.set_title(title, fontsize=10)
+        ax.set_xlabel("step"); ax.set_ylabel("|value| (log)")
     fig.suptitle("§15 panel 6 — chained-contraction norms building terms II and III", fontsize=13)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     return fig
