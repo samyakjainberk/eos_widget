@@ -56,6 +56,15 @@
   .btn-resume{background:#fff;color:#15803d;border:1px solid #22c55e}
   .btn-resume:hover{background:#f0fdf4} .btn-resume:disabled{opacity:.45;cursor:default}
   .steps{font-family:var(--mono);font-size:12px;color:#1f2937;background:#eef1f6;padding:5px 9px;border-radius:7px}
+  /* master time-scrubber: a sticky bar that rewinds ALL time-series plots together */
+  .scrubbar{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:12px;
+    padding:9px 16px;margin:10px 0 6px;background:rgba(255,255,255,0.97);backdrop-filter:blur(6px);
+    border:1px solid var(--line);border-radius:10px;box-shadow:0 2px 10px rgba(16,24,40,.08)}
+  .scrubbar .scrublabel{font-family:var(--sans);font-size:12.5px;font-weight:700;color:#374151;white-space:nowrap}
+  .scrubbar input[type=range]{flex:1;height:5px;accent-color:var(--accent);cursor:pointer;min-width:120px}
+  .scrubbar .scrubread{font-family:var(--mono);font-size:12px;color:#1f2937;background:#eef1f6;padding:4px 10px;border-radius:7px;min-width:150px;text-align:center;white-space:nowrap}
+  .scrubbar .scrub-live{padding:6px 13px;font-size:12px;white-space:nowrap}
+  .scrubbar.scrubbed{background:#fff7ed;border-color:#fdba74}   /* tint amber while rewound, so it's obvious the view is frozen in the past */
   .parambadge{font-family:var(--mono);font-size:12px;color:#fff;background:var(--accent);padding:5px 9px;border-radius:7px;font-weight:600;white-space:nowrap}
   .parambadge.approx{background:#64748b}
   .secparams{font-family:var(--mono);font-size:12px;font-weight:600;color:#1f2937;background:#eef1f6;padding:2px 8px;border-radius:6px;margin-left:10px;vertical-align:middle}
@@ -232,6 +241,14 @@
 </div>
 
 <hr>
+
+<div class="scrubbar" id="scrubbar">
+  <span class="scrublabel">⏱ time</span>
+  <input type="range" id="timescrub" min="0" max="1000" value="1000" step="1"
+    title="Master time scrubber — drag LEFT to rewind every time-series plot together and replay how they evolved over the run; full-right = live (latest). Affects only step / iteration plots (not the spectral-density / 3D-grid panels, whose x-axis isn't time).">
+  <span class="scrubread" id="scrubread">live (latest)</span>
+  <button class="btn-reset scrub-live" id="scrublive" title="Jump back to the live (latest) view">live ▸</button>
+</div>
 
 <div id="sec_1">
 <h2>1 · Loss, sharpness, residual, and the spectral edges of $H$<span class="secparams" id="secp1"></span></h2>
@@ -2409,6 +2426,7 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_s16');if(el){const vis=chk('en24');el.style.display=vis?'':'none';   // §16 standalone optimizer (own toggle en24)
     if(vis)requestAnimationFrame(()=>{for(const id of S16_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}   // re-size §16 plots when the section becomes visible
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
+  if(typeof SCRUB_FRAC!=='undefined'&&SCRUB_FRAC<1)requestAnimationFrame(()=>applyTimeScrub(SCRUB_FRAC));   // keep a just-shown section's plots at the current rewound position
 }
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   resetPlotDecim();   // fresh decimation state for this run (bounds plotted points → no progressive hang)
@@ -2554,6 +2572,38 @@ function resizeAllPlots(){
   requestAnimationFrame(go); setTimeout(go,60);
 }
 window.addEventListener('resize',()=>{if(typeof PLOT_IDS!=='undefined')resizeAllPlots();});
+
+// ===================== master time-scrubber =====================
+// One slider rewinds EVERY time-series plot together (x = GD step / §16 iteration), so you can replay how the
+// whole widget evolved. Detection is by x-axis title (/step|iter/i) ⇒ density/3D/heatmap panels (x = eigenvalue
+// / i / j) are left untouched. Each plot is windowed to the SAME FRACTION of its own timeline, so the step-axis
+// and the (independent) §16-iteration plots stay in sync proportionally. At 100% every plot is autorange ⇒ live.
+let SCRUB_FRAC=1;
+function _scrubable(gd){const ax=gd&&gd._fullLayout&&gd._fullLayout.xaxis,t=ax&&ax.title&&ax.title.text;return !!(t&&/step|iter/i.test(t));}
+function _xExtent(gd){let lo=Infinity,hi=-Infinity;for(const tr of (gd.data||[])){const x=tr.x;if(!x||!x.length)continue;const a=x[0],b=x[x.length-1];if(a!=null&&a<lo)lo=a;if(b!=null&&b>hi)hi=b;}return lo===Infinity?null:[lo,hi];}
+function applyTimeScrub(frac){
+  SCRUB_FRAC=frac; const live=frac>=0.999;
+  const bar=document.getElementById('scrubbar'); if(bar)bar.classList.toggle('scrubbed',!live);
+  let repHi=null,repMax=null;
+  document.querySelectorAll('div.plot').forEach(gd=>{
+    if(!gd._fullLayout||gd.offsetParent===null||!_scrubable(gd))return;   // visible time-series plots only
+    if(live){try{Plotly.relayout(gd,{'xaxis.autorange':true});}catch(e){}return;}
+    const ex=_xExtent(gd); if(!ex||ex[1]<=ex[0])return;
+    const hi=ex[0]+frac*(ex[1]-ex[0]);
+    try{Plotly.relayout(gd,{'xaxis.range':[ex[0],hi],'xaxis.autorange':false});}catch(e){}
+    if(repHi===null){repHi=hi;repMax=ex[1];}   // first time-series plot (loss curve) drives the readout
+  });
+  const read=document.getElementById('scrubread');
+  if(read)read.textContent=live?'live (latest)':`t ≈ ${repHi!=null?Math.round(repHi):'—'} / ${repMax!=null?Math.round(repMax):'—'}  ·  ${Math.round(frac*100)}%`;
+}
+function resetScrub(){const sl=document.getElementById('timescrub');if(sl)sl.value=sl.max;applyTimeScrub(1);}   // back to live (call on a fresh run)
+(function _wireScrub(){
+  const sl=document.getElementById('timescrub'); if(!sl)return;
+  let raf=0; const now=()=>applyTimeScrub((+sl.value)/(+sl.max||1));
+  sl.addEventListener('input',()=>{if(raf)return;raf=requestAnimationFrame(()=>{raf=0;now();});});   // rAF-throttle: one relayout sweep per frame while dragging
+  sl.addEventListener('change',now);
+  const lv=document.getElementById('scrublive'); if(lv)lv.addEventListener('click',resetScrub);
+})();
 const reps=(cnt,t)=>Array.from({length:cnt},()=>[t]);
 const colsOf=(cnt,arr)=>Array.from({length:cnt},(_,i)=>[arr[i]]);
 const ids=(cnt)=>Array.from({length:cnt},(_,i)=>i);
@@ -3292,6 +3342,7 @@ async function loop(){                                   // drives ST forward; r
 }
 function resetSim(){
   ABORT=true;PAUSED=false;ST=null;cursorX=null;
+  if(typeof resetScrub==='function')resetScrub();            // drop any rewound view
   if(ES){ES.close();ES=null;} lastT=-1;META=null;            // also drop any GPU stream
   document.getElementById('sps').textContent='steps/sec: —';
   document.getElementById('status').textContent='reset.';
@@ -3525,6 +3576,7 @@ function resumeGPU(){ if(!META||RUNNING)return;
 
 // ---- dispatchers: pick the backend by #compute ----
 async function run(){
+  if(typeof resetScrub==='function')resetScrub();   // a fresh run starts live (don't leave the view frozen at an old scrub position)
   if(curMode()==='gpu'){ if(RUNNING&&ST){ABORT=true;await new Promise(r=>setTimeout(r,40));} ST=null; runGPU(); }
   else { if(ES){ES.close();ES=null;} META=null;lastT=-1; await runLocal(); }
 }
