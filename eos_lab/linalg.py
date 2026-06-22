@@ -686,6 +686,7 @@ def sec15_panel34(hvp_at, th_tm2, Jt, Jtm1, Jtm2, rtm1, rtm2, u1, A, B, rec, lr,
       A'[j,i] = A[j,i] + c²·Σ_k ∇f_{t,k}ᵀ T_{t-2,k}[·,∇f_{t-1,j},∇f_{t-2,i}]  (and B' the u₁-projected analogue).
     Costs 2N²+2 HVP evaluations (the A'/B' matrices dominate)."""
     c = lr / N; c2 = c * c
+    Ne = Jt.shape[0]                                          # effective samples = N·d_out (A',B' are Ne×Ne); c uses N input samples
     g1 = Jtm1.t() @ rtm1; g2 = Jtm2.t() @ rtm2
     b = u1 @ Jt                                              # Σ_k u₁ₖ ∇f_{t,k}  (p,)
     # ── scalars VII, VIII: directional derivative of {Q_k·g₁} along g₂ (share Hp/Hm) ──
@@ -693,11 +694,11 @@ def sec15_panel34(hvp_at, th_tm2, Jt, Jtm1, Jtm2, rtm1, rtm2, u1, A, B, rec, lr,
     VII = c2 * float((Jt * dQg1).sum())
     VIII = c2 * float((b * (u1 @ dQg1)).sum())
     # ── matrices A'−A, B'−B: T_{t-2,k}[·, ∇f_{t-1,j}, ∇f_{t-2,i}] over all (i,j) ──
-    dA = torch.zeros(N, N, dtype=Jt.dtype, device=Jt.device)
-    dB = torch.zeros(N, N, dtype=Jt.dtype, device=Jt.device)
-    for i in range(N):
+    dA = torch.zeros(Ne, Ne, dtype=Jt.dtype, device=Jt.device)
+    dB = torch.zeros(Ne, Ne, dtype=Jt.dtype, device=Jt.device)
+    for i in range(Ne):
         thp = th_tm2 + eps * Jtm2[i]; thm = th_tm2 - eps * Jtm2[i]
-        for j in range(N):
+        for j in range(Ne):
             d = (hvp_at(thp, Jtm1[j]) - hvp_at(thm, Jtm1[j])) / (2.0 * eps)   # {T_{t-2,k}[·,∇f_{t-1,j},∇f_{t-2,i}]}_k
             dA[j, i] = (Jt * d).sum()
             dB[j, i] = (b * (u1 @ d)).sum()

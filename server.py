@@ -519,13 +519,14 @@ def _sec15_panel34(hvp_at, th_tm2, Jt, Jtm1, Jtm2, rtm1, rtm2, u1, A, B, rec, lr
     eos_lab.linalg.sec15_panel34 / index.html sec15Panel34. `hvp_at(theta,v)`={Q_k(theta)·v}_k at any theta;
     a directional FD of it gives T_{t-2,k}. Costs 2N²+2 HVP evals."""
     c = lr / N; c2 = c * c
+    Ne = Jt.shape[0]                                          # effective samples = N·d_out (A',B' are Ne×Ne)
     g1 = Jtm1.t() @ rtm1; g2 = Jtm2.t() @ rtm2; b = u1 @ Jt
     dQg1 = (hvp_at(th_tm2 + eps * g2, g1) - hvp_at(th_tm2 - eps * g2, g1)) / (2.0 * eps)
     VII = c2 * float((Jt * dQg1).sum()); VIII = c2 * float((b * (u1 @ dQg1)).sum())
-    dA = torch.zeros(N, N, dtype=Jt.dtype, device=Jt.device); dB = torch.zeros(N, N, dtype=Jt.dtype, device=Jt.device)
-    for i in range(N):
+    dA = torch.zeros(Ne, Ne, dtype=Jt.dtype, device=Jt.device); dB = torch.zeros(Ne, Ne, dtype=Jt.dtype, device=Jt.device)
+    for i in range(Ne):
         thp = th_tm2 + eps * Jtm2[i]; thm = th_tm2 - eps * Jtm2[i]
-        for j in range(N):
+        for j in range(Ne):
             d = (hvp_at(thp, Jtm1[j]) - hvp_at(thm, Jtm1[j])) / (2.0 * eps)
             dA[j, i] = (Jt * d).sum(); dB[j, i] = (b * (u1 @ d)).sum()
     Aptop, Apbot, Apstat, Apeig = _eig_stats15(A + c2 * dA)
@@ -2714,9 +2715,9 @@ def run_stream(P):
                         sec14 = _sec14_payload(sec14_prev, cur14, lr, grid3dcap, sec14_rhist)
                     sec14_prev = {kk_: vv_.detach() for kk_, vv_ in cur14.items()}
 
-            if s23 and N <= grid3dcap and Jc is not None and rr is not None:   # §15: 2nd-difference decomposition (own toggle; multi OR single sample, small-N, holds 3 ticks)
-                lblsel15 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
-                            if outD > 1 else torch.arange(N, device=_dev()))
+            if s23 and (N * outD) <= grid3dcap and Jc is not None and rr is not None:   # §15: 2nd-difference decomposition (multi OR single sample; effective samples M=N·d_out, A/B are M×M)
+                M15 = N * outD                                                # EFFECTIVE samples = N·d_out
+                lblsel15 = torch.arange(M15, device=_dev())                   # ALL N·d_out outputs are the effective samples (not just the GT-label)
                 # §15 in float64: the FD 2nd-difference D² is precision-critical at tiny ‖J‖² scales (e.g. chebyshev), where
                 # float32 cancellation noise dominates the divergence. MLP forward is dtype-pure ⇒ safe to recompute in f64.
                 f64_15 = isinstance(_TL.model, MlpModel) and DTYPE != torch.float64
@@ -2730,30 +2731,30 @@ def run_stream(P):
                 Jg15 = (_TL.model.jac_cols(th15, X15)[0][lblsel15] if f64_15 else Jc[lblsel15])
                 r15 = (rr[lblsel15].double() if f64_15 else rr[lblsel15])
                 # ---- panel 5: per-sample NORM evolution (mean ± std across the N samples), at the current step t ----
-                jn15 = Jg15.norm(dim=1); rn15 = r15.abs(); gn15 = rn15 * jn15
-                acc15 = torch.zeros(N, dtype=DTYPE, device=_dev())   # ‖Q_{t,k}‖_F via Hutchinson: E_v‖Q_k v‖²=tr(Q_k²)
+                jn15 = Jg15.norm(dim=1); rn15 = r15.abs(); gn15 = rn15 * jn15   # per-effective-sample (M) norms
+                acc15 = torch.zeros(M15, dtype=DTYPE, device=_dev())   # ‖Q_{t,k}‖_F via Hutchinson: E_v‖Q_k v‖²=tr(Q_k²)
                 for pr in range(4):
                     Qv15 = jac_hvp(th15, X15, _randn_vec(p, (0x5EC15 + pr * 0x9E3779B1) & 0xFFFFFFFF))[lblsel15]
                     acc15 = acc15 + (Qv15 * Qv15).sum(dim=1)
                 hn15 = torch.sqrt(acc15 / 4.0)
                 _ms15 = lambda x: [float(x.mean()), float(x.std(unbiased=False))]
                 sec15n = {"g": _ms15(gn15), "j": _ms15(jn15), "h": _ms15(hn15), "r": _ms15(rn15)}
-                # ---- new Panel B: per-sample top/bottom-eigvec projection ratio of ∇f_i on its own Q_i (current step) ----
-                mB15 = min(p, 48); seedsB15 = [(0x5EC15B + i * 7919) & 0x7FFFFFFF for i in range(N)]
+                # ---- new Panel B: per-EFFECTIVE-sample top/bottom-eigvec projection ratio of ∇f_k on its own Q_k (k = one of M=N·d outputs) ----
+                mB15 = min(p, 48); seedsB15 = [(0x5EC15B + k * 7919) & 0x7FFFFFFF for k in range(M15)]
                 if arch == "mlp":
                     import torch.func as _tf
-                    lblB15 = (Y.reshape(N, outD).argmax(dim=1) if outD > 1 else torch.zeros(N, dtype=torch.long, device=_dev()))
-                    OHB15 = torch.zeros(N, outD, dtype=X15.dtype, device=_dev()); OHB15[torch.arange(N, device=_dev()), lblB15] = 1.0
+                    XrepB = X15.repeat_interleave(outD, dim=0)                 # (M,indim): input for effective sample k = X[k//d_out]
+                    OHB15 = torch.eye(outD, dtype=X15.dtype, device=_dev()).repeat(N, 1)   # (M,d_out): row k one-hot at output c=k%d_out
                     specB15 = _TL.model.spec
                     def _fB15(tt, x, oh): return (fwd(tt, specB15, x.unsqueeze(0))[0].reshape(-1) * oh).sum()
                     def _hvB15(tt, x, oh, v): return _tf.jvp(lambda q: _tf.grad(_fB15)(q, x, oh), (tt,), (v,))[1]
-                    hvpB15 = lambda V: _tf.vmap(_hvB15, in_dims=(None, 0, 0, 0))(th15, X15, OHB15, V)
-                    TVb15, TWb15, BVb15, BWb15 = batched_lanczos_extreme(hvpB15, p, N, 1, mB15, seedsB15, dt=X15.dtype)
-                else:
+                    hvpB15 = lambda V: _tf.vmap(_hvB15, in_dims=(None, 0, 0, 0))(th15, XrepB, OHB15, V)
+                    TVb15, TWb15, BVb15, BWb15 = batched_lanczos_extreme(hvpB15, p, M15, 1, mB15, seedsB15, dt=X15.dtype)
+                else:                                                         # non-MLP (cifar conv / sorting GPT): per-effective-sample Lanczos with a single-output cotangent
                     TVl = []; TWl = []; BVl = []; BWl = []
-                    for i in range(N):
-                        ci = torch.zeros(N, outD, dtype=X15.dtype, device=_dev()); ci.view(-1)[int(lblsel15[i])] = 1.0
-                        tv, bv, tw, bw = lanczos_extreme(lambda v, ci=ci: hvpS(th15, X15, v, ci), p, 1, mB15, seedsB15[i], dt=X15.dtype)
+                    for k in range(M15):
+                        ck = torch.zeros(N * outD, dtype=X15.dtype, device=_dev()); ck[k] = 1.0; ck = ck.reshape(N, outD)
+                        tv, bv, tw, bw = lanczos_extreme(lambda v, ck=ck: hvpS(th15, X15, v, ck), p, 1, mB15, seedsB15[k], dt=X15.dtype)
                         TVl.append(torch.stack(tv)); BVl.append(torch.stack(bv))
                         TWl.append(torch.tensor(tw, dtype=X15.dtype, device=_dev())); BWl.append(torch.tensor(bw, dtype=X15.dtype, device=_dev()))
                     TVb15, TWb15, BVb15, BWb15 = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)

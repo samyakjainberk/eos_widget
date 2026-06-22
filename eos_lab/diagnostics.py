@@ -673,15 +673,15 @@ class Diagnostics:
                 self._sec14_prev = {k_: v_.detach() for k_, v_ in cur14.items()}
 
         # ---- §15: 2nd-difference decomposition of ‖J‖²_F & σ₁ (own toggle; multi-only, small-N, holds 3 ticks) ----
-        if self.s23 and N <= self.grid3dcap and Jc is not None and rr is not None:   # §15 — multi OR single sample (N≥1); small-N, holds 3 ticks
-            lblsel15 = (torch.arange(N, device=dev) * outD + Y.reshape(N, outD).argmax(dim=1)
-                        if outD > 1 else torch.arange(N, device=dev))
-            Jg15 = Jc[lblsel15]; r15 = rr[lblsel15]                # (N,p) GT-grads ∇f_i ; (N,) residual r=y−f
-            # ---- panel 5: per-sample NORM evolution (mean ± std across the N samples), at the current step t ----
-            jn15 = Jg15.norm(dim=1)                                # ‖∇f_k‖   (per-sample Jacobian-row norm)
-            rn15 = r15.abs()                                       # |r_k|    (per-sample residual)
-            gn15 = rn15 * jn15                                     # ‖r_k∇f_k‖ (per-sample loss-gradient term)
-            acc15 = torch.zeros(N, dtype=dt, device=dev)           # ‖Q_{t,k}‖_F via Hutchinson: E_v‖Q_k v‖²=tr(Q_k²)
+        if self.s23 and (N * outD) <= self.grid3dcap and Jc is not None and rr is not None:   # §15 — effective samples M=N·d_out (A/B are M×M)
+            M15 = N * outD                                         # EFFECTIVE samples = N·d_out
+            lblsel15 = torch.arange(M15, device=dev)              # ALL N·d_out outputs are the effective samples (not just the GT-label)
+            Jg15 = Jc[lblsel15]; r15 = rr[lblsel15]                # (M,p) per-output grads ∇f_k ; (M,) residual r=y−f
+            # ---- panel 5: per-effective-sample NORM evolution (mean ± std across the M outputs), at the current step t ----
+            jn15 = Jg15.norm(dim=1)                                # ‖∇f_k‖   (per-output Jacobian-row norm)
+            rn15 = r15.abs()                                       # |r_k|    (per-output residual)
+            gn15 = rn15 * jn15                                     # ‖r_k∇f_k‖ (per-output loss-gradient term)
+            acc15 = torch.zeros(M15, dtype=dt, device=dev)         # ‖Q_{t,k}‖_F via Hutchinson: E_v‖Q_k v‖²=tr(Q_k²)
             for pr in range(4):
                 vv15 = randn_vec(p, (0x5EC15 + pr * 0x9E3779B1) & 0xFFFFFFFF, dev, dt)
                 Qv15 = jac_hvp(self.model, th, X, vv15)[lblsel15]
@@ -689,22 +689,22 @@ class Diagnostics:
             hn15 = torch.sqrt(acc15 / 4.0)
             _ms15 = lambda x: [float(x.mean()), float(x.std(unbiased=False))]
             rec["g15n"] = {"g": _ms15(gn15), "j": _ms15(jn15), "h": _ms15(hn15), "r": _ms15(rn15)}
-            # ---- new Panel B: per-sample top/bottom-eigvec projection ratio of ∇f_i on its OWN Q_i (current step t) ----
-            mB = min(p, 48); seedsB = [(0x5EC15B + i * 7919) & 0x7FFFFFFF for i in range(N)]
-            if getattr(self.model, "spec", None) is not None:    # MLP — batched vmap HVP (∇²f_i·v) at the current θ
+            # ---- new Panel B: per-EFFECTIVE-sample top/bottom-eigvec projection ratio of ∇f_k on its OWN Q_k (k = one of M=N·d outputs) ----
+            mB = min(p, 48); seedsB = [(0x5EC15B + k * 7919) & 0x7FFFFFFF for k in range(M15)]
+            if getattr(self.model, "spec", None) is not None:    # MLP — batched vmap HVP (∇²f_k·v) at the current θ
                 import torch.func as _tf
-                lblB = (Y.reshape(N, outD).argmax(dim=1) if outD > 1 else torch.zeros(N, dtype=torch.long, device=dev))
-                OHB = torch.zeros(N, outD, dtype=dt, device=dev); OHB[torch.arange(N, device=dev), lblB] = 1.0
+                XrepB = X.repeat_interleave(outD, dim=0)          # (M,indim): input for effective sample k = X[k//d_out]
+                OHB = torch.eye(outD, dtype=dt, device=dev).repeat(N, 1)   # (M,d_out): row k one-hot at output c=k%d_out
                 specB = self.model.spec
                 def _fB(tt, x, oh): return (mlp_forward(tt, specB, x.unsqueeze(0)).reshape(-1) * oh).sum()
                 def _hvB(tt, x, oh, v): return _tf.jvp(lambda q: _tf.grad(_fB)(q, x, oh), (tt,), (v,))[1]
-                hvpB = lambda V: _tf.vmap(_hvB, in_dims=(None, 0, 0, 0))(th, X, OHB, V)
-                TVb, TWb, BVb, BWb = batched_lanczos_extreme(hvpB, p, N, 1, mB, seedsB, dev, dt)
-            else:                                                # other archs — per-sample Lanczos loop
+                hvpB = lambda V: _tf.vmap(_hvB, in_dims=(None, 0, 0, 0))(th, XrepB, OHB, V)
+                TVb, TWb, BVb, BWb = batched_lanczos_extreme(hvpB, p, M15, 1, mB, seedsB, dev, dt)
+            else:                                                # other archs — per-effective-sample Lanczos loop (single-output cotangent)
                 TVl = []; TWl = []; BVl = []; BWl = []
-                for i in range(N):
-                    ci = torch.zeros(N, outD, dtype=dt, device=dev); ci.view(-1)[int(lblsel15[i])] = 1.0
-                    tv, bv, tw, bw = lanczos_extreme(lambda v, ci=ci: hvp_S(self.model, th, X, ci, v), p, 1, mB, seedsB[i], dev, dt)
+                for k in range(M15):
+                    ck = torch.zeros(N * outD, dtype=dt, device=dev); ck[k] = 1.0; ck = ck.reshape(N, outD)
+                    tv, bv, tw, bw = lanczos_extreme(lambda v, ck=ck: hvp_S(self.model, th, X, ck, v), p, 1, mB, seedsB[k], dev, dt)
                     TVl.append(torch.stack(tv)); BVl.append(torch.stack(bv))
                     TWl.append(torch.tensor(tw, dtype=dt, device=dev)); BWl.append(torch.tensor(bw, dtype=dt, device=dev))
                 TVb, TWb, BVb, BWb = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
