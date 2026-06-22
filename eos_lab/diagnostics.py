@@ -28,7 +28,7 @@ from .models import (grad_sum_f, hvp_F, hvp_L, hvp_S, hvp_G, hvp_G2,
 from .linalg import (lanczos_extreme, lanczos_extreme_vals, slq_density, hutch_trace, sym_eig_desc,
                      sign_to, pin_sign, pos_subspace, neg_subspace, principal_angles, randn_vec,
                      sec12_payload, sec13_stats, SEC13_KS, SEC13_DOMS, sec14_payload, SEC12_KFULL,
-                     batched_lanczos_extreme, sec15_stats, sec15_panel34)
+                     batched_lanczos_extreme, sec15_stats, sec15_panel34, sec15_panelB)
 from .rng import mulberry32
 
 # §11 render budget: emit only ≤this many points per grid above this size (mirror server.G3D_MAXPTS).
@@ -689,6 +689,26 @@ class Diagnostics:
             hn15 = torch.sqrt(acc15 / 4.0)
             _ms15 = lambda x: [float(x.mean()), float(x.std(unbiased=False))]
             rec["g15n"] = {"g": _ms15(gn15), "j": _ms15(jn15), "h": _ms15(hn15), "r": _ms15(rn15)}
+            # ---- new Panel B: per-sample top/bottom-eigvec projection ratio of ∇f_i on its OWN Q_i (current step t) ----
+            mB = min(p, 48); seedsB = [(0x5EC15B + i * 7919) & 0x7FFFFFFF for i in range(N)]
+            if getattr(self.model, "spec", None) is not None:    # MLP — batched vmap HVP (∇²f_i·v) at the current θ
+                import torch.func as _tf
+                lblB = (Y.reshape(N, outD).argmax(dim=1) if outD > 1 else torch.zeros(N, dtype=torch.long, device=dev))
+                OHB = torch.zeros(N, outD, dtype=dt, device=dev); OHB[torch.arange(N, device=dev), lblB] = 1.0
+                specB = self.model.spec
+                def _fB(tt, x, oh): return (mlp_forward(tt, specB, x.unsqueeze(0)).reshape(-1) * oh).sum()
+                def _hvB(tt, x, oh, v): return _tf.jvp(lambda q: _tf.grad(_fB)(q, x, oh), (tt,), (v,))[1]
+                hvpB = lambda V: _tf.vmap(_hvB, in_dims=(None, 0, 0, 0))(th, X, OHB, V)
+                TVb, TWb, BVb, BWb = batched_lanczos_extreme(hvpB, p, N, 1, mB, seedsB, dev, dt)
+            else:                                                # other archs — per-sample Lanczos loop
+                TVl = []; TWl = []; BVl = []; BWl = []
+                for i in range(N):
+                    ci = torch.zeros(N, outD, dtype=dt, device=dev); ci.view(-1)[int(lblsel15[i])] = 1.0
+                    tv, bv, tw, bw = lanczos_extreme(lambda v, ci=ci: hvp_S(self.model, th, X, ci, v), p, 1, mB, seedsB[i], dev, dt)
+                    TVl.append(torch.stack(tv)); BVl.append(torch.stack(bv))
+                    TWl.append(torch.tensor(tw, dtype=dt, device=dev)); BWl.append(torch.tensor(bw, dtype=dt, device=dev))
+                TVb, TWb, BVb, BWb = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
+            rec["g15b"] = sec15_panelB(TVb[:, 0], BVb[:, 0], TWb[:, 0], BWb[:, 0], Jg15)
             if (len(self._sec15_hist) >= 2 and self._sec15_hist[-1]["t"] == t - 1
                     and self._sec15_hist[-2]["t"] == t - 2):       # 3 CONSECUTIVE GD steps (eigevery=1): the per-step 2nd-difference theory requires it
                 tm1, tm2 = self._sec15_hist[-1], self._sec15_hist[-2]

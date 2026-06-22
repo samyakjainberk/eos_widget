@@ -451,6 +451,17 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N, diveps=_DEPS):
     H1z = hvp1(z)
     III = c2 * float((Jt * H1z).sum())
 
+    # ── new Panels A: chained-contraction norms building II (A1 fwd, A2 bwd) and III (A3 fwd, A4 bwd) — MIRRORS eos_lab ──
+    nrm = lambda v: float(v.norm())
+    Qtp = rtm1 @ hvp2(psi)                                     # Q̃ ψ  (p,)   [1 extra HVP]
+    M3a = Jtm2 @ Qtp; JtQt = torch.einsum('j,ijp->ip', rtm1, M2)
+    p2A = Jtm1 @ psi; p3A = Jtm2.t() @ p2A; p4A = Jtm2 @ p3A
+    npsi = nrm(psi); ng2 = nrm(g2)
+    A1 = [npsi, nrm(Qtp), nrm(M3a), II]
+    A2 = [ng2, nrm(a), II, abs(II), nrm(JtQt)]
+    A3 = [npsi, nrm(p2A), nrm(p3A), nrm(p4A), III]
+    A4 = [ng2, nrm(w), nrm(z), III, npsi]
+
     nJt = float((Jt * Jt).sum()); nJtm1 = float((Jtm1 * Jtm1).sum()); nJtm2 = float((Jtm2 * Jtm2).sum())
     D2 = nJt + nJtm2 - 2.0 * nJtm1
     divP = _divreg(-2.0 * (I + II - III) + D2, D2, 2.0 * (abs(I) + abs(II) + abs(III)), diveps)  # 2×: terms are ½∂²‖J‖²; predict D²≈2(I+II−III); →0 when theory holds. ε-scale = 2(|I|+|II|+|III|) (the D²-magnitude).
@@ -477,8 +488,20 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N, diveps=_DEPS):
     rec = {"I": I, "II": II, "III": III, "divP": divP, "Atop": Atop, "Abot": Abot, "Astat": Astat,
            "IV": IV, "V": V, "VI": VI, "divS": divS, "Btop": Btop, "Bbot": Bbot, "Bstat": Bstat,
            "D2": D2, "Dsig2": Dsig2, "Aeig": Aeig, "Beig": Beig,
+           "A1": A1, "A2": A2, "A3": A3, "A4": A4,                       # new Panel A — II/III chained-contraction norms
            "Js": nJt + nJtm1 + nJtm2, "Ss": sig_t + sig_tm1 + sig_tm2}
     return rec, A, Bm, u1   # also expose A,B and the top NTK eigvec u₁ for panels 3/4 (Q̇≠0)
+
+
+def _sec15_panelB(TV1, BV1, TW1, BW1, Jg):
+    """§15 Panel B — per-sample ∇f_i projection ratio on the most-+ (u_i⁺) vs most-− (u_i⁻) eigvec of its own Q_i.
+    ρ_i=|⟨∇f_i,u_i⁺⟩|/(|⟨∇f_i,u_i⁺⟩|+|⟨∇f_i,u_i⁻⟩|)·100; ρ'_i = same ×|eigenvalue|. Returns {mean,std} of each. MIRRORS eos_lab/browser."""
+    pt = (Jg * TV1).sum(dim=1).abs(); pb = (Jg * BV1).sum(dim=1).abs()
+    rho = 100.0 * pt / (pt + pb).clamp_min(1e-30)
+    wt = pt * TW1.abs(); wb = pb * BW1.abs()
+    rhow = 100.0 * wt / (wt + wb).clamp_min(1e-30)
+    return {"mean": float(rho.mean()), "std": float(rho.std(unbiased=False)),
+            "meanw": float(rhow.mean()), "stdw": float(rhow.std(unbiased=False))}
 
 
 def _eig_stats15(M):   # real-part eigenvalue summary of a general N×N matrix → (top-3, bottom-3, [min,max,mean,q25,q75], full desc)
@@ -1550,20 +1573,21 @@ def sur_T2(th0, X, a, eps=1e-2):
 
 
 # ===================== Lanczos / SLQ =====================
-def _randn_vec(p, seed):
+def _randn_vec(p, seed, dt=None):
     g = torch.Generator(device=_dev())
     g.manual_seed(int(seed) & 0x7FFFFFFF)
-    return torch.randn(p, dtype=DTYPE, device=_dev(), generator=g)
+    return torch.randn(p, dtype=(dt if dt is not None else DTYPE), device=_dev(), generator=g)
 
 
-def _lanczos_core(hvp, p, m, seed):
-    q = _randn_vec(p, seed)
+def _lanczos_core(hvp, p, m, seed, dt=None):
+    dt = dt if dt is not None else DTYPE
+    q = _randn_vec(p, seed, dt)
     q = q / q.norm()
     Q = []
     al = []
     be = []
-    qp = torch.zeros(p, dtype=DTYPE, device=_dev())
-    beta = torch.zeros((), dtype=DTYPE, device=_dev())
+    qp = torch.zeros(p, dtype=dt, device=_dev())
+    beta = torch.zeros((), dtype=dt, device=_dev())
     for _ in range(min(p, m)):
         Q.append(q)
         w = hvp(q)
@@ -1595,13 +1619,14 @@ def _eig_sorted(T):
     return mu, Sv, idx
 
 
-def lanczos_extreme(hvp, p, n, m, seed):
-    Q, T, k = _lanczos_core(hvp, p, m, seed)
+def lanczos_extreme(hvp, p, n, m, seed, dt=None):
+    dt = dt if dt is not None else DTYPE
+    Q, T, k = _lanczos_core(hvp, p, m, seed, dt)
     mu, Sv, idx = _eig_sorted(T)
     Qmat = torch.stack(Q)                     # (k, p) on _dev()
 
     def ritz(col):
-        c = Sv[:, col].to(device=_dev(), dtype=DTYPE)
+        c = Sv[:, col].to(device=_dev(), dtype=dt)
         return c @ Qmat                       # (p,)
 
     topVecs = [ritz(int(idx[min(i, k - 1)])) for i in range(n)]
@@ -1611,14 +1636,14 @@ def lanczos_extreme(hvp, p, n, m, seed):
     return topVecs, botVecs, topVals, botVals
 
 
-def batched_lanczos_extreme(hvp_batch, p, N, n, m, seeds):
+def batched_lanczos_extreme(hvp_batch, p, N, n, m, seeds, dt=None):
     """N independent Lanczos eigendecompositions run IN LOCKSTEP (vectorised over the N samples). hvp_batch(V)
     maps (N,p) → (N,p) = {Q_i·V_i}_i (one batched HVP per step instead of N separate ones). Returns the top-n &
     bottom-n eigenpairs per sample: (TV,TW,BV,BW) with shapes (N,n,p),(N,n),(N,n,p),(N,n). Twice-reorthogonalised
     like lanczos_extreme; replacing N×m tiny ops with m batched ops is a large GPU speed-up for §12.
     MIRRORS eos_lab.linalg.batched_lanczos_extreme."""
-    dev, dt = _dev(), DTYPE
-    q = torch.stack([_randn_vec(p, seeds[i]) for i in range(N)])      # (N,p)
+    dev, dt = _dev(), (dt if dt is not None else DTYPE)
+    q = torch.stack([_randn_vec(p, seeds[i], dt) for i in range(N)])  # (N,p)
     q = q / q.norm(dim=1, keepdim=True)
     Qs, al, be = [], [], []
     qp = torch.zeros(N, p, dtype=dt, device=dev); beta = torch.zeros(N, dtype=dt, device=dev)
@@ -2596,7 +2621,7 @@ def run_stream(P):
             # bottom-K12 eigenpairs of each Q_i by Lanczos on v↦Q_i·v — no p×p Hessian is formed. For the MLP
             # the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (a single vectorised forward/backward per
             # step instead of N) — ~4–8× faster on GPU. Other archs fall back to the per-sample loop. Gated on N.
-            sec12 = None; sec14 = None; sec13 = None; sec15 = None; sec15n = None; sec15p34 = None
+            sec12 = None; sec14 = None; sec13 = None; sec15 = None; sec15n = None; sec15p34 = None; sec15b = None
             if (s19 or s20 or s21 or s22) and (multi_ok or s12single) and Jc is not None and rr is not None and N <= sec12ncap:
                 lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
                             if outD > 1 else torch.arange(N, device=_dev()))
@@ -2707,6 +2732,26 @@ def run_stream(P):
                 hn15 = torch.sqrt(acc15 / 4.0)
                 _ms15 = lambda x: [float(x.mean()), float(x.std(unbiased=False))]
                 sec15n = {"g": _ms15(gn15), "j": _ms15(jn15), "h": _ms15(hn15), "r": _ms15(rn15)}
+                # ---- new Panel B: per-sample top/bottom-eigvec projection ratio of ∇f_i on its own Q_i (current step) ----
+                mB15 = min(p, 48); seedsB15 = [(0x5EC15B + i * 7919) & 0x7FFFFFFF for i in range(N)]
+                if arch == "mlp":
+                    import torch.func as _tf
+                    lblB15 = (Y.reshape(N, outD).argmax(dim=1) if outD > 1 else torch.zeros(N, dtype=torch.long, device=_dev()))
+                    OHB15 = torch.zeros(N, outD, dtype=X15.dtype, device=_dev()); OHB15[torch.arange(N, device=_dev()), lblB15] = 1.0
+                    specB15 = _TL.model.spec
+                    def _fB15(tt, x, oh): return (fwd(tt, specB15, x.unsqueeze(0))[0].reshape(-1) * oh).sum()
+                    def _hvB15(tt, x, oh, v): return _tf.jvp(lambda q: _tf.grad(_fB15)(q, x, oh), (tt,), (v,))[1]
+                    hvpB15 = lambda V: _tf.vmap(_hvB15, in_dims=(None, 0, 0, 0))(th15, X15, OHB15, V)
+                    TVb15, TWb15, BVb15, BWb15 = batched_lanczos_extreme(hvpB15, p, N, 1, mB15, seedsB15, dt=X15.dtype)
+                else:
+                    TVl = []; TWl = []; BVl = []; BWl = []
+                    for i in range(N):
+                        ci = torch.zeros(N, outD, dtype=X15.dtype, device=_dev()); ci.view(-1)[int(lblsel15[i])] = 1.0
+                        tv, bv, tw, bw = lanczos_extreme(lambda v, ci=ci: hvpS(th15, X15, v, ci), p, 1, mB15, seedsB15[i], dt=X15.dtype)
+                        TVl.append(torch.stack(tv)); BVl.append(torch.stack(bv))
+                        TWl.append(torch.tensor(tw, dtype=X15.dtype, device=_dev())); BWl.append(torch.tensor(bw, dtype=X15.dtype, device=_dev()))
+                    TVb15, TWb15, BVb15, BWb15 = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
+                sec15b = _sec15_panelB(TVb15[:, 0], BVb15[:, 0], TWb15[:, 0], BWb15[:, 0], Jg15)
                 if (len(sec15_hist) >= 2 and sec15_hist[-1]["t"] == t - 1 and sec15_hist[-2]["t"] == t - 2):   # 3 CONSECUTIVE GD steps (eigevery=1): the per-step 2nd-difference theory requires it
                     tm1, tm2 = sec15_hist[-1], sec15_hist[-2]
                     hvp1 = lambda v: jac_hvp(tm1["th"], X15, v)[lblsel15]
@@ -2780,6 +2825,8 @@ def run_stream(P):
                 yield {"type": "g15", "t": t, **sec15}   # §15 2nd-difference decomposition of ‖J‖²_F & σ₁
             if sec15n is not None:
                 yield {"type": "g15n", "t": t, **sec15n}  # §15 panel 5 — per-sample norm evolution (mean ± std)
+            if sec15b is not None:
+                yield {"type": "g15b", "t": t, **sec15b}  # §15 new Panel B — per-sample top/bottom projection ratio (mean ± std)
             if sec15p34 is not None:
                 yield {"type": "g15p34", "t": t, **sec15p34}  # §15 panels 3/4 — Q̇≠0 terms VII/VIII + A'/B'
             eigTick += 1

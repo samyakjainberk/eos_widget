@@ -1346,6 +1346,48 @@ def plot_section15_panel5(hist):
     return fig
 
 
+def plot_section15_panel6(hist):
+    """§15 panel 6 — chained-contraction norms building II (fwd/bwd) and III (fwd/bwd)."""
+    recs = [r for r in hist if "g15" in r and "A1" in r["g15"]]
+    if not recs:
+        return None
+    t = list(range(len(recs)))
+    plots = [("A1", "II — forward (J_t → r_{t−2})", ["‖ψ‖", "‖Q̃ψ‖", "‖J₂Q̃ψ‖", "II"]),
+             ("A2", "II — backward (r_{t−2} → J_t)", ["‖g₂‖", "‖Q̃g₂‖", "II", "|II|", "‖J₂Q̃‖_F"]),
+             ("A3", "III — forward (J_t → r_{t−2})", ["‖ψ‖", "‖J₁ψ‖", "‖J₂ᵀJ₁ψ‖", "‖J₂J₂ᵀJ₁ψ‖", "III"]),
+             ("A4", "III — backward (r_{t−2} → J_t)", ["‖g₂‖", "‖J₂g₂‖", "‖z‖", "III", "‖ψ‖"])]
+    cols = ["#2563eb", "#16a34a", "#d97706", "#0891b2", "#7c3aed"]
+    fig, axs = plt.subplots(1, 4, figsize=(22, 3.8))
+    for ax, (key, title, labels) in zip(axs, plots):
+        series = [[r["g15"][key][j] for r in recs] for j in range(len(labels))]
+        for j, (lab, ys) in enumerate(zip(labels, series)):
+            term = lab in ("II", "III", "|II|")
+            ax.plot(t, ys, color=("#111827" if lab in ("II", "III") else cols[j % len(cols)]),
+                    lw=1.7, ls=("--" if lab in ("II", "III") else "-"), label=lab)
+        ax.axhline(0, c="#999", lw=0.6); ax.legend(fontsize=7); ax.set_title(title, fontsize=10)
+        ax.set_xlabel("step"); ax.set_ylabel("value")
+    fig.suptitle("§15 panel 6 — chained-contraction norms building terms II and III", fontsize=13)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    return fig
+
+
+def plot_section15_panel7(hist):
+    """§15 panel 7 — per-sample projection ratio on each sample's own Q_i (top vs bottom, + |λ|-weighted): mean & std."""
+    recs = [r for r in hist if "g15b" in r]
+    if len(recs) < 2:
+        return None
+    t = list(range(len(recs))); B = [r["g15b"] for r in recs]
+    specs = [("mean", "mean ρ_i  (top / (top+bottom), %)", "#2563eb"), ("std", "std ρ_i across samples", "#16a34a"),
+             ("meanw", "mean ρ′_i  (|λ|-weighted, %)", "#d97706"), ("stdw", "std ρ′_i across samples", "#dc2626")]
+    fig, axs = plt.subplots(1, 4, figsize=(20, 3.7))
+    for ax, (key, title, col) in zip(axs, specs):
+        ax.plot(t, [b[key] for b in B], color=col, lw=1.8)
+        ax.axhline(0, c="#999", lw=0.6); ax.set_title(title, fontsize=10); ax.set_xlabel("step"); ax.set_ylabel("%")
+    fig.suptitle("§15 panel 7 — per-sample top/bottom projection ratio on each sample's own function Hessian", fontsize=13)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    return fig
+
+
 def save_section12_panel_gif(hist, k0, path, frames=30, fps=12, dpi=60):
     """A §12 grid panel as a rotating GIF (the 3D (i,j,k) grids spin so the structure is readable)."""
     from matplotlib.animation import FuncAnimation, PillowWriter
@@ -1522,7 +1564,9 @@ def save_panels(results, outdir):
             "section15_panel2_sigma1": plot_section15_panel2(hist),
             "section15_panel3_normJ_qdot": plot_section15_panel3(hist),
             "section15_panel4_sigma1_qdot": plot_section15_panel4(hist),
-            "section15_panel5_norms": plot_section15_panel5(hist)}
+            "section15_panel5_norms": plot_section15_panel5(hist),
+            "section15_panel6_termchain": plot_section15_panel6(hist),
+            "section15_panel7_persample_ratio": plot_section15_panel7(hist)}
     if results.get("sec16"):                          # §16 — standalone optimizer (4 panels)
         figs.update(plot_section16(results["sec16"]))
     written = []

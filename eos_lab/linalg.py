@@ -606,6 +606,20 @@ def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N, diveps=_DEPS):
     H1z = hvp1(z)
     III = c2 * float((Jt * H1z).sum())
 
+    # ── new Panels A: chained-contraction norms building II (A1 forward, A2 backward) and III (A3 fwd, A4 bwd) ──
+    nrm = lambda v: float(v.norm())                          # L2 (vectors) / Frobenius (matrices)
+    Qtp = rtm1 @ hvp2(psi)                                   # Q̃ ψ   (p,)   [the 1 extra HVP]
+    M3a = Jtm2 @ Qtp                                         # J_{t−2}(Q̃ψ)  (N,) ; II = c²·M3aᵀr_{t−2}
+    JtQt = torch.einsum('j,ijp->ip', rtm1, M2)               # J_{t−2}Q̃  (N,p): row i = Q̃∇f_{t−2,i} = Σⱼr_{t−1,j}Q_{t−2,j}∇f_{t−2,i}
+    p2A = Jtm1 @ psi                                         # (N,)
+    p3A = Jtm2.t() @ p2A                                     # (p,)
+    p4A = Jtm2 @ p3A                                         # (N,) ; III = c²·p4Aᵀr_{t−2}
+    npsi = nrm(psi); ng2 = nrm(g2)
+    A1 = [npsi, nrm(Qtp), nrm(M3a), II]                                  # II fwd:  ‖ψ‖, ‖Q̃ψ‖, ‖J_{t−2}Q̃ψ‖, II
+    A2 = [ng2, nrm(a), II, abs(II), nrm(JtQt)]                           # II bwd:  ‖g₂‖, ‖Q̃g₂‖, II, |II|, ‖J_{t−2}Q̃‖_F
+    A3 = [npsi, nrm(p2A), nrm(p3A), nrm(p4A), III]                       # III fwd: ‖ψ‖, ‖J_{t−1}ψ‖, ‖J_{t−2}ᵀ(J_{t−1}ψ)‖, ‖J_{t−2}J_{t−2}ᵀ(J_{t−1}ψ)‖, III
+    A4 = [ng2, nrm(w), nrm(z), III, npsi]                                # III bwd: ‖g₂‖, ‖J_{t−2}g₂‖, ‖z‖, III, ‖ψ‖
+
     nJt = float((Jt * Jt).sum()); nJtm1 = float((Jtm1 * Jtm1).sum()); nJtm2 = float((Jtm2 * Jtm2).sum())
     D2 = nJt + nJtm2 - 2.0 * nJtm1
     divP = _divreg(-2.0 * (I + II - III) + D2, D2, 2.0 * (abs(I) + abs(II) + abs(III)), diveps)  # 2×: terms are ½∂²‖J‖²; predict D²≈2(I+II−III); →0 when theory holds. ε-scale = 2(|I|+|II|+|III|) (the D²-magnitude).
@@ -634,8 +648,23 @@ def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N, diveps=_DEPS):
     rec = {"I": I, "II": II, "III": III, "divP": divP, "Atop": Atop, "Abot": Abot, "Astat": Astat,
            "IV": IV, "V": V, "VI": VI, "divS": divS, "Btop": Btop, "Bbot": Bbot, "Bstat": Bstat,
            "D2": D2, "Dsig2": Dsig2, "Aeig": Aeig, "Beig": Beig,
+           "A1": A1, "A2": A2, "A3": A3, "A4": A4,                       # new Panel A — II/III chained-contraction norms
            "Js": nJt + nJtm1 + nJtm2, "Ss": sig_t + sig_tm1 + sig_tm2}   # Aeig/Beig: full real spectra → SLQ density (plot 5)
     return rec, A, Bm, u1   # also expose the matrices A,B and the top NTK eigvec u₁ for panels 3/4 (Q̇≠0)
+
+
+def sec15_panelB(TV1, BV1, TW1, BW1, Jg):
+    """§15 Panel B — per-sample projection ratio. For each sample i, project ∇f_i onto the most-POSITIVE (u_i⁺) and
+    most-NEGATIVE (u_i⁻) eigenvector of its OWN function Hessian Q_i, then ρ_i = |⟨∇f_i,u_i⁺⟩| / (|⟨∇f_i,u_i⁺⟩| +
+    |⟨∇f_i,u_i⁻⟩|)·100. ρ'_i = same, each projection ×|eigenvalue|. Returns {mean,std} of ρ and ρ' across samples.
+    TV1/BV1 (N,p) top/bottom-1 eigVECs of Q_{t,i}; TW1/BW1 (N,) eigVALs; Jg (N,p) per-sample ∇f_i. MIRRORS server/browser."""
+    pt = (Jg * TV1).sum(dim=1).abs()                          # |⟨∇f_i, u_i⁺⟩|
+    pb = (Jg * BV1).sum(dim=1).abs()                          # |⟨∇f_i, u_i⁻⟩|
+    rho = 100.0 * pt / (pt + pb).clamp_min(1e-30)
+    wt = pt * TW1.abs(); wb = pb * BW1.abs()                  # eigenvalue-weighted projections
+    rhow = 100.0 * wt / (wt + wb).clamp_min(1e-30)
+    return {"mean": float(rho.mean()), "std": float(rho.std(unbiased=False)),
+            "meanw": float(rhow.mean()), "stdw": float(rhow.std(unbiased=False))}
 
 
 def _eig_stats(M):
