@@ -4039,10 +4039,23 @@ async function loadCapture(obj){
   lastT=-1;META=null;cursorX=null;GPU_CAPTURE=obj.records.slice();   // keep loaded records re-savable
   const finish=()=>{RUNNING=false;updateButtons();};
   const recs=obj.records;
-  for(let i=0;i<recs.length;i++){
-    try{gpuHandle(recs[i],st,sp,finish,false);}catch(e){console.error('replay error at record',i,recs[i],e);}
-    if((i&127)===0){st.textContent=`loading saved run … ${i+1}/${recs.length}`;await new Promise(r=>setTimeout(r,0));}
-  }
+  // ── FAST replay: a big capture restyles every plot on every record (O(N²) → the tab hangs). So during replay
+  //    we (a) cap §1–§9 plotted points by lowering PLOT_DECIM, and (b) DEFER the §11–§17 restyle/react renders —
+  //    capturing only the latest call per plot (they restyle with the full accumulated arrays) and firing it ONCE
+  //    at the end. Turns O(records×plots) renders into O(plots). ──
+  const _savedDecim=PLOT_DECIM; PLOT_DECIM=Math.min(PLOT_DECIM,1200);   // ≤~1200 plotted points per §1–§9 trace
+  const _R={},_C={}; const _oRestyle=Plotly.restyle,_oReact=Plotly.react;
+  Plotly.restyle=function(id,u,tr){_R[id]={u:u,tr:tr};return Promise.resolve();};   // keep latest (refs the full arrays)
+  Plotly.react=function(id,d,l,c){_C[id]={d:d,l:l,c:c};return Promise.resolve();};
+  try{
+    for(let i=0;i<recs.length;i++){
+      try{gpuHandle(recs[i],st,sp,finish,false);}catch(e){console.error('replay error at record',i,recs[i],e);}
+      if((i&511)===0){st.textContent=`loading saved run … ${i+1}/${recs.length} (rendering at the end)`;await new Promise(r=>setTimeout(r,0));}
+    }
+  }finally{ Plotly.restyle=_oRestyle; Plotly.react=_oReact; PLOT_DECIM=_savedDecim; }
+  st.textContent=`rendering ${recs.length} records …`; await new Promise(r=>setTimeout(r,0));
+  for(const id in _R){try{_oRestyle(id,_R[id].u,_R[id].tr);}catch(e){console.error('flush restyle',id,e);}}   // one render per plot
+  for(const id in _C){try{_oReact(id,_C[id].d,_C[id].l,_C[id].c);}catch(e){console.error('flush react',id,e);}}
   // ensure the end-of-run bookkeeping ran even if the capture lacks a trailing done record
   if(!recs.some(r=>r&&(r.type==='done'||r.type==='error')))markSkippedAdv();
   RUNNING=false;updateButtons();
@@ -4093,6 +4106,10 @@ async function loadFromServer(){
   try{
     const r=await fetch('runs_captured/'+encodeURIComponent(name),{cache:'no-store'});
     if(!r.ok){if(st)st.textContent=`server returned ${r.status} for runs_captured/${name} — is the backend running and the file there?`;return;}
+    const len=+(r.headers.get('content-length')||0);
+    const mb=len?(' ('+(len/1e6).toFixed(0)+' MB)'):'';
+    if(st)st.textContent=`parsing ${name}${mb} … (a large capture takes a few seconds — the tab may pause)`;
+    await new Promise(rr=>setTimeout(rr,0));
     const obj=await r.json();
     await loadCapture(obj);
   }catch(e){if(st)st.textContent='failed to load from server: '+e.message;console.error(e);}
