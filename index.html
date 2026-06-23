@@ -315,8 +315,8 @@
 
 <div id="sec_s12b" style="display:none">
 <h2>12b · projection panels — gradient onto top-2 / bottom-2 eigenvectors (per-sample $Q_i$, averaged $\langle Q\rangle$, NTK-weighted $\langle Q\rangle$, and cross-pairs)</h2>
-<label style="font-size:12px;color:#475569;cursor:pointer;user-select:none"><input type="checkbox" id="s12_hidehist" onchange="s12HistVis()"> hide residual histograms (the per-step over-sample histograms under each panel)</label>
-<div style="margin:6px 0 2px;font-size:12px;color:#334155">show panel groups: <label style="margin-right:12px;cursor:pointer"><input type="checkbox" id="s12grp_12_t" checked onchange="s12GrpVis()"> (1,2) per-sample $Q_i$</label><label style="margin-right:12px;cursor:pointer"><input type="checkbox" id="s12grp_34_t" checked onchange="s12GrpVis()"> (3,4) averaged $\tfrac1N\textstyle\sum_i Q_i$</label><label style="margin-right:12px;cursor:pointer"><input type="checkbox" id="s12grp_567_t" checked onchange="s12GrpVis()"> (5,6,7) NTK-weighted average</label><label style="margin-right:12px;cursor:pointer"><input type="checkbox" id="s12grp_89_t" checked onchange="s12GrpVis()"> (8,9) cross-pairs</label></div>
+<label style="font-size:12px;color:#475569;cursor:pointer;user-select:none"><input type="checkbox" id="s12_hidehist" checked onchange="s12HistVis()"> hide residual histograms (the per-step over-sample histograms under each panel) — <i>hidden by default; untick to show</i></label>
+<div style="margin:6px 0 2px;font-size:12px;color:#334155">show panel groups: <label style="margin-right:12px;cursor:pointer"><input type="checkbox" id="s12grp_12_t" checked onchange="s12GrpVis()"> (1,2) per-sample $Q_i$</label><label style="margin-right:12px;cursor:pointer"><input type="checkbox" id="s12grp_34_t" checked onchange="s12GrpVis()"> (3,4) averaged $\tfrac1N\textstyle\sum_i Q_i$</label><label style="margin-right:12px;cursor:pointer"><input type="checkbox" id="s12grp_567_t" onchange="s12GrpVis()"> (5,6,7) NTK-weighted average</label><label style="margin-right:12px;cursor:pointer"><input type="checkbox" id="s12grp_89_t" onchange="s12GrpVis()"> (8,9) cross-pairs</label> <span style="color:#94a3b8">— (5,6,7) &amp; (8,9) hidden by default; tick to show</span></div>
 <div class="s12grp" id="s12grp_12">
 <h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — product $|\langle J_i,u\rangle|\,\sigma\,r_i$ and alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert$ for the TOP-2 eigenvectors $u_{i,1},u_{i,2}$ (largest eigenvalues)</h3>
 <p class="cap">$u_{i,1},u_{i,2}$ = eigenvectors of the two <b>largest</b> signed eigenvalues of $Q_i$ (<b>rank-1</b> solid, <b>rank-2</b> dotted — 2 lines per plot). Two per-sample quantities, aggregated across samples. <b>Row of 4 plots</b>: (1) mean &amp; (2) std of the <b>product</b> $\text{proj}_i\cdot r_i=|\langle J_i,u\rangle|\cdot\sigma\cdot r_i$ (all samples; scales with the eigenvalue $\sigma$, so it can grow large during sharpening); (3) mean &amp; (4) std of the <b>alignment</b> $q_i=|\langle J_i,u\rangle|/\lVert J_i\rVert=|\cos\angle(J_i,u)|\in[0,1]$ ($\lVert J_i\rVert=0$ dropped; bounded by Cauchy–Schwarz).</p>
@@ -341,7 +341,7 @@
 <p class="cap s12hist" style="margin-top:6px">Histograms over the $N$ samples (rank-1 &amp; rank-2 overlaid): the per-sample <b>product</b> (left) and <b>alignment</b> (right) onto the global BOTTOM eigenvectors.</p>
 <div class="plotrow row2 s12hist"><div id="p_s12ghist_bot_prod" class="plot" style="height:250px"></div><div id="p_s12ghist_bot_cos" class="plot" style="height:250px"></div></div>
 </div>
-<div class="s12grp" id="s12grp_567">
+<div class="s12grp" id="s12grp_567" style="display:none">
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 5 — WEIGHTED-AVERAGE Hessian $\dfrac{\sum_i w_i Q_i}{\sum_i w_i}$, weights $w_i=|v^{(1)}_i|$ = |$i$-th component of the TOP NTK eigenvector|</h3>
 <p class="cap">Like Panels 3/4 but the global Hessian is a <b>weighted</b> average of the per-sample $Q_i$, weighted by $w_i=|v^{(1)}_i|$, where $v^{(1)}$ is the <b>top eigenvector of the NTK</b> $K=JJ^\top$ (the $N\times N$ per-sample gradient Gram); $|\cdot|$ makes the weights gauge-free. Each $\nabla f_i$ is projected onto the eigenvectors of $\langle Q\rangle_w=(\sum_i w_iQ_i)/(\sum_i w_i)$. <b>Row 1</b> = onto its TOP-2 eigenvectors (Panel-3 style); <b>Row 2</b> = onto its BOTTOM-2 (Panel-4 style). 4 plots/row: mean/std of the product $|\langle J_i,e\rangle|\,\sigma\,r_i$ and of the alignment $|\langle J_i,e\rangle|/\lVert J_i\rVert\in[0,1]$ (rank-1 solid, rank-2 dotted).</p>
 <p class="cap" style="margin:6px 0 1px;color:#2563eb"><b>Row 1 — TOP-2 eigenvectors of the weighted-average Hessian</b></p>
@@ -361,7 +361,7 @@
 <p class="cap" style="margin:6px 0 1px;color:#dc2626"><b>Row 2 — BOTTOM-2 eigenvectors of the weighted-average Hessian</b></p>
 <div class="plotrow row4"><div id="p_s12wproj_2_bot0" class="plot" style="height:280px"></div><div id="p_s12wproj_2_bot1" class="plot" style="height:280px"></div><div id="p_s12wproj_2_bot2" class="plot" style="height:280px"></div><div id="p_s12wproj_2_bot3" class="plot" style="height:280px"></div></div>
 </div>
-<div class="s12grp" id="s12grp_89">
+<div class="s12grp" id="s12grp_89" style="display:none">
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 8 — cross projections at the MIN principal-angle direction (nearest eigenvector pair)</h3>
 <p class="cap">For every <b>off-diagonal</b> pair $(i\neq j)$: SVD the cross-Gram $E_iE_j^\top$; for the <b>minimum</b> principal-angle direction (largest singular value), take $u_i=e_{i,a^\ast}$ ($a^\ast=\arg\max_a|U_{a,1}|$) and $u_j=e_{j,b^\ast}$ ($b^\ast=\arg\max_b|V_{b,1}|$) — the eigenvectors nearest the principal directions — with eigenvalues $\sigma_i,\sigma_j$. The 4 plots are the <b>mean over $i\neq j$</b> of: (1) $|\langle J_i,u_j\rangle|\,\sigma_i\,r_i$ ; (2) $|\langle J_i,u_j\rangle|\,|\langle J_j,u_i\rangle|\,\sigma_i\sigma_j\,r_i r_j$ ; (3) $|\langle J_i,u_j\rangle|/\lVert J_i\rVert$ ; (4) $|\langle J_i,u_j\rangle|\,|\langle J_j,u_i\rangle|/(\lVert J_i\rVert\lVert J_j\rVert)$. (Inner products are $|\cdot|$ so the eigenvector sign drops out; $\sigma,r$ keep their signs.)</p>
 <div class="plotrow row4"><div id="p_s12xp_min_0" class="plot" style="height:280px"></div><div id="p_s12xp_min_1" class="plot" style="height:280px"></div><div id="p_s12xp_min_2" class="plot" style="height:280px"></div><div id="p_s12xp_min_3" class="plot" style="height:280px"></div></div>
@@ -1244,7 +1244,7 @@ const S12XP_TITLE=['mean_i Σ_{j≠i} |⟨J_i,u_j⟩|·σ_i·r_i','mean_i Σ_{j�
 let S12XP_STEPS=[], S12XP_DATA=null;
 const S12_MAXSNAPS=2000;   // bound §12 snapshot memory on long runs (decimate ×2 when exceeded; mirrors §11's G3D_MAXSNAPS)
 let S12_BUILTSET=new Set(), S12_VISIBLE=new Set(), S12_IO=null, S12_IOT=null, S12_CURIDX=0, S12_EXPORTING=false;   // lazy-WebGL cube state (context budget)
-let S12_HIDEHIST=false;   // §12b: hide the per-step over-sample residual histograms (panels 1–4) when checked
+let S12_HIDEHIST=true;   // §12b: hide the per-step over-sample residual histograms (panels 1–4) by default (toggle: #s12_hidehist)
 const s12Mean=a=>{let s=0,c=0;for(let q=0;q<a.length;q++){const v=a[q];if(v!=null&&isFinite(v)){s+=v;c++;}}return c?s/c:0;};   // mean, skipping null/NaN/Inf (sanitised payload)
 function s12RunMean(i,fn){let s=0,c=0;for(let q=0;q<=i&&q<S12_SNAPS.length;q++){const v=fn(S12_SNAPS[q]);if(v!=null&&isFinite(v)){s+=v;c++;}}return c?s/c:NaN;}  // time-running mean over snapshots 0..i
 // §13 plots the per-iteration DIFFERENCE value(i)−value(i−1) (zeros at the first snapshot — no previous). acc maps a
@@ -4658,7 +4658,8 @@ function makeCompareSection(pre, kind) {
   document.getElementById(pre + '_status').textContent = 'press Run to start this ' + kind + ' comparison (needs the GPU backend — python server.py).';
 }
 
-window.addEventListener('load',()=>{makeCompareSection('q','quad');makeCompareSection('l','linear');makeCompareSection('c','cubic');applyPreset('linear');drawPreview();updateParamBadge();});   // draw empty plots; nothing runs until Run is pressed
+window.addEventListener('load',()=>{makeCompareSection('q','quad');makeCompareSection('l','linear');makeCompareSection('c','cubic');applyPreset('linear');drawPreview();updateParamBadge();
+  try{s12GrpVis();s12HistVis();}catch(e){console.error('§12b default visibility',e);}});   // §12b: apply hidden-by-default groups (5,6,7)/(8,9) + residual histograms (toggleable)
 </script>
 </div>
 </body>
