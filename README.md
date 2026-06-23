@@ -213,13 +213,21 @@ across SLURM and your GPUs and analyse them whenever. See **[capture_README.md](
 python capture_run.py --dataset cifar10 --arch vgg11 --nsamp 25 --steps 400 \
                       --device cuda:0 --out runs_captured/cifar_vgg.json
 
+# k-sparse parity with the transformer (or --arch mlp), e.g. 12 bits, parity of a 4-subset:
+python capture_run.py --dataset ksparse --arch gpt --indim 12 --set ksparse=4 \
+                      --nsamp 24 --steps 800 --device cuda:0 --out runs_captured/ksparse_gpt.json
+
 # on SLURM (one job → one capture file); sweep_capture.sh submits a grid:
 sbatch --export=ALL,ARGS="--dataset cifar10 --arch mlp --nsamp 25 --steps 400 \
                           --out runs_captured/cifar_mlp.json" run_capture.sh
 ```
 
-In the page: **Compute → "⬆ load run"** picks a capture and replays it into every plot (and restores the
-run's controls); **"⬇ save run"** downloads the most recent **GPU-backend** run in the same format.
+Each run writes **one self-contained `runs_captured/*.json`**. Copy them anywhere (they need no server),
+then in the widget — local `python3 -m http.server` page **or** a live backend — set **Compute → "⬆ load
+run"**, pick the `.json`, and it restores that run's controls and replays every section into the plots
+(§1–§9 time-series, §11–§15 cubes/grids with their sliders, §16/§17 optimizer panels). **"⬇ save run"**
+downloads the most recent **GPU-backend** run in the same format (browser-compute runs aren't record-based).
+This is how you "pull everything into the browser later": capture on SLURM/GPU now → load the JSONs whenever.
 
 ## Layout
 
