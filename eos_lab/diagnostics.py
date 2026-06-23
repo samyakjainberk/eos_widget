@@ -145,6 +145,8 @@ class Diagnostics:
         self.cubicapprox = max(1, getattr(cfg, "cubicapprox", 10))   # §10 cubic-window length
         self.grid3dcap = max(1, getattr(cfg, "grid3dcap", 30))       # §11 3D-grid size cap (skip when M exceeds it)
         self.sec12ncap = max(1, getattr(cfg, "sec12ncap", 500))      # §12 sample cap (gates N; no p-cap — large p is slow)
+        self.cubeevery = max(1, getattr(cfg, "cubeevery", 1))        # §11-§14 cube snapshot cadence (1=every tick; mirrors server g3dstride)
+        self._cube_n = 0                                             # diagnostic-tick counter for the cube cadence
         self.qmode = cfg.qmode
         self.tset = cfg.tset
         # Krylov depths (match server.run_stream)
@@ -233,6 +235,8 @@ class Diagnostics:
 
     def compute(self, theta, X, Y, t, pos_rows=None, neg_rows=None):
         """Return a dict of all enabled diagnostics at step t. pos_rows/neg_rows feed §4d."""
+        cube_emit = (self._cube_n % self.cubeevery == 0)   # §11-§14 cube cadence (mirrors server eigTick % g3dstride)
+        self._cube_n += 1
         th = theta
         N, outD, M, p = self.N, self.outD, self.M, self.p
         n, nSub, n7, n8 = self.n, self.nSub, self.n7, self.n8
@@ -492,7 +496,7 @@ class Diagnostics:
         # (u = top NTK eigenvector, r = residual). M³ points + M Hessian-vector products → small M only, computed
         # EVERY diagnostic tick (one grid snapshot per iteration, to resolve the EoS dynamics — mirrors the
         # widget). For each k: jac_hvp(Jₖ)={Qⱼ Jₖ}ⱼ, then T1[:,:,k] = Jc·{Qⱼ Jₖ}ⱼᵀ.
-        if (self.s18 and self.multi_ok and Jc is not None and u1s is not None
+        if (self.s18 and cube_emit and self.multi_ok and Jc is not None and u1s is not None
                 and rr is not None and N <= self.grid3dcap):
             # §11 uses ONE output per sample — the GROUND-TRUTH-LABEL output (argmax of the target). Single-output
             # is identity (Ms=N); multi-output (cifar/sorting) picks f_i[label_i] so (i,j,k) range over N samples.
@@ -587,7 +591,7 @@ class Diagnostics:
         # MATRIX-FREE: extract each Q_i's top-K12 & bottom-K12 eigenpairs by Lanczos on v↦Q_i·v — no p×p
         # Hessian formed. For the MLP the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (one vectorised
         # forward/backward per step, ~4–8× faster on GPU); other archs fall back to the per-sample loop.
-        if ((self.s19 or self.s20 or self.s21 or self.s22) and (self.multi_ok or self.s12single) and Jc is not None and rr is not None
+        if ((self.s19 or self.s20 or self.s21 or self.s22) and cube_emit and (self.multi_ok or self.s12single) and Jc is not None and rr is not None
                 and N <= self.sec12ncap):
             lblsel12 = (torch.arange(N, device=dev) * outD + Y.reshape(N, outD).argmax(dim=1)
                         if outD > 1 else torch.arange(N, device=dev))

@@ -70,6 +70,8 @@ class Config:
     qapprox: int = 25              # §9 frozen-Q window length (steps)
     qmode: int = 1                 # §9 col-3 mode index — legacy (Eq-22 uses no mode)
     tset: int = 3                  # §9 Eq-29 number of top modes |T|
+    cubeevery: int = 1             # §11-§14 cube/grid snapshot cadence: compute them every k-th eig-tick (1=every tick).
+                                   #   Raise it for long all-sections runs — the N³ cubes dominate output size; §15/§1-9/§16-17 stay full-res.
     grid3dcap: int = 500           # §11 3D-grid cap: skip the N×N×N Hessian–NTK grids when M=N·d_out exceeds this.
     sec12ncap: int = 500           # §12 sample cap: gate the per-sample Hessian eigvec cross-similarity on N (no p-cap;
                                    #   §12 builds dense p×p Hessians + O(p³) eig per sample, so large p is slow).

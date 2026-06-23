@@ -2514,9 +2514,10 @@ def run_stream(P):
     efrac = min(1.0, max(0.5, P["energyp"] / 100.0))
     slqStride = max(1, math.ceil((steps // ee + 1) / 50))
     heavyevery = max(1, P.get("heavyevery", 4))   # §7-proj + §8 compute every heavyevery-th tick (responsiveness)
-    # §11 grid cadence: update on EVERY diagnostic tick (per request). Heavy at large M (M HVPs + M³ work each
-    #   tick) but bounded by grid3dcap + top-|value| sparsification; lower grid3dcap if a big-M run gets sluggish.
-    g3dstride = 1
+    # §11-§14 cube/grid cadence: emit on every `cubeevery`-th diagnostic tick. Heavy at large M (M HVPs + M³ work
+    #   each emission) and the N³ cubes dominate the capture file size, so raise `cubeevery` for long all-sections
+    #   captures (§15 / §1-§9 / §16-§17 stay full-resolution). 1 = every tick (default, unchanged behaviour).
+    g3dstride = max(1, int(P.get("cubeevery", 1)))
     start = max(0, min(int(P.get("start", 0)), steps))  # resume: fast-forward GD to here, then stream
 
     mytok = P.get("_token", 0)                          # per-device token claimed in _sse via acquire_device()
@@ -3062,7 +3063,8 @@ def run_stream(P):
             # the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (a single vectorised forward/backward per
             # step instead of N) — ~4–8× faster on GPU. Other archs fall back to the per-sample loop. Gated on N.
             sec12 = None; sec14 = None; sec13 = None; sec15 = None; sec15n = None; sec15p34 = None; sec15b = None
-            if (s19 or s20 or s21 or s22) and (multi_ok or s12single) and Jc is not None and rr is not None and N <= sec12ncap:
+            if ((s19 or s20 or s21 or s22) and eigTick % g3dstride == 0   # §12/§13/§14 share §11's cube cadence (the N³ cubes dominate file size)
+                    and (multi_ok or s12single) and Jc is not None and rr is not None and N <= sec12ncap):
                 lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
                             if outD > 1 else torch.arange(N, device=_dev()))
                 K12 = max(1, min(SEC12_KFULL, p // 2))          # top-/bottom-K12 eigenpairs (covers k=1,2,5,10,kfull)
@@ -3809,6 +3811,9 @@ def _parse_params(q):
         "s25base": g("s25base", "0") == "1",  # §17: compute the five dotted baselines (per-sample analog of §16's); ≈6× cost
         "grid3dcap": max(1, fi("grid3dcap", 500)),
         "sec12ncap": max(1, fi("sec12ncap", 500)),
+        "cubeevery": max(1, fi("cubeevery", 1)),   # §11-§14 (3D-grid/cube + per-sample) snapshot cadence: emit every k-th eig-tick.
+                                                   #   1 = every tick (default); raise it (e.g. 8) to keep long all-sections captures small (the
+                                                   #   N³ cubes are the file-size driver) — §15 / §1-§9 / §16-§17 stay full-resolution.
         "gs": g("gson", "1") == "1",
         # surrogate-section panel toggles (loss · resid mean/std · top-n eig · histogram · theory · §4 · §4d)
         "c1": g("c1", "1") == "1", "c2": g("c2", "1") == "1", "c3": g("c3", "1") == "1",

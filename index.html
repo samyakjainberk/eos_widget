@@ -193,6 +193,7 @@
       <div class="ctl"><label title="§16: also compute the FOUR dotted baselines in every panel — A: two random unit vectors instead of u₁/u₋₁ (KEEP σ₁/σ₋₁ of H̄, redrawn each iter); B: keep u₁/u₋₁/σ but shuffle the ± set membership; C (rand-fix): random directions FROZEN at warmup-end (σ recomputed); D (eig-fix): the H̄ top/bottom eigvecs FROZEN at warmup-end (σ recomputed). All PURE-curvature trajectories. ≈5× cost. OFF by default.">§16 baselines</label><input type="checkbox" id="en24base"></div>
       <div class="ctl"><label title="§17: also compute the FOUR dotted baselines (per-sample analog of §16's A/B/C/D — random per-sample dirs, shuffled ± sets, frozen-random, frozen per-sample eigvecs). ≈5× cost. OFF by default.">§17 baselines</label><input type="checkbox" id="en25base"></div>
       <div class="ctl"><label title="§12 sample cap: skip §12 when the number of samples N exceeds this. §12 extracts each sample's top-/bottom-15 Hessian eigenpairs MATRIX-FREE via Lanczos (no p×p matrix is formed), so it scales to large models like §1–§3; the grid is N×N so only N is capped.">§12 N-cap</label><input id="sec12ncap" type="number" value="500" min="1" max="600" step="1"></div>
+      <div class="ctl"><label title="§11-§14 cube snapshot cadence: compute the N³ Hessian–NTK cubes (§11/§14) and the per-sample §12/§13 grids every k-th diagnostic tick instead of every tick. 1 = every tick (default). Raise it (e.g. 8) to keep long all-sections runs / captures small and fast — the N³ cubes dominate the file size; §15, §1-§9 and §16/§17 stay full-resolution.">cube cadence (every k)</label><input id="cubeevery" type="number" value="1" min="1" max="200" step="1"></div>
       <div class="ctl"><label>SLQ probes</label><input id="slqprobes" type="number" value="4" min="1" max="12" step="1"></div>
       <div class="ctl"><label>subspace energy %</label><input id="energyp" type="number" value="99" min="50" max="100" step="1"></div>
       <div class="ctl"><label>G &amp; S spectra</label><select id="gson"><option value="1" selected>on</option><option value="0">off</option></select></div>
@@ -3219,7 +3220,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const slqStride=Math.max(1,Math.ceil((Math.floor(steps/eigEvery)+1)/50));
   const heavyEvery=Math.max(1,+val('heavyevery')||4);   // §7-proj + §8 throttle (mirror server.run_stream)
   const grid3dcap=Math.max(1,+val('grid3dcap')||30);    // §11 3D-grid cap (skip when M>this)
-  const g3dStride=1;   // §11 cadence: update on every diagnostic tick (mirror server; bounded by grid3dcap + sparsification)
+  const g3dStride=Math.max(1,+val('cubeevery')||1);   // §11-§14 cube cadence: emit every k-th tick (mirror server cubeevery/g3dstride); §15/§1-9/§16-17 stay per-tick
   ST={opt,optim:val('optimizer'),spec,p,X,Y,N,inDim,outDim,M,nResid,th,lr,eps,thr,n,kth,nSub,mF,mV,mSLQ,nProbe,efrac,eigEvery,slqStride,heavyEvery,grid3dcap,divreg:Math.max(0,+val('divreg')||0.3),sec12ncap:Math.max(1,+val('sec12ncap')||500),g3dStride,steps,posIdx,negIdx,
       needVecs,needVals,prevTop:Array(nSub).fill(null),prevBot:Array(nSub).fill(null),prevPos:null,prevNeg:null,
       pNtk:Array(n).fill(null),pVH:Array(n).fill(null),pUJ:Array(n).fill(null),pM1:[null,null,null,null],pM2:[null,null,null,null],pG2:Array(n).fill(null),
@@ -3420,7 +3421,7 @@ async function loop(){                                   // drives ST forward; r
         // §12 — per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity (ground-truth-label output).
         // MATRIX-FREE: Lanczos on the per-sample HVP v↦Q_i·v (=hvpS with a one-hot cotangent) gives the top-/
         // bottom-K12 eigenpairs — no p×p Hessian formed, scales to any p. Gated on N (≤sec12ncap). Mirrors server.
-        if((O.s19||O.s20||O.s21||O.s22)&&(M>1||O.s19||O.s22)&&bJc&&rrs&&N<=S.sec12ncap){   // §12a/§12b run for N≥1; §13/§14 below stay multi-only. matrix-free Lanczos; shared eigenpairs
+        if((O.s19||O.s20||O.s21||O.s22)&&S.eigTick%S.g3dStride===0&&(M>1||O.s19||O.s22)&&bJc&&rrs&&N<=S.sec12ncap){   // §12-§14 share §11's cube cadence (g3dStride); §15 below stays per-tick. matrix-free Lanczos; shared eigenpairs
           const oD=Math.round(M/N), lblsel=new Array(N);
           for(let i=0;i<N;i++){if(oD>1){let mx=-Infinity,mi=0;for(let c=0;c<oD;c++){const yv=Y[i*oD+c];if(yv>mx){mx=yv;mi=c;}}lblsel[i]=i*oD+mi;}else lblsel[i]=i;}
           const K12=Math.max(1,Math.min(SEC12_KFULL,Math.floor(p/2))), m12=Math.min(p,Math.max(6*K12,64));
@@ -3875,7 +3876,7 @@ async function downloadPlots(){
 // shared by backendURL (live stream) and the capture save/load (Compute → "Load saved run").
 // QUERY_IDS: plain value controls; SEC_TOGGLE_MAP: query-key ↔ checkbox-id for every section toggle.
 const QUERY_IDS=['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
-   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','s24warm','s24iter','s24grid','s24ares','s24k',
+   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','cubeevery','s24warm','s24iter','s24grid','s24ares','s24k',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg','ksparse'];
 const SEC_TOGGLE_MAP=[['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
    ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base']];

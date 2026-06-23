@@ -54,7 +54,7 @@ def default_params():
         "neig": "4", "kth": "1", "steps": "120", "eigevery": "1", "heavyevery": "4",   # eigevery=1: §15 panels 1-4 (the per-step 2nd-difference) need 3 CONSECUTIVE GD steps
         "slqprobes": "4", "energyp": "99", "seed": "0", "start": "0",
         "qapprox": "25", "qmode": "1", "tset": "3", "cubicapprox": "10",
-        "grid3dcap": "500", "sec12ncap": "500",
+        "grid3dcap": "500", "sec12ncap": "500", "cubeevery": "1",   # §11-§14 cube snapshot cadence; raise for long all-on captures
         "s24warm": "5", "s24iter": "120", "s24grid": "0.1", "s24ares": "0.01", "s24k": "32",
         "gson": "1", "mode": "run", "surrogate": "quad",
     }
