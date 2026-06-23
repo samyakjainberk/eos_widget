@@ -24,7 +24,7 @@ import math
 import torch
 
 from .models import (grad_sum_f, hvp_F, hvp_L, hvp_S, hvp_G, hvp_G2,
-                     jac_cols, jac_hvp, grad_out, mlp_forward)
+                     jac_cols, jac_hvp, grad_out, mlp_forward, grad_loss, FD_EPS)
 from .linalg import (lanczos_extreme, lanczos_extreme_vals, slq_density, hutch_trace, sym_eig_desc,
                      sign_to, pin_sign, pos_subspace, neg_subspace, principal_angles, randn_vec,
                      sec12_payload, sec13_stats, SEC13_KS, SEC13_DOMS, sec14_payload, SEC12_KFULL,
@@ -705,15 +705,38 @@ class Diagnostics:
                 def _hvB(tt, x, oh, v): return _tf.jvp(lambda q: _tf.grad(_fB)(q, x, oh), (tt,), (v,))[1]
                 hvpB = lambda V: _tf.vmap(_hvB, in_dims=(None, 0, 0, 0))(th, XrepB, OHB, V)
                 TVb, TWb, BVb, BWb = batched_lanczos_extreme(hvpB, p, M15, 1, mB, seedsB, dev, dt)
+                AsumQJ = hvpB(Jg15).sum(0)                       # Σ_k Q_k J_k = ½·∇θ‖J‖²_F (batched per-sample HVP)
             else:                                                # other archs — per-effective-sample Lanczos loop (single-output cotangent)
                 TVl = []; TWl = []; BVl = []; BWl = []
+                AsumQJ = torch.zeros(p, dtype=dt, device=dev)
                 for k in range(M15):
                     ck = torch.zeros(N * outD, dtype=dt, device=dev); ck[k] = 1.0; ck = ck.reshape(N, outD)
                     tv, bv, tw, bw = lanczos_extreme(lambda v, ck=ck: hvp_S(self.model, th, X, ck, v), p, 1, mB, seedsB[k], dev, dt)
                     TVl.append(torch.stack(tv)); BVl.append(torch.stack(bv))
                     TWl.append(torch.tensor(tw, dtype=dt, device=dev)); BWl.append(torch.tensor(bw, dtype=dt, device=dev))
+                    AsumQJ = AsumQJ + hvp_S(self.model, th, X, ck, Jg15[k])      # Q_k J_k accumulated
                 TVb, TWb, BVb, BWb = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
             rec["g15b"] = sec15_panelB(TVb[:, 0], BVb[:, 0], TWb[:, 0], BWb[:, 0], Jg15)
+            # §15 Panel 8 — correlation of A=∇θ‖∇θf‖²=∇θ tr(NTK)=2Σ_k Q_k J_k and B=∇θ‖∇θL‖²=2H∇L (both nablas wrt θ)
+            Avec = 2.0 * AsumQJ
+            gL = grad_loss(self.model, self.loss, th, X, Y)[0]            # ∇θL
+            gLn = float(gL.norm())
+            if gLn > 1e-30:
+                Hu = (grad_loss(self.model, self.loss, th + FD_EPS * (gL / gLn), X, Y)[0]
+                      - grad_loss(self.model, self.loss, th - FD_EPS * (gL / gLn), X, Y)[0]) / (2 * FD_EPS)
+                Bvec = 2.0 * gLn * Hu                                     # B = 2·H·∇L (FD on the unit gradient, rescaled — matches server)
+            else:
+                Bvec = torch.zeros(p, dtype=dt, device=dev)
+            An = float(Avec.norm()); Bn = float(Bvec.norm()); inner = float(Avec @ Bvec)
+            jn2 = float((Jg15 * Jg15).sum())                             # ‖J‖²_F = tr(NTK)
+            D2corr = None
+            if (len(self._sec15_hist) >= 2 and self._sec15_hist[-1]["t"] == t - 1
+                    and self._sec15_hist[-2]["t"] == t - 2):
+                D2corr = (jn2 - 2.0 * float((self._sec15_hist[-1]["J"] ** 2).sum())
+                          + float((self._sec15_hist[-2]["J"] ** 2).sum()))
+            rec["g15corr"] = {"jn2": jn2, "An": An, "gn2": gLn * gLn, "Bn": Bn, "inner": inner,
+                              "cos": (inner / (An * Bn) if An > 1e-30 and Bn > 1e-30 else 0.0),
+                              "D2": D2corr, "pred": 0.5 * self.lr * self.lr * inner}
             if (len(self._sec15_hist) >= 2 and self._sec15_hist[-1]["t"] == t - 1
                     and self._sec15_hist[-2]["t"] == t - 2):       # 3 CONSECUTIVE GD steps (eigevery=1): the per-step 2nd-difference theory requires it
                 tm1, tm2 = self._sec15_hist[-1], self._sec15_hist[-2]

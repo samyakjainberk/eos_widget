@@ -471,6 +471,9 @@
 <h3 style="margin:16px 0 2px;font-size:14px;color:#475569">Panel 7 — per-sample projection ratio on each sample's own function Hessian (top vs bottom, signed)</h3>
 <p class="cap">For each sample $i$, project its gradient $\nabla f_i$ onto the <b>most-positive</b> eigenvector $u_i^{+}$ and the <b>most-negative</b> eigenvector $u_i^{-}$ of its own function Hessian $Q_i=\nabla^2 f_i$ (current step, per-sample Lanczos), then $\rho_i=\dfrac{|\langle\nabla f_i,u_i^{+}\rangle|}{|\langle\nabla f_i,u_i^{+}\rangle|+|\langle\nabla f_i,u_i^{-}\rangle|}\times100\%$. Plots 1–2: <b>mean</b> and <b>std</b> of $\rho_i$ across the $N$ samples. Plots 3–4: the same after weighting each projection by its eigenvalue magnitude, $\rho'_i$ with $|\langle\cdot\rangle|\to|\langle\cdot\rangle|\cdot|\lambda|$. Small $N$ &amp; $p$ (per-sample eigenpairs); fills from the first tick (no 3-tick buffer needed).</p>
 <div class="plotrow row4"><div id="p_s15_pbmean" class="plot" style="height:290px"></div><div id="p_s15_pbstd" class="plot" style="height:290px"></div><div id="p_s15_pbmeanw" class="plot" style="height:290px"></div><div id="p_s15_pbstdw" class="plot" style="height:290px"></div></div>
+<h3 style="margin:16px 0 2px;font-size:14px;color:#475569">Panel 8 — correlation of the two $\theta$-gradients $\;A=\nabla_\theta\lVert\nabla_\theta f\rVert^2=\nabla_\theta\,\mathrm{tr(NTK)}\;$ and $\;B=\nabla_\theta\lVert\nabla_\theta L\rVert^2$</h3>
+<p class="cap">Both nablas are w.r.t. $\theta$. <b>$A=\nabla_\theta\lVert J\rVert_F^2=2\sum_k Q_k J_k$</b> (the parameter-gradient of the squared Jacobian / NTK-trace; $Q_k=\nabla^2 f_k$, $J_k=\nabla f_k$) and <b>$B=\nabla_\theta\lVert\nabla_\theta L\rVert^2=2H\nabla L$</b> ($H=\nabla^2 L$). <b>Plot 1:</b> $\lVert J\rVert_F^2=\mathrm{tr(NTK)}$ (the Jacobian term) and $\lVert A\rVert$ vs step. <b>Plot 2:</b> $\lVert\nabla L\rVert^2$ (the gradient term) and $\lVert B\rVert$. <b>Plot 3:</b> the inner product $\langle A,B\rangle=\langle\nabla_\theta\lVert\nabla f\rVert^2,\nabla_\theta\lVert\nabla L\rVert^2\rangle$. <b>Plot 4:</b> the cosine $\cos\angle(A,B)=\langle A,B\rangle/(\lVert A\rVert\lVert B\rVert)$. <b>Plot 5:</b> the actual $D^2(\mathrm{tr\,NTK})=\mathrm{tr\,NTK}_{t+1}-2\,\mathrm{tr\,NTK}_t+\mathrm{tr\,NTK}_{t-1}$ (same as Panel 1) overlaid with $\tfrac12\eta^2\langle A,B\rangle$ — the part of the trace's 2nd-difference coming from the correlation of the two terms (under GD $\Delta\theta=-\eta\nabla L$, $D^2\approx\eta^2[\langle(\nabla A)\nabla L,\nabla L\rangle+\tfrac12\langle A,B\rangle]$, so this is the $\langle A,B\rangle$ contribution; the remainder is the $\langle(\nabla A)\nabla L,\nabla L\rangle$ term). Fills from the start; Plot 5 needs 3 consecutive GD steps (eigevery=1).</p>
+<div class="plotrow row5"><div id="p_s15_corr1" class="plot" style="height:290px"></div><div id="p_s15_corr2" class="plot" style="height:290px"></div><div id="p_s15_corr3" class="plot" style="height:290px"></div><div id="p_s15_corr4" class="plot" style="height:290px"></div><div id="p_s15_corr5" class="plot" style="height:290px"></div></div>
 </div>
 
 <div id="sec_s16" style="display:none">
@@ -2313,6 +2316,32 @@ function s15p34Push(m){
   if(m.Bpeig&&m.Bpeig.length){const d=s15Dens(m.Bpeig);Plotly.restyle('p_s15_Bpdens',{x:[d.x],y:[d.y]});}
 }
 function s15p34Reset(){S15P34_DATA=null;S15P34_BUILT=false;for(const id of S15P34_IDS){try{Plotly.purge(id);}catch(e){}}}
+// §15 Panel 8 — correlation of A=∇θ‖∇f‖²=∇θ tr(NTK) and B=∇θ‖∇L‖². 5 plots: (1)‖J‖²&‖A‖ (2)‖∇L‖²&‖B‖ (3)⟨A,B⟩ (4)cos∠ (5)D² vs ½η²⟨A,B⟩.
+const S15CORR_IDS=['p_s15_corr1','p_s15_corr2','p_s15_corr3','p_s15_corr4','p_s15_corr5'];
+let S15CORR_DATA=null,S15CORR_BUILT=false;
+function s15corrBuild(){
+  S15CORR_BUILT=true;
+  const ln=(name,col,dash)=>({x:[],y:[],mode:'lines+markers',name:name,line:{color:col,width:1.7,dash:dash||'solid'},marker:{size:3,color:col}});
+  const mk=(id,tr,title,yl)=>Plotly.newPlot(id,tr,withZero(baseLayout(title,yl,false)),{responsive:true,displaylogo:false});
+  mk('p_s15_corr1',[ln('‖J‖²_F = tr(NTK)','#111827'),ln('‖A‖ = ‖∇θ‖∇f‖²‖','#2563eb')],'Jacobian term ‖J‖²_F  &  ‖A‖','value');
+  mk('p_s15_corr2',[ln('‖∇L‖²','#111827'),ln('‖B‖ = ‖∇θ‖∇L‖²‖','#dc2626')],'gradient term ‖∇L‖²  &  ‖B‖','value');
+  mk('p_s15_corr3',[ln('⟨A,B⟩','#7c3aed')],'inner product ⟨∇θ‖∇f‖², ∇θ‖∇L‖²⟩','value');
+  mk('p_s15_corr4',[ln('cos∠(A,B)','#16a34a')],'cosine of the angle between A and B','cos');
+  mk('p_s15_corr5',[ln('D²(tr NTK) actual','#111827','dot'),ln('½η²⟨A,B⟩','#7c3aed')],'∂²tr(NTK)  vs  ½η²⟨A,B⟩','value');
+}
+function s15corrPush(m){
+  if(!S15CORR_BUILT)s15corrBuild();
+  if(!S15CORR_DATA)S15CORR_DATA={steps:[],jn2:[],An:[],gn2:[],Bn:[],inner:[],cos:[],D2:[],pred:[]};
+  const D=S15CORR_DATA;D.steps.push(m.t);D.jn2.push(m.jn2);D.An.push(m.An);D.gn2.push(m.gn2);D.Bn.push(m.Bn);
+  D.inner.push(m.inner);D.cos.push(m.cos);D.D2.push(m.D2==null?null:m.D2);D.pred.push(m.pred);
+  const t=D.steps;
+  Plotly.restyle('p_s15_corr1',{x:[t,t],y:[D.jn2,D.An]});
+  Plotly.restyle('p_s15_corr2',{x:[t,t],y:[D.gn2,D.Bn]});
+  Plotly.restyle('p_s15_corr3',{x:[t],y:[D.inner]});
+  Plotly.restyle('p_s15_corr4',{x:[t],y:[D.cos]});
+  Plotly.restyle('p_s15_corr5',{x:[t,t],y:[D.D2,D.pred]});
+}
+function s15corrReset(){S15CORR_DATA=null;S15CORR_BUILT=false;for(const id of S15CORR_IDS){try{Plotly.purge(id);}catch(e){}}}
 
 // ═══════════════ §16: curvature-aligned per-residual-sign optimizer (standalone) ═══════════════
 // MIRRORS eos_lab.sec16.sec16_run / server._sec16_run (float64). Computes the whole standalone trajectory
@@ -2726,7 +2755,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   s12Reset();   // §12: drop snapshots from the previous run
   s13Reset();   // §13: drop the approximation-comparison time-series from the previous run
   s14Reset();   // §14: drop snapshots from the previous run
-  s15Reset();s15nReset();s15bReset();s15p34Reset();s16Reset();s17Reset();   // §15+§16: drop the 2nd-difference + optimizer time-series
+  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s16Reset();s17Reset();   // §15+§16: drop the 2nd-difference + optimizer time-series
   trReset();    // §5: clear the trace-over-iterations curves
   syncSectionVis(multi);   // gate sections by the panel toggles (multi from the actual run)
   const dis=s=>OPT.gs?s:s+'  (off)';
@@ -3489,13 +3518,29 @@ async function loop(){                                   // drives ST forward; r
            s15nPush({type:'g15n',t:S.t,g:ms(gn),j:ms(jn),h:ms(hn),r:ms(rn)});
            // new Panel B — per-EFFECTIVE-sample top/bottom-eigvec projection ratio of ∇f_k on its own Q_k (k = one of M outputs)
            const mB=Math.min(p,48),pt=new Float64Array(M),pb=new Float64Array(M),tw=new Float64Array(M),bw=new Float64Array(M);
+           const Asum=new Float64Array(p);   // §15 Panel 8: Σ_k Q_k J_k = ½·∇θ‖J‖²_F
            for(let k=0;k<M;k++){const ci=new Float64Array(M);ci[k]=1;                                          // one-hot at output k ⇒ hvpS = Q_{t,k}·v
              const ex=lanczosExtreme(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,ci),p,1,mB,(0x5EC15B+k*7919)>>>0);
-             pt[k]=Math.abs(s15Dotp(Jg15[k],ex.topVecs[0],p));pb[k]=Math.abs(s15Dotp(Jg15[k],ex.botVecs[0],p));tw[k]=Math.abs(ex.topVals[0]);bw[k]=Math.abs(ex.botVals[0]);}
+             pt[k]=Math.abs(s15Dotp(Jg15[k],ex.topVecs[0],p));pb[k]=Math.abs(s15Dotp(Jg15[k],ex.botVecs[0],p));tw[k]=Math.abs(ex.topVals[0]);bw[k]=Math.abs(ex.botVals[0]);
+             const qj=hvpS(S.th,spec,X,N,inDim,p,Jg15[k],eps,ci);for(let q=0;q<p;q++)Asum[q]+=qj[q];}            // Q_k J_k accumulated
            const rho=new Float64Array(M),rhow=new Float64Array(M);
            for(let k=0;k<M;k++){const dn=pt[k]+pb[k];rho[k]=100*pt[k]/(dn>1e-30?dn:1e-30);const wt=pt[k]*tw[k],wb=pb[k]*bw[k],dw=wt+wb;rhow[k]=100*wt/(dw>1e-30?dw:1e-30);}
            const mr=ms(rho),mw=ms(rhow);
-           s15bPush({type:'g15b',t:S.t,mean:mr[0],std:mr[1],meanw:mw[0],stdw:mw[1]});}
+           s15bPush({type:'g15b',t:S.t,mean:mr[0],std:mr[1],meanw:mw[0],stdw:mw[1]});
+           // Panel 8 — correlation of A=∇θ‖∇f‖²=2Σ_k Q_k J_k and B=∇θ‖∇L‖²=2H∇L
+           const Avec=new Float64Array(p);for(let q=0;q<p;q++)Avec[q]=2*Asum[q];
+           const gL=gradL(S.th,spec,X,Y,N,inDim,p).grad;let gnv=0;for(let q=0;q<p;q++)gnv+=gL[q]*gL[q];gnv=Math.sqrt(gnv);
+           const Bvec=new Float64Array(p);
+           if(gnv>1e-30){const u=new Float64Array(p);for(let q=0;q<p;q++)u[q]=gL[q]/gnv;
+             const gp=gradL(_addS(S.th,u,eps),spec,X,Y,N,inDim,p).grad,gm=gradL(_addS(S.th,u,-eps),spec,X,Y,N,inDim,p).grad;
+             for(let q=0;q<p;q++)Bvec[q]=2*gnv*(gp[q]-gm[q])/(2*eps);}   // B = 2·H·∇L (FD loss-Hessian on the unit gradient, rescaled)
+           let An=0,Bn=0,inner=0;for(let q=0;q<p;q++){An+=Avec[q]*Avec[q];Bn+=Bvec[q]*Bvec[q];inner+=Avec[q]*Bvec[q];}An=Math.sqrt(An);Bn=Math.sqrt(Bn);
+           let jn2=0;for(const g of Jg15)jn2+=s15Dotp(g,g,p);   // ‖J‖²_F = tr(NTK)
+           let D2c=null;
+           if(S15_HIST_JS.length>=2&&S15_HIST_JS[S15_HIST_JS.length-1].t===S.t-1&&S15_HIST_JS[S15_HIST_JS.length-2].t===S.t-2){
+             const h1=S15_HIST_JS[S15_HIST_JS.length-1].J,h2=S15_HIST_JS[S15_HIST_JS.length-2].J;
+             let n1=0,n2=0;for(const g of h1)n1+=s15Dotp(g,g,p);for(const g of h2)n2+=s15Dotp(g,g,p);D2c=jn2-2*n1+n2;}
+           s15corrPush({type:'g15corr',t:S.t,jn2:jn2,An:An,gn2:gnv*gnv,Bn:Bn,inner:inner,cos:(An>1e-30&&Bn>1e-30)?inner/(An*Bn):0,D2:D2c,pred:0.5*S.lr*S.lr*inner});}
           if(S15_HIST_JS.length>=2&&S15_HIST_JS[S15_HIST_JS.length-1].t===S.t-1&&S15_HIST_JS[S15_HIST_JS.length-2].t===S.t-2){   // 3 CONSECUTIVE GD steps (eigevery=1): the per-step 2nd-difference theory requires it
             const tm1=S15_HIST_JS[S15_HIST_JS.length-1], tm2=S15_HIST_JS[S15_HIST_JS.length-2];
             const hvp1=v=>{const Q=jacHVP(tm1.th,spec,X,N,inDim,p,v,eps);return lblsel.map(a=>Q[a]);};   // {Q_{t−1,k}·v}_k
@@ -3705,7 +3750,7 @@ function resetSim(){
   s12Reset();   // §12: clear the eigvec-similarity grids/cuboids + snapshots/slider too
   s13Reset();   // §13: clear the approximation-comparison time-series too
   s14Reset();   // §14: clear the triplet-decomposition cubes + snapshots/slider too
-  s15Reset();s15nReset();s15bReset();s15p34Reset();s16Reset();s17Reset();   // §15+§16: clear the time-series too
+  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s16Reset();s17Reset();   // §15+§16: clear the time-series too
   updateButtons();
 }
 
@@ -3930,6 +3975,7 @@ function gpuHandle(m,st,sp,finish,resuming){
     }else if(m.type==='g15n'){ADV_GOT.en23=1;s15nPush(m);
     }else if(m.type==='g15b'){ADV_GOT.en23=1;s15bPush(m);
     }else if(m.type==='g15p34'){ADV_GOT.en23=1;s15p34Push(m);
+    }else if(m.type==='g15corr'){ADV_GOT.en23=1;S15_TERMS_GOT=true;s15corrPush(m);
     }else if(m.type==='g16'){ADV_GOT.en24=1;s16Push(m);
     }else if(m.type==='g17'){ADV_GOT.en25=1;s17Push(m);
     }else if(m.type==='done'){st.textContent=`done — through step ${lastT} · p=${m.p} · 2/lr=${(META?META.thr:0).toFixed(3)}.`;markSkippedAdv();finish();

@@ -3062,7 +3062,7 @@ def run_stream(P):
             # bottom-K12 eigenpairs of each Q_i by Lanczos on v↦Q_i·v — no p×p Hessian is formed. For the MLP
             # the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (a single vectorised forward/backward per
             # step instead of N) — ~4–8× faster on GPU. Other archs fall back to the per-sample loop. Gated on N.
-            sec12 = None; sec14 = None; sec13 = None; sec15 = None; sec15n = None; sec15p34 = None; sec15b = None
+            sec12 = None; sec14 = None; sec13 = None; sec15 = None; sec15n = None; sec15p34 = None; sec15b = None; sec15corr = None
             if ((s19 or s20 or s21 or s22) and eigTick % g3dstride == 0   # §12/§13/§14 share §11's cube cadence (the N³ cubes dominate file size)
                     and (multi_ok or s12single) and Jc is not None and rr is not None and N <= sec12ncap):
                 lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
@@ -3185,15 +3185,42 @@ def run_stream(P):
                     def _hvB15(tt, x, oh, v): return _tf.jvp(lambda q: _tf.grad(_fB15)(q, x, oh), (tt,), (v,))[1]
                     hvpB15 = lambda V: _tf.vmap(_hvB15, in_dims=(None, 0, 0, 0))(th15, XrepB, OHB15, V)
                     TVb15, TWb15, BVb15, BWb15 = batched_lanczos_extreme(hvpB15, p, M15, 1, mB15, seedsB15, dt=X15.dtype)
+                    AsumQJ15 = hvpB15(Jg15).sum(0)                             # Σ_k Q_k J_k  (½·∇θ‖J‖²_F, batched per-sample HVP)
                 else:                                                         # non-MLP (cifar conv / sorting GPT): per-effective-sample Lanczos with a single-output cotangent
                     TVl = []; TWl = []; BVl = []; BWl = []
+                    AsumQJ15 = torch.zeros(p, dtype=X15.dtype, device=_dev())
                     for k in range(M15):
                         ck = torch.zeros(N * outD, dtype=X15.dtype, device=_dev()); ck[k] = 1.0; ck = ck.reshape(N, outD)
                         tv, bv, tw, bw = lanczos_extreme(lambda v, ck=ck: hvpS(th15, X15, v, ck), p, 1, mB15, seedsB15[k], dt=X15.dtype)
                         TVl.append(torch.stack(tv)); BVl.append(torch.stack(bv))
                         TWl.append(torch.tensor(tw, dtype=X15.dtype, device=_dev())); BWl.append(torch.tensor(bw, dtype=X15.dtype, device=_dev()))
+                        AsumQJ15 = AsumQJ15 + hvpS(th15, X15, Jg15[k], ck)     # Q_k J_k accumulated → ½·∇θ‖J‖²_F
                     TVb15, TWb15, BVb15, BWb15 = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
                 sec15b = _sec15_panelB(TVb15[:, 0], BVb15[:, 0], TWb15[:, 0], BWb15[:, 0], Jg15)
+                # ── §15 new panel: correlation of the two θ-gradients  A = ∇θ‖∇θf‖² = ∇θ tr(NTK) = 2Σ_k Q_k J_k  and
+                #    B = ∇θ‖∇θL‖² = 2·H·∇L (H=∇²L). Plots: (1)‖J‖²_F & ‖A‖ (2)‖∇L‖² & ‖B‖ (3)⟨A,B⟩ (4)cos∠(A,B)
+                #    (5) D²(trNTK) vs ½η²⟨A,B⟩ — the part of the trace's 2nd-difference from the two terms' correlation. ──
+                Y15c = Y.double() if f64_15 else Y
+                Avec15 = 2.0 * AsumQJ15
+                gL15 = gradL(th15, X15, Y15c)[0]                               # ∇θL
+                gLn = float(gL15.norm())
+                if gLn > 1e-30:
+                    Hu = (gradL(th15 + EPS * (gL15 / gLn), X15, Y15c)[0]
+                          - gradL(th15 - EPS * (gL15 / gLn), X15, Y15c)[0]) / (2 * EPS)   # H·(∇L/‖∇L‖)
+                    Bvec15 = 2.0 * gLn * Hu                                    # B = 2·H·∇L
+                else:
+                    Bvec15 = torch.zeros(p, dtype=Avec15.dtype, device=_dev())
+                An = float(Avec15.norm()); Bn = float(Bvec15.norm())
+                inner = float(Avec15 @ Bvec15)
+                cosAB = inner / (An * Bn) if (An > 1e-30 and Bn > 1e-30) else 0.0
+                jn2 = float((Jg15 * Jg15).sum())                              # ‖J‖²_F = tr(NTK)
+                D2corr = None
+                if len(sec15_hist) >= 2 and sec15_hist[-1]["t"] == t - 1 and sec15_hist[-2]["t"] == t - 2:
+                    D2corr = (jn2 - 2.0 * float((sec15_hist[-1]["J"] ** 2).sum())
+                              + float((sec15_hist[-2]["J"] ** 2).sum()))       # D² = ‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖²
+                sec15corr = {"jn2": jn2, "An": An, "gn2": float(gLn * gLn), "Bn": Bn,
+                             "inner": inner, "cos": cosAB, "D2": D2corr,
+                             "pred": 0.5 * lr * lr * inner}                    # ½η²⟨A,B⟩  (η = lr)
                 if (len(sec15_hist) >= 2 and sec15_hist[-1]["t"] == t - 1 and sec15_hist[-2]["t"] == t - 2):   # 3 CONSECUTIVE GD steps (eigevery=1): the per-step 2nd-difference theory requires it
                     tm1, tm2 = sec15_hist[-1], sec15_hist[-2]
                     hvp1 = lambda v: jac_hvp(tm1["th"], X15, v)[lblsel15]
@@ -3271,6 +3298,8 @@ def run_stream(P):
                 yield {"type": "g15b", "t": t, **sec15b}  # §15 new Panel B — per-sample top/bottom projection ratio (mean ± std)
             if sec15p34 is not None:
                 yield {"type": "g15p34", "t": t, **sec15p34}  # §15 panels 3/4 — Q̇≠0 terms VII/VIII + A'/B'
+            if sec15corr is not None:
+                yield {"type": "g15corr", "t": t, **sec15corr}  # §15 correlation panel — ⟨∇θ‖∇f‖², ∇θ‖∇L‖²⟩ vs D²(trNTK)
             eigTick += 1
             done += 1
 
