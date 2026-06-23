@@ -209,6 +209,10 @@
       <button id="resume" class="btn-resume" disabled>Resume</button>
       <button id="reset" class="btn-reset">Reset</button>
       <button id="dlzip" class="btn-reset" title="Download every visible plot in one zip: time-series as PNG, and the §11/§12/§13 3D cubes (rotating) + 2D grids (animated over snapshots) as GIFs, plus the run config. The GIF rendering takes a little while — watch the status line.">⬇ plots (zip)</button>
+      <button id="saverun" class="btn-reset" title="Save the last GPU-backend run to a JSON file (every section's records). Reload it later with “load run” to analyse the plots offline — no server needed. Tip: run headless on SLURM/GPU with capture_run.py to batch many runs.">⬇ save run</button>
+      <button id="loadrun" class="btn-reset" title="Load a saved run (.json from “save run” or capture_run.py) and replay it into every plot — offline, no server. Restores the controls from the capture too.">⬆ load run</button>
+      <input id="loadrunfile" type="file" accept=".json,.gz,application/json" style="display:none">
+      <a id="batchhelp" href="capture_README.md" target="_blank" style="font-size:12px;color:#6b7280;margin-left:6px;text-decoration:none" title="How to batch runs on SLURM and load them here">↪ batch on SLURM</a>
       <span class="parambadge" id="parambadge" title="Number of trainable parameters in the model, computed live from the current controls. Exact for the in-browser synthetic MLP; for the GPU-backend conv/transformer archs it shows the value reported by the backend on the last run.">params: —</span>
       <span class="steps" id="sps">steps/sec: —</span>
     </div>
@@ -3101,6 +3105,7 @@ function attachHover(){
 // GPU reconnects with ?start=lastT+1 so the server fast-forwards GD then continues streaming.
 let ABORT=false, RUNNING=false, PAUSED=false, ST=null, RUNGEN=0;   // browser-mode state (RUNGEN: only the latest loop runs)
 let ES=null, lastT=-1, META=null;                            // gpu-mode state
+let GPU_CAPTURE=null;                                         // records of the current GPU run, for "⬇ save run" / offline reload
 function val(id){return document.getElementById(id).value;}
 function chk(id){return document.getElementById(id).checked;}
 function curMode(){return val('compute');}
@@ -3848,13 +3853,23 @@ async function downloadPlots(){
 }
 
 // ---- GPU backend (server.py) over SSE — compute on the machine's GPU; browser only draws ----
+// shared by backendURL (live stream) and the capture save/load (Compute → "Load saved run").
+// QUERY_IDS: plain value controls; SEC_TOGGLE_MAP: query-key ↔ checkbox-id for every section toggle.
+const QUERY_IDS=['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
+   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','s24warm','s24iter','s24grid','s24ares','s24k',
+   'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg','ksparse'];
+const SEC_TOGGLE_MAP=[['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
+   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base']];
+function currentQueryParams(){   // the exact query-style param dict the backend receives (also stored in a browser-saved capture)
+  const o={};
+  for(const id of QUERY_IDS){const el=document.getElementById(id);if(el)o[id]=val(id);}
+  for(const [k,id] of SEC_TOGGLE_MAP)o[k]=chk(id)?'1':'0';
+  return o;
+}
 function backendURL(start){
   const ps=new URLSearchParams();
-  ['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
-   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','s24warm','s24iter','s24grid','s24ares','s24k',
-   'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg'].forEach(id=>ps.set(id,val(id)));
-  [['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
-   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
+  const q=currentQueryParams();
+  for(const k in q)ps.set(k,q[k]);
   ps.set('start',String(start||0));
   return 'run?'+ps.toString();
 }
@@ -3867,7 +3882,15 @@ function openStream(start,resuming){
   const finish=()=>{if(ES){ES.close();ES=null;}RUNNING=false;updateButtons();};
   let es;try{es=new EventSource(backendURL(start));}catch(e){st.textContent='cannot reach backend: '+e.message;RUNNING=false;updateButtons();return;}
   ES=es;
+  if(!resuming)GPU_CAPTURE=[];   // start recording this run's records so it can be saved (Compute → "⬇ save run")
   es.onmessage=ev=>{let m;try{m=JSON.parse(ev.data);}catch(e){return;}
+    if(GPU_CAPTURE)GPU_CAPTURE.push(m);
+    gpuHandle(m,st,sp,finish,resuming);};
+  es.onerror=()=>{if(RUNNING&&!PAUSED)st.textContent='backend connection lost — start it with “python server.py”, then press Run (or switch compute to browser).';finish();};
+}
+// Dispatch ONE backend record to the renderers. Shared by the live SSE stream (openStream) and the
+// offline replay of a saved capture (loadCapture) so both paths render identically.
+function gpuHandle(m,st,sp,finish,resuming){
     if(m.type==='meta'){if(m.error){st.textContent=m.error;finish();return;}META=m;
       LAST_GPU_P=m.p;LAST_GPU_ARCH=val('arch');updateParamBadge();   // record backend param count for the badge / §1–§3
       if(!resuming)initLivePlots(m.n,m.kth,m.nResid,m.thr,m.n7,m.n8,m.multi);
@@ -3890,8 +3913,72 @@ function openStream(start,resuming){
     }else if(m.type==='g17'){ADV_GOT.en25=1;s17Push(m);
     }else if(m.type==='done'){st.textContent=`done — through step ${lastT} · p=${m.p} · 2/lr=${(META?META.thr:0).toFixed(3)}.`;markSkippedAdv();finish();
     }else if(m.type==='error'){st.textContent='backend: '+m.error;markSkippedAdv();finish();}
+}
+
+// ============== save / load a run capture (offline analysis: run headless on SLURM/GPU, plot later) ==============
+// Restore every widget control from a saved capture's query-style param dict (inverse of currentQueryParams).
+function applyCaptureParams(params){
+  if(!params)return;
+  for(const id of QUERY_IDS){if(id in params){const el=document.getElementById(id);if(el)el.value=String(params[id]);}}
+  for(const [k,id] of SEC_TOGGLE_MAP){const el=document.getElementById(id);if(el&&k in params)el.checked=(String(params[k])==='1');}
+  const pe=document.getElementById('preset');if(pe)pe.value='custom';
+  if(typeof syncLossPanels==='function')syncLossPanels();
+  if(typeof syncSectionVis==='function')syncSectionVis();
+  if(typeof syncInitScaleEnabled==='function')syncInitScaleEnabled();
+  if(typeof updateParamBadge==='function')updateParamBadge();
+  if(typeof drawPreview==='function')drawPreview();
+}
+// Serialize the just-finished GPU run to a downloadable JSON the widget can reload later.
+function saveCurrentRun(){
+  if(!GPU_CAPTURE||!GPU_CAPTURE.length){const st=document.getElementById('status');if(st)st.textContent='nothing to save yet — run on the GPU backend first (browser-compute runs aren’t record-based).';return;}
+  const meta=GPU_CAPTURE.find(r=>r&&r.type==='meta')||{};
+  const counts={};for(const r of GPU_CAPTURE){const t=r&&r.type||'?';counts[t]=(counts[t]||0)+1;}
+  const obj={format:'eos-widget-capture/v1',kind:'run',created_unix:Math.floor(Date.now()/1000),
+             label:'',device:meta.device||'',p:meta.p,params:currentQueryParams(),record_counts:counts,records:GPU_CAPTURE};
+  const blob=new Blob([JSON.stringify(obj)],{type:'application/json'});
+  const a=document.createElement('a');const ds=new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+  a.href=URL.createObjectURL(blob);a.download=`eos-run-${val('dataset')}-${val('arch')}-${ds}.json`;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  const st=document.getElementById('status');if(st)st.textContent=`saved run — ${GPU_CAPTURE.length} records (${a.download}).`;
+}
+// Replay a loaded capture: restore controls, then feed every record through gpuHandle (async-chunked so the tab stays responsive).
+async function loadCapture(obj){
+  const st=document.getElementById('status'),sp=document.getElementById('sps');
+  if(!obj||!Array.isArray(obj.records)){if(st)st.textContent='not a valid capture file (expected {records:[…]}).';return;}
+  if(ES){ES.close();ES=null;} RUNNING=false;PAUSED=false;ABORT=false;ST=null;   // stop any live run
+  if(typeof resetScrub==='function')resetScrub();
+  applyCaptureParams(obj.params);
+  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),gs:val('gson')==='1'};   // for markSkippedAdv
+  lastT=-1;META=null;cursorX=null;GPU_CAPTURE=obj.records.slice();   // keep loaded records re-savable
+  const finish=()=>{RUNNING=false;updateButtons();};
+  const recs=obj.records;
+  for(let i=0;i<recs.length;i++){
+    try{gpuHandle(recs[i],st,sp,finish,false);}catch(e){console.error('replay error at record',i,recs[i],e);}
+    if((i&127)===0){st.textContent=`loading saved run … ${i+1}/${recs.length}`;await new Promise(r=>setTimeout(r,0));}
+  }
+  // ensure the end-of-run bookkeeping ran even if the capture lacks a trailing done record
+  if(!recs.some(r=>r&&(r.type==='done'||r.type==='error')))markSkippedAdv();
+  RUNNING=false;updateButtons();
+  const lab=obj.label?(' · '+obj.label):'';const when=obj.created_unix?new Date(obj.created_unix*1000).toLocaleString():'';
+  st.textContent=`loaded saved run — ${recs.length} records · p=${obj.p||(META?META.p:'?')} · ${val('dataset')}/${val('arch')}${lab}${when?(' · '+when):''}`;
+}
+// File-input handler for the "⬆ load run" button (.json or .json.gz).
+function loadCaptureFile(file){
+  if(!file)return;
+  const st=document.getElementById('status');if(st)st.textContent=`reading ${file.name} …`;
+  const isGz=/\.gz$/i.test(file.name);
+  const fr=new FileReader();
+  fr.onload=()=>{
+    try{
+      let text;
+      if(isGz){const u8=new Uint8Array(fr.result);text=(typeof pako!=='undefined')?pako.inflate(u8,{to:'string'}):null;
+        if(text===null){if(st)st.textContent='gzip captures need a non-gz file in this build — re-save with capture_run.py without --gzip.';return;}}
+      else text=fr.result;
+      const obj=JSON.parse(text);
+      loadCapture(obj);
+    }catch(e){if(st)st.textContent='failed to parse capture: '+e.message;console.error(e);}
   };
-  es.onerror=()=>{if(RUNNING&&!PAUSED)st.textContent='backend connection lost — start it with “python server.py”, then press Run (or switch compute to browser).';finish();};
+  if(isGz)fr.readAsArrayBuffer(file);else fr.readAsText(file);
 }
 function runGPU(){
   OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),gs:val('gson')==='1'};
@@ -3998,6 +4085,9 @@ document.getElementById('stop').addEventListener('click',stopRun);
 document.getElementById('resume').addEventListener('click',resumeRun);
 document.getElementById('reset').addEventListener('click',resetSim);
 document.getElementById('dlzip').addEventListener('click',downloadPlots);
+document.getElementById('saverun').addEventListener('click',saveCurrentRun);
+document.getElementById('loadrun').addEventListener('click',()=>document.getElementById('loadrunfile').click());
+document.getElementById('loadrunfile').addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];loadCaptureFile(f);e.target.value='';});
 document.getElementById('compute').addEventListener('change',updateButtons);   // switch backend (next Run uses it); no auto-run
 // ================= surrogate-comparison sections (quadratic / linear approximation) =================
 // Independent GPU-backend runs BELOW the main widget: train the actual model AND a frozen-window
