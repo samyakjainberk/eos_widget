@@ -728,7 +728,14 @@ class Diagnostics:
             else:
                 Bvec = torch.zeros(p, dtype=dt, device=dev)
             An = float(Avec.norm()); Bn = float(Bvec.norm()); inner = float(Avec @ Bvec)
-            jn2 = float((Jg15 * Jg15).sum())                             # ‖J‖²_F = tr(NTK)
+            jnorm2_k = (Jg15 * Jg15).sum(dim=1)                          # ‖J_k‖² per effective sample
+            jn2 = float(jnorm2_k.sum())                                  # ‖J‖²_F = tr(NTK)
+            Q1 = float(jnorm2_k.mean())                                  # ⟨‖∇f_k‖²⟩_k
+            Q2 = float(((r15 * r15) * jnorm2_k).mean())                  # ⟨‖r_k∇f_k‖²⟩_k
+            dq1 = dq2 = None
+            if len(self._sec15_hist) >= 1 and self._sec15_hist[-1]["t"] == t - 1:
+                Jp = self._sec15_hist[-1]["J"]; rp = self._sec15_hist[-1]["r"]; jn2p_k = (Jp * Jp).sum(dim=1)
+                dq1 = Q1 - float(jn2p_k.mean()); dq2 = Q2 - float(((rp * rp) * jn2p_k).mean())
             D2corr = None
             if (len(self._sec15_hist) >= 2 and self._sec15_hist[-1]["t"] == t - 1
                     and self._sec15_hist[-2]["t"] == t - 2):
@@ -736,7 +743,8 @@ class Diagnostics:
                           + float((self._sec15_hist[-2]["J"] ** 2).sum()))
             rec["g15corr"] = {"jn2": jn2, "An": An, "gn2": gLn * gLn, "Bn": Bn, "inner": inner,
                               "cos": (inner / (An * Bn) if An > 1e-30 and Bn > 1e-30 else 0.0),
-                              "D2": D2corr, "pred": 0.5 * self.lr * self.lr * inner}
+                              "D2": D2corr, "pred": 0.5 * self.lr * self.lr * inner,
+                              "q1": Q1, "q2": Q2, "dq1": dq1, "dq2": dq2}
             if (len(self._sec15_hist) >= 2 and self._sec15_hist[-1]["t"] == t - 1
                     and self._sec15_hist[-2]["t"] == t - 2):       # 3 CONSECUTIVE GD steps (eigevery=1): the per-step 2nd-difference theory requires it
                 tm1, tm2 = self._sec15_hist[-1], self._sec15_hist[-2]

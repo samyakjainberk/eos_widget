@@ -474,6 +474,8 @@
 <h3 style="margin:16px 0 2px;font-size:14px;color:#475569">Panel 8 — correlation of the two $\theta$-gradients $\;A=\nabla_\theta\lVert\nabla_\theta f\rVert^2=\nabla_\theta\,\mathrm{tr(NTK)}\;$ and $\;B=\nabla_\theta\lVert\nabla_\theta L\rVert^2$</h3>
 <p class="cap">Both nablas are w.r.t. $\theta$. <b>$A=\nabla_\theta\lVert J\rVert_F^2=2\sum_k Q_k J_k$</b> (the parameter-gradient of the squared Jacobian / NTK-trace; $Q_k=\nabla^2 f_k$, $J_k=\nabla f_k$) and <b>$B=\nabla_\theta\lVert\nabla_\theta L\rVert^2=2H\nabla L$</b> ($H=\nabla^2 L$). <b>Plot 1:</b> $\lVert J\rVert_F^2=\mathrm{tr(NTK)}$ (the Jacobian term) and $\lVert A\rVert$ vs step. <b>Plot 2:</b> $\lVert\nabla L\rVert^2$ (the gradient term) and $\lVert B\rVert$. <b>Plot 3:</b> the inner product $\langle A,B\rangle=\langle\nabla_\theta\lVert\nabla f\rVert^2,\nabla_\theta\lVert\nabla L\rVert^2\rangle$. <b>Plot 4:</b> the cosine $\cos\angle(A,B)=\langle A,B\rangle/(\lVert A\rVert\lVert B\rVert)$. <b>Plot 5:</b> the actual $D^2(\mathrm{tr\,NTK})=\mathrm{tr\,NTK}_{t+1}-2\,\mathrm{tr\,NTK}_t+\mathrm{tr\,NTK}_{t-1}$ (same as Panel 1) overlaid with $\tfrac12\eta^2\langle A,B\rangle$ — the part of the trace's 2nd-difference coming from the correlation of the two terms (under GD $\Delta\theta=-\eta\nabla L$, $D^2\approx\eta^2[\langle(\nabla A)\nabla L,\nabla L\rangle+\tfrac12\langle A,B\rangle]$, so this is the $\langle A,B\rangle$ contribution; the remainder is the $\langle(\nabla A)\nabla L,\nabla L\rangle$ term). Fills from the start; Plot 5 needs 3 consecutive GD steps (eigevery=1).</p>
 <div class="plotrow row5"><div id="p_s15_corr1" class="plot" style="height:290px"></div><div id="p_s15_corr2" class="plot" style="height:290px"></div><div id="p_s15_corr3" class="plot" style="height:290px"></div><div id="p_s15_corr4" class="plot" style="height:290px"></div><div id="p_s15_corr5" class="plot" style="height:290px"></div></div>
+<p class="cap"><b>Plot 6 — rate-of-change correlation.</b> Let $\bar q_1(t)=\langle\lVert\nabla f_k\rVert^2\rangle_k$ (the squared Jacobian norm) and $\bar q_2(t)=\langle\lVert r_k\nabla f_k\rVert^2\rangle_k$ (the squared per-sample gradient norm), both <b>averaged across the $M$ samples</b>. Their per-step <b>rates of change</b> are $\Delta\bar q_1(t),\Delta\bar q_2(t)$ (1st differences along the GD trajectory). This plot is the <b>running signed cosine similarity</b> $\dfrac{\sum_{t'\le t}\Delta\bar q_1\,\Delta\bar q_2}{\sqrt{\sum\Delta\bar q_1^2}\sqrt{\sum\Delta\bar q_2^2}}$ and the <b>running Pearson correlation</b> (mean-centered) between the two rate-of-change series, accumulated over training — i.e. whether the averaged Jacobian-norm and gradient-norm tend to grow/shrink together (+1) or oppositely (−1) as training proceeds.</p>
+<div class="plotrow row1"><div id="p_s15_corr6" class="plot" style="height:300px"></div></div>
 </div>
 
 <div id="sec_s16" style="display:none">
@@ -2317,7 +2319,7 @@ function s15p34Push(m){
 }
 function s15p34Reset(){S15P34_DATA=null;S15P34_BUILT=false;for(const id of S15P34_IDS){try{Plotly.purge(id);}catch(e){}}}
 // §15 Panel 8 — correlation of A=∇θ‖∇f‖²=∇θ tr(NTK) and B=∇θ‖∇L‖². 5 plots: (1)‖J‖²&‖A‖ (2)‖∇L‖²&‖B‖ (3)⟨A,B⟩ (4)cos∠ (5)D² vs ½η²⟨A,B⟩.
-const S15CORR_IDS=['p_s15_corr1','p_s15_corr2','p_s15_corr3','p_s15_corr4','p_s15_corr5'];
+const S15CORR_IDS=['p_s15_corr1','p_s15_corr2','p_s15_corr3','p_s15_corr4','p_s15_corr5','p_s15_corr6'];
 let S15CORR_DATA=null,S15CORR_BUILT=false;
 function s15corrBuild(){
   S15CORR_BUILT=true;
@@ -2328,10 +2330,12 @@ function s15corrBuild(){
   mk('p_s15_corr3',[ln('⟨A,B⟩','#7c3aed')],'inner product ⟨∇θ‖∇f‖², ∇θ‖∇L‖²⟩','value');
   mk('p_s15_corr4',[ln('cos∠(A,B)','#16a34a')],'cosine of the angle between A and B','cos');
   mk('p_s15_corr5',[ln('D²(tr NTK) actual','#111827','dot'),ln('½η²⟨A,B⟩','#7c3aed')],'∂²tr(NTK)  vs  ½η²⟨A,B⟩','value');
+  mk('p_s15_corr6',[ln('running cosine sim (signed)','#7c3aed'),ln('running Pearson corr','#16a34a')],'rate-of-change correlation: Δ⟨‖∇f_k‖²⟩  vs  Δ⟨‖r_k∇f_k‖²⟩','correlation');
 }
 function s15corrPush(m){
   if(!S15CORR_BUILT)s15corrBuild();
-  if(!S15CORR_DATA)S15CORR_DATA={steps:[],jn2:[],An:[],gn2:[],Bn:[],inner:[],cos:[],D2:[],pred:[]};
+  if(!S15CORR_DATA)S15CORR_DATA={steps:[],jn2:[],An:[],gn2:[],Bn:[],inner:[],cos:[],D2:[],pred:[],
+    cstep:[],csim:[],cpear:[],n:0,Sxy:0,Sxx:0,Syy:0,Sx:0,Sy:0};   // running accumulators for plot 6
   const D=S15CORR_DATA;D.steps.push(m.t);D.jn2.push(m.jn2);D.An.push(m.An);D.gn2.push(m.gn2);D.Bn.push(m.Bn);
   D.inner.push(m.inner);D.cos.push(m.cos);D.D2.push(m.D2==null?null:m.D2);D.pred.push(m.pred);
   const t=D.steps;
@@ -2340,6 +2344,15 @@ function s15corrPush(m){
   Plotly.restyle('p_s15_corr3',{x:[t],y:[D.inner]});
   Plotly.restyle('p_s15_corr4',{x:[t],y:[D.cos]});
   Plotly.restyle('p_s15_corr5',{x:[t,t],y:[D.D2,D.pred]});
+  // Plot 6 — running signed cosine similarity + Pearson correlation of the two rate-of-change series
+  if(m.dq1!=null&&m.dq2!=null){
+    const x=m.dq1,y=m.dq2;D.n++;D.Sxy+=x*y;D.Sxx+=x*x;D.Syy+=y*y;D.Sx+=x;D.Sy+=y;
+    const sim=(D.Sxx>1e-300&&D.Syy>1e-300)?D.Sxy/Math.sqrt(D.Sxx*D.Syy):0;
+    const cden=Math.sqrt(Math.max(0,D.n*D.Sxx-D.Sx*D.Sx))*Math.sqrt(Math.max(0,D.n*D.Syy-D.Sy*D.Sy));
+    const pear=(D.n>=2&&cden>1e-300)?(D.n*D.Sxy-D.Sx*D.Sy)/cden:0;
+    D.cstep.push(m.t);D.csim.push(sim);D.cpear.push(D.n>=2?pear:null);
+    Plotly.restyle('p_s15_corr6',{x:[D.cstep,D.cstep],y:[D.csim,D.cpear]});
+  }
 }
 function s15corrReset(){S15CORR_DATA=null;S15CORR_BUILT=false;for(const id of S15CORR_IDS){try{Plotly.purge(id);}catch(e){}}}
 
@@ -3535,12 +3548,19 @@ async function loop(){                                   // drives ST forward; r
              const gp=gradL(_addS(S.th,u,eps),spec,X,Y,N,inDim,p).grad,gm=gradL(_addS(S.th,u,-eps),spec,X,Y,N,inDim,p).grad;
              for(let q=0;q<p;q++)Bvec[q]=2*gnv*(gp[q]-gm[q])/(2*eps);}   // B = 2·H·∇L (FD loss-Hessian on the unit gradient, rescaled)
            let An=0,Bn=0,inner=0;for(let q=0;q<p;q++){An+=Avec[q]*Avec[q];Bn+=Bvec[q]*Bvec[q];inner+=Avec[q]*Bvec[q];}An=Math.sqrt(An);Bn=Math.sqrt(Bn);
-           let jn2=0;for(const g of Jg15)jn2+=s15Dotp(g,g,p);   // ‖J‖²_F = tr(NTK)
+           const jnk=Jg15.map(g=>s15Dotp(g,g,p));let jn2=0;for(const v of jnk)jn2+=v;   // ‖J_k‖² per sample · ‖J‖²_F = tr(NTK)
+           // Plot 6 inputs: rate of change of avg per-sample ‖∇f_k‖² (Q1) and ‖r_k∇f_k‖² (Q2)
+           let Q1=0,Q2=0;for(let k=0;k<M;k++){Q1+=jnk[k];Q2+=r15[k]*r15[k]*jnk[k];}Q1/=M;Q2/=M;
+           let dq1=null,dq2=null;
+           if(S15_HIST_JS.length>=1&&S15_HIST_JS[S15_HIST_JS.length-1].t===S.t-1){
+             const hp=S15_HIST_JS[S15_HIST_JS.length-1];let q1p=0,q2p=0;
+             for(let k=0;k<M;k++){const nn=s15Dotp(hp.J[k],hp.J[k],p);q1p+=nn;q2p+=hp.r[k]*hp.r[k]*nn;}q1p/=M;q2p/=M;
+             dq1=Q1-q1p;dq2=Q2-q2p;}
            let D2c=null;
            if(S15_HIST_JS.length>=2&&S15_HIST_JS[S15_HIST_JS.length-1].t===S.t-1&&S15_HIST_JS[S15_HIST_JS.length-2].t===S.t-2){
              const h1=S15_HIST_JS[S15_HIST_JS.length-1].J,h2=S15_HIST_JS[S15_HIST_JS.length-2].J;
              let n1=0,n2=0;for(const g of h1)n1+=s15Dotp(g,g,p);for(const g of h2)n2+=s15Dotp(g,g,p);D2c=jn2-2*n1+n2;}
-           s15corrPush({type:'g15corr',t:S.t,jn2:jn2,An:An,gn2:gnv*gnv,Bn:Bn,inner:inner,cos:(An>1e-30&&Bn>1e-30)?inner/(An*Bn):0,D2:D2c,pred:0.5*S.lr*S.lr*inner});}
+           s15corrPush({type:'g15corr',t:S.t,jn2:jn2,An:An,gn2:gnv*gnv,Bn:Bn,inner:inner,cos:(An>1e-30&&Bn>1e-30)?inner/(An*Bn):0,D2:D2c,pred:0.5*S.lr*S.lr*inner,q1:Q1,q2:Q2,dq1:dq1,dq2:dq2});}
           if(S15_HIST_JS.length>=2&&S15_HIST_JS[S15_HIST_JS.length-1].t===S.t-1&&S15_HIST_JS[S15_HIST_JS.length-2].t===S.t-2){   // 3 CONSECUTIVE GD steps (eigevery=1): the per-step 2nd-difference theory requires it
             const tm1=S15_HIST_JS[S15_HIST_JS.length-1], tm2=S15_HIST_JS[S15_HIST_JS.length-2];
             const hvp1=v=>{const Q=jacHVP(tm1.th,spec,X,N,inDim,p,v,eps);return lblsel.map(a=>Q[a]);};   // {Q_{t−1,k}·v}_k

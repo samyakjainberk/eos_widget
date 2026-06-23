@@ -3213,14 +3213,24 @@ def run_stream(P):
                 An = float(Avec15.norm()); Bn = float(Bvec15.norm())
                 inner = float(Avec15 @ Bvec15)
                 cosAB = inner / (An * Bn) if (An > 1e-30 and Bn > 1e-30) else 0.0
-                jn2 = float((Jg15 * Jg15).sum())                              # ‖J‖²_F = tr(NTK)
+                jnorm2_k = (Jg15 * Jg15).sum(dim=1)                            # ‖J_k‖² per effective sample
+                jn2 = float(jnorm2_k.sum())                                    # ‖J‖²_F = tr(NTK)
+                # Plot 6: rate-of-change correlation of the AVG per-sample ‖J_k‖² and ‖r_k∇f_k‖² (averaged across samples)
+                Q1 = float(jnorm2_k.mean())                                    # ⟨‖∇f_k‖²⟩_k
+                Q2 = float(((r15 * r15) * jnorm2_k).mean())                    # ⟨‖r_k∇f_k‖²⟩_k
+                dq1 = dq2 = None
+                if len(sec15_hist) >= 1 and sec15_hist[-1]["t"] == t - 1:      # previous §15 tick (consecutive GD step)
+                    Jp = sec15_hist[-1]["J"]; rp = sec15_hist[-1]["r"]; jn2p_k = (Jp * Jp).sum(dim=1)
+                    dq1 = Q1 - float(jn2p_k.mean())                            # Δ⟨‖∇f_k‖²⟩
+                    dq2 = Q2 - float(((rp * rp) * jn2p_k).mean())              # Δ⟨‖r_k∇f_k‖²⟩
                 D2corr = None
                 if len(sec15_hist) >= 2 and sec15_hist[-1]["t"] == t - 1 and sec15_hist[-2]["t"] == t - 2:
                     D2corr = (jn2 - 2.0 * float((sec15_hist[-1]["J"] ** 2).sum())
                               + float((sec15_hist[-2]["J"] ** 2).sum()))       # D² = ‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖²
                 sec15corr = {"jn2": jn2, "An": An, "gn2": float(gLn * gLn), "Bn": Bn,
                              "inner": inner, "cos": cosAB, "D2": D2corr,
-                             "pred": 0.5 * lr * lr * inner}                    # ½η²⟨A,B⟩  (η = lr)
+                             "pred": 0.5 * lr * lr * inner,                    # ½η²⟨A,B⟩  (η = lr)
+                             "q1": Q1, "q2": Q2, "dq1": dq1, "dq2": dq2}        # Plot 6: rate-of-change correlation inputs
                 if (len(sec15_hist) >= 2 and sec15_hist[-1]["t"] == t - 1 and sec15_hist[-2]["t"] == t - 2):   # 3 CONSECUTIVE GD steps (eigevery=1): the per-step 2nd-difference theory requires it
                     tm1, tm2 = sec15_hist[-1], sec15_hist[-2]
                     hvp1 = lambda v: jac_hvp(tm1["th"], X15, v)[lblsel15]
