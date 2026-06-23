@@ -9,8 +9,46 @@ Everything here takes an `hvp` CLOSURE  v -> H·v  (built in models.py / diagnos
 forms a p×p matrix — so it scales to the 10⁷-parameter cap. The tridiagonal T is diagonalised on
 CPU/float64 for stability; Ritz vectors are reconstructed on the working device.
 """
+import collections
 import math
 import torch
+
+_Eigh = collections.namedtuple("_Eigh", ["eigenvalues", "eigenvectors"])   # mirrors torch.return_types.eigh (.eigenvalues/.eigenvectors + unpacks)
+
+
+def _eig_ramp(T):                                 # distinct per-index diagonal ramp → breaks the repeated-eigenvalue degeneracy
+    k = T.shape[-1]                               # that makes LAPACK/cuSOLVER syevd fail (code 22 CPU / 69 CUDA) on flat tridiagonals
+    sc = max(float(T.abs().max()), 1e-12) * 1e-10
+    return T + torch.diag_embed(torch.arange(k, dtype=T.dtype, device=T.device) * sc)
+
+
+def safe_eigvalsh(T):                             # robust symmetric-eigenVALUE solve (degenerate cifar2/mnist2 flat-region matrices)
+    if not bool(torch.isfinite(T).all()):
+        T = torch.nan_to_num(T)
+    try:
+        return torch.linalg.eigvalsh(T)
+    except torch._C._LinAlgError:
+        Tj = _eig_ramp(T)
+        try:
+            return torch.linalg.eigvalsh(Tj)
+        except torch._C._LinAlgError:
+            import numpy as np
+            return torch.tensor(np.linalg.eigvalsh(Tj.detach().cpu().numpy()), dtype=T.dtype, device=T.device)
+
+
+def safe_eigh(T):                                 # robust symmetric eigh — returns a torch.linalg.eigh-like result (unpack + .eigenvalues/.eigenvectors)
+    if not bool(torch.isfinite(T).all()):
+        T = torch.nan_to_num(T)
+    try:
+        return torch.linalg.eigh(T)
+    except torch._C._LinAlgError:
+        Tj = _eig_ramp(T)
+        try:
+            return torch.linalg.eigh(Tj)
+        except torch._C._LinAlgError:
+            import numpy as np
+            w, V = np.linalg.eigh(Tj.detach().cpu().numpy())
+            return _Eigh(torch.tensor(w, dtype=T.dtype, device=T.device), torch.tensor(V, dtype=T.dtype, device=T.device))
 
 
 def randn_vec(p, seed, device, dtype):
@@ -54,7 +92,7 @@ def _lanczos_core(hvp, p, m, seed, device, dtype):
 
 
 def _eig_sorted(T):
-    mu, Sv = torch.linalg.eigh(T)                 # ascending, CPU float64
+    mu, Sv = safe_eigh(T)                 # ascending, CPU float64
     idx = torch.argsort(mu, descending=True)
     return mu, Sv, idx
 
@@ -62,7 +100,7 @@ def _eig_sorted(T):
 def sym_eig_desc(A):
     """Eigen-decomposition of a small symmetric matrix, descending. Returns (vals, vecs cols).
     MIRRORS server.sym_eig_desc (used by the multi-sample §7/§8/§4b–d/§9 panels)."""
-    w, V = torch.linalg.eigh(A)
+    w, V = safe_eigh(A)
     idx = torch.argsort(w, descending=True)
     return w[idx], V[:, idx]
 
@@ -115,7 +153,7 @@ def batched_lanczos_extreme(hvp_batch, p, N, n, m, seeds, device, dtype):
         T[:, i, i] = al[i]
     for i in range(k - 1):
         T[:, i, i + 1] = be[i]; T[:, i + 1, i] = be[i]
-    mu, Sv = torch.linalg.eigh(T)
+    mu, Sv = safe_eigh(T)
     nn = min(n, k)
     top = mu.argsort(dim=1, descending=True)[:, :nn]; bot = mu.argsort(dim=1)[:, :nn]
 
@@ -468,7 +506,7 @@ def slq_density(hvp, p, nprobe, m, ngrid, seed, device, dtype):
     TH, W = [], []
     for pr in range(nprobe):
         _, T, k = _lanczos_core(hvp, p, min(p, m), (seed + pr * 1315423) & 0xFFFFFFFF, device, dtype)
-        val, V = torch.linalg.eigh(T)
+        val, V = safe_eigh(T)
         val = val.numpy()
         v0 = V[0, :].numpy()
         for i in range(k):
@@ -543,7 +581,7 @@ def principal_angles(A, B):
     Mc = (Am @ Bm.t()).double().cpu()
     d1, d2 = Mc.shape
     G = Mc @ Mc.t() if d1 <= d2 else Mc.t() @ Mc
-    vals = torch.linalg.eigvalsh(G)
+    vals = safe_eigvalsh(G)
     ang = []
     for v in vals:
         s = math.sqrt(max(0.0, min(1.0, float(v))))
@@ -627,11 +665,11 @@ def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N, diveps=_DEPS):
 
     # ── panel 2 (σ₁): top NTK eigenpair at t,t−1,t−2 + the u₁-projected terms ──
     Kt = Jt @ Jt.t()
-    evt = torch.linalg.eigh(Kt)
+    evt = safe_eigh(Kt)
     sig_t = float(evt.eigenvalues[-1])
     u1 = evt.eigenvectors[:, -1]                              # top NTK eigenvector at t  (N,)
-    sig_tm1 = float(torch.linalg.eigvalsh(Jtm1 @ Jtm1.t())[-1])
-    sig_tm2 = float(torch.linalg.eigvalsh(Ktm2)[-1])
+    sig_tm1 = float(safe_eigvalsh(Jtm1 @ Jtm1.t())[-1])
+    sig_tm2 = float(safe_eigvalsh(Ktm2)[-1])
 
     Qu_g1 = u1 @ H1g1                                         # Q̄ᵘ g_{t−1}  (p,)
     IV = c2 * float((Qu_g1 * Qu_g1).sum())

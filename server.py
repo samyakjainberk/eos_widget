@@ -28,6 +28,7 @@ Then (from your laptop) tunnel one port and open it:
     open http://localhost:8000/
 """
 import argparse
+import collections
 import json
 import math
 import mimetypes
@@ -468,10 +469,10 @@ def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N, diveps=_DEPS):
     divP = _divreg(-2.0 * (I + II - III) + D2, D2, 2.0 * (abs(I) + abs(II) + abs(III)), diveps)  # 2×: terms are ½∂²‖J‖²; predict D²≈2(I+II−III); →0 when theory holds. ε-scale = 2(|I|+|II|+|III|) (the D²-magnitude).
 
     Kt = Jt @ Jt.t()
-    evt = torch.linalg.eigh(Kt)
+    evt = _safe_eigh(Kt)
     sig_t = float(evt.eigenvalues[-1]); u1 = evt.eigenvectors[:, -1]
-    sig_tm1 = float(torch.linalg.eigvalsh(Jtm1 @ Jtm1.t())[-1])
-    sig_tm2 = float(torch.linalg.eigvalsh(Ktm2)[-1])
+    sig_tm1 = float(_safe_eigvalsh(Jtm1 @ Jtm1.t())[-1])
+    sig_tm2 = float(_safe_eigvalsh(Ktm2)[-1])
 
     Qu_g1 = u1 @ H1g1
     IV = c2 * float((Qu_g1 * Qu_g1).sum())
@@ -574,10 +575,12 @@ def _lanczos16_core(hvp, p, m, seed):
         T[i, i + 1] = be[i]; T[i + 1, i] = be[i]
     return torch.stack(Q), T, k
 
+_Eigh = collections.namedtuple("_Eigh", ["eigenvalues", "eigenvectors"])   # mirrors torch.return_types.eigh (.eigenvalues/.eigenvectors + unpacks)
+
 def _eig_ramp(T):                                    # add a DISTINCT per-index diagonal ramp to break the repeated-eigenvalue
-    n = T.shape[0]                                   # degeneracy that makes LAPACK syevd fail (code 22) on flat-region tridiagonals
-    sc = max(float(T.abs().max()), 1e-12) * 1e-10
-    return T + torch.diag(torch.arange(n, dtype=T.dtype, device=T.device) * sc)
+    k = T.shape[-1]                                  # degeneracy that makes LAPACK/cuSOLVER syevd fail (code 22 CPU / 69 CUDA) on
+    sc = max(float(T.abs().max()), 1e-12) * 1e-10    # flat-region tridiagonals. diag_embed broadcasts over any leading (batch) dims.
+    return T + torch.diag_embed(torch.arange(k, dtype=T.dtype, device=T.device) * sc)
 
 def _safe_eigvalsh(T):                               # robust symmetric-eigenvalue solve (cifar2/cifar10 §16/§17 hit near-zero tridiagonals)
     if not bool(torch.isfinite(T).all()):
@@ -592,7 +595,7 @@ def _safe_eigvalsh(T):                               # robust symmetric-eigenval
             import numpy as np
             return torch.tensor(np.linalg.eigvalsh(Tj.detach().cpu().numpy()), dtype=T.dtype, device=T.device)
 
-def _safe_eigh(T):
+def _safe_eigh(T):                                   # returns a torch.linalg.eigh-like result (both unpacking AND .eigenvalues/.eigenvectors work)
     if not bool(torch.isfinite(T).all()):
         T = torch.nan_to_num(T)
     try:
@@ -604,7 +607,7 @@ def _safe_eigh(T):
         except torch._C._LinAlgError:
             import numpy as np
             w, V = np.linalg.eigh(Tj.detach().cpu().numpy())
-            return (torch.tensor(w, dtype=T.dtype, device=T.device), torch.tensor(V, dtype=T.dtype, device=T.device))
+            return _Eigh(torch.tensor(w, dtype=T.dtype, device=T.device), torch.tensor(V, dtype=T.dtype, device=T.device))
 
 def _lanc16_vals(hvp, p, n, m, seed):                # top-n & bottom-n eigenVALUES (float64)
     _, T, k = _lanczos16_core(hvp, p, m, seed); mu = torch.sort(_safe_eigvalsh(T), descending=True).values
@@ -1606,7 +1609,7 @@ def pin_sign(v):
 
 def sym_eig_desc(A):
     """Eigen-decomposition of a small symmetric matrix, descending. Returns (vals, vecs cols)."""
-    w, V = torch.linalg.eigh(A)
+    w, V = _safe_eigh(A)
     idx = torch.argsort(w, descending=True)
     return w[idx], V[:, idx]
 
@@ -1677,7 +1680,7 @@ def cubic_step(ctx, st, th, X, Y, t, J, out, rr, bEk_vals, shH):
             J0, _ = jac_cols(th0, X)
             st["J0"] = J0; st["J"] = J0.clone(); st["HistG"] = []
             st["Base"] = float(bEk_vals[0]) if bEk_vals is not None else float(
-                torch.linalg.eigvalsh(J0 @ J0.t())[-1])
+                _safe_eigvalsh(J0 @ J0.t())[-1])
             st["Q0z"] = [jac_hvp(th0, X, z) for z in st["Z"]]
             st["dQz"] = [torch.zeros(M, p, dtype=dt, device=dev) for _ in st["Z"]]
             st["A51"] = st["P51"] = st["A51n"] = st["P51n"] = 0.0
@@ -1798,7 +1801,7 @@ def _lanczos_core(hvp, p, m, seed, dt=None):
 
 
 def _eig_sorted(T):
-    mu, Sv = torch.linalg.eigh(T)            # ascending, on CPU float64
+    mu, Sv = _safe_eigh(T)                   # ascending, on CPU float64 (robust to degenerate tridiagonals: cifar2/mnist2 flat regions)
     idx = torch.argsort(mu, descending=True)
     return mu, Sv, idx
 
@@ -1857,7 +1860,7 @@ def batched_lanczos_extreme(hvp_batch, p, N, n, m, seeds, dt=None):
         T[:, i, i] = al[i]
     for i in range(k - 1):
         T[:, i, i + 1] = be[i]; T[:, i + 1, i] = be[i]
-    mu, Sv = torch.linalg.eigh(T)                                    # (N,k) ascending, (N,k,k)
+    mu, Sv = _safe_eigh(T)                                           # (N,k) ascending, (N,k,k) — robust to degenerate per-sample T
     nn = min(n, k)
     top = mu.argsort(dim=1, descending=True)[:, :nn]; bot = mu.argsort(dim=1)[:, :nn]
 
@@ -1900,7 +1903,7 @@ def slq_density(hvp, p, nprobe, m, ngrid, seed):
     W = []
     for pr in range(nprobe):
         _, T, k = _lanczos_core(hvp, p, min(p, m), (seed + pr * 1315423) & 0xFFFFFFFF)
-        val, V = torch.linalg.eigh(T)
+        val, V = _safe_eigh(T)                       # robust to degenerate SLQ tridiagonals (cifar2/mnist2 flat regions)
         val = val.numpy()
         v0 = V[0, :].numpy()
         for i in range(k):
@@ -1960,7 +1963,7 @@ def principal_angles(A, B):
     Mc = (Am @ Bm.t()).double().cpu()         # (d1, d2)
     d1, d2 = Mc.shape
     G = Mc @ Mc.t() if d1 <= d2 else Mc.t() @ Mc
-    vals = torch.linalg.eigvalsh(G)           # ascending
+    vals = _safe_eigvalsh(G)                  # ascending (robust to degenerate Gram, e.g. scalar-output cifar2/mnist2)
     ang = []
     for v in vals:
         s = math.sqrt(max(0.0, min(1.0, float(v))))
@@ -2631,7 +2634,7 @@ def run_stream(P):
                     if multi_ok:
                         thJ, _ = jac_cols(th, X)                  # predicted Jacobian J₀ (M, p)
                         thFroz = fh_frozen(th, X, nProbe, min(n, M), 2, mV, M)
-                        thBase = float(torch.linalg.eigvalsh(thJ @ thJ.t())[-1])
+                        thBase = float(_safe_eigvalsh(thJ @ thJ.t())[-1])
                         if s15 or s16:    # §9d: freeze f₀,J₀; reset quad-GD displacement & parallel accumulators
                             thJ0 = thJ.clone(); thF0 = (Y.reshape(-1) - rr).clone() if rr is not None else None
                             thDth = torch.zeros(p, dtype=DTYPE, device=_dev()); thJ_d = thJ.clone()
@@ -2894,7 +2897,7 @@ def run_stream(P):
                     #   w = |top NTK eigvec| (p5), |2nd NTK eigvec| (p6), unit-normalized random U[0,1] (p7). NTK = J Jᵀ
                     #   (N×N per-sample GT-gradient Gram); |·| makes the weights gauge-free. cotangent = w/Σw ⇒ a true average.
                     ntk = Jg12 @ Jg12.t()                                    # (N,N)
-                    nevecs = torch.linalg.eigh(ntk).eigenvectors             # columns ascending by eigenvalue
+                    nevecs = _safe_eigh(ntk).eigenvectors                    # columns ascending by eigenvalue
                     v1 = nevecs[:, -1].abs()                                 # |top NTK eigvec|
                     v2 = (nevecs[:, -2] if N >= 2 else nevecs[:, -1]).abs()  # |2nd NTK eigvec| (falls back to top at N=1)
                     rrng = mulberry32(0x7A9D07)                              # fixed seed ⇒ reproducible + browser-identical
@@ -3204,7 +3207,7 @@ def run_surrogate_compare(P):
                 if multi:
                     thJ = J0.clone()
                     thFroz = fh_frozen(th0, X, nProbe, min(n, M), 2, mV, M)
-                    thBase = float(torch.linalg.eigvalsh(thJ @ thJ.t())[-1])
+                    thBase = float(_safe_eigvalsh(thJ @ thJ.t())[-1])
                     if c9d or c9dc:   # §9d: reset quad-GD displacement & parallel accumulators (J0/f0flat already frozen above)
                         thDth = torch.zeros(p, dtype=DTYPE, device=_dev()); thJ_d = J0.clone()
                         thProd3_d = 1.0; thProd4_d = 1.0; thProd5_d = 1.0; thAcc2_d = 0.0; thAccPSD_d = 0.0
@@ -3359,7 +3362,7 @@ def run_surrogate_compare(P):
                     u1 = Vw[:, 0]
                     v1 = Jt.t() @ u1
                     v1 = v1 / max(float(v1.norm()), 1e-30)
-                    sigSur = float(torch.linalg.eigvalsh(Jq @ Jq.t())[-1])   # surrogate σ₁ (measured)
+                    sigSur = float(_safe_eigvalsh(Jq @ Jq.t())[-1])   # surrogate σ₁ (measured)
                     thA[1] = thA[2] = thA[3] = thA[4] = sigSur
                     cap = 10 * max(sigSur, 1e-30)
                     clmp = lambda x: min(max(x, 0.0), cap)
@@ -3480,7 +3483,7 @@ def run_surrogate_compare(P):
             if cCub:
                 shCub = sharpA if sharpA is not None else float(
                     lanczos_extreme_vals(lambda v: hvpL(th, X, Y, v), p, 1, mV, 0x5EED1)[0][0])
-                sigSurC = (float(torch.linalg.eigvalsh(Jq @ Jq.t())[-1]) if multi
+                sigSurC = (float(_safe_eigvalsh(Jq @ Jq.t())[-1]) if multi
                            else float(Jq.reshape(-1) @ Jq.reshape(-1)))   # surrogate σ₁ (the §10 reference here)
                 cub = cubic_step(cubCtx, cubSt, th, X, Y, t, J_act, out_act, rA, [sigSurC], shCub)
                 if "cActN" in cub:

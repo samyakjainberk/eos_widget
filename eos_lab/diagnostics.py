@@ -28,7 +28,8 @@ from .models import (grad_sum_f, hvp_F, hvp_L, hvp_S, hvp_G, hvp_G2,
 from .linalg import (lanczos_extreme, lanczos_extreme_vals, slq_density, hutch_trace, sym_eig_desc,
                      sign_to, pin_sign, pos_subspace, neg_subspace, principal_angles, randn_vec,
                      sec12_payload, sec13_stats, SEC13_KS, SEC13_DOMS, sec14_payload, SEC12_KFULL,
-                     batched_lanczos_extreme, sec15_stats, sec15_panel34, sec15_panelB)
+                     batched_lanczos_extreme, sec15_stats, sec15_panel34, sec15_panelB,
+                     safe_eigh, safe_eigvalsh)
 from .rng import mulberry32
 
 # §11 render budget: emit only ≤this many points per grid above this size (mirror server.G3D_MAXPTS).
@@ -628,7 +629,7 @@ class Diagnostics:
                 # panels 5/6/7: top-2/bottom-2 eigvecs of the WEIGHTED-AVERAGE Hessian (Σ_i w_i Q_i)/(Σ_i w_i),
                 #   w = |top NTK eigvec| (p5), |2nd NTK eigvec| (p6), unit-normalized random U[0,1] (p7). NTK = J Jᵀ (N×N).
                 ntk = Jg12 @ Jg12.t()
-                nevecs = torch.linalg.eigh(ntk).eigenvectors            # columns ascending
+                nevecs = safe_eigh(ntk).eigenvectors            # columns ascending
                 v1 = nevecs[:, -1].abs()
                 v2 = (nevecs[:, -2] if N >= 2 else nevecs[:, -1]).abs()
                 rrng = mulberry32(0x7A9D07)                             # fixed seed ⇒ browser-identical random vector
@@ -764,7 +765,7 @@ class Diagnostics:
                 self._thJ, _ = jac_cols(self.model, th, X)
                 self._thFroz = fh_frozen(self.model, th, X, self.nprobe, min(self.n, self.M),
                                          2, self.mV, self.M, dev, dt)
-                self._thBase = float(torch.linalg.eigvalsh(self._thJ @ self._thJ.t())[-1])
+                self._thBase = float(safe_eigvalsh(self._thJ @ self._thJ.t())[-1])
                 if self.s15 or self.s16:   # §9d: freeze f₀,J₀; reset the quad-GD displacement & parallel accumulators
                     self._thJ0 = self._thJ.clone(); self._thF0 = (Y.reshape(-1) - rr).clone() if rr is not None else None
                     self._thDth = torch.zeros(p, dtype=dt, device=dev); self._thJ_d = self._thJ.clone()
@@ -975,7 +976,7 @@ class Diagnostics:
                 self._cJ = J0.clone()
                 self._cHistG = []
                 self._cBase = float(bEk_vals[0]) if bEk_vals is not None else float(
-                    torch.linalg.eigvalsh(J0 @ J0.t())[-1])
+                    safe_eigvalsh(J0 @ J0.t())[-1])
                 self._cQ0z = [jhvp(th0, z) for z in self._cZ]              # Q₀·z_i (M,p)
                 self._cdQz = [torch.zeros(M, p, dtype=dt, device=dev) for _ in self._cZ]
                 self._cAcc51 = self._cAccPSD51 = self._cAcc51n = self._cAccPSD51n = 0.0
