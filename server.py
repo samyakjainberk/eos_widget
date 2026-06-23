@@ -745,10 +745,50 @@ def _sec16_chebyshev_testset(N, degree, dt):
     return xm.unsqueeze(1), y.unsqueeze(1)
 
 
+def _two_class_test_raw(raw, N, P):
+    """Held-out 2-class SCALAR test set (classes {c2a,c2b} → ±1) from a (X_images, int_labels) split. float64."""
+    import numpy as np
+    Xa, Ya = raw; dev = _dev()
+    ca, cb = int(P.get("c2a", 0)), int(P.get("c2b", 1))
+    rng = np.random.RandomState((int(P["seed"]) & 0x7FFFFFFF) ^ 0x5151)
+    ia = np.where(Ya == ca)[0]; ib = np.where(Ya == cb)[0]; rng.shuffle(ia); rng.shuffle(ib)
+    na = int(N) // 2; nb = int(N) - na
+    idx = np.concatenate([ia[:na], ib[:nb]])
+    lab = np.concatenate([np.ones(min(na, len(ia)), np.float32), -np.ones(min(nb, len(ib)), np.float32)])
+    perm = rng.permutation(len(idx)); idx = idx[perm]; lab = lab[perm]
+    return (torch.tensor(Xa[idx], dtype=torch.float64, device=dev),
+            torch.tensor(lab, dtype=torch.float64, device=dev).reshape(-1, 1))
+
+
 def _sec16_holdout(dataset, N, P, inD, outD):
-    """Held-out §16 test set for synthetic/const (fresh iid Gaussian X from the disjoint seed*7919+99991 stream;
-    MIRRORS eos_lab.make_test_set / index.html sec16Holdout). float64. Returns (None, None) when ill-defined
-    (fixed-input or sign-forced synthetic / sign-forced const → no clean held-out split, matches make_test_set)."""
+    """Held-out §16/§17 test set. Real held-out images for cifar/mnist (incl. the 2-class scalar variants), fresh
+    iid Gaussian for synthetic/const. MIRRORS eos_lab.make_test_set / index.html sec16Holdout. float64. Returns
+    (None, None) when ill-defined (fixed-input / sign-forced synthetic-const → no clean held-out split)."""
+    import numpy as np
+    dev = _dev()
+    if dataset in ("cifar10", "cifar2"):
+        raw = _load_cifar_test_raw()
+        if raw is None:
+            return None, None
+        if dataset == "cifar2":
+            return _two_class_test_raw(raw, N, P)
+        Xa, Ya = raw; rng = np.random.RandomState((int(P["seed"]) & 0x7FFFFFFF) ^ 0x5151)
+        idx = rng.permutation(Xa.shape[0])[:int(N)]
+        Yt = torch.zeros(len(idx), 10, dtype=torch.float64, device=dev)
+        Yt[torch.arange(len(idx)), torch.tensor(Ya[idx], dtype=torch.long, device=dev)] = 1.0
+        return torch.tensor(Xa[idx], dtype=torch.float64, device=dev), Yt
+    if dataset in ("mnist", "mnist2"):
+        try:
+            raw = _load_mnist_raw("test")
+        except FileNotFoundError:
+            return None, None
+        if dataset == "mnist2":
+            return _two_class_test_raw(raw, N, P)
+        Xa, Ya = raw; rng = np.random.RandomState((int(P["seed"]) & 0x7FFFFFFF) ^ 0x5151)
+        idx = rng.permutation(Xa.shape[0])[:int(N)]
+        Yt = torch.zeros(len(idx), 10, dtype=torch.float64, device=dev)
+        Yt[torch.arange(len(idx)), torch.tensor(Ya[idx], dtype=torch.long, device=dev)] = 1.0
+        return torch.tensor(Xa[idx], dtype=torch.float64, device=dev), Yt
     if dataset not in ("synthetic", "const") or P.get("ssign", "off") != "off":
         return None, None
     if dataset == "synthetic" and P.get("fixedx", "0") == "1":
@@ -2020,6 +2060,27 @@ def _load_cifar_raw():
     return X, Y
 
 
+def _load_cifar_test_raw():
+    """The 10000-image CIFAR-10 test_batch, normalised like the train batches. (X (10000,3072), int labels)."""
+    import pickle
+    import numpy as np
+    d = _find_cifar_dir()
+    if d is None or not os.path.isfile(os.path.join(d, "test_batch")):
+        return None
+    key = d + "::test"
+    if key in _CIFAR_CACHE:
+        return _CIFAR_CACHE[key]
+    with open(os.path.join(d, "test_batch"), "rb") as f:
+        b = pickle.load(f, encoding="bytes")
+    X = np.asarray(b[b"data"], dtype=np.float32).reshape(-1, 3, 32, 32) / 255.0
+    mean = np.array([0.4914, 0.4822, 0.4465], np.float32).reshape(1, 3, 1, 1)
+    std = np.array([0.2470, 0.2435, 0.2616], np.float32).reshape(1, 3, 1, 1)
+    X = ((X - mean) / std).reshape(-1, 3072)
+    Y = np.asarray(list(b[b"labels"]), dtype=np.int64)
+    _CIFAR_CACHE[key] = (X, Y)
+    return X, Y
+
+
 def load_cifar(n, seed):
     """A fixed (seeded) subset of n CIFAR-10 images. X (n,3072); Y (n,10) one-hot (MSE & CE both use it)."""
     import numpy as np
@@ -2039,6 +2100,73 @@ def load_cifar2(n, seed, ca=0, cb=1):
     §16/§17 per-sample-Hessian sections run on REAL images (M=N·1=N is small)."""
     import numpy as np
     X, Y = _load_cifar_raw()
+    rng = np.random.RandomState(seed & 0x7FFFFFFF)
+    ia = np.where(Y == int(ca))[0]; ib = np.where(Y == int(cb))[0]
+    rng.shuffle(ia); rng.shuffle(ib)
+    na = n // 2; nb = n - na
+    idx = np.concatenate([ia[:na], ib[:nb]])
+    lab = np.concatenate([np.ones(min(na, len(ia)), np.float32), -np.ones(min(nb, len(ib)), np.float32)])
+    perm = rng.permutation(len(idx)); idx = idx[perm]; lab = lab[perm]
+    Xt = torch.tensor(X[idx], dtype=DTYPE, device=_dev())
+    Yt = torch.tensor(lab, dtype=DTYPE, device=_dev()).reshape(-1, 1)
+    return Xt, Yt
+
+
+_MNIST_CACHE = {}
+
+
+def _find_mnist_dir():
+    cands = [os.path.join(DIR, "data", "mnist"), CIFAR_DIR and os.path.join(os.path.dirname(CIFAR_DIR), "mnist"),
+             os.path.expanduser("~/data/mnist"), os.path.expanduser("~/.torch/mnist")]
+    for c in cands:
+        if c and os.path.isdir(c) and os.path.isfile(os.path.join(c, "train-images-idx3-ubyte")):
+            return c
+    return None
+
+
+def _load_mnist_raw(split="train"):
+    """MNIST as (N,3072): each 28×28 digit zero-padded to 32×32 and replicated to 3 channels, so it is a
+    DROP-IN for the cifar-shaped MLP/CNN/VGG (all expect 3×32×32; VGG's 5 max-pools also need ≥32). Per-channel
+    MNIST-normalised. Returns (X float (N,3072), Y int labels). Pure numpy (no torchvision). Cached per dir/split."""
+    import numpy as np
+    d = _find_mnist_dir()
+    if d is None:
+        raise FileNotFoundError("MNIST raw idx files not found — expected data/mnist/{train,t10k}-images/labels-idx*-ubyte")
+    key = d + "::" + split
+    if key in _MNIST_CACHE:
+        return _MNIST_CACHE[key]
+    pre = "train" if split == "train" else "t10k"
+    with open(os.path.join(d, f"{pre}-images-idx3-ubyte"), "rb") as f:
+        f.read(16); img = np.frombuffer(f.read(), dtype=np.uint8)
+    with open(os.path.join(d, f"{pre}-labels-idx1-ubyte"), "rb") as f:
+        f.read(8); lab = np.frombuffer(f.read(), dtype=np.uint8)
+    n = lab.shape[0]
+    img = img.reshape(n, 28, 28).astype(np.float32) / 255.0
+    pad = np.zeros((n, 32, 32), np.float32); pad[:, 2:30, 2:30] = img        # centre the 28×28 digit in 32×32
+    x = np.repeat(pad[:, None, :, :], 3, axis=1)                             # (n,3,32,32) replicate to 3 channels
+    x = (x - 0.1307) / 0.3081                                                # MNIST normalisation (same on all 3 channels)
+    X = x.reshape(n, 3072); Y = lab.astype(np.int64)
+    _MNIST_CACHE[key] = (X, Y)
+    return X, Y
+
+
+def load_mnist(n, seed):
+    """A fixed (seeded) subset of n MNIST images. X (n,3072) [3×32×32 padded]; Y (n,10) one-hot. MIRRORS load_cifar."""
+    import numpy as np
+    X, Y = _load_mnist_raw("train")
+    rng = np.random.RandomState(seed & 0x7FFFFFFF)
+    idx = rng.permutation(X.shape[0])[:n]
+    Xt = torch.tensor(X[idx], dtype=DTYPE, device=_dev())
+    Yt = torch.zeros(n, 10, dtype=DTYPE, device=_dev())
+    Yt[torch.arange(n), torch.tensor(Y[idx], dtype=torch.long, device=_dev())] = 1.0
+    return Xt, Yt
+
+
+def load_mnist2(n, seed, ca=0, cb=1):
+    """2-class SCALAR-output MNIST: classes {ca,cb} → ±1 (d_out=1). X (n,3072); Y (n,1). Balanced seeded
+    subset. MIRRORS load_cifar2 (lets §16/§17 per-sample-Hessian sections run on REAL images, M=N small)."""
+    import numpy as np
+    X, Y = _load_mnist_raw("train")
     rng = np.random.RandomState(seed & 0x7FFFFFFF)
     ia = np.where(Y == int(ca))[0]; ib = np.where(Y == int(cb))[0]
     rng.shuffle(ia); rng.shuffle(ib)
@@ -2144,6 +2272,10 @@ def init_data_theta(P, dataset, N, inD, outD):
         X, Y = load_cifar(N, P["seed"])
     elif dataset == "cifar2":
         X, Y = load_cifar2(N, P["seed"], P.get("c2a", 0), P.get("c2b", 1))
+    elif dataset == "mnist":
+        X, Y = load_mnist(N, P["seed"])
+    elif dataset == "mnist2":
+        X, Y = load_mnist2(N, P["seed"], P.get("c2a", 0), P.get("c2b", 1))
     elif dataset == "sorting":
         X, Y = load_sort(N, inD, drng)
     elif dataset == "chebyshev":
@@ -2206,7 +2338,7 @@ def init_data_theta(P, dataset, N, inD, outD):
     # Fixed-target datasets (cifar10/sorting/chebyshev) load Y directly and so skip the residual-sign
     # construction above — force the requested initial residual sign here by overriding Y per sample
     # (keep the dataset's inputs X and the residual's natural magnitude; only its sign is pinned).
-    if dataset in ("cifar10", "cifar2", "sorting", "chebyshev") and ssign in ("pos", "neg"):
+    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev") and ssign in ("pos", "neg"):
         s = 1.0 if ssign == "pos" else -1.0
         floor = 0.25 * max(abs(tgt), 1e-6)
         F0 = _TL.model.forward(th, X)
@@ -2229,6 +2361,10 @@ def run_stream(P):
         inDimE, outDimE = 3072, 10
     elif dataset == "cifar2":
         inDimE, outDimE = 3072, 1                             # 2-class CIFAR cast as SCALAR regression (±1)
+    elif dataset == "mnist":
+        inDimE, outDimE = 3072, 10                            # MNIST padded to 3×32×32 (drop-in for cifar-shaped MLP/CNN/VGG)
+    elif dataset == "mnist2":
+        inDimE, outDimE = 3072, 1                             # 2-class MNIST cast as SCALAR regression (±1)
     elif dataset == "sorting":
         inDimE = outDimE = int(P["seqlen"])
     elif dataset == "owt":
@@ -2366,10 +2502,10 @@ def run_stream(P):
         th16 = th.double(); X16 = Xpool.double() if Xpool.is_floating_point() else Xpool   # start==0 only (no §16 re-stream on resume)
         Y16 = Ypool.double() if Ypool.is_floating_point() else Ypool
         Xt16 = Yt16 = None
-        if dataset == "chebyshev":                                       # §16 Panel 5 held-out test set
+        if dataset == "chebyshev":                                       # §16 Panel 5 held-out test set (grid midpoints)
             Xt16, Yt16 = _sec16_chebyshev_testset(Nfull, P.get("degree", 3), torch.float64)
-        elif dataset in ("synthetic", "const"):                          # synthetic / const get a fresh iid-Gaussian held-out set
-            Xt16, Yt16 = _sec16_holdout(dataset, Nfull, P, inD, outD)    # (cifar10 / sorting: no §16 test set yet ⇒ Panel 5 empty)
+        else:                                                            # real held-out images (cifar/mnist) or iid-Gaussian (synthetic/const); None for sorting
+            Xt16, Yt16 = _sec16_holdout(dataset, Nfull, P, inD, outD)
         for rec16 in _sec16_driver(th16, X16, Y16, lr, P.get("s24warm", 5), P.get("s24iter", 250),
                                    n, min(p, 24), P.get("seed", 0), 1e-12,
                                    P.get("s24grid", 0.1), P.get("s24ares", 0.01),
@@ -2387,7 +2523,7 @@ def run_stream(P):
         Xt17 = Yt17 = None
         if dataset == "chebyshev":
             Xt17, Yt17 = _sec16_chebyshev_testset(Nfull, P.get("degree", 3), torch.float64)
-        elif dataset in ("synthetic", "const"):
+        else:
             Xt17, Yt17 = _sec16_holdout(dataset, Nfull, P, inD, outD)
         for rec17 in _sec17_driver(th17, X17, Y17, lr, P.get("s24warm", 5), P.get("s24iter", 250),
                                    n, min(p, 16), P.get("seed", 0), 1e-12,
@@ -3116,6 +3252,10 @@ def run_surrogate_compare(P):
         inDimE, outDimE = 3072, 10
     elif dataset == "cifar2":
         inDimE, outDimE = 3072, 1                         # 2-class CIFAR cast as SCALAR regression (±1)
+    elif dataset == "mnist":
+        inDimE, outDimE = 3072, 10                        # MNIST padded to 3×32×32 (drop-in for cifar-shaped nets)
+    elif dataset == "mnist2":
+        inDimE, outDimE = 3072, 1                         # 2-class MNIST cast as SCALAR regression (±1)
     elif dataset == "sorting":
         inDimE = outDimE = int(P["seqlen"])
     elif dataset == "chebyshev":

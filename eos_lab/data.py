@@ -81,6 +81,74 @@ def load_cifar2(n, seed, device, dtype, cifar_dir=None, ca=0, cb=1):
     return Xt, Yt
 
 
+_MNIST_CACHE = {}
+
+
+def _find_mnist_dir(cifar_dir=None):
+    base = os.path.dirname(cifar_dir) if cifar_dir else None
+    cands = [base and os.path.join(base, "mnist"),
+             os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "mnist"),
+             "/nas/ucb/samsj/TestingPSTheory/eos_widget/data/mnist",
+             os.path.expanduser("~/data/mnist"), os.path.expanduser("~/.torch/mnist")]
+    for c in cands:
+        if c and os.path.isdir(c) and os.path.isfile(os.path.join(c, "train-images-idx3-ubyte")):
+            return c
+    return None
+
+
+def _load_mnist_raw(split="train", cifar_dir=None):
+    """MNIST as (N,3072): 28×28 zero-padded to 32×32, replicated to 3 channels (drop-in for cifar-shaped
+    MLP/CNN/VGG). Per-channel MNIST-normalised. + int labels. MIRRORS server._load_mnist_raw."""
+    import numpy as np
+    d = _find_mnist_dir(cifar_dir)
+    if d is None:
+        raise FileNotFoundError("MNIST raw idx files not found — expected data/mnist/{train,t10k}-images/labels-idx*-ubyte")
+    key = d + "::" + split
+    if key in _MNIST_CACHE:
+        return _MNIST_CACHE[key]
+    pre = "train" if split == "train" else "t10k"
+    with open(os.path.join(d, f"{pre}-images-idx3-ubyte"), "rb") as f:
+        f.read(16); img = np.frombuffer(f.read(), dtype=np.uint8)
+    with open(os.path.join(d, f"{pre}-labels-idx1-ubyte"), "rb") as f:
+        f.read(8); lab = np.frombuffer(f.read(), dtype=np.uint8)
+    n = lab.shape[0]
+    img = img.reshape(n, 28, 28).astype(np.float32) / 255.0
+    pad = np.zeros((n, 32, 32), np.float32); pad[:, 2:30, 2:30] = img
+    x = np.repeat(pad[:, None, :, :], 3, axis=1)
+    x = (x - 0.1307) / 0.3081
+    X = x.reshape(n, 3072); Y = lab.astype(np.int64)
+    _MNIST_CACHE[key] = (X, Y)
+    return X, Y
+
+
+def load_mnist(n, seed, device, dtype, cifar_dir=None):
+    """Seeded n-image MNIST subset; X (n,3072) [3×32×32 padded], Y (n,10) one-hot. MIRRORS server.load_mnist."""
+    import numpy as np
+    X, Y = _load_mnist_raw("train", cifar_dir)
+    rng = np.random.RandomState(seed & 0x7FFFFFFF)
+    idx = rng.permutation(X.shape[0])[:n]
+    Xt = torch.tensor(X[idx], dtype=dtype, device=device)
+    Yt = torch.zeros(n, 10, dtype=dtype, device=device)
+    Yt[torch.arange(n), torch.tensor(Y[idx], dtype=torch.long, device=device)] = 1.0
+    return Xt, Yt
+
+
+def load_mnist2(n, seed, device, dtype, cifar_dir=None, ca=0, cb=1):
+    """2-class SCALAR MNIST: classes {ca,cb} → ±1, X (n,3072), Y (n,1). MIRRORS server.load_mnist2."""
+    import numpy as np
+    X, Y = _load_mnist_raw("train", cifar_dir)
+    rng = np.random.RandomState(seed & 0x7FFFFFFF)
+    ia = np.where(Y == int(ca))[0]; ib = np.where(Y == int(cb))[0]
+    rng.shuffle(ia); rng.shuffle(ib)
+    na = n // 2; nb = n - na
+    idx = np.concatenate([ia[:na], ib[:nb]])
+    lab = np.concatenate([np.ones(min(na, len(ia)), np.float32), -np.ones(min(nb, len(ib)), np.float32)])
+    perm = rng.permutation(len(idx)); idx = idx[perm]; lab = lab[perm]
+    Xt = torch.tensor(X[idx], dtype=dtype, device=device)
+    Yt = torch.tensor(lab, dtype=dtype, device=device).reshape(-1, 1)
+    return Xt, Yt
+
+
 def _load_cifar_test_raw(cifar_dir=None):
     """The 10000-image CIFAR-10 test_batch, per-channel normalised like the train batches."""
     import pickle
@@ -100,6 +168,22 @@ def _load_cifar_test_raw(cifar_dir=None):
     Y = np.asarray(list(b[b"labels"]), dtype=np.int64)
     _CIFAR_CACHE[key] = (X, Y)
     return X, Y
+
+
+def _two_class_test(raw, n_test, P, device, dtype):
+    """Held-out 2-class SCALAR test set (classes {c2a,c2b} → ±1) from a (X_images, int_labels) test split."""
+    import numpy as np
+    Xa, Ya = raw
+    ca, cb = int(P.get("c2a", 0)), int(P.get("c2b", 1))
+    rng = np.random.RandomState((P["seed"] & 0x7FFFFFFF) ^ 0x5151)
+    ia = np.where(Ya == ca)[0]; ib = np.where(Ya == cb)[0]
+    rng.shuffle(ia); rng.shuffle(ib)
+    na = n_test // 2; nb = n_test - na
+    idx = np.concatenate([ia[:na], ib[:nb]])
+    lab = np.concatenate([np.ones(min(na, len(ia)), np.float32), -np.ones(min(nb, len(ib)), np.float32)])
+    perm = rng.permutation(len(idx)); idx = idx[perm]; lab = lab[perm]
+    return (torch.tensor(Xa[idx], dtype=dtype, device=device),
+            torch.tensor(lab, dtype=dtype, device=device).reshape(-1, 1))
 
 
 def make_test_set(model, P, dataset, n_test, in_dim, out_dim, device, dtype, cifar_dir=None):
@@ -125,6 +209,26 @@ def make_test_set(model, P, dataset, n_test, in_dim, out_dim, device, dtype, cif
         Yt = torch.zeros(len(idx), 10, dtype=dtype, device=device)
         Yt[torch.arange(len(idx)), torch.tensor(Ya[idx], dtype=torch.long, device=device)] = 1.0
         return Xt, Yt
+    if dataset == "cifar2":                              # held-out cifar test_batch, 2-class scalar ±1
+        raw = _load_cifar_test_raw(cifar_dir)
+        return _two_class_test(raw, n_test, P, device, dtype) if raw is not None else None
+    if dataset == "mnist":                               # held-out MNIST t10k, 10-class one-hot
+        try:
+            Xa, Ya = _load_mnist_raw("test", cifar_dir)
+        except FileNotFoundError:
+            return None
+        rng = np.random.RandomState((P["seed"] & 0x7FFFFFFF) ^ 0x5151)
+        idx = rng.permutation(Xa.shape[0])[:n_test]
+        Xt = torch.tensor(Xa[idx], dtype=dtype, device=device)
+        Yt = torch.zeros(len(idx), 10, dtype=dtype, device=device)
+        Yt[torch.arange(len(idx)), torch.tensor(Ya[idx], dtype=torch.long, device=device)] = 1.0
+        return Xt, Yt
+    if dataset == "mnist2":                              # held-out MNIST t10k, 2-class scalar ±1
+        try:
+            raw = _load_mnist_raw("test", cifar_dir)
+        except FileNotFoundError:
+            return None
+        return _two_class_test(raw, n_test, P, device, dtype)
     if dataset == "chebyshev":
         return None                                      # fixed deterministic dataset — no held-out split
     trng = mulberry32(u32(P["seed"] * 7919 + 99991))     # separate stream ⇒ disjoint from train
@@ -235,6 +339,10 @@ def init_data_theta(model, P, dataset, N, in_dim, out_dim, device, dtype, cifar_
         X, Y = load_cifar(N, P["seed"], device, dtype, cifar_dir)
     elif dataset == "cifar2":
         X, Y = load_cifar2(N, P["seed"], device, dtype, cifar_dir, P.get("c2a", 0), P.get("c2b", 1))
+    elif dataset == "mnist":
+        X, Y = load_mnist(N, P["seed"], device, dtype, cifar_dir)
+    elif dataset == "mnist2":
+        X, Y = load_mnist2(N, P["seed"], device, dtype, cifar_dir, P.get("c2a", 0), P.get("c2b", 1))
     elif dataset == "sorting":
         X, Y = load_sort(N, in_dim, drng, device, dtype)
     elif dataset == "chebyshev":
@@ -296,7 +404,7 @@ def init_data_theta(model, P, dataset, N, in_dim, out_dim, device, dtype, cifar_
     # Fixed-target datasets (cifar10/sorting/chebyshev) load Y directly and so skip the residual-sign
     # construction above — force the requested initial residual sign here by overriding Y per sample
     # (keep the dataset's inputs X and the residual's natural magnitude; only its sign is pinned).
-    if dataset in ("cifar10", "cifar2", "sorting", "chebyshev") and ssign in ("pos", "neg"):
+    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev") and ssign in ("pos", "neg"):
         s = 1.0 if ssign == "pos" else -1.0
         floor = 0.25 * max(abs(tgt), 1e-6)
         f0 = model.forward(th, X)

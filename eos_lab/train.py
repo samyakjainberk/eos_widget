@@ -46,6 +46,10 @@ def effective_dims(cfg):
         return 3072, 10
     if cfg.dataset == "cifar2":
         return 3072, 1                         # 2-class CIFAR cast as SCALAR regression (±1)
+    if cfg.dataset == "mnist":
+        return 3072, 10                        # MNIST padded to 3×32×32 (drop-in for cifar-shaped MLP/CNN/VGG)
+    if cfg.dataset == "mnist2":
+        return 3072, 1                         # 2-class MNIST cast as SCALAR regression (±1)
     if cfg.dataset == "sorting":
         return cfg.seqlen, cfg.seqlen
     if cfg.dataset == "owt":
@@ -145,13 +149,11 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
         from .sec16 import sec16_driver, sec16_chebyshev_testset
         if progress:
             print(f"  §16: standalone optimizer — {cfg.s24warm} GD warmup + {cfg.s24iter} iters from θ₀  (M=N·d={M16})")
-        if cfg.dataset == "chebyshev":                                  # §16 Panel 5 held-out test set
+        if cfg.dataset == "chebyshev":                                  # §16 Panel 5 held-out test set (midpoints of the grid)
             Xt16, Yt16 = sec16_chebyshev_testset(N, cfg.degree, dev, dtype)
-        elif cfg.dataset in ("synthetic", "const"):                     # synthetic / const: fresh iid-Gaussian held-out set
+        else:                                                           # all others: real held-out split (cifar/mnist/sorting/synthetic/const) or None
             _ts16 = make_test_set(model, P, cfg.dataset, N, in_dim, out_dim, dev, dtype, cifar_dir)
             Xt16, Yt16 = _ts16 if _ts16 is not None else (None, None)
-        else:                                                           # cifar10 / sorting: no §16 test set yet ⇒ Panel 5 empty
-            Xt16, Yt16 = None, None
         sec16 = list(sec16_driver(model, loss, th0, X, Y, cfg.lr, cfg.s24warm, cfg.s24iter,
                                   min(max(1, cfg.neig), max(1, model.p // 2)), min(model.p, 24), cfg.seed, 1e-12,
                                   getattr(cfg, 's24grid', 0.1), getattr(cfg, 's24ares', 0.01),
@@ -167,11 +169,9 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
             print(f"  §17: per-sample optimizer — {cfg.s24warm} GD warmup + {cfg.s24iter} iters from θ₀  (M=N·d={M16})")
         if cfg.dataset == "chebyshev":
             Xt17, Yt17 = sec16_chebyshev_testset(N, cfg.degree, dev, dtype)
-        elif cfg.dataset in ("synthetic", "const"):
+        else:
             _ts17 = make_test_set(model, P, cfg.dataset, N, in_dim, out_dim, dev, dtype, cifar_dir)
             Xt17, Yt17 = _ts17 if _ts17 is not None else (None, None)
-        else:
-            Xt17, Yt17 = None, None
         sec17 = list(sec17_driver(model, loss, th0, X, Y, cfg.lr, cfg.s24warm, cfg.s24iter,
                                   min(max(1, cfg.neig), max(1, model.p // 2)), min(model.p, 16), cfg.seed, 1e-12,
                                   getattr(cfg, 's24grid', 0.1), getattr(cfg, 's24ares', 0.01),

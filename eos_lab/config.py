@@ -13,7 +13,7 @@ from dataclasses import dataclass, asdict, field
 @dataclass
 class Config:
     # ---- dataset & architecture (mirror index.html 'Dataset & architecture' panel) ----
-    dataset: str = "synthetic"      # synthetic | cifar10 | cifar2 | sorting | owt | chebyshev
+    dataset: str = "synthetic"      # synthetic | cifar10 | cifar2 | mnist | mnist2 | sorting | owt | chebyshev
     arch: str = "mlp"               # mlp | cnn | vgg11 | gpt
     loss: str = "mse"               # mse | ce
     chmul: float = 0.25             # CNN/VGG channel multiplier
@@ -176,6 +176,18 @@ PRESETS = {
     "cifar_mlp": dict(dataset="cifar10", arch="mlp", loss="mse", depth=2, width=128, act="tanh",
                       bias=0, fixedx=0, nsamp=128, lr=0.02, init=0.5, steps=300, eigevery=2,
                       slqprobes=3),
+    # 2-class SCALAR CIFAR (classes c2a,c2b → ±1, d_out=1) — small N so the per-sample §16/§17 sections also run
+    "cifar2_mlp": dict(dataset="cifar2", arch="mlp", loss="mse", act="tanh", bias=1, fixedx=0, depth=1,
+                       width=64, nsamp=16, lr=0.02, init=0.5, steps=300, eigevery=2, slqprobes=3,
+                       s18=1, s19=1, s22=1, s23=1, s24=1, s25=1),
+    # MNIST 10-class one-hot (padded to 3×32×32 → drop-in for cifar-shaped nets)
+    "mnist_mlp": dict(dataset="mnist", arch="mlp", loss="mse", act="tanh", bias=1, fixedx=0, depth=2,
+                      width=128, nsamp=16, lr=0.02, init=0.5, steps=300, eigevery=2, slqprobes=3,
+                      s18=1, s19=1, s22=1, s23=1, s24=1),
+    # 2-class SCALAR MNIST (classes c2a,c2b → ±1, d_out=1) — small N so §16/§17 run
+    "mnist2_mlp": dict(dataset="mnist2", arch="mlp", loss="mse", act="tanh", bias=1, fixedx=0, depth=1,
+                       width=64, nsamp=16, lr=0.02, init=0.5, steps=300, eigevery=2, slqprobes=3,
+                       s18=1, s19=1, s22=1, s23=1, s24=1, s25=1),
     "cifar_cnn": dict(dataset="cifar10", arch="cnn", loss="mse", act="tanh", nsamp=128, lr=0.05, init=0.5,
                       steps=300, eigevery=2, slqprobes=3, chmul=1.0),
     "cifar_vgg": dict(dataset="cifar10", arch="vgg11", loss="mse", act="tanh", nsamp=128, batch=128, lr=0.05, init=0.5,

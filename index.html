@@ -114,6 +114,9 @@
     <option value="gpu_run">GPU run — large multi-sample net, 100 samples (server.py backend)</option>
     <option value="gpu_const">GPU run — large net, constant +target (server.py backend)</option>
     <option value="cifar_mlp">CIFAR-10 · MLP (GPU backend)</option>
+    <option value="cifar2_mlp">CIFAR-2 · MLP · 2-class scalar — §16/§17 enabled (GPU)</option>
+    <option value="mnist_mlp">MNIST · MLP · 10-class (GPU backend)</option>
+    <option value="mnist2_mlp">MNIST-2 · MLP · 2-class scalar — §16/§17 enabled (GPU)</option>
     <option value="cifar_cnn">CIFAR-10 · small CNN (GPU backend)</option>
     <option value="cifar_vgg">CIFAR-10 · VGG11 (GPU backend, ~0.6M; chmul=1 → ~9.4M)</option>
     <option value="sort_gpt">sorting · mini-GPT transformer (GPU backend)</option>
@@ -128,7 +131,7 @@
   <div class="panel">
     <div class="panel-title">Dataset &amp; architecture <span style="color:#94a3b8;font-weight:400;text-transform:none">· GPU backend only</span></div>
     <div class="grid">
-      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="const">const target (iid x → fixed +y)</option><option value="cifar10">CIFAR-10 (10-class one-hot)</option><option value="cifar2">CIFAR-2 (2-class scalar ±1)</option><option value="sorting">sorting</option><option value="owt">OpenWebText</option><option value="chebyshev">Chebyshev</option></select></div>
+      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="const">const target (iid x → fixed +y)</option><option value="cifar10">CIFAR-10 (10-class one-hot)</option><option value="cifar2">CIFAR-2 (2-class scalar ±1)</option><option value="mnist">MNIST (10-class one-hot)</option><option value="mnist2">MNIST-2 (2-class scalar ±1)</option><option value="sorting">sorting</option><option value="owt">OpenWebText</option><option value="chebyshev">Chebyshev</option></select></div>
       <div class="ctl"><label>architecture</label><select id="arch"><option value="mlp" selected>MLP</option><option value="cnn">CNN</option><option value="vgg11">VGG11</option><option value="gpt">mini-GPT</option></select></div>
       <div class="ctl"><label>loss</label><select id="loss"><option value="mse" selected>MSE</option><option value="ce">cross-entropy</option></select></div>
       <div class="ctl"><label>CNN/VGG channel mult</label><input id="chmul" type="number" value="0.25" min="0.05" max="2" step="0.05"></div>
@@ -3867,6 +3870,12 @@ const PRESETS={
   gpu_const:{depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.5,init:0.1,nsamp:25,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,cvar:0,dataset:'const',arch:'mlp',loss:'mse',compute:'gpu'},   // = gpu_run but every target is the constant +|tgt| (+ optional N(0,cvar) noise)
   // CIFAR-10 (MSE on one-hot) — fully-connected net on flattened 3072-dim images (GPU backend)
   cifar_mlp:{dataset:'cifar10',arch:'mlp',loss:'mse',depth:2,width:128,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:128,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
+  // CIFAR-2 (2-class SCALAR ±1) — small N so the per-sample §16/§17 sections also run; en24/en25 on
+  cifar2_mlp:{dataset:'cifar2',arch:'mlp',loss:'mse',depth:1,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:16,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en18:1,en19:1,en22:1,en23:1,en24:1,en25:1,s24iter:200,s24warm:5,qapprox:25,qmode:1,tset:3,compute:'gpu'},
+  // MNIST (10-class one-hot) — padded to 3×32×32, drop-in for cifar-shaped nets
+  mnist_mlp:{dataset:'mnist',arch:'mlp',loss:'mse',depth:2,width:128,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:16,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en18:1,en19:1,en22:1,en23:1,en24:1,en25:0,s24iter:200,s24warm:5,qapprox:25,qmode:1,tset:3,compute:'gpu'},
+  // MNIST-2 (2-class SCALAR ±1) — small N so §16/§17 run; en24/en25 on
+  mnist2_mlp:{dataset:'mnist2',arch:'mlp',loss:'mse',depth:1,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:16,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en18:1,en19:1,en22:1,en23:1,en24:1,en25:1,s24iter:200,s24warm:5,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // CIFAR-10 (MSE) — small 3-block conv net (avg-pool, tanh) on a CIFAR subset (GPU backend)
   cifar_cnn:{dataset:'cifar10',arch:'cnn',loss:'mse',depth:2,width:128,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:128,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:1.0,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // CIFAR-10 (MSE) — VGG11 (avg-pool, no BN). chmul=0.25→~0.6M (fast); set chmul=1 for the full ~9.4M VGG11

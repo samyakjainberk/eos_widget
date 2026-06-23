@@ -17,6 +17,8 @@ wandb/
 # ---- datasets (regenerable; not tracked) ----
 # ~180 MB CIFAR raw batches:
 data/cifar-10-batches-py/
+# MNIST raw idx-ubyte files (download from ossci-datasets.s3.amazonaws.com/mnist):
+data/mnist/
 # GPT-2-BPE OpenWebText shard — rebuild with `python -m eos_lab.owt_prepare`:
 data/owt/
 
