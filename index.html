@@ -215,6 +215,7 @@
       <button id="dlzip" class="btn-reset" title="Download every visible plot in one zip: time-series as PNG, and the §11/§12/§13 3D cubes (rotating) + 2D grids (animated over snapshots) as GIFs, plus the run config. The GIF rendering takes a little while — watch the status line.">⬇ plots (zip)</button>
       <button id="saverun" class="btn-reset" title="Save the last GPU-backend run to a JSON file (every section's records). Reload it later with “load run” to analyse the plots offline — no server needed. Tip: run headless on SLURM/GPU with capture_run.py to batch many runs.">⬇ save run</button>
       <button id="loadrun" class="btn-reset" title="Load a saved run (.json from “save run” or capture_run.py) and replay it into every plot — offline, no server. Restores the controls from the capture too.">⬆ load run</button>
+      <button id="loadsrv" class="btn-reset" title="Load a capture that lives on the SERVER (e.g. a SLURM run in runs_captured/) — fetches it straight from the running backend and replays it. No need to download the big .json to your laptop first.">⬆ load from server</button>
       <input id="loadrunfile" type="file" accept=".json,.gz,application/json" style="display:none">
       <a id="batchhelp" href="capture_README.md" target="_blank" style="font-size:12px;color:#6b7280;margin-left:6px;text-decoration:none" title="How to batch runs on SLURM and load them here">↪ batch on SLURM</a>
       <span class="parambadge" id="parambadge" title="Number of trainable parameters in the model, computed live from the current controls. Exact for the in-browser synthetic MLP; for the GPU-backend conv/transformer archs it shows the value reported by the backend on the last run.">params: —</span>
@@ -4000,6 +4001,36 @@ function loadCaptureFile(file){
   };
   if(isGz)fr.readAsArrayBuffer(file);else fr.readAsText(file);
 }
+// "⬆ load from server": fetch a capture that lives in the backend's runs_captured/ (e.g. a SLURM run) and replay it,
+// without downloading the big .json to the local machine first. Lists via /captures if available; else prompts.
+async function loadFromServer(){
+  const st=document.getElementById('status');
+  let name=null;
+  try{
+    const r=await fetch('captures',{cache:'no-store'});
+    if(r.ok){
+      const list=await r.json();   // [{name,size_mb,mtime}] sorted newest-first
+      if(!list.length){if(st)st.textContent='no captures in runs_captured/ on the server yet.';return;}
+      const menu=list.map((c,i)=>`${i+1}. ${c.name}  (${c.size_mb} MB${c.partial?', partial':''})`).join('\n');
+      const pick=prompt('Server captures (runs_captured/) — enter a number or a filename:\n\n'+menu, '1');
+      if(pick===null)return;
+      const idx=parseInt(pick,10);
+      name=(Number.isInteger(idx)&&idx>=1&&idx<=list.length)?list[idx-1].name:pick.trim();
+    }
+  }catch(e){/* /captures not available (older server) → fall through to prompt */}
+  if(!name){
+    name=prompt('Capture filename in runs_captured/ on the server (e.g. ksparse_all.json):','ksparse_all.json');
+    if(!name)return;
+  }
+  if(!/\.json(\.gz)?$/i.test(name))name+='.json';
+  if(st)st.textContent=`fetching runs_captured/${name} from the server … (large files take a moment)`;
+  try{
+    const r=await fetch('runs_captured/'+encodeURIComponent(name),{cache:'no-store'});
+    if(!r.ok){if(st)st.textContent=`server returned ${r.status} for runs_captured/${name} — is the backend running and the file there?`;return;}
+    const obj=await r.json();
+    await loadCapture(obj);
+  }catch(e){if(st)st.textContent='failed to load from server: '+e.message;console.error(e);}
+}
 function runGPU(){
   OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),gs:val('gson')==='1'};
   lastT=-1;META=null;cursorX=null;openStream(0,false);
@@ -4113,6 +4144,7 @@ document.getElementById('reset').addEventListener('click',resetSim);
 document.getElementById('dlzip').addEventListener('click',downloadPlots);
 document.getElementById('saverun').addEventListener('click',saveCurrentRun);
 document.getElementById('loadrun').addEventListener('click',()=>document.getElementById('loadrunfile').click());
+document.getElementById('loadsrv').addEventListener('click',loadFromServer);
 document.getElementById('loadrunfile').addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];loadCaptureFile(f);e.target.value='';});
 document.getElementById('compute').addEventListener('change',updateButtons);   // switch backend (next Run uses it); no auto-run
 // ================= surrogate-comparison sections (quadratic / linear approximation) =================

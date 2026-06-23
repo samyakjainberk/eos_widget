@@ -3843,8 +3843,42 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path == "/run":
             self._sse(parse_qs(u.query))
+        elif u.path == "/captures":
+            self._captures()
         else:
             self._static(u.path)
+
+    def _captures(self):
+        """List the offline capture files in runs_captured/ so the page's '⬆ load from server' can pick one."""
+        d = os.path.join(DIR, "runs_captured")
+        out = []
+        if os.path.isdir(d):
+            for fn in os.listdir(d):
+                if not fn.endswith(".json") and not fn.endswith(".json.gz"):
+                    continue
+                fp = os.path.join(d, fn)
+                try:
+                    sz = os.path.getsize(fp)
+                    partial = False
+                    if sz < 60_000_000 and fn.endswith(".json"):     # cheap partial-flag peek (skip huge files)
+                        try:
+                            with open(fp, "rb") as f:
+                                head = f.read(400).decode("utf-8", "ignore")
+                            partial = '"partial":true' in head.replace(" ", "")
+                        except Exception:
+                            pass
+                    out.append({"name": fn, "size_mb": round(sz / 1e6, 1),
+                                "mtime": int(os.path.getmtime(fp)), "partial": partial})
+                except OSError:
+                    pass
+        out.sort(key=lambda c: c["mtime"], reverse=True)
+        body = json.dumps(out).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
 
     def _static(self, path):
         if path in ("", "/"):
