@@ -574,12 +574,44 @@ def _lanczos16_core(hvp, p, m, seed):
         T[i, i + 1] = be[i]; T[i + 1, i] = be[i]
     return torch.stack(Q), T, k
 
+def _eig_ramp(T):                                    # add a DISTINCT per-index diagonal ramp to break the repeated-eigenvalue
+    n = T.shape[0]                                   # degeneracy that makes LAPACK syevd fail (code 22) on flat-region tridiagonals
+    sc = max(float(T.abs().max()), 1e-12) * 1e-10
+    return T + torch.diag(torch.arange(n, dtype=T.dtype, device=T.device) * sc)
+
+def _safe_eigvalsh(T):                               # robust symmetric-eigenvalue solve (cifar2/cifar10 §16/§17 hit near-zero tridiagonals)
+    if not bool(torch.isfinite(T).all()):
+        T = torch.nan_to_num(T)
+    try:
+        return torch.linalg.eigvalsh(T)
+    except torch._C._LinAlgError:
+        Tj = _eig_ramp(T)
+        try:
+            return torch.linalg.eigvalsh(Tj)
+        except torch._C._LinAlgError:
+            import numpy as np
+            return torch.tensor(np.linalg.eigvalsh(Tj.detach().cpu().numpy()), dtype=T.dtype, device=T.device)
+
+def _safe_eigh(T):
+    if not bool(torch.isfinite(T).all()):
+        T = torch.nan_to_num(T)
+    try:
+        return torch.linalg.eigh(T)
+    except torch._C._LinAlgError:
+        Tj = _eig_ramp(T)
+        try:
+            return torch.linalg.eigh(Tj)
+        except torch._C._LinAlgError:
+            import numpy as np
+            w, V = np.linalg.eigh(Tj.detach().cpu().numpy())
+            return (torch.tensor(w, dtype=T.dtype, device=T.device), torch.tensor(V, dtype=T.dtype, device=T.device))
+
 def _lanc16_vals(hvp, p, n, m, seed):                # top-n & bottom-n eigenVALUES (float64)
-    _, T, k = _lanczos16_core(hvp, p, m, seed); mu = torch.sort(torch.linalg.eigvalsh(T), descending=True).values
+    _, T, k = _lanczos16_core(hvp, p, m, seed); mu = torch.sort(_safe_eigvalsh(T), descending=True).values
     return [float(mu[min(i, k - 1)]) for i in range(n)], [float(mu[max(0, k - 1 - i)]) for i in range(n)]
 
 def _lanc16_ext(hvp, p, n, m, seed):                 # top-n & bottom-n (eigVEC, eigVAL) pairs (float64)
-    Qm, T, k = _lanczos16_core(hvp, p, m, seed); mu, Sv = torch.linalg.eigh(T); idx = torch.argsort(mu, descending=True)
+    Qm, T, k = _lanczos16_core(hvp, p, m, seed); mu, Sv = _safe_eigh(T); idx = torch.argsort(mu, descending=True)
     ritz = lambda col: Sv[:, col].to(dtype=torch.float64, device=Qm.device) @ Qm   # Sv (CPU eigh) → Qm's device for the matmul
     tv = [ritz(int(idx[min(i, k - 1)])) for i in range(n)]; bv = [ritz(int(idx[max(0, k - 1 - i)])) for i in range(n)]
     tval = [float(mu[int(idx[min(i, k - 1)])]) for i in range(n)]; bval = [float(mu[int(idx[max(0, k - 1 - i)])]) for i in range(n)]
@@ -630,6 +662,7 @@ def _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, a
         al = math.floor((a + b) / 2.0 / ares + 0.5) * ares     # snap to the `ares` grid (half-up; identical in JS), α≥0
         return al if lossv(th + al * direction, mask) <= lossv(th, mask) else 0.0
     th = th0.detach().clone()
+    froz = [None, None]                                                # frozen (u₁,u₋₁) for 'randfix'/'eigfix' (captured at warmup-end)
     for it in range(int(warmup) + int(iters)):
         sd = (int(seed) + 1000 * it) & 0x7FFFFFFF
         if it < warmup:                                                # standard GD warmup: θ ← θ + (lr/N)·Jᵀr (r=y−f; ADDED)
@@ -639,13 +672,24 @@ def _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, a
                    "loss": real["L"], "unorm": {"pos": None, "neg": None, "mean": None, "beta": float(upd.norm())}, **pack(real)}
             th = th + upd; continue
         r = resid(th); J = jac_cols(th, X)[0]
-        if mode == "random":                                          # Baseline A: random unit vectors, KEEP σ₁/σ₋₁
+        if mode in ("random", "randfix"):                             # random unit vectors instead of u₁/u₋₁ (keep σ₁/σ₋₁ of H̄)
             tH, bH = _lanc16_vals(Hbar(th), p, k, mlan, sd); sig1, sigm1 = tH[0], bH[0]
-            u1 = _randvec16(p, sd ^ 0x16A1); u1 = u1 / u1.norm()
-            um1 = _randvec16(p, sd ^ 0x16A2); um1 = um1 / um1.norm()
-        else:
+            if mode == "randfix" and froz[0] is not None:             # Baseline 3: reuse the warmup-end frozen random directions
+                u1, um1 = froz[0], froz[1]
+            else:                                                     # Baseline A: fresh random vectors each iter (or first 'randfix' iter)
+                u1 = _randvec16(p, sd ^ 0x16A1); u1 = u1 / u1.norm()
+                um1 = _randvec16(p, sd ^ 0x16A2); um1 = um1 / um1.norm()
+                if mode == "randfix":
+                    froz[0], froz[1] = u1, um1                        # freeze at warmup-end (first §16 iter)
+        else:                                                         # 'eig' / 'eigfix' / 'shuffle': real top/bottom eigenpairs of H̄
             tv, bv, tval, bval = _lanc16_ext(Hbar(th), p, k, mlan, sd)
-            u1, um1 = tv[0], bv[0]; sig1, sigm1 = tval[0], bval[0]
+            sig1, sigm1 = tval[0], bval[0]
+            if mode == "eigfix":                                      # Baseline 4: top/bottom eigvecs FROZEN at warmup-end (σ still recomputed)
+                if froz[0] is None:
+                    froz[0], froz[1] = tv[0], bv[0]
+                u1, um1 = froz[0], froz[1]
+            else:
+                u1, um1 = tv[0], bv[0]
         if mode == "shuffle":                                         # Baseline B: permute ± membership over the M effective samples (counts preserved)
             n_pos = int((r > 0).sum()); n_neg = int((r < 0).sum()); sidx = _shuffle16(M, sd ^ 0x16B0)
             pos = torch.zeros(M, dtype=torch.bool, device=th.device); neg = torch.zeros(M, dtype=torch.bool, device=th.device)
@@ -719,17 +763,154 @@ def _sec16_holdout(dataset, N, P, inD, outD):
 
 
 def _sec16_driver(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, baselines):
-    """§16 main ('eig', GD-best-of) and, if `baselines`, two PURE-curvature trajectories — 'random' (A) and
-    'shuffle' (B) — in lockstep from the SAME θ₀, attaching rec['bA']/rec['bB']."""
+    """§16 main ('eig', GD-best-of) and, if `baselines`, FOUR PURE-curvature trajectories — 'random' (A),
+    'shuffle' (B), 'randfix' (3: frozen random dirs), 'eigfix' (4: frozen H̄ eigvec dirs) — in lockstep from
+    the SAME θ₀, attaching rec['bA']/['bB']/['bC']/['bD']."""
     gmain = _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, "eig", True)
     if not baselines:
         yield from gmain
         return
-    gA = _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, "random", False)
-    gB = _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, "shuffle", False)
+    mk = lambda md: _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, md, False)
+    gA, gB, gC, gD = mk("random"), mk("shuffle"), mk("randfix"), mk("eigfix")
     sub = lambda r: {kk: r[kk] for kk in ("L", "Lt", "lH", "fH", "res", "unorm")}
     for rec in gmain:
-        rec = dict(rec); rec["bA"] = sub(next(gA)); rec["bB"] = sub(next(gB))
+        rec = dict(rec)
+        rec["bA"] = sub(next(gA)); rec["bB"] = sub(next(gB))
+        rec["bC"] = sub(next(gC)); rec["bD"] = sub(next(gD))
+        yield rec
+
+
+def _sec17_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, ares=0.01,
+               Xtest=None, Ytest=None, mode="eig", use_gd=True):
+    # §17 = §16 but PER-SAMPLE function Hessians Q_k=∇²f_k: r_k>0 → top eigvec u_k⁺ of Q_k, r_k<0 → bottom u_k⁻.
+    # MIRRORS eos_lab.sec17_run / index.html sec17Run. Q_k·v = jac_hvp(...)[k] (row k of the FD Jacobian-of-grad).
+    p = th0.numel(); N = X.shape[0]; Yf = Y.reshape(-1)
+    M = Yf.numel()                                                    # EFFECTIVE samples = N·d_out (per-sample-Q dimension)
+    Ytf = Ytest.reshape(-1) if Ytest is not None else None
+    dev = th0.device
+    k = max(1, int(neig)); mg = max(1, int(round(1.0 / max(1e-9, bgrid)))); grid = [i / mg for i in range(mg + 1)]
+    fwd = lambda th: _TL.model.forward(th, X).reshape(-1)
+    resid = lambda th: Yf - fwd(th)
+    def lossv(th, mask=None):
+        out = fwd(th)
+        if mask is None:
+            return float(_TL.loss.value(out, Yf, N))
+        nn = int(mask.sum()); return float(_TL.loss.value(out[mask], Yf[mask], max(1, nn))) if nn else 0.0
+    def losstest(th):
+        if Xtest is None:
+            return None
+        return float(_TL.loss.value(_TL.model.forward(th, Xtest).reshape(-1), Ytf, Xtest.shape[0]))
+    Hbar = lambda th: (lambda v: jac_hvp(th, X, v).mean(0))            # Panel 3 diagnostic (same as §16)
+    Qk = lambda th, kk: (lambda v: jac_hvp(th, X, v)[kk])              # per-sample Q_k·v
+    lossH = lambda th: (lambda v: (gradL(th + EPS * v, X, Y)[0] - gradL(th - EPS * v, X, Y)[0]) / (2 * EPS))
+    def metrics(th, sd):
+        lHt, _ = _lanc16_vals(lossH(th), p, k, mlan, sd)
+        fHt, fHb = _lanc16_vals(Hbar(th), p, k, mlan, sd + 7)
+        return {"L": lossv(th), "Lt": losstest(th), "res": resid(th).detach().cpu().tolist(), "lH": lHt, "fHt": fHt, "fHb": fHb}
+    def pack(real, look=None):
+        keys = ("pos", "neg", "mean", "beta"); d = look or {}
+        rec = {"L": {kk: (d[kk]["L"] if kk in d else None) for kk in keys},
+               "Lt": {kk: (d[kk]["Lt"] if kk in d else None) for kk in keys},
+               "lH": {kk: (d[kk]["lH"] if kk in d else None) for kk in keys},
+               "fH": {kk: ({"top": d[kk]["fHt"], "bot": d[kk]["fHb"]} if kk in d else None) for kk in keys},
+               "res": {kk: (d[kk]["res"] if kk in d else None) for kk in keys}}
+        rec["L"]["beta"] = real["L"]; rec["Lt"]["beta"] = real["Lt"]; rec["lH"]["beta"] = real["lH"]
+        rec["fH"]["beta"] = {"top": real["fHt"], "bot": real["fHb"]}; rec["res"]["beta"] = real["res"]
+        return rec
+    def line_search(th, direction, mask, lo=0.0, hi=10.0, ls_tol=ares):
+        gr = (math.sqrt(5) - 1) / 2; a, b = lo, hi
+        c = b - gr * (b - a); dd = a + gr * (b - a)
+        fc = lossv(th + c * direction, mask); fdd = lossv(th + dd * direction, mask)
+        while (b - a) > ls_tol:
+            if fc < fdd:
+                b, dd, fdd = dd, c, fc; c = b - gr * (b - a); fc = lossv(th + c * direction, mask)
+            else:
+                a, c, fc = c, dd, fdd; dd = a + gr * (b - a); fdd = lossv(th + dd * direction, mask)
+        al = math.floor((a + b) / 2.0 / ares + 0.5) * ares
+        return al if lossv(th + al * direction, mask) <= lossv(th, mask) else 0.0
+    th = th0.detach().clone()
+    froz = [None, None]                                               # frozen per-sample [Up, Um] for 'randfix'/'eigfix'
+    for it in range(int(warmup) + int(iters)):
+        sd = (int(seed) + 1000 * it) & 0x7FFFFFFF
+        if it < warmup:                                               # standard GD warmup (identical to §16)
+            real = metrics(th, sd)
+            upd = (lr / N) * (jac_cols(th, X)[0].t() @ resid(th))
+            yield {"i": it, "phase": "gd", "apos": None, "aneg": None, "beta": None, "scale": None, "tgd": None,
+                   "loss": real["L"], "unorm": {"pos": None, "neg": None, "mean": None, "beta": float(upd.norm())}, **pack(real)}
+            th = th + upd; continue
+        r = resid(th); J = jac_cols(th, X)[0]
+        psd = (sd ^ 0x17C0FFEE) & 0x7FFFFFFF                          # per-sample Lanczos/random seed base
+        Up = []; Um = []; Sp = []; Sm = []
+        for kk in range(M):
+            skk = (psd + kk * 1009) & 0x7FFFFFFF
+            hk = Qk(th, kk)
+            if mode in ("random", "randfix"):                        # per-sample random dirs, keep σ_k⁺/σ_k⁻ of Q_k
+                tH, bH = _lanc16_vals(hk, p, 1, mlan, skk); Sp.append(tH[0]); Sm.append(bH[0])
+                up = _randvec16(p, (skk ^ 0x17A1) & 0x7FFFFFFF); up = up / up.norm()
+                um = _randvec16(p, (skk ^ 0x17A2) & 0x7FFFFFFF); um = um / um.norm()
+                Up.append(up); Um.append(um)
+            else:                                                    # real per-sample top/bottom eigenpairs of Q_k
+                tv, bv, tval, bval = _lanc16_ext(hk, p, 1, mlan, skk); Sp.append(tval[0]); Sm.append(bval[0])
+                Up.append(tv[0]); Um.append(bv[0])
+        if mode in ("randfix", "eigfix"):                            # Baselines C/D: freeze per-sample directions at warmup-end (σ recomputed)
+            if froz[0] is None:
+                froz[0] = [u.clone() for u in Up]; froz[1] = [u.clone() for u in Um]
+            Up, Um = froz[0], froz[1]
+        if mode == "shuffle":                                        # Baseline B: permute ± membership over the M effective samples
+            n_pos = int((r > 0).sum()); n_neg = int((r < 0).sum()); sidx = _shuffle16(M, sd ^ 0x16B0)
+            pos = torch.zeros(M, dtype=torch.bool, device=dev); neg = torch.zeros(M, dtype=torch.bool, device=dev)
+            if n_pos:
+                pos[torch.tensor(sidx[:n_pos], dtype=torch.long, device=dev)] = True
+            if n_neg:
+                neg[torch.tensor(sidx[n_pos:n_pos + n_neg], dtype=torch.long, device=dev)] = True
+        else:
+            pos, neg = r > 0, r < 0
+        proj_pos = torch.zeros(p, dtype=th.dtype, device=dev)        # Σ_{r_k>0} r_k·⟨∇f_k,u_k⁺⟩·σ_k⁺·u_k⁺
+        proj_neg = torch.zeros(p, dtype=th.dtype, device=dev)        # Σ_{r_k<0} r_k·⟨∇f_k,u_k⁻⟩·σ_k⁻·u_k⁻
+        for kk in range(M):
+            if bool(pos[kk]):
+                proj_pos = proj_pos + (float(r[kk]) * float(J[kk] @ Up[kk]) * Sp[kk]) * Up[kk]
+            elif bool(neg[kk]):
+                proj_neg = proj_neg + (float(r[kk]) * float(J[kk] @ Um[kk]) * Sm[kk]) * Um[kk]
+        a_pos = line_search(th, proj_pos, pos); a_neg = line_search(th, proj_neg, neg)
+        u_pos, u_neg = a_pos * proj_pos, a_neg * proj_neg; u_mean = 0.5 * (u_pos + u_neg)
+        beta, scale = min(((bb, ss) for bb in grid for ss in grid),
+                          key=lambda bs: lossv(th + bs[1] * (bs[0] * u_pos + (1 - bs[0]) * u_neg)))
+        u_sec = scale * (beta * u_pos + (1 - beta) * u_neg)
+        if use_gd:
+            d_gd = (J.t() @ resid(th)) / N
+            t_gd = line_search(th, d_gd, None); u_gd = t_gd * d_gd
+            if lossv(th + u_gd) < lossv(th + u_sec):
+                u_beta = u_gd; tgd = t_gd
+            else:
+                u_beta = u_sec; tgd = 0.0
+        else:
+            u_beta = u_sec; tgd = 0.0
+        look = {"pos": metrics(th + u_pos, sd + 1), "neg": metrics(th + u_neg, sd + 2),
+                "mean": metrics(th + u_mean, sd + 3), "beta": metrics(th + u_beta, sd + 4)}
+        yield {"i": it, "phase": "sec17", "apos": a_pos, "aneg": a_neg, "beta": beta, "scale": scale, "tgd": tgd,
+               "loss": look["beta"]["L"],
+               "unorm": {"pos": float(u_pos.norm()), "neg": float(u_neg.norm()),
+                         "mean": float(u_mean.norm()), "beta": float(u_beta.norm())}, **pack(look["beta"], look)}
+        th = th + u_beta
+        if lossv(th) < tol:
+            break
+
+
+def _sec17_driver(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, baselines):
+    """§17 main ('eig', per-sample Q_k) and, if `baselines`, FOUR PURE-curvature trajectories — 'random' (A),
+    'shuffle' (B), 'randfix' (C), 'eigfix' (D) — in lockstep from the SAME θ₀, attaching rec['bA']/['bB']/['bC']/['bD']."""
+    gmain = _sec17_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, "eig", True)
+    if not baselines:
+        yield from gmain
+        return
+    mk = lambda md: _sec17_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, md, False)
+    gA, gB, gC, gD = mk("random"), mk("shuffle"), mk("randfix"), mk("eigfix")
+    sub = lambda r: {kk: r[kk] for kk in ("L", "Lt", "lH", "fH", "res", "unorm")}
+    for rec in gmain:
+        rec = dict(rec)
+        rec["bA"] = sub(next(gA)); rec["bB"] = sub(next(gB))
+        rec["bC"] = sub(next(gC)); rec["bD"] = sub(next(gD))
         yield rec
 
 
@@ -1848,6 +2029,25 @@ def load_cifar(n, seed):
     return Xt, Yt
 
 
+def load_cifar2(n, seed, ca=0, cb=1):
+    """2-class SCALAR-output CIFAR-10: keep only classes {ca,cb}, label class ca → +1 and class cb → −1
+    (a single scalar regression target, d_out=1). X (n,3072); Y (n,1). A fixed (seeded) BALANCED subset:
+    the first n//2 images of class ca and the first n−n//2 of class cb, then a seeded shuffle. Lets the
+    §16/§17 per-sample-Hessian sections run on REAL images (M=N·1=N is small)."""
+    import numpy as np
+    X, Y = _load_cifar_raw()
+    rng = np.random.RandomState(seed & 0x7FFFFFFF)
+    ia = np.where(Y == int(ca))[0]; ib = np.where(Y == int(cb))[0]
+    rng.shuffle(ia); rng.shuffle(ib)
+    na = n // 2; nb = n - na
+    idx = np.concatenate([ia[:na], ib[:nb]])
+    lab = np.concatenate([np.ones(min(na, len(ia)), np.float32), -np.ones(min(nb, len(ib)), np.float32)])
+    perm = rng.permutation(len(idx)); idx = idx[perm]; lab = lab[perm]
+    Xt = torch.tensor(X[idx], dtype=DTYPE, device=_dev())
+    Yt = torch.tensor(lab, dtype=DTYPE, device=_dev()).reshape(-1, 1)
+    return Xt, Yt
+
+
 def load_sort(n, L, drng):
     """Sorting task: input a random length-L sequence, target = the ascending-sorted sequence.
     MSE regression, oc = L. Uses the seeded mulberry32 RNG so runs are reproducible."""
@@ -1939,6 +2139,8 @@ def init_data_theta(P, dataset, N, inD, outD):
         return th, X, Y, empt, empt
     if dataset == "cifar10":
         X, Y = load_cifar(N, P["seed"])
+    elif dataset == "cifar2":
+        X, Y = load_cifar2(N, P["seed"], P.get("c2a", 0), P.get("c2b", 1))
     elif dataset == "sorting":
         X, Y = load_sort(N, inD, drng)
     elif dataset == "chebyshev":
@@ -2001,7 +2203,7 @@ def init_data_theta(P, dataset, N, inD, outD):
     # Fixed-target datasets (cifar10/sorting/chebyshev) load Y directly and so skip the residual-sign
     # construction above — force the requested initial residual sign here by overriding Y per sample
     # (keep the dataset's inputs X and the residual's natural magnitude; only its sign is pinned).
-    if dataset in ("cifar10", "sorting", "chebyshev") and ssign in ("pos", "neg"):
+    if dataset in ("cifar10", "cifar2", "sorting", "chebyshev") and ssign in ("pos", "neg"):
         s = 1.0 if ssign == "pos" else -1.0
         floor = 0.25 * max(abs(tgt), 1e-6)
         F0 = _TL.model.forward(th, X)
@@ -2022,6 +2224,8 @@ def run_stream(P):
     arch = P.get("arch", "mlp")
     if dataset == "cifar10":
         inDimE, outDimE = 3072, 10
+    elif dataset == "cifar2":
+        inDimE, outDimE = 3072, 1                             # 2-class CIFAR cast as SCALAR regression (±1)
     elif dataset == "sorting":
         inDimE = outDimE = int(P["seqlen"])
     elif dataset == "owt":
@@ -2170,6 +2374,25 @@ def run_stream(P):
             if mytok != RUN_TOKEN.get(_devkey, mytok):
                 return
             yield {"type": "g16", **rec16}
+
+    # ── §17: PER-SAMPLE function-Hessian variant of §16 (each sample uses the top/bottom eigvec of its OWN Q_k=∇²f_k).
+    #    Per-sample Lanczos every iteration ⇒ O(M²) jac evals, so it is gated to a SMALLER M than §16. ──
+    if (P.get("s25", 0) and start == 0 and _TL.loss.name == "mse"
+            and M16 <= 64 and M16 * p <= 200_000_000 and Nfull <= 64):
+        th17 = th.double(); X17 = Xpool.double() if Xpool.is_floating_point() else Xpool
+        Y17 = Ypool.double() if Ypool.is_floating_point() else Ypool
+        Xt17 = Yt17 = None
+        if dataset == "chebyshev":
+            Xt17, Yt17 = _sec16_chebyshev_testset(Nfull, P.get("degree", 3), torch.float64)
+        elif dataset in ("synthetic", "const"):
+            Xt17, Yt17 = _sec16_holdout(dataset, Nfull, P, inD, outD)
+        for rec17 in _sec17_driver(th17, X17, Y17, lr, P.get("s24warm", 5), P.get("s24iter", 250),
+                                   n, min(p, 16), P.get("seed", 0), 1e-12,
+                                   P.get("s24grid", 0.1), P.get("s24ares", 0.01),
+                                   Xt17, Yt17, P.get("s25base", 0)):
+            if mytok != RUN_TOKEN.get(_devkey, mytok):
+                return
+            yield {"type": "g17", **rec17}
 
     for t in range(steps + 1):
         if mytok != RUN_TOKEN.get(_devkey, mytok):
@@ -2888,6 +3111,8 @@ def run_surrogate_compare(P):
         return
     if dataset == "cifar10":
         inDimE, outDimE = 3072, 10
+    elif dataset == "cifar2":
+        inDimE, outDimE = 3072, 1                         # 2-class CIFAR cast as SCALAR regression (±1)
     elif dataset == "sorting":
         inDimE = outDimE = int(P["seqlen"])
     elif dataset == "chebyshev":
@@ -3338,6 +3563,7 @@ def _parse_params(q):
         "chmul": ff("chmul", 0.25), "nlayer": fi("nlayer", 2), "nhead": fi("nhead", 4),
         "dmodel": fi("dmodel", 64), "seqlen": fi("seqlen", 16), "vocab": fi("vocab", 50257),
         "degree": fi("degree", 3),       # Chebyshev polynomial degree (chebyshev dataset)
+        "c2a": fi("c2a", 0), "c2b": fi("c2b", 1),   # cifar2: the two CIFAR-10 class indices → scalar labels +1 / −1
         "divreg": ff("divreg", 0.3),     # §15 divergence ε strength: softens the 0/0 spike at D²→0 inflections (0 ⇒ exact /D²)
         "cvar": ff("cvar", 0.0),         # const dataset: variance of Gaussian noise added to the constant target (0 ⇒ exact constant)
         "initscheme": g("initscheme", "default"),
@@ -3362,7 +3588,9 @@ def _parse_params(q):
         "s24iter": max(1, fi("s24iter", 250)),  # §16: number of §16 iterations after the warmup
         "s24grid": min(0.5, max(0.01, ff("s24grid", 0.1))),   # §16: (β,s) search grid step (finer ⇒ more descent, costs (1/step)² loss-evals)
         "s24ares": min(0.1, max(0.001, ff("s24ares", 0.01))), # §16: α line-search resolution (finer ⇒ extracts smaller steps near the plateau)
-        "s24base": g("s24base", "0") == "1",  # §16: compute the two dotted baselines (A=random dirs, B=shuffled ± sets); ≈3× cost
+        "s24base": g("s24base", "0") == "1",  # §16: compute the four dotted baselines (A=random,B=shuffle,C=randfix,D=eigfix); ≈5× cost
+        "s25": g("s25", "0") == "1",     # §17: PER-SAMPLE function-Hessian variant of §16 (each sample uses its OWN Q_k eigvec; OFF by default)
+        "s25base": g("s25base", "0") == "1",  # §17: compute the four dotted baselines (per-sample analog of §16's); ≈5× cost
         "grid3dcap": max(1, fi("grid3dcap", 500)),
         "sec12ncap": max(1, fi("sec12ncap", 500)),
         "gs": g("gson", "1") == "1",

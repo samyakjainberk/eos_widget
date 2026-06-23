@@ -128,7 +128,7 @@
   <div class="panel">
     <div class="panel-title">Dataset &amp; architecture <span style="color:#94a3b8;font-weight:400;text-transform:none">· GPU backend only</span></div>
     <div class="grid">
-      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="const">const target (iid x → fixed +y)</option><option value="cifar10">CIFAR-10</option><option value="sorting">sorting</option><option value="owt">OpenWebText</option><option value="chebyshev">Chebyshev</option></select></div>
+      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="const">const target (iid x → fixed +y)</option><option value="cifar10">CIFAR-10 (10-class one-hot)</option><option value="cifar2">CIFAR-2 (2-class scalar ±1)</option><option value="sorting">sorting</option><option value="owt">OpenWebText</option><option value="chebyshev">Chebyshev</option></select></div>
       <div class="ctl"><label>architecture</label><select id="arch"><option value="mlp" selected>MLP</option><option value="cnn">CNN</option><option value="vgg11">VGG11</option><option value="gpt">mini-GPT</option></select></div>
       <div class="ctl"><label>loss</label><select id="loss"><option value="mse" selected>MSE</option><option value="ce">cross-entropy</option></select></div>
       <div class="ctl"><label>CNN/VGG channel mult</label><input id="chmul" type="number" value="0.25" min="0.05" max="2" step="0.05"></div>
@@ -183,7 +183,8 @@
       <div class="ctl"><label title="§16: number of §16 optimizer iterations after the GD warmup.">§16 iterations</label><input id="s24iter" type="number" value="250" min="1" max="2000" step="1"></div>
       <div class="ctl"><label title="§16: (β,s) search grid step. Finer (smaller) ⇒ more descent extracted per iteration, but costs (1/step)² loss evaluations. Default 0.1.">§16 β,s grid step</label><input id="s24grid" type="number" value="0.1" min="0.01" max="0.5" step="0.01"></div>
       <div class="ctl"><label title="§16: α line-search resolution. Finer (smaller) ⇒ finds smaller beneficial steps near the plateau. Default 0.01.">§16 α resolution</label><input id="s24ares" type="number" value="0.01" min="0.001" max="0.1" step="0.001"></div>
-      <div class="ctl"><label title="§16: also compute the two dotted baselines in every panel — A: replace u₁/u₋₁ with two random unit vectors (KEEP σ₁/σ₋₁ of H̄, pure-curvature step); B: keep u₁/u₋₁/σ but randomly shuffle the ± sample-set membership (counts preserved). Both are PURE-curvature trajectories. ≈3× cost. OFF by default.">§16 baselines</label><input type="checkbox" id="en24base"></div>
+      <div class="ctl"><label title="§16: also compute the FOUR dotted baselines in every panel — A: two random unit vectors instead of u₁/u₋₁ (KEEP σ₁/σ₋₁ of H̄, redrawn each iter); B: keep u₁/u₋₁/σ but shuffle the ± set membership; C (rand-fix): random directions FROZEN at warmup-end (σ recomputed); D (eig-fix): the H̄ top/bottom eigvecs FROZEN at warmup-end (σ recomputed). All PURE-curvature trajectories. ≈5× cost. OFF by default.">§16 baselines</label><input type="checkbox" id="en24base"></div>
+      <div class="ctl"><label title="§17: also compute the FOUR dotted baselines (per-sample analog of §16's A/B/C/D — random per-sample dirs, shuffled ± sets, frozen-random, frozen per-sample eigvecs). ≈5× cost. OFF by default.">§17 baselines</label><input type="checkbox" id="en25base"></div>
       <div class="ctl"><label title="§12 sample cap: skip §12 when the number of samples N exceeds this. §12 extracts each sample's top-/bottom-15 Hessian eigenpairs MATRIX-FREE via Lanczos (no p×p matrix is formed), so it scales to large models like §1–§3; the grid is N×N so only N is capped.">§12 N-cap</label><input id="sec12ncap" type="number" value="500" min="1" max="600" step="1"></div>
       <div class="ctl"><label>SLQ probes</label><input id="slqprobes" type="number" value="4" min="1" max="12" step="1"></div>
       <div class="ctl"><label>subspace energy %</label><input id="energyp" type="number" value="99" min="50" max="100" step="1"></div>
@@ -237,6 +238,7 @@
   <label title="§14 — per-triplet (i,j,k) decomposition of Tr(ΔNTK)=Σ a·b·c·d·e over rank-2y eigenpairs of the per-sample function Hessians. 10 panels of N×N×N cubes (sorted-term aggregates, sub-products, eq-③ history ratio). Shares §12's matrix-free Lanczos eigenpairs; multi-sample only, small N (N³ cubes); OFF by default."><input type="checkbox" id="en20"> 14 · Tr(ΔNTK) triplet decomposition</label>
   <label title="§15 — 2nd-difference decomposition of ‖J‖²_F (=tr NTK) and σ₁ (top NTK eigenvalue) into theory terms I/II/III (resp. IV/V/VI) + the matrices A (resp. B), over GD with step (η/N)Σr_i∇f_i. Holds 3 consecutive GD steps (run with eigevery=1); needs the per-sample function-Hessian HVPs at t−1 and t−2. Single OR multi-sample, small N; OFF by default."><input type="checkbox" id="en23"> 15 · 2nd-difference decomposition (‖J‖² &amp; σ₁)</label>
   <label title="§16 — standalone curvature-aligned per-residual-sign optimizer. From θ₀: `GD warmup` standard-GD steps, then per iteration form the sample-averaged function Hessian H̄, push positive-residual samples along its top eigenvector and negative-residual samples along its bottom eigenvector (each projection ×its eigenvalue), line-search α_pos/α_neg on each set, then advance by the better of the (β,s) curvature step or a gradient-descent step so the loss strictly decreases. 4 panels: loss / loss-Hessian eig / function-Hessian eig / per-sample residuals, each under the pos/neg/mean/advancing update; plot 5 adds the GD scale t_gd. MLP+MSE, small N & p; OFF by default."><input type="checkbox" id="en24"> 16 · curvature-aligned per-residual-sign optimizer</label>
+  <label title="§17 — PER-SAMPLE function-Hessian variant of §16. Identical optimizer and identical 6 panels, but instead of the AVERAGED H̄ each sample uses its OWN function Hessian Q_k=∇²f_k: a positive-residual sample is pushed along the TOP eigvec of its Q_k, a negative-residual sample along the BOTTOM. proj = Σ_k r_k·⟨∇f_k,u_k⟩·σ_k·u_k. Per-sample Lanczos every iteration ⇒ O(M²); gated to small M=N·d_out. MLP+MSE; OFF by default."><input type="checkbox" id="en25"> 17 · per-sample curvature optimizer</label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -479,6 +481,29 @@
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 6 — $\ell_2$ norm of the applied update $\lVert u_{\bullet}\rVert_2$ at each look-ahead</h3>
 <p class="cap">The $\ell_2$ norm of the weight update applied at each look-ahead point (Plots 1–4: $\lVert u_{\rm pos}\rVert,\lVert u_{\rm neg}\rVert,\lVert u_{\rm mean}\rVert,\lVert u_{\rm beta}\rVert$, matching Panel 1's four updates), for the main run plus the two <b>dotted baselines</b> (A = random directions, B = shuffled ± sets). During the GD-warmup phase only the real (beta) update exists.</p>
 <div class="plotrow row4"><div id="p_s16_nupos" class="plot" style="height:290px"></div><div id="p_s16_nuneg" class="plot" style="height:290px"></div><div id="p_s16_numean" class="plot" style="height:290px"></div><div id="p_s16_nubeta" class="plot" style="height:290px"></div></div>
+</div>
+
+<div id="sec_s17" style="display:none">
+<h2>17 · Per-sample curvature-aligned optimizer (standalone)</h2>
+<p class="cap">Identical to §16 EXCEPT the curvature directions are <b>per-sample</b>. §16 used one shared pair from the <i>averaged</i> function Hessian $\bar H=\tfrac1N\sum_k\nabla^2 f_k$; §17 instead uses each sample's OWN function Hessian $Q_k=\nabla^2 f_k$. A <b>positive-residual</b> sample ($r_k>0$) is pushed along the TOP eigvec $u_k^+$ of its $Q_k$, a <b>negative-residual</b> sample along the BOTTOM eigvec $u_k^-$, so the two curvature steps accumulate per-sample contributions $\mathrm{proj}_{\rm pos}=\sum_{r_k>0}r_k\langle\nabla f_k,u_k^+\rangle\,\sigma_k^+\,u_k^+$ and $\mathrm{proj}_{\rm neg}=\sum_{r_k<0}r_k\langle\nabla f_k,u_k^-\rangle\,\sigma_k^-\,u_k^-$ (each ×its own eigenvalue). Everything downstream — $\alpha_{\rm pos}/\alpha_{\rm neg}$ line search, the $(\beta,s)$ grid, the GD-best-of advance, and the four look-ahead panels — is the §16 machinery, and the diagnostic panels (loss, loss-Hessian, function-Hessian $\bar H$, residuals, test loss, $\lVert u\rVert$) are the SAME observables as §16, so the two sections are directly comparable. Per-sample Lanczos every iteration is $O(M^2)$, so this is gated to small $M=N\cdot d_{\rm out}$. MLP + MSE; OFF by default.</p>
+<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — full-loss evolution under each update  +  $\alpha_{\rm pos},\alpha_{\rm neg},\beta,s$</h3>
+<p class="cap">Full training loss at each look-ahead point $\theta+u_{\bullet}$ (Plots 1–4: pos-only, neg-only, mean, best-$(\beta,s)$ = the advancing path), then the chosen coefficients vs iteration (Plot 5). During the GD-warmup phase only the real (Plot 4) curve has data.</p>
+<div class="plotrow row5"><div id="p_s17_Lpos" class="plot" style="height:290px"></div><div id="p_s17_Lneg" class="plot" style="height:290px"></div><div id="p_s17_Lmean" class="plot" style="height:290px"></div><div id="p_s17_Lbeta" class="plot" style="height:290px"></div><div id="p_s17_coef" class="plot" style="height:290px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — top-$k$ eigenvalues of the loss Hessian $\nabla^2 L$ at each look-ahead</h3>
+<p class="cap">Same four update look-aheads, but the top-$k$ ($k$ = neig) eigenvalues of the loss Hessian (Lanczos) at $\theta+u_{\bullet}$.</p>
+<div class="plotrow row4"><div id="p_s17_lHpos" class="plot" style="height:290px"></div><div id="p_s17_lHneg" class="plot" style="height:290px"></div><div id="p_s17_lHmean" class="plot" style="height:290px"></div><div id="p_s17_lHbeta" class="plot" style="height:290px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 3 — top-$k$ &amp; bottom-$k$ eigenvalues of the function Hessian $\bar H$ at each look-ahead</h3>
+<p class="cap">Same four update look-aheads, but the top-$k$ (blue) and bottom-$k$ (red) eigenvalues of the sample-averaged function Hessian $\bar H$ (Lanczos) at $\theta+u_{\bullet}$ — the same diagnostic as §16 (the per-sample directions drive the <i>update</i>; this panel keeps $\bar H$ so §16/§17 are comparable).</p>
+<div class="plotrow row4"><div id="p_s17_fHpos" class="plot" style="height:290px"></div><div id="p_s17_fHneg" class="plot" style="height:290px"></div><div id="p_s17_fHmean" class="plot" style="height:290px"></div><div id="p_s17_fHbeta" class="plot" style="height:290px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 4 — per-sample residuals $r_k=y_k-f_k$ at each look-ahead</h3>
+<p class="cap">Same four update look-aheads, but every sample's residual (one line per sample) at $\theta+u_{\bullet}$.</p>
+<div class="plotrow row4"><div id="p_s17_rpos" class="plot" style="height:290px"></div><div id="p_s17_rneg" class="plot" style="height:290px"></div><div id="p_s17_rmean" class="plot" style="height:290px"></div><div id="p_s17_rbeta" class="plot" style="height:290px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 5 — held-out <b>test-loss</b> evolution under each update (chebyshev only)</h3>
+<p class="cap">Same four update look-aheads, but the test loss on the held-out set at $\theta+u_{\bullet}$. The four <b>dotted baselines</b> (A = per-sample random dirs, B = shuffled ± sets, C = frozen-random, D = frozen per-sample eigvecs) appear in this and every panel above when <b>§17 baselines</b> is enabled.</p>
+<div class="plotrow row4"><div id="p_s17_Ltpos" class="plot" style="height:290px"></div><div id="p_s17_Ltneg" class="plot" style="height:290px"></div><div id="p_s17_Ltmean" class="plot" style="height:290px"></div><div id="p_s17_Ltbeta" class="plot" style="height:290px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 6 — $\ell_2$ norm of the applied update $\lVert u_{\bullet}\rVert_2$ at each look-ahead</h3>
+<p class="cap">The $\ell_2$ norm of the weight update applied at each look-ahead point (Plots 1–4: $\lVert u_{\rm pos}\rVert,\lVert u_{\rm neg}\rVert,\lVert u_{\rm mean}\rVert,\lVert u_{\rm beta}\rVert$), for the main run plus the four <b>dotted baselines</b>. During the GD-warmup phase only the real (beta) update exists.</p>
+<div class="plotrow row4"><div id="p_s17_nupos" class="plot" style="height:290px"></div><div id="p_s17_nuneg" class="plot" style="height:290px"></div><div id="p_s17_numean" class="plot" style="height:290px"></div><div id="p_s17_nubeta" class="plot" style="height:290px"></div></div>
 </div>
 
 <div id="sec_2">
@@ -2322,6 +2347,7 @@ function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgri
     while(b-a>ares){if(fc<fd){b=d;d=c;fd=fc;c=b-gr*(b-a);fc=lossM(_addS(th,dir,c),mask);}else{a=c;c=d;fc=fd;d=a+gr*(b-a);fd=lossM(_addS(th,dir,d),mask);}}
     const al=Math.floor((a+b)/2/ares+0.5)*ares;return lossM(_addS(th,dir,al),mask)<=lossM(th,mask)?al:0;};
   const recs=[];let th=th0.slice();
+  let frozU1=null,frozUm1=null;   // frozen (u₁,u₋₁) for 'randfix'/'eigfix' (captured at warmup-end)
   for(let it=0;it<warmup+iters;it++){
     const sd=(seed+1000*it)&0x7FFFFFFF;
     if(it<warmup){const real=metrics(th,sd);
@@ -2331,10 +2357,14 @@ function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgri
       th=th.slice();for(let q=0;q<p;q++)th[q]+=cc*g[q];continue;}
     const r=resid(th),J=jacCols(th,spec,X,N,inDim,p).cols;
     let u1,um1,sig1,sigm1;
-    if(mode==='random'){const fv=lanczosExtremeVals(Hbar(th),p,k,mlan,sd);sig1=fv.top[0];sigm1=fv.bot[0];   // BASELINE A: random unit vectors, KEEP σ₁/σ₋₁
-      const rv1=randVec(p,(sd^0x16A1)>>>0),rv2=randVec(p,(sd^0x16A2)>>>0);let n1=0,n2=0;for(let q=0;q<p;q++){n1+=rv1[q]*rv1[q];n2+=rv2[q]*rv2[q];}
-      n1=Math.sqrt(n1);n2=Math.sqrt(n2);u1=new Float64Array(p);um1=new Float64Array(p);for(let q=0;q<p;q++){u1[q]=rv1[q]/n1;um1[q]=rv2[q]/n2;}}
-    else{const ex=lanczosExtreme(Hbar(th),p,k,mlan,sd);u1=ex.topVecs[0];um1=ex.botVecs[0];sig1=ex.topVals[0];sigm1=ex.botVals[0];}
+    if(mode==='random'||mode==='randfix'){const fv=lanczosExtremeVals(Hbar(th),p,k,mlan,sd);sig1=fv.top[0];sigm1=fv.bot[0];   // random unit vectors instead of u₁/u₋₁ (keep σ₁/σ₋₁ of H̄)
+      if(mode==='randfix'&&frozU1){u1=frozU1;um1=frozUm1;}   // BASELINE 3: reuse warmup-end frozen random directions
+      else{const rv1=randVec(p,(sd^0x16A1)>>>0),rv2=randVec(p,(sd^0x16A2)>>>0);let n1=0,n2=0;for(let q=0;q<p;q++){n1+=rv1[q]*rv1[q];n2+=rv2[q]*rv2[q];}
+        n1=Math.sqrt(n1);n2=Math.sqrt(n2);u1=new Float64Array(p);um1=new Float64Array(p);for(let q=0;q<p;q++){u1[q]=rv1[q]/n1;um1[q]=rv2[q]/n2;}
+        if(mode==='randfix'){frozU1=u1;frozUm1=um1;}}}   // freeze at warmup-end (first §16 iter)
+    else{const ex=lanczosExtreme(Hbar(th),p,k,mlan,sd);sig1=ex.topVals[0];sigm1=ex.botVals[0];
+      if(mode==='eigfix'){if(!frozU1){frozU1=ex.topVecs[0];frozUm1=ex.botVecs[0];}u1=frozU1;um1=frozUm1;}   // BASELINE 4: top/bottom eigvecs FROZEN at warmup-end (σ still recomputed)
+      else{u1=ex.topVecs[0];um1=ex.botVecs[0];}}
     let mpos,mneg;
     if(mode==='shuffle'){let np=0,nn=0;for(let a=0;a<M;a++){if(r[a]>0)np++;else if(r[a]<0)nn++;}   // BASELINE B: permute ± set membership over the M effective samples (keep counts; each keeps its real r)
       const sidx=_shuffle16(M,(sd^0x16B0)>>>0);mpos=new Array(M).fill(false);mneg=new Array(M).fill(false);
@@ -2361,15 +2391,99 @@ function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgri
   }
   return recs;
 }
-// §16 driver: main (mode='eig', GD-best-of) + — if baselines — 'random' (A) & 'shuffle' (B) PURE-curvature trajectories
-// from the SAME θ₀, attaching their per-iteration metrics as rec.bA/rec.bB. MIRRORS server._sec16_driver / eos_lab.sec16_driver.
+// §16 driver: main (mode='eig', GD-best-of) + — if baselines — 'random' (A), 'shuffle' (B), 'randfix' (3: frozen random
+// dirs) & 'eigfix' (4: frozen H̄ eigvec dirs) PURE-curvature trajectories from the SAME θ₀, attaching their per-iteration
+// metrics as rec.bA/bB/bC/bD. MIRRORS server._sec16_driver / eos_lab.sec16_driver.
 function sec16Driver(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,baselines,push){
   const gmain=sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,'eig',true,push);
   if(!baselines){for(const rec of gmain)push({type:'g16',...rec});return;}
-  const gA=sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,-1,bgrid,ares,Xt,Yt,Nt,'random',false,push);
-  const gB=sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,-1,bgrid,ares,Xt,Yt,Nt,'shuffle',false,push);
+  const mk=md=>sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,-1,bgrid,ares,Xt,Yt,Nt,md,false,push);
+  const gA=mk('random'),gB=mk('shuffle'),gC=mk('randfix'),gD=mk('eigfix');
   const sub=r=>({L:r.L,Lt:r.Lt,lH:r.lH,fH:r.fH,res:r.res,unorm:r.unorm});
-  for(let i=0;i<gmain.length;i++){const rec={...gmain[i]};if(i<gA.length)rec.bA=sub(gA[i]);if(i<gB.length)rec.bB=sub(gB[i]);push({type:'g16',...rec});}
+  for(let i=0;i<gmain.length;i++){const rec={...gmain[i]};if(i<gA.length)rec.bA=sub(gA[i]);if(i<gB.length)rec.bB=sub(gB[i]);
+    if(i<gC.length)rec.bC=sub(gC[i]);if(i<gD.length)rec.bD=sub(gD[i]);push({type:'g16',...rec});}
+}
+// §17 — PER-SAMPLE function-Hessian variant of §16: r_k>0 uses the TOP eigvec of its OWN Q_k=∇²f_k, r_k<0 the BOTTOM.
+// MIRRORS server._sec17_run / eos_lab.sec17_run. Q_k·v = jacHVP(...)[kk] (row kk of the FD Jacobian-of-grad).
+function sec17Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,mode,useGd,push){
+  const k=Math.max(1,neig|0),eps=1e-3,mg=Math.max(1,Math.round(1/Math.max(1e-9,bgrid))),grid=[];for(let i=0;i<=mg;i++)grid.push(i/mg);
+  const Yf=Y;
+  const M=N*spec[spec.length-1].dout;
+  const out_=th=>forward(th,spec,X,N,inDim).out;
+  const resid=th=>{const o=out_(th),r=new Float64Array(M);for(let i=0;i<M;i++)r[i]=Yf[i]-o[i];return r;};
+  const lossM=(th,mask)=>{const o=out_(th);if(!mask)return lossOf(o,Yf,N);let s=0,nn=0;for(let i=0;i<o.length;i++)if(mask[i]){s+=(o[i]-Yf[i])**2;nn++;}return nn?0.5*s/nn:0;};
+  const lossT=th=>{if(!Xt)return null;const o=forward(th,spec,Xt,Nt,inDim).out;return lossOf(o,Yt,Nt);};
+  const Hbar=th=>(v=>{const Q=jacHVP(th,spec,X,N,inDim,p,v,eps),o=new Float64Array(p),inv=1/Q.length;for(let a=0;a<Q.length;a++)for(let q=0;q<p;q++)o[q]+=Q[a][q];for(let q=0;q<p;q++)o[q]*=inv;return o;});   // Panel 3 diagnostic (same as §16)
+  const Qk=(th,kk)=>(v=>jacHVP(th,spec,X,N,inDim,p,v,eps)[kk]);   // per-sample Q_k·v (row kk)
+  const lossH=th=>(v=>{const gp=gradL(_addS(th,v,eps),spec,X,Y,N,inDim,p).grad,gm=gradL(_addS(th,v,-eps),spec,X,Y,N,inDim,p).grad,o=new Float64Array(p);for(let q=0;q<p;q++)o[q]=(gp[q]-gm[q])/(2*eps);return o;});
+  const metrics=(th,sd)=>{const lH=lanczosExtremeVals(lossH(th),p,k,mlan,sd).top;const fv=lanczosExtremeVals(Hbar(th),p,k,mlan,sd+7);return {L:lossM(th,null),Lt:lossT(th),res:Array.from(resid(th)),lH,fHt:fv.top,fHb:fv.bot};};
+  const pack=(real,look)=>{const keys=['pos','neg','mean','beta'],rec={L:{},Lt:{},lH:{},fH:{},res:{}};
+    for(const kk of keys){const d=look&&look[kk];rec.L[kk]=d?d.L:null;rec.Lt[kk]=d?d.Lt:null;rec.lH[kk]=d?d.lH:null;rec.fH[kk]=d?{top:d.fHt,bot:d.fHb}:null;rec.res[kk]=d?d.res:null;}
+    rec.L.beta=real.L;rec.Lt.beta=real.Lt;rec.lH.beta=real.lH;rec.fH.beta={top:real.fHt,bot:real.fHb};rec.res.beta=real.res;return rec;};
+  const lineSearch=(th,dir,mask)=>{const gr=(Math.sqrt(5)-1)/2;let a=0,b=10,c=b-gr*(b-a),d=a+gr*(b-a),fc=lossM(_addS(th,dir,c),mask),fd=lossM(_addS(th,dir,d),mask);
+    while(b-a>ares){if(fc<fd){b=d;d=c;fd=fc;c=b-gr*(b-a);fc=lossM(_addS(th,dir,c),mask);}else{a=c;c=d;fc=fd;d=a+gr*(b-a);fd=lossM(_addS(th,dir,d),mask);}}
+    const al=Math.floor((a+b)/2/ares+0.5)*ares;return lossM(_addS(th,dir,al),mask)<=lossM(th,mask)?al:0;};
+  const recs=[];let th=th0.slice();
+  let frozUp=null,frozUm=null;   // frozen per-sample directions for 'randfix'/'eigfix' (captured at warmup-end)
+  for(let it=0;it<warmup+iters;it++){
+    const sd=(seed+1000*it)&0x7FFFFFFF;
+    if(it<warmup){const real=metrics(th,sd);
+      const J=jacCols(th,spec,X,N,inDim,p).cols,r=resid(th),g=new Float64Array(p);for(let a=0;a<M;a++)for(let q=0;q<p;q++)g[q]+=J[a][q]*r[a];const cc=lr/N;
+      let un=0;for(let q=0;q<p;q++){const u=cc*g[q];un+=u*u;}
+      recs.push({i:it,phase:'gd',apos:null,aneg:null,beta:null,scale:null,tgd:null,loss:real.L,unorm:{pos:null,neg:null,mean:null,beta:Math.sqrt(un)},...pack(real,null)});
+      th=th.slice();for(let q=0;q<p;q++)th[q]+=cc*g[q];continue;}
+    const r=resid(th),J=jacCols(th,spec,X,N,inDim,p).cols;
+    const psd=(sd^0x17C0FFEE)&0x7FFFFFFF;   // per-sample Lanczos/random seed base (disjoint from metrics seeds)
+    const Up=[],Um=[],Sp=[],Sm=[];
+    for(let kk=0;kk<M;kk++){
+      const skk=(psd+kk*1009)&0x7FFFFFFF,hk=Qk(th,kk);
+      if(mode==='random'||mode==='randfix'){   // per-sample random dirs, keep σ_k⁺/σ_k⁻ of Q_k
+        const fv=lanczosExtremeVals(hk,p,1,mlan,skk);Sp.push(fv.top[0]);Sm.push(fv.bot[0]);
+        const rv1=randVec(p,(skk^0x17A1)&0x7FFFFFFF),rv2=randVec(p,(skk^0x17A2)&0x7FFFFFFF);let n1=0,n2=0;for(let q=0;q<p;q++){n1+=rv1[q]*rv1[q];n2+=rv2[q]*rv2[q];}
+        n1=Math.sqrt(n1);n2=Math.sqrt(n2);const up=new Float64Array(p),um=new Float64Array(p);for(let q=0;q<p;q++){up[q]=rv1[q]/n1;um[q]=rv2[q]/n2;}Up.push(up);Um.push(um);
+      }else{   // real per-sample top/bottom eigenpairs of Q_k
+        const ex=lanczosExtreme(hk,p,1,mlan,skk);Sp.push(ex.topVals[0]);Sm.push(ex.botVals[0]);Up.push(ex.topVecs[0]);Um.push(ex.botVecs[0]);
+      }
+    }
+    if(mode==='randfix'||mode==='eigfix'){   // BASELINES C/D: freeze per-sample direction set at warmup-end (σ still recomputed)
+      if(!frozUp){frozUp=Up.map(u=>Float64Array.from(u));frozUm=Um.map(u=>Float64Array.from(u));}}
+    const useUp=(mode==='randfix'||mode==='eigfix')?frozUp:Up,useUm=(mode==='randfix'||mode==='eigfix')?frozUm:Um;
+    let mpos,mneg;
+    if(mode==='shuffle'){let np=0,nn=0;for(let a=0;a<M;a++){if(r[a]>0)np++;else if(r[a]<0)nn++;}   // BASELINE B: permute ± set membership over M (keep counts)
+      const sidx=_shuffle16(M,(sd^0x16B0)>>>0);mpos=new Array(M).fill(false);mneg=new Array(M).fill(false);
+      for(let a=0;a<np;a++)mpos[sidx[a]]=true;for(let a=0;a<nn;a++)mneg[sidx[np+a]]=true;}
+    else{mpos=Array.from(r,x=>x>0);mneg=Array.from(r,x=>x<0);}
+    const projP=new Float64Array(p),projN=new Float64Array(p);
+    for(let kk=0;kk<M;kk++){
+      if(mpos[kk]){let d=0;for(let q=0;q<p;q++)d+=J[kk][q]*useUp[kk][q];const c=r[kk]*d*Sp[kk];for(let q=0;q<p;q++)projP[q]+=c*useUp[kk][q];}
+      else if(mneg[kk]){let d=0;for(let q=0;q<p;q++)d+=J[kk][q]*useUm[kk][q];const c=r[kk]*d*Sm[kk];for(let q=0;q<p;q++)projN[q]+=c*useUm[kk][q];}
+    }
+    const apos=lineSearch(th,projP,mpos),aneg=lineSearch(th,projN,mneg);
+    const uPos=new Float64Array(p),uNeg=new Float64Array(p),uMean=new Float64Array(p);for(let q=0;q<p;q++){uPos[q]=apos*projP[q];uNeg[q]=aneg*projN[q];uMean[q]=0.5*(uPos[q]+uNeg[q]);}
+    let beta=0,scale=0,bestL=Infinity;for(const bb of grid)for(const ss of grid){const u=new Float64Array(p);for(let q=0;q<p;q++)u[q]=ss*(bb*uPos[q]+(1-bb)*uNeg[q]);const L=lossM(_addV(th,u),null);if(L<bestL){bestL=L;beta=bb;scale=ss;}}
+    const uSec=new Float64Array(p);for(let q=0;q<p;q++)uSec[q]=scale*(beta*uPos[q]+(1-beta)*uNeg[q]);
+    let uBeta,tgd;
+    if(useGd){const dGd=new Float64Array(p);for(let a=0;a<M;a++)for(let q=0;q<p;q++)dGd[q]+=J[a][q]*r[a];for(let q=0;q<p;q++)dGd[q]/=N;
+      const tGd=lineSearch(th,dGd,null);const uGd=new Float64Array(p);for(let q=0;q<p;q++)uGd[q]=tGd*dGd[q];
+      if(lossM(_addV(th,uGd),null)<lossM(_addV(th,uSec),null)){uBeta=uGd;tgd=tGd;}else{uBeta=uSec;tgd=0;}
+    }else{uBeta=uSec;tgd=0;}
+    const look={pos:metrics(_addV(th,uPos),sd+1),neg:metrics(_addV(th,uNeg),sd+2),mean:metrics(_addV(th,uMean),sd+3),beta:metrics(_addV(th,uBeta),sd+4)};
+    const _n2=v=>{let s=0;for(let q=0;q<p;q++)s+=v[q]*v[q];return Math.sqrt(s);};
+    recs.push({i:it,phase:'sec17',apos,aneg,beta,scale,tgd,loss:look.beta.L,unorm:{pos:_n2(uPos),neg:_n2(uNeg),mean:_n2(uMean),beta:_n2(uBeta)},...pack(look.beta,look)});
+    th=_addV(th,uBeta);
+    if(lossM(th,null)<tol)break;
+  }
+  return recs;
+}
+// §17 driver: main (mode='eig', per-sample Q_k) + — if baselines — A/B/C/D PURE-curvature trajectories from the SAME θ₀.
+function sec17Driver(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,baselines,push){
+  const gmain=sec17Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,'eig',true,push);
+  if(!baselines){for(const rec of gmain)push({type:'g17',...rec});return;}
+  const mk=md=>sec17Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,-1,bgrid,ares,Xt,Yt,Nt,md,false,push);
+  const gA=mk('random'),gB=mk('shuffle'),gC=mk('randfix'),gD=mk('eigfix');
+  const sub=r=>({L:r.L,Lt:r.Lt,lH:r.lH,fH:r.fH,res:r.res,unorm:r.unorm});
+  for(let i=0;i<gmain.length;i++){const rec={...gmain[i]};if(i<gA.length)rec.bA=sub(gA[i]);if(i<gB.length)rec.bB=sub(gB[i]);
+    if(i<gC.length)rec.bC=sub(gC[i]);if(i<gD.length)rec.bD=sub(gD[i]);push({type:'g17',...rec});}
 }
 // ── §16 render: Panel 1 (5 plots) + Panels 2/3/4/5 (4 plots each) ──
 // Each panel also carries (when baselines are on) two DOTTED trajectories: A = random directions (dash 'dot'),
@@ -2381,7 +2495,9 @@ const S16_IDS=['p_s16_Lpos','p_s16_Lneg','p_s16_Lmean','p_s16_Lbeta','p_s16_coef
 let S16_BUILT=false,S16_DATA=null,S16_K=3,S16_N=0,S16_BASE=false;
 const S16_SCEN=['pos','neg','mean','beta'],S16_SLAB={pos:'pos-only',neg:'neg-only',mean:'mean',beta:'best (β,s)'};
 const S16_TOPC=['#08306b','#2563eb','#80b1ff'],S16_BOTC=['#67000d','#dc2626','#fca5a5'];
-const S16_ACOL='#0891b2',S16_BCOL='#f59e0b';   // baseline A (random) / B (shuffled) accent colours for single-line panels
+// the FOUR baselines (fixed build/restyle order A,B,C,D): A=random dirs, B=shuffled ± sets, C=frozen-random dirs (randfix), D=frozen-H̄-eigvec dirs (eigfix)
+const S16_BL=[{key:'bA',lab:'A · random',col:'#0891b2',dash:'dot'},{key:'bB',lab:'B · shuffle',col:'#f59e0b',dash:'dashdot'},
+              {key:'bC',lab:'C · rand-fix',col:'#db2777',dash:'longdash'},{key:'bD',lab:'D · eig-fix',col:'#15803d',dash:'longdashdot'}];
 function s16Store(K,Nn){const s={L:{},Lt:{},nu:{},lH:{},fHt:{},fHb:{},res:{}};
   for(const sc of S16_SCEN){s.L[sc]=[];s.Lt[sc]=[];s.nu[sc]=[];s.lH[sc]=Array.from({length:K},()=>[]);s.fHt[sc]=Array.from({length:K},()=>[]);s.fHb[sc]=Array.from({length:K},()=>[]);s.res[sc]=Array.from({length:Nn},()=>[]);}return s;}
 function s16Acc(store,src,K,Nn){   // append one iteration of metrics from `src` (a record or a bA/bB sub-record)
@@ -2401,23 +2517,22 @@ function s16Build(m){
   const mk=(id,tr,title,yl)=>{const L=withZero(baseLayout(title,yl,false));L.xaxis.title.text='§16 iteration';return Plotly.newPlot(id,tr,L,{responsive:true,displaylogo:false});};
   const mkA=(id,tr,title,yl)=>{const L=baseLayout(title,yl,false);L.xaxis.title.text='§16 iteration';L.yaxis.autorange=true;return Plotly.newPlot(id,tr,L,{responsive:true,displaylogo:false});};   // auto-range y (loss/test-loss plateau near a small value; forcing 0 squishes the curve into a flat line at the top)
   const TOPC=S16_TOPC,BOTC=S16_BOTC;
-  // single-line (loss / test-loss) panel: main + 2 accent-coloured dotted baselines
-  const oneTr=mainName=>{const a=[ln(mainName,'#7c3aed')];if(S16_BASE){a.push(lnB('A · random',S16_ACOL,'dot',0.95));a.push(lnB('B · shuffle',S16_BCOL,'dashdot',0.95));}return a;};
+  // single-line (loss / test-loss) panel: main + 4 accent-coloured dotted baselines (A,B,C,D)
+  const oneTr=mainName=>{const a=[ln(mainName,'#7c3aed')];if(S16_BASE)for(const b of S16_BL)a.push(lnB(b.lab,b.col,b.dash,0.95));return a;};
   // Panel 1 — loss under each update + coefficients
   for(const sc of S16_SCEN)mkA('p_s16_L'+sc,oneTr('loss'),'full loss — '+S16_SLAB[sc]+' update','loss');
   mk('p_s16_coef',[ln('α_pos','#2563eb'),ln('α_neg','#dc2626'),ln('β','#16a34a'),ln('s (scale)','#d97706'),ln('t_gd (GD step)','#0891b2')],'coefficients  α_pos · α_neg · β · s · t_gd','value');
-  // Panel 2 — loss-Hessian top-k  (baselines: same colours, dotted, legend once)
+  // Panel 2 — loss-Hessian top-k  (baselines: same TOPC colours, baseline dash, legend once at j=0)
   const ktr=()=>{const a=[];for(let j=0;j<S16_K;j++)a.push(ln('λ'+(j+1),TOPC[j%3]));
-    if(S16_BASE){for(let j=0;j<S16_K;j++)a.push(lnB(j===0?'A · random':null,TOPC[j%3],'dot',0.5));for(let j=0;j<S16_K;j++)a.push(lnB(j===0?'B · shuffle':null,TOPC[j%3],'dashdot',0.5));}return a;};
+    if(S16_BASE)for(const b of S16_BL)for(let j=0;j<S16_K;j++)a.push(lnB(j===0?b.lab:null,TOPC[j%3],b.dash,0.5));return a;};
   for(const sc of S16_SCEN)mk('p_s16_lH'+sc,ktr(),'loss-Hessian top-'+S16_K+' eig — '+S16_SLAB[sc],'eigenvalue');
-  // Panel 3 — function-Hessian top-k & bottom-k
+  // Panel 3 — function-Hessian top-k & bottom-k  (per baseline: K top then K bot, baseline dash)
   const tbtr=()=>{const a=[];for(let j=0;j<S16_K;j++)a.push(ln('top'+(j+1),TOPC[j%3]));for(let j=0;j<S16_K;j++)a.push(ln('bot'+(j+1),BOTC[j%3]));
-    if(S16_BASE){for(let j=0;j<S16_K;j++)a.push(lnB(j===0?'A · random':null,TOPC[j%3],'dot',0.5));for(let j=0;j<S16_K;j++)a.push(lnB(null,BOTC[j%3],'dot',0.5));
-      for(let j=0;j<S16_K;j++)a.push(lnB(j===0?'B · shuffle':null,TOPC[j%3],'dashdot',0.5));for(let j=0;j<S16_K;j++)a.push(lnB(null,BOTC[j%3],'dashdot',0.5));}return a;};
+    if(S16_BASE)for(const b of S16_BL){for(let j=0;j<S16_K;j++)a.push(lnB(j===0?b.lab:null,TOPC[j%3],b.dash,0.5));for(let j=0;j<S16_K;j++)a.push(lnB(null,BOTC[j%3],b.dash,0.5));}return a;};
   for(const sc of S16_SCEN)mk('p_s16_fH'+sc,tbtr(),'function-Hessian H̄ top/bottom-'+S16_K+' eig — '+S16_SLAB[sc],'eigenvalue');
-  // Panel 4 — per-sample residuals (N traces; baselines faded dotted, legend once)
+  // Panel 4 — per-sample residuals (N traces; baselines faded, baseline colour+dash, legend once)
   const rtr=()=>{const a=[];for(let j=0;j<S16_N;j++)a.push({x:[],y:[],mode:'lines',name:'r'+j,line:{width:1},showlegend:S16_N<=12});
-    if(S16_BASE){for(let j=0;j<S16_N;j++)a.push(lnB(j===0?'A · random':null,S16_ACOL,'dot',0.3));for(let j=0;j<S16_N;j++)a.push(lnB(j===0?'B · shuffle':null,S16_BCOL,'dashdot',0.3));}return a;};
+    if(S16_BASE)for(const b of S16_BL)for(let j=0;j<S16_N;j++)a.push(lnB(j===0?b.lab:null,b.col,b.dash,0.3));return a;};
   for(const sc of S16_SCEN)mk('p_s16_r'+sc,rtr(),'per-sample residual r=y−f — '+S16_SLAB[sc],'residual');
   // Panel 5 — held-out test loss under each update (single-line + baselines)
   for(const sc of S16_SCEN)mkA('p_s16_Lt'+sc,oneTr('test loss'),'held-out test loss — '+S16_SLAB[sc]+' update','test loss');
@@ -2426,36 +2541,120 @@ function s16Build(m){
 }
 function s16Push(m){
   if(m.i===0 && S16_DATA && S16_DATA.i.length){s16Reset();}   // a fresh §16 run (iteration index reset to 0) → clear stale data so the curve can't double back over a previous run
-  if(!S16_BUILT){S16_K=(m.lH&&m.lH.beta?m.lH.beta.length:3);S16_N=(m.res&&m.res.beta?m.res.beta.length:0);S16_BASE=!!(m.bA||m.bB);s16Build(m);
-    S16_DATA={i:[],coef:{apos:[],aneg:[],beta:[],scale:[],tgd:[]},main:s16Store(S16_K,S16_N),
-      bA:S16_BASE?s16Store(S16_K,S16_N):null,bB:S16_BASE?s16Store(S16_K,S16_N):null};}
+  if(!S16_BUILT){S16_K=(m.lH&&m.lH.beta?m.lH.beta.length:3);S16_N=(m.res&&m.res.beta?m.res.beta.length:0);S16_BASE=!!(m.bA||m.bB||m.bC||m.bD);s16Build(m);
+    S16_DATA={i:[],coef:{apos:[],aneg:[],beta:[],scale:[],tgd:[]},main:s16Store(S16_K,S16_N)};
+    for(const b of S16_BL)S16_DATA[b.key]=S16_BASE?s16Store(S16_K,S16_N):null;}
   const D=S16_DATA;D.i.push(m.i);const t=D.i;
   D.coef.apos.push(m.apos);D.coef.aneg.push(m.aneg);D.coef.beta.push(m.beta);D.coef.scale.push(m.scale);D.coef.tgd.push(m.tgd);
   s16Acc(D.main,m,S16_K,S16_N);
-  if(S16_BASE){s16Acc(D.bA,m.bA,S16_K,S16_N);s16Acc(D.bB,m.bB,S16_K,S16_N);}
-  const cat=(...as)=>[].concat(...as),xs=n=>Array(n).fill(t);
+  if(S16_BASE)for(const b of S16_BL)s16Acc(D[b.key],m[b.key],S16_K,S16_N);
+  const cat=(...as)=>[].concat(...as),xs=n=>Array(n).fill(t),BL=S16_BL;
   Plotly.restyle('p_s16_coef',{x:[t,t,t,t,t],y:[D.coef.apos,D.coef.aneg,D.coef.beta,D.coef.scale,D.coef.tgd]});
   for(const sc of S16_SCEN){
-    // Panel 1 & 5 — single-line loss / test-loss (+ A,B baselines)
-    const yL=S16_BASE?[D.main.L[sc],D.bA.L[sc],D.bB.L[sc]]:[D.main.L[sc]];
-    const yLt=S16_BASE?[D.main.Lt[sc],D.bA.Lt[sc],D.bB.Lt[sc]]:[D.main.Lt[sc]];
-    const ynu=S16_BASE?[D.main.nu[sc],D.bA.nu[sc],D.bB.nu[sc]]:[D.main.nu[sc]];
+    // Panel 1 & 5 & 6 — single-line loss / test-loss / ‖update‖ (+ baselines A,B,C,D)
+    const yL=S16_BASE?[D.main.L[sc],...BL.map(b=>D[b.key].L[sc])]:[D.main.L[sc]];
+    const yLt=S16_BASE?[D.main.Lt[sc],...BL.map(b=>D[b.key].Lt[sc])]:[D.main.Lt[sc]];
+    const ynu=S16_BASE?[D.main.nu[sc],...BL.map(b=>D[b.key].nu[sc])]:[D.main.nu[sc]];
     Plotly.restyle('p_s16_L'+sc,{x:xs(yL.length),y:yL});
     Plotly.restyle('p_s16_Lt'+sc,{x:xs(yLt.length),y:yLt});
     Plotly.restyle('p_s16_nu'+sc,{x:xs(ynu.length),y:ynu});
-    // Panel 2 — loss-Hessian top-k (+ A,B)
-    const ylH=S16_BASE?cat(D.main.lH[sc],D.bA.lH[sc],D.bB.lH[sc]):D.main.lH[sc];
+    // Panel 2 — loss-Hessian top-k (+ baselines)
+    const ylH=S16_BASE?cat(D.main.lH[sc],...BL.map(b=>D[b.key].lH[sc])):D.main.lH[sc];
     Plotly.restyle('p_s16_lH'+sc,{x:xs(ylH.length),y:ylH});
-    // Panel 3 — function-Hessian top/bot (+ A,B), order: top,bot per source
-    const yfH=S16_BASE?cat(D.main.fHt[sc],D.main.fHb[sc],D.bA.fHt[sc],D.bA.fHb[sc],D.bB.fHt[sc],D.bB.fHb[sc])
+    // Panel 3 — function-Hessian top/bot (+ baselines), order per source: top then bot
+    const yfH=S16_BASE?cat(D.main.fHt[sc],D.main.fHb[sc],...BL.flatMap(b=>[D[b.key].fHt[sc],D[b.key].fHb[sc]]))
                       :cat(D.main.fHt[sc],D.main.fHb[sc]);
     Plotly.restyle('p_s16_fH'+sc,{x:xs(yfH.length),y:yfH});
-    // Panel 4 — per-sample residuals (+ A,B)
-    if(S16_N){const yr=S16_BASE?cat(D.main.res[sc],D.bA.res[sc],D.bB.res[sc]):D.main.res[sc];
+    // Panel 4 — per-sample residuals (+ baselines)
+    if(S16_N){const yr=S16_BASE?cat(D.main.res[sc],...BL.map(b=>D[b.key].res[sc])):D.main.res[sc];
       Plotly.restyle('p_s16_r'+sc,{x:xs(yr.length),y:yr});}
   }
 }
 function s16Reset(){S16_DATA=null;S16_BUILT=false;S16_BASE=false;for(const id of S16_IDS){try{Plotly.purge(id);}catch(e){}}}
+// ── §17 render (per-sample function-Hessian variant) — clone of the §16 render with p_s17_* ids / g17 stream ──
+const S17_IDS=['p_s17_Lpos','p_s17_Lneg','p_s17_Lmean','p_s17_Lbeta','p_s17_coef',
+  'p_s17_lHpos','p_s17_lHneg','p_s17_lHmean','p_s17_lHbeta','p_s17_fHpos','p_s17_fHneg','p_s17_fHmean','p_s17_fHbeta',
+  'p_s17_rpos','p_s17_rneg','p_s17_rmean','p_s17_rbeta','p_s17_Ltpos','p_s17_Ltneg','p_s17_Ltmean','p_s17_Ltbeta',
+  'p_s17_nupos','p_s17_nuneg','p_s17_numean','p_s17_nubeta'];
+let S17_BUILT=false,S17_DATA=null,S17_K=3,S17_N=0,S17_BASE=false;
+const S17_SCEN=['pos','neg','mean','beta'],S17_SLAB={pos:'pos-only',neg:'neg-only',mean:'mean',beta:'best (β,s)'};
+const S17_TOPC=['#08306b','#2563eb','#80b1ff'],S17_BOTC=['#67000d','#dc2626','#fca5a5'];
+// the FOUR baselines (fixed build/restyle order A,B,C,D): A=random dirs, B=shuffled ± sets, C=frozen-random dirs (randfix), D=frozen-H̄-eigvec dirs (eigfix)
+const S17_BL=[{key:'bA',lab:'A · random',col:'#0891b2',dash:'dot'},{key:'bB',lab:'B · shuffle',col:'#f59e0b',dash:'dashdot'},
+              {key:'bC',lab:'C · rand-fix',col:'#db2777',dash:'longdash'},{key:'bD',lab:'D · eig-fix',col:'#15803d',dash:'longdashdot'}];
+function s17Store(K,Nn){const s={L:{},Lt:{},nu:{},lH:{},fHt:{},fHb:{},res:{}};
+  for(const sc of S17_SCEN){s.L[sc]=[];s.Lt[sc]=[];s.nu[sc]=[];s.lH[sc]=Array.from({length:K},()=>[]);s.fHt[sc]=Array.from({length:K},()=>[]);s.fHb[sc]=Array.from({length:K},()=>[]);s.res[sc]=Array.from({length:Nn},()=>[]);}return s;}
+function s17Acc(store,src,K,Nn){   // append one §17 iteration (record or bA/bB/bC/bD sub-record)
+  for(const sc of S17_SCEN){
+    store.L[sc].push(src&&src.L&&src.L[sc]!=null?src.L[sc]:null);
+    store.Lt[sc].push(src&&src.Lt&&src.Lt[sc]!=null?src.Lt[sc]:null);
+    store.nu[sc].push(src&&src.unorm&&src.unorm[sc]!=null?src.unorm[sc]:null);
+    const lh=src&&src.lH&&src.lH[sc],fh=src&&src.fH&&src.fH[sc],rs=src&&src.res&&src.res[sc];
+    for(let j=0;j<K;j++){store.lH[sc][j].push(lh?lh[j]:null);store.fHt[sc][j].push(fh?fh.top[j]:null);store.fHb[sc][j].push(fh?fh.bot[j]:null);}
+    for(let j=0;j<Nn;j++)store.res[sc][j].push(rs?rs[j]:null);
+  }
+}
+function s17Build(m){
+  S17_BUILT=true;
+  const ln=(name,col,dash)=>({x:[],y:[],mode:'lines+markers',name,line:{color:col,width:1.7,dash:dash||'solid'},marker:{size:3,color:col}});
+  const lnB=(name,col,dash,op)=>({x:[],y:[],mode:'lines',name:name||'',showlegend:name!=null,line:{color:col,width:1.3,dash},opacity:op});   // dotted baseline trace
+  const mk=(id,tr,title,yl)=>{const L=withZero(baseLayout(title,yl,false));L.xaxis.title.text='§17 iteration';return Plotly.newPlot(id,tr,L,{responsive:true,displaylogo:false});};
+  const mkA=(id,tr,title,yl)=>{const L=baseLayout(title,yl,false);L.xaxis.title.text='§17 iteration';L.yaxis.autorange=true;return Plotly.newPlot(id,tr,L,{responsive:true,displaylogo:false});};   // auto-range y (loss/test-loss plateau near a small value; forcing 0 squishes the curve into a flat line at the top)
+  const TOPC=S17_TOPC,BOTC=S17_BOTC;
+  // single-line (loss / test-loss) panel: main + 4 accent-coloured dotted baselines (A,B,C,D)
+  const oneTr=mainName=>{const a=[ln(mainName,'#7c3aed')];if(S17_BASE)for(const b of S17_BL)a.push(lnB(b.lab,b.col,b.dash,0.95));return a;};
+  // Panel 1 — loss under each update + coefficients
+  for(const sc of S17_SCEN)mkA('p_s17_L'+sc,oneTr('loss'),'full loss — '+S17_SLAB[sc]+' update','loss');
+  mk('p_s17_coef',[ln('α_pos','#2563eb'),ln('α_neg','#dc2626'),ln('β','#16a34a'),ln('s (scale)','#d97706'),ln('t_gd (GD step)','#0891b2')],'coefficients  α_pos · α_neg · β · s · t_gd','value');
+  // Panel 2 — loss-Hessian top-k  (baselines: same TOPC colours, baseline dash, legend once at j=0)
+  const ktr=()=>{const a=[];for(let j=0;j<S17_K;j++)a.push(ln('λ'+(j+1),TOPC[j%3]));
+    if(S17_BASE)for(const b of S17_BL)for(let j=0;j<S17_K;j++)a.push(lnB(j===0?b.lab:null,TOPC[j%3],b.dash,0.5));return a;};
+  for(const sc of S17_SCEN)mk('p_s17_lH'+sc,ktr(),'loss-Hessian top-'+S17_K+' eig — '+S17_SLAB[sc],'eigenvalue');
+  // Panel 3 — function-Hessian top-k & bottom-k  (per baseline: K top then K bot, baseline dash)
+  const tbtr=()=>{const a=[];for(let j=0;j<S17_K;j++)a.push(ln('top'+(j+1),TOPC[j%3]));for(let j=0;j<S17_K;j++)a.push(ln('bot'+(j+1),BOTC[j%3]));
+    if(S17_BASE)for(const b of S17_BL){for(let j=0;j<S17_K;j++)a.push(lnB(j===0?b.lab:null,TOPC[j%3],b.dash,0.5));for(let j=0;j<S17_K;j++)a.push(lnB(null,BOTC[j%3],b.dash,0.5));}return a;};
+  for(const sc of S17_SCEN)mk('p_s17_fH'+sc,tbtr(),'function-Hessian H̄ top/bottom-'+S17_K+' eig — '+S17_SLAB[sc],'eigenvalue');
+  // Panel 4 — per-sample residuals (N traces; baselines faded, baseline colour+dash, legend once)
+  const rtr=()=>{const a=[];for(let j=0;j<S17_N;j++)a.push({x:[],y:[],mode:'lines',name:'r'+j,line:{width:1},showlegend:S17_N<=12});
+    if(S17_BASE)for(const b of S17_BL)for(let j=0;j<S17_N;j++)a.push(lnB(j===0?b.lab:null,b.col,b.dash,0.3));return a;};
+  for(const sc of S17_SCEN)mk('p_s17_r'+sc,rtr(),'per-sample residual r=y−f — '+S17_SLAB[sc],'residual');
+  // Panel 5 — held-out test loss under each update (single-line + baselines)
+  for(const sc of S17_SCEN)mkA('p_s17_Lt'+sc,oneTr('test loss'),'held-out test loss — '+S17_SLAB[sc]+' update','test loss');
+  // Panel 6 — ℓ2 norm of the applied update (single-line + baselines)
+  for(const sc of S17_SCEN)mkA('p_s17_nu'+sc,oneTr('‖update‖₂'),'‖update‖₂ — '+S17_SLAB[sc]+' update','‖update‖₂');
+}
+function s17Push(m){
+  if(m.i===0 && S17_DATA && S17_DATA.i.length){s17Reset();}   // a fresh §17 run (iteration index reset to 0) → clear stale data so the curve can't double back over a previous run
+  if(!S17_BUILT){S17_K=(m.lH&&m.lH.beta?m.lH.beta.length:3);S17_N=(m.res&&m.res.beta?m.res.beta.length:0);S17_BASE=!!(m.bA||m.bB||m.bC||m.bD);s17Build(m);
+    S17_DATA={i:[],coef:{apos:[],aneg:[],beta:[],scale:[],tgd:[]},main:s17Store(S17_K,S17_N)};
+    for(const b of S17_BL)S17_DATA[b.key]=S17_BASE?s17Store(S17_K,S17_N):null;}
+  const D=S17_DATA;D.i.push(m.i);const t=D.i;
+  D.coef.apos.push(m.apos);D.coef.aneg.push(m.aneg);D.coef.beta.push(m.beta);D.coef.scale.push(m.scale);D.coef.tgd.push(m.tgd);
+  s17Acc(D.main,m,S17_K,S17_N);
+  if(S17_BASE)for(const b of S17_BL)s17Acc(D[b.key],m[b.key],S17_K,S17_N);
+  const cat=(...as)=>[].concat(...as),xs=n=>Array(n).fill(t),BL=S17_BL;
+  Plotly.restyle('p_s17_coef',{x:[t,t,t,t,t],y:[D.coef.apos,D.coef.aneg,D.coef.beta,D.coef.scale,D.coef.tgd]});
+  for(const sc of S17_SCEN){
+    // Panel 1 & 5 & 6 — single-line loss / test-loss / ‖update‖ (+ baselines A,B,C,D)
+    const yL=S17_BASE?[D.main.L[sc],...BL.map(b=>D[b.key].L[sc])]:[D.main.L[sc]];
+    const yLt=S17_BASE?[D.main.Lt[sc],...BL.map(b=>D[b.key].Lt[sc])]:[D.main.Lt[sc]];
+    const ynu=S17_BASE?[D.main.nu[sc],...BL.map(b=>D[b.key].nu[sc])]:[D.main.nu[sc]];
+    Plotly.restyle('p_s17_L'+sc,{x:xs(yL.length),y:yL});
+    Plotly.restyle('p_s17_Lt'+sc,{x:xs(yLt.length),y:yLt});
+    Plotly.restyle('p_s17_nu'+sc,{x:xs(ynu.length),y:ynu});
+    // Panel 2 — loss-Hessian top-k (+ baselines)
+    const ylH=S17_BASE?cat(D.main.lH[sc],...BL.map(b=>D[b.key].lH[sc])):D.main.lH[sc];
+    Plotly.restyle('p_s17_lH'+sc,{x:xs(ylH.length),y:ylH});
+    // Panel 3 — function-Hessian top/bot (+ baselines), order per source: top then bot
+    const yfH=S17_BASE?cat(D.main.fHt[sc],D.main.fHb[sc],...BL.flatMap(b=>[D[b.key].fHt[sc],D[b.key].fHb[sc]]))
+                      :cat(D.main.fHt[sc],D.main.fHb[sc]);
+    Plotly.restyle('p_s17_fH'+sc,{x:xs(yfH.length),y:yfH});
+    // Panel 4 — per-sample residuals (+ baselines)
+    if(S17_N){const yr=S17_BASE?cat(D.main.res[sc],...BL.map(b=>D[b.key].res[sc])):D.main.res[sc];
+      Plotly.restyle('p_s17_r'+sc,{x:xs(yr.length),y:yr});}
+  }
+}
+function s17Reset(){S17_DATA=null;S17_BUILT=false;S17_BASE=false;for(const id of S17_IDS){try{Plotly.purge(id);}catch(e){}}}
 let S13_QJPREV_JS=null;  // §13 panel 4 client-side: previous eig-tick's {QJ[j][i]=Q_iJ_j, r} for the ‖A−B‖/‖A‖ asymmetry
 let OPT={s1:true,s2:true,s3:true,s4:true,s5:true,s6:true,gs:true};
 
@@ -2480,6 +2679,8 @@ function syncSectionVis(multi){
     if(vis)requestAnimationFrame(()=>{for(const id of S15_IDS.concat(S15N_IDS).concat(S15B_IDS).concat(S15P34_IDS)){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}   // re-size §15 plots when the section becomes visible
   {const el=document.getElementById('sec_s16');if(el){const vis=chk('en24');el.style.display=vis?'':'none';   // §16 standalone optimizer (own toggle en24)
     if(vis)requestAnimationFrame(()=>{for(const id of S16_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}   // re-size §16 plots when the section becomes visible
+  {const el=document.getElementById('sec_s17');if(el){const vis=chk('en25');el.style.display=vis?'':'none';   // §17 per-sample optimizer (own toggle en25)
+    if(vis)requestAnimationFrame(()=>{for(const id of S17_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}   // re-size §17 plots when the section becomes visible
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
   if(typeof SCRUB_FRAC!=='undefined'&&SCRUB_FRAC<1)requestAnimationFrame(()=>applyTimeScrub(SCRUB_FRAC));   // keep a just-shown section's plots at the current rewound position
 }
@@ -2489,7 +2690,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   s12Reset();   // §12: drop snapshots from the previous run
   s13Reset();   // §13: drop the approximation-comparison time-series from the previous run
   s14Reset();   // §14: drop snapshots from the previous run
-  s15Reset();s15nReset();s15bReset();s15p34Reset();s16Reset();   // §15+§16: drop the 2nd-difference + optimizer time-series
+  s15Reset();s15nReset();s15bReset();s15p34Reset();s16Reset();s17Reset();   // §15+§16: drop the 2nd-difference + optimizer time-series
   trReset();    // §5: clear the trace-over-iterations curves
   syncSectionVis(multi);   // gate sections by the panel toggles (multi from the actual run)
   const dis=s=>OPT.gs?s:s+'  (off)';
@@ -2891,7 +3092,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
   const qmode=Math.max(1,+val('qmode')||1), tset=Math.max(1,+val('tset')||1);   // qmode (legacy, unused by Eq-22); Eq-29 set-T size
   const nProbe=Math.max(1,+val('slqprobes')), efrac=Math.min(1,Math.max(0.5,(+val('energyp'))/100));
-  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),gs:val('gson')==='1'};
+  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),gs:val('gson')==='1'};
   OPT=opt;
   const {spec,p}=buildSpec(inDim,width,depth,act,useBias,outDim);
   if(p>100000){st.textContent=`p=${p} parameters exceeds the cap (100000). Reduce width/depth.`;ST=null;updateButtons();return;}
@@ -2958,6 +3159,13 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
               :sec16Holdout(val('dataset'),N,inDim,outDim,+val('seed')||0,+val('tgt'),+val('inputstd'),val('fixedx'),val('ssign'),+val('cvar')||0);
     try{ sec16Driver(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||250),n,Math.min(p,24),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),cb16&&cb16.X,cb16&&cb16.Y,cb16&&cb16.N,chk('en24base'),s16Push); }
     catch(e){ console.error('§16 error',e); }
+  }
+  if(opt.s25 && val('arch')==='mlp' && val('loss')==='mse' && N*outDim<=32 && N*outDim*p<=200000000 && N<=64){   // §17 PER-SAMPLE (O(M²) per-sample Lanczos ⇒ gated to a SMALLER M than §16)
+    s17Reset();
+    const cb17=(val('dataset')==='chebyshev')?sec16Cheb(N,Math.max(1,+val('degree')||3))   // reuse §16's held-out test sets (same observables)
+              :sec16Holdout(val('dataset'),N,inDim,outDim,+val('seed')||0,+val('tgt'),+val('inputstd'),val('fixedx'),val('ssign'),+val('cvar')||0);
+    try{ sec17Driver(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||250),n,Math.min(p,16),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),cb17&&cb17.X,cb17&&cb17.Y,cb17&&cb17.N,chk('en25base'),s17Push); }
+    catch(e){ console.error('§17 error',e); }
   }
   loop();
 }
@@ -3414,7 +3622,7 @@ function resetSim(){
   s12Reset();   // §12: clear the eigvec-similarity grids/cuboids + snapshots/slider too
   s13Reset();   // §13: clear the approximation-comparison time-series too
   s14Reset();   // §14: clear the triplet-decomposition cubes + snapshots/slider too
-  s15Reset();s15nReset();s15bReset();s15p34Reset();s16Reset();   // §15+§16: clear the time-series too
+  s15Reset();s15nReset();s15bReset();s15p34Reset();s16Reset();s17Reset();   // §15+§16: clear the time-series too
   updateButtons();
 }
 
@@ -3589,7 +3797,7 @@ function backendURL(start){
    'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','s24warm','s24iter','s24grid','s24ares',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg'].forEach(id=>ps.set(id,val(id)));
   [['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
-   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
+   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));
   ps.set('start',String(start||0));
   return 'run?'+ps.toString();
 }
@@ -3621,6 +3829,7 @@ function openStream(start,resuming){
     }else if(m.type==='g15b'){s15bPush(m);
     }else if(m.type==='g15p34'){s15p34Push(m);
     }else if(m.type==='g16'){s16Push(m);
+    }else if(m.type==='g17'){s17Push(m);
     }else if(m.type==='done'){st.textContent=`done — through step ${lastT} · p=${m.p} · 2/lr=${(META?META.thr:0).toFixed(3)}.`;finish();
     }else if(m.type==='error'){st.textContent='backend: '+m.error;finish();}
   };
@@ -3703,7 +3912,7 @@ function syncLossPanels(){
 function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic' && val('arch')==='mlp'){ runLocal(true); } }
 document.getElementById('loss').addEventListener('change',syncLossPanels);
 document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
-['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','en24','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','en24','en25','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
 ['s14f_y1','s14f_y2','s14f_y5','s14f_agg','s14f_max','s14f_min','s14f_ratio'].forEach(id=>{const e=document.getElementById(id);if(e)e.addEventListener('change',s14ApplyPanelFilter);});
 if(typeof s14ApplyPanelFilter==='function')s14ApplyPanelFilter();   // apply the default §14 panel selection on load
 syncInitScaleEnabled();   // grey out init_scale on load if the current scheme ignores it (mup/xavier_*)

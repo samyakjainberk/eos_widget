@@ -64,6 +64,23 @@ def load_cifar(n, seed, device, dtype, cifar_dir=None):
     return Xt, Yt
 
 
+def load_cifar2(n, seed, device, dtype, cifar_dir=None, ca=0, cb=1):
+    """2-class SCALAR CIFAR-10: keep classes {ca,cb}, label ca→+1, cb→−1; X (n,3072), Y (n,1).
+    Balanced seeded subset. MIRRORS server.load_cifar2 (so §16/§17 per-sample-Hessian run on real images)."""
+    import numpy as np
+    X, Y = _load_cifar_raw(cifar_dir)
+    rng = np.random.RandomState(seed & 0x7FFFFFFF)
+    ia = np.where(Y == int(ca))[0]; ib = np.where(Y == int(cb))[0]
+    rng.shuffle(ia); rng.shuffle(ib)
+    na = n // 2; nb = n - na
+    idx = np.concatenate([ia[:na], ib[:nb]])
+    lab = np.concatenate([np.ones(min(na, len(ia)), np.float32), -np.ones(min(nb, len(ib)), np.float32)])
+    perm = rng.permutation(len(idx)); idx = idx[perm]; lab = lab[perm]
+    Xt = torch.tensor(X[idx], dtype=dtype, device=device)
+    Yt = torch.tensor(lab, dtype=dtype, device=device).reshape(-1, 1)
+    return Xt, Yt
+
+
 def _load_cifar_test_raw(cifar_dir=None):
     """The 10000-image CIFAR-10 test_batch, per-channel normalised like the train batches."""
     import pickle
@@ -216,6 +233,8 @@ def init_data_theta(model, P, dataset, N, in_dim, out_dim, device, dtype, cifar_
 
     if dataset == "cifar10":
         X, Y = load_cifar(N, P["seed"], device, dtype, cifar_dir)
+    elif dataset == "cifar2":
+        X, Y = load_cifar2(N, P["seed"], device, dtype, cifar_dir, P.get("c2a", 0), P.get("c2b", 1))
     elif dataset == "sorting":
         X, Y = load_sort(N, in_dim, drng, device, dtype)
     elif dataset == "chebyshev":
@@ -277,7 +296,7 @@ def init_data_theta(model, P, dataset, N, in_dim, out_dim, device, dtype, cifar_
     # Fixed-target datasets (cifar10/sorting/chebyshev) load Y directly and so skip the residual-sign
     # construction above — force the requested initial residual sign here by overriding Y per sample
     # (keep the dataset's inputs X and the residual's natural magnitude; only its sign is pinned).
-    if dataset in ("cifar10", "sorting", "chebyshev") and ssign in ("pos", "neg"):
+    if dataset in ("cifar10", "cifar2", "sorting", "chebyshev") and ssign in ("pos", "neg"):
         s = 1.0 if ssign == "pos" else -1.0
         floor = 0.25 * max(abs(tgt), 1e-6)
         f0 = model.forward(th, X)

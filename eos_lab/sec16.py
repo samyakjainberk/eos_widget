@@ -64,12 +64,44 @@ def _lanc16_core(hvp, p, m, seed, dev, dt):
         T[i, i + 1] = be[i]; T[i + 1, i] = be[i]
     return torch.stack(Q), T, k
 
+def _eig_ramp(T):                                            # distinct per-index diagonal ramp → breaks the repeated-eigenvalue
+    n = T.shape[0]                                           # degeneracy that makes LAPACK syevd fail (code 22) on flat tridiagonals
+    sc = max(float(T.abs().max()), 1e-12) * 1e-10
+    return T + torch.diag(torch.arange(n, dtype=T.dtype, device=T.device) * sc)
+
+def _safe_eigvalsh(T):                                       # robust symmetric-eigenvalue solve (cifar2/cifar10 §16/§17 near-zero tridiagonals)
+    if not bool(torch.isfinite(T).all()):
+        T = torch.nan_to_num(T)
+    try:
+        return torch.linalg.eigvalsh(T)
+    except torch._C._LinAlgError:
+        Tj = _eig_ramp(T)
+        try:
+            return torch.linalg.eigvalsh(Tj)
+        except torch._C._LinAlgError:
+            import numpy as np
+            return torch.tensor(np.linalg.eigvalsh(Tj.detach().cpu().numpy()), dtype=T.dtype, device=T.device)
+
+def _safe_eigh(T):
+    if not bool(torch.isfinite(T).all()):
+        T = torch.nan_to_num(T)
+    try:
+        return torch.linalg.eigh(T)
+    except torch._C._LinAlgError:
+        Tj = _eig_ramp(T)
+        try:
+            return torch.linalg.eigh(Tj)
+        except torch._C._LinAlgError:
+            import numpy as np
+            w, V = np.linalg.eigh(Tj.detach().cpu().numpy())
+            return (torch.tensor(w, dtype=T.dtype, device=T.device), torch.tensor(V, dtype=T.dtype, device=T.device))
+
 def _lanc16_vals(hvp, p, n, m, seed, dev, dt):                # top-n & bottom-n eigenVALUES
-    _, T, k = _lanc16_core(hvp, p, m, seed, dev, dt); mu = torch.sort(torch.linalg.eigvalsh(T), descending=True).values
+    _, T, k = _lanc16_core(hvp, p, m, seed, dev, dt); mu = torch.sort(_safe_eigvalsh(T), descending=True).values
     return [float(mu[min(i, k - 1)]) for i in range(n)], [float(mu[max(0, k - 1 - i)]) for i in range(n)]
 
 def _lanc16_ext(hvp, p, n, m, seed, dev, dt):                # top-n & bottom-n (eigVEC, eigVAL) pairs
-    Qm, T, k = _lanc16_core(hvp, p, m, seed, dev, dt); mu, Sv = torch.linalg.eigh(T); idx = torch.argsort(mu, descending=True)
+    Qm, T, k = _lanc16_core(hvp, p, m, seed, dev, dt); mu, Sv = _safe_eigh(T); idx = torch.argsort(mu, descending=True)
     ritz = lambda c: Sv[:, c].to(dtype=dt, device=Qm.device) @ Qm   # Sv (from eigh of CPU T) → Qm's device for the matmul
     tv = [ritz(int(idx[min(i, k - 1)])) for i in range(n)]; bv = [ritz(int(idx[max(0, k - 1 - i)])) for i in range(n)]
     tval = [float(mu[int(idx[min(i, k - 1)])]) for i in range(n)]; bval = [float(mu[int(idx[max(0, k - 1 - i)])]) for i in range(n)]
@@ -79,8 +111,10 @@ def _lanc16_ext(hvp, p, n, m, seed, dev, dt):                # top-n & bottom-n 
 def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, ares=0.01,
               Xtest=None, Ytest=None, mode="eig", use_gd=True):
     # mode: 'eig' (top/bottom eigvecs of H̄, true ± sets) · 'random' (two random unit vectors, KEEP σ₁/σ₋₁) ·
-    #       'shuffle' (eigvecs, but ± set membership permuted, counts preserved). use_gd: advance by best{curvature,GD}
-    #       (the main §16 — loss ↓) vs the PURE curvature step (the baselines — genuinely separate trajectories).
+    #       'shuffle' (eigvecs, but ± set membership permuted, counts preserved) ·
+    #       'randfix' (BASELINE 3: random unit vecs FROZEN at warmup-end; σ₁/σ₋₁ still recomputed each iter) ·
+    #       'eigfix'  (BASELINE 4: top/bottom eigvecs of H̄ FROZEN at warmup-end; σ₁/σ₋₁ still recomputed each iter).
+    #       use_gd: advance by best{curvature,GD} (the main §16 — loss ↓) vs the PURE curvature step (the baselines).
     dev, dt = th0.device, th0.dtype
     p = model.p
     N = X.shape[0]
@@ -149,6 +183,7 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
         return al if lossv(th + al * direction, mask) <= lossv(th, mask) else 0.0   # α≥0; never worse than α=0
 
     th = th0.detach().clone()
+    froz = [None, None]                                       # frozen (u₁,u₋₁) for 'randfix'/'eigfix' (captured at warmup-end)
     for it in range(int(warmup) + int(iters)):
         sd = (seed + 1000 * it) & 0x7FFFFFFF
         if it < warmup:                                       # ── standard GD warmup ──
@@ -163,14 +198,25 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
         # ── §16 iteration ──
         r = resid(th)
         J = jac_cols(model, th, X)[0]                         # rows ∇f_k
-        if mode == "random":                                 # BASELINE A: two random unit vectors instead of u₁/u₋₁ (keep σ₁/σ₋₁)
+        if mode in ("random", "randfix"):                    # random unit vectors instead of u₁/u₋₁ (keep σ₁/σ₋₁ of H̄)
             tH, bH = _lanc16_vals(Hbar_hvp(th), p, k, mlan, sd, dev, dt)
             sig1, sigm1 = tH[0], bH[0]
-            u1 = _randvec16(p, sd ^ 0x16A1, dev, dt); u1 = u1 / u1.norm()
-            um1 = _randvec16(p, sd ^ 0x16A2, dev, dt); um1 = um1 / um1.norm()
-        else:                                                # 'eig' / 'shuffle': real top/bottom eigenpairs of H̄
+            if mode == "randfix" and froz[0] is not None:    # BASELINE 3: reuse the warmup-end frozen random directions
+                u1, um1 = froz[0], froz[1]
+            else:                                            # BASELINE A: fresh random vectors each iter (or first 'randfix' iter)
+                u1 = _randvec16(p, sd ^ 0x16A1, dev, dt); u1 = u1 / u1.norm()
+                um1 = _randvec16(p, sd ^ 0x16A2, dev, dt); um1 = um1 / um1.norm()
+                if mode == "randfix":
+                    froz[0], froz[1] = u1, um1               # freeze at warmup-end (first §16 iter)
+        else:                                                # 'eig' / 'eigfix' / 'shuffle': real top/bottom eigenpairs of H̄
             tv, bv, tval, bval = _lanc16_ext(Hbar_hvp(th), p, k, mlan, sd, dev, dt)
-            u1, um1 = tv[0], bv[0]; sig1, sigm1 = tval[0], bval[0]
+            sig1, sigm1 = tval[0], bval[0]
+            if mode == "eigfix":                             # BASELINE 4: top/bottom eigvecs FROZEN at warmup-end (σ still recomputed)
+                if froz[0] is None:
+                    froz[0], froz[1] = tv[0], bv[0]
+                u1, um1 = froz[0], froz[1]
+            else:                                            # 'eig' / 'shuffle': eigvecs recomputed each iter
+                u1, um1 = tv[0], bv[0]
         if mode == "shuffle":                                # BASELINE B: permute ± set membership (keep counts; each sample keeps its real r_k)
             n_pos = int((r > 0).sum()); n_neg = int((r < 0).sum())
             sidx = _shuffle_idx(M, sd ^ 0x16B0)               # permute ± membership over the M effective samples
@@ -230,17 +276,19 @@ def sec16_chebyshev_testset(N, degree, dev, dt):
 
 def sec16_driver(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, ares=0.01,
                  Xtest=None, Ytest=None, baselines=False):
-    """Run §16 (mode='eig') and, if `baselines`, two extra trajectories — 'random' (Baseline A) and 'shuffle'
-    (Baseline B) — in lockstep from the SAME θ₀, attaching their per-iteration metrics as rec['bA']/rec['bB']."""
+    """Run §16 (mode='eig') and, if `baselines`, FOUR extra trajectories — 'random' (Baseline A), 'shuffle'
+    (Baseline B), 'randfix' (Baseline 3: frozen random dirs) and 'eigfix' (Baseline 4: frozen H̄ eigvec dirs) —
+    in lockstep from the SAME θ₀, attaching per-iteration metrics as rec['bA']/['bB']/['bC']/['bD']."""
     gmain = sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, "eig", True)
     if not baselines:
         yield from gmain
         return
-    # baselines: PURE curvature (use_gd=False), never early-stop (tol=-1) so all three stay the same length (lockstep)
-    gA = sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, "random", False)
-    gB = sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, "shuffle", False)
+    # baselines: PURE curvature (use_gd=False), never early-stop (tol=-1) so all trajectories stay the same length (lockstep)
+    mk = lambda md: sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, md, False)
+    gA, gB, gC, gD = mk("random"), mk("shuffle"), mk("randfix"), mk("eigfix")
     sub = lambda r: {kk: r[kk] for kk in ("L", "Lt", "lH", "fH", "res", "unorm")}
     for rec in gmain:
         rec = dict(rec)
         rec["bA"] = sub(next(gA)); rec["bB"] = sub(next(gB))
+        rec["bC"] = sub(next(gC)); rec["bD"] = sub(next(gD))
         yield rec

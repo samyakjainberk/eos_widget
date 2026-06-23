@@ -44,6 +44,8 @@ def effective_dims(cfg):
     """Input/output dims actually fed to the model (CIFAR=3072/10, sorting=seqlen, owt=block/vocab)."""
     if cfg.dataset == "cifar10":
         return 3072, 10
+    if cfg.dataset == "cifar2":
+        return 3072, 1                         # 2-class CIFAR cast as SCALAR regression (±1)
     if cfg.dataset == "sorting":
         return cfg.seqlen, cfg.seqlen
     if cfg.dataset == "owt":
@@ -153,10 +155,31 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
         sec16 = list(sec16_driver(model, loss, th0, X, Y, cfg.lr, cfg.s24warm, cfg.s24iter,
                                   min(max(1, cfg.neig), max(1, model.p // 2)), min(model.p, 24), cfg.seed, 1e-12,
                                   getattr(cfg, 's24grid', 0.1), getattr(cfg, 's24ares', 0.01),
-                                  Xt16, Yt16, getattr(cfg, 's24base', 0)))   # baselines A/B if s24base
+                                  Xt16, Yt16, getattr(cfg, 's24base', 0)))   # baselines A/B/C/D if s24base
+
+    # §17 — PER-SAMPLE function-Hessian variant of §16 (each sample uses its OWN Q_k eigvec). O(M²) per-sample
+    # Lanczos ⇒ gated to a SMALLER M than §16. Reuses §16's hyperparameters + held-out test sets (same observables).
+    sec17 = None
+    if getattr(cfg, "s25", 0) and loss.name == "mse" and M16 <= 64 and M16 * model.p <= 200_000_000 and N <= 64:
+        from .sec17 import sec17_driver
+        from .sec16 import sec16_chebyshev_testset
+        if progress:
+            print(f"  §17: per-sample optimizer — {cfg.s24warm} GD warmup + {cfg.s24iter} iters from θ₀  (M=N·d={M16})")
+        if cfg.dataset == "chebyshev":
+            Xt17, Yt17 = sec16_chebyshev_testset(N, cfg.degree, dev, dtype)
+        elif cfg.dataset in ("synthetic", "const"):
+            _ts17 = make_test_set(model, P, cfg.dataset, N, in_dim, out_dim, dev, dtype, cifar_dir)
+            Xt17, Yt17 = _ts17 if _ts17 is not None else (None, None)
+        else:
+            Xt17, Yt17 = None, None
+        sec17 = list(sec17_driver(model, loss, th0, X, Y, cfg.lr, cfg.s24warm, cfg.s24iter,
+                                  min(max(1, cfg.neig), max(1, model.p // 2)), min(model.p, 16), cfg.seed, 1e-12,
+                                  getattr(cfg, 's24grid', 0.1), getattr(cfg, 's24ares', 0.01),
+                                  Xt17, Yt17, getattr(cfg, 's25base', 0)))   # baselines A/B/C/D if s25base
 
     meta["wall_sec"] = time.time() - t0
-    return {"meta": meta, "config": cfg, "history": history, "series": _to_series(history), "sec16": sec16}
+    return {"meta": meta, "config": cfg, "history": history, "series": _to_series(history),
+            "sec16": sec16, "sec17": sec17}
 
 
 # every per-step key that is a list-of-numbers and should become one track-per-index in `series`

@@ -13,7 +13,7 @@ from dataclasses import dataclass, asdict, field
 @dataclass
 class Config:
     # ---- dataset & architecture (mirror index.html 'Dataset & architecture' panel) ----
-    dataset: str = "synthetic"      # synthetic | cifar10 | sorting | owt | chebyshev
+    dataset: str = "synthetic"      # synthetic | cifar10 | cifar2 | sorting | owt | chebyshev
     arch: str = "mlp"               # mlp | cnn | vgg11 | gpt
     loss: str = "mse"               # mse | ce
     chmul: float = 0.25             # CNN/VGG channel multiplier
@@ -23,6 +23,8 @@ class Config:
     seqlen: int = 16                # sorting sequence length / owt block size (tokens per sequence)
     vocab: int = 50257              # owt vocabulary (GPT-2 BPE) — token-embedding/head size
     degree: int = 3                 # chebyshev: degree of the target Chebyshev polynomial T_k
+    c2a: int = 0                    # cifar2: first CIFAR-10 class index → scalar label +1
+    c2b: int = 1                    # cifar2: second CIFAR-10 class index → scalar label −1
     cvar: float = 0.0               # const dataset: variance of Gaussian noise added to the constant target (0 ⇒ exact constant)
 
     # ---- model (mirror 'Model' panel) ----
@@ -131,7 +133,9 @@ class Config:
     s24iter: int = 250    # §16: number of §16 iterations after the warmup.
     s24grid: float = 0.1  # §16: (β,s) search grid step (finer ⇒ more descent, costs (1/step)² loss-evals).
     s24ares: float = 0.01 # §16: α line-search resolution (finer ⇒ smaller beneficial steps near the plateau).
-    s24base: int = 0      # §16: compute the two dotted baselines (A=random dirs, B=shuffled ± sets). OFF (≈3× cost).
+    s24base: int = 0      # §16: compute the four dotted baselines (A=random,B=shuffle,C=randfix,D=eigfix). OFF (≈5× cost).
+    s25: int = 0          # §17 — PER-SAMPLE function-Hessian variant of §16 (each sample uses its OWN Q_k eigvec). O(M²); small M. OFF.
+    s25base: int = 0      # §17: compute the four dotted baselines (per-sample analog of §16's). OFF (≈5× cost).
 
     # ---- test set (held-out) ----
     n_test: int = 0                # held-out test points (0 ⇒ default: max(nsamp, 256), capped per dataset)

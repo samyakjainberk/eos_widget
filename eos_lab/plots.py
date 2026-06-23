@@ -1412,9 +1412,10 @@ def plot_section16(recs):
     """§16 — standalone curvature-aligned optimizer. 5 figures (Panel 1: loss×4 + coeffs;
     Panel 2: loss-Hessian top-k eig ×4; Panel 3: function-Hessian top/bottom-k eig ×4;
     Panel 4: per-sample residuals ×4; Panel 5: held-out test loss ×4), each over the
-    pos/neg/mean/best-(β,s) update look-aheads. When the records carry baselines (bA/bB),
-    every panel also draws the two DOTTED baseline trajectories — A = random directions
-    (dotted), B = shuffled ± sets (dash-dot) — clearly separated from the solid main run."""
+    pos/neg/mean/best-(β,s) update look-aheads. When the records carry baselines, every panel
+    also draws the FOUR DOTTED baseline trajectories — A = random directions, B = shuffled ±
+    sets, C = frozen-random dirs (randfix), D = frozen-H̄-eigvec dirs (eigfix) — clearly
+    separated from the solid main run."""
     import matplotlib.pyplot as plt
     if not recs:
         return {}
@@ -1424,18 +1425,19 @@ def plot_section16(recs):
     slab = {"pos": "pos-only", "neg": "neg-only", "mean": "mean", "beta": "best (β,s)"}
     k = len(recs[0]["lH"]["beta"]); Nres = len(recs[0]["res"]["beta"])
     TOPC = ["#08306b", "#2563eb", "#80b1ff"]; BOTC = ["#67000d", "#dc2626", "#fca5a5"]
-    ACOL, BCOL = "#0891b2", "#f59e0b"           # baseline A (random) / B (shuffled) accents for single-line panels
-    has_base = any("bA" in r for r in recs)
-    BASES = [("bA", "A · random", "dotted"), ("bB", "B · shuffle", "dashdot")]
+    has_base = any(("bA" in r or "bB" in r or "bC" in r or "bD" in r) for r in recs)
+    # the FOUR baselines (fixed order A,B,C,D): (key, label, linestyle, accent colour)
+    BASES = [("bA", "A · random", "dotted", "#0891b2"), ("bB", "B · shuffle", "dashdot", "#f59e0b"),
+             ("bC", "C · rand-fix", "dashed", "#db2777"), ("bD", "D · eig-fix", (0, (3, 1, 1, 1, 1, 1)), "#15803d")]
     figs = {}
     # Panel 1 — loss under each update + coefficients
     f1, ax = plt.subplots(1, 5, figsize=(26, 4))
     for j, sc in enumerate(scen):
         ax[j].plot(it, [(r["L"][sc] if r["L"].get(sc) is not None else nn) for r in recs], "-o", ms=3, color="#7c3aed", label="main")
         if has_base:
-            for bkey, blab, bstyle in BASES:
+            for bkey, blab, bstyle, bcol in BASES:
                 yb = [((r[bkey]["L"][sc] if (bkey in r and r[bkey]["L"].get(sc) is not None) else nn)) for r in recs]
-                ax[j].plot(it, yb, ls=bstyle, lw=1.2, color=(ACOL if bkey == "bA" else BCOL), label=blab)
+                ax[j].plot(it, yb, ls=bstyle, lw=1.2, color=bcol, label=blab)
             ax[j].legend(fontsize=6)
         ax[j].set_title(f"full loss — {slab[sc]}"); ax[j].set_xlabel("§16 iteration"); ax[j].grid(alpha=.3)
     for nm, key, col in [("α_pos", "apos", "#2563eb"), ("α_neg", "aneg", "#dc2626"), ("β", "beta", "#16a34a"), ("s", "scale", "#d97706"), ("t_gd", "tgd", "#0891b2")]:
@@ -1448,7 +1450,7 @@ def plot_section16(recs):
         for rk in range(k):
             ax[j].plot(it, [(r["lH"][sc][rk] if r["lH"].get(sc) is not None else nn) for r in recs], "-o", ms=2, color=TOPC[rk % 3], label=f"λ{rk+1}")
             if has_base:
-                for bkey, blab, bstyle in BASES:
+                for bkey, blab, bstyle, bcol in BASES:
                     yb = [((r[bkey]["lH"][sc][rk] if (bkey in r and r[bkey]["lH"].get(sc) is not None) else nn)) for r in recs]
                     ax[j].plot(it, yb, ls=bstyle, lw=1.0, alpha=.6, color=TOPC[rk % 3], label=(blab if rk == 0 else None))
         ax[j].set_title(f"loss-Hessian top-{k} — {slab[sc]}"); ax[j].set_xlabel("§16 iteration"); ax[j].grid(alpha=.3); ax[j].legend(fontsize=6)
@@ -1460,7 +1462,7 @@ def plot_section16(recs):
             ax[j].plot(it, [(r["fH"][sc]["top"][rk] if r["fH"].get(sc) is not None else nn) for r in recs], "-o", ms=2, color=TOPC[rk % 3], label=f"top{rk+1}")
             ax[j].plot(it, [(r["fH"][sc]["bot"][rk] if r["fH"].get(sc) is not None else nn) for r in recs], "-o", ms=2, color=BOTC[rk % 3], label=f"bot{rk+1}")
             if has_base:
-                for bkey, blab, bstyle in BASES:
+                for bkey, blab, bstyle, bcol in BASES:
                     yt = [((r[bkey]["fH"][sc]["top"][rk] if (bkey in r and r[bkey]["fH"].get(sc) is not None) else nn)) for r in recs]
                     yb = [((r[bkey]["fH"][sc]["bot"][rk] if (bkey in r and r[bkey]["fH"].get(sc) is not None) else nn)) for r in recs]
                     ax[j].plot(it, yt, ls=bstyle, lw=1.0, alpha=.6, color=TOPC[rk % 3], label=(blab if rk == 0 else None))
@@ -1473,11 +1475,10 @@ def plot_section16(recs):
         for s in range(Nres):
             ax[j].plot(it, [(r["res"][sc][s] if r["res"].get(sc) is not None else nn) for r in recs], "-", lw=.8)
         if has_base:
-            for bkey, blab, bstyle in BASES:
-                bc = ACOL if bkey == "bA" else BCOL
+            for bkey, blab, bstyle, bcol in BASES:
                 for s in range(Nres):
                     yb = [((r[bkey]["res"][sc][s] if (bkey in r and r[bkey]["res"].get(sc) is not None) else nn)) for r in recs]
-                    ax[j].plot(it, yb, ls=bstyle, lw=.7, alpha=.35, color=bc, label=(blab if s == 0 else None))
+                    ax[j].plot(it, yb, ls=bstyle, lw=.7, alpha=.35, color=bcol, label=(blab if s == 0 else None))
             ax[j].legend(fontsize=6)
         ax[j].set_title(f"per-sample residual r=y−f — {slab[sc]}"); ax[j].set_xlabel("§16 iteration"); ax[j].grid(alpha=.3); ax[j].axhline(0, color="#94a3b8", lw=.7)
     f4.suptitle("§16 Panel 4 — per-sample residuals"); f4.tight_layout(); figs["section16_panel4_residuals"] = f4
@@ -1487,9 +1488,9 @@ def plot_section16(recs):
         for j, sc in enumerate(scen):
             ax[j].plot(it, [(r["Lt"][sc] if r["Lt"].get(sc) is not None else nn) for r in recs], "-o", ms=3, color="#7c3aed", label="main")
             if has_base:
-                for bkey, blab, bstyle in BASES:
+                for bkey, blab, bstyle, bcol in BASES:
                     yb = [((r[bkey]["Lt"][sc] if (bkey in r and r[bkey]["Lt"].get(sc) is not None) else nn)) for r in recs]
-                    ax[j].plot(it, yb, ls=bstyle, lw=1.2, color=(ACOL if bkey == "bA" else BCOL), label=blab)
+                    ax[j].plot(it, yb, ls=bstyle, lw=1.2, color=bcol, label=blab)
             ax[j].set_title(f"held-out test loss — {slab[sc]}"); ax[j].set_xlabel("§16 iteration"); ax[j].grid(alpha=.3); ax[j].legend(fontsize=6)
         f5.suptitle("§16 Panel 5 — held-out test loss under each update"); f5.tight_layout(); figs["section16_panel5_testloss"] = f5
     # Panel 6 — ℓ2 norm of the applied update at each look-ahead (single-line + baselines)
@@ -1498,11 +1499,110 @@ def plot_section16(recs):
         for j, sc in enumerate(scen):
             ax[j].plot(it, [(r["unorm"][sc] if r.get("unorm", {}).get(sc) is not None else nn) for r in recs], "-o", ms=3, color="#7c3aed", label="main")
             if has_base:
-                for bkey, blab, bstyle in BASES:
+                for bkey, blab, bstyle, bcol in BASES:
                     yb = [((r[bkey]["unorm"][sc] if (bkey in r and r[bkey]["unorm"].get(sc) is not None) else nn)) for r in recs]
-                    ax[j].plot(it, yb, ls=bstyle, lw=1.2, color=(ACOL if bkey == "bA" else BCOL), label=blab)
+                    ax[j].plot(it, yb, ls=bstyle, lw=1.2, color=bcol, label=blab)
             ax[j].set_title(f"‖update‖₂ — {slab[sc]}"); ax[j].set_xlabel("§16 iteration"); ax[j].grid(alpha=.3); ax[j].legend(fontsize=6)
         f6.suptitle("§16 Panel 6 — ℓ2 norm of the applied update ‖u‖₂"); f6.tight_layout(); figs["section16_panel6_updatenorm"] = f6
+    return figs
+
+
+def plot_section17(recs):
+    """§17 — PER-SAMPLE curvature-aligned optimizer (each sample uses its OWN Q_k eigvec). 5 figures (Panel 1: loss×4 + coeffs;
+    Panel 2: loss-Hessian top-k eig ×4; Panel 3: function-Hessian top/bottom-k eig ×4;
+    Panel 4: per-sample residuals ×4; Panel 5: held-out test loss ×4), each over the
+    pos/neg/mean/best-(β,s) update look-aheads. When the records carry baselines, every panel
+    also draws the FOUR DOTTED baseline trajectories — A = random directions, B = shuffled ±
+    sets, C = frozen-random dirs (randfix), D = frozen-H̄-eigvec dirs (eigfix) — clearly
+    separated from the solid main run."""
+    import matplotlib.pyplot as plt
+    if not recs:
+        return {}
+    nn = math.nan
+    it = [r["i"] for r in recs]
+    scen = ["pos", "neg", "mean", "beta"]
+    slab = {"pos": "pos-only", "neg": "neg-only", "mean": "mean", "beta": "best (β,s)"}
+    k = len(recs[0]["lH"]["beta"]); Nres = len(recs[0]["res"]["beta"])
+    TOPC = ["#08306b", "#2563eb", "#80b1ff"]; BOTC = ["#67000d", "#dc2626", "#fca5a5"]
+    has_base = any(("bA" in r or "bB" in r or "bC" in r or "bD" in r) for r in recs)
+    # the FOUR baselines (fixed order A,B,C,D): (key, label, linestyle, accent colour)
+    BASES = [("bA", "A · random", "dotted", "#0891b2"), ("bB", "B · shuffle", "dashdot", "#f59e0b"),
+             ("bC", "C · rand-fix", "dashed", "#db2777"), ("bD", "D · eig-fix", (0, (3, 1, 1, 1, 1, 1)), "#15803d")]
+    figs = {}
+    # Panel 1 — loss under each update + coefficients
+    f1, ax = plt.subplots(1, 5, figsize=(26, 4))
+    for j, sc in enumerate(scen):
+        ax[j].plot(it, [(r["L"][sc] if r["L"].get(sc) is not None else nn) for r in recs], "-o", ms=3, color="#7c3aed", label="main")
+        if has_base:
+            for bkey, blab, bstyle, bcol in BASES:
+                yb = [((r[bkey]["L"][sc] if (bkey in r and r[bkey]["L"].get(sc) is not None) else nn)) for r in recs]
+                ax[j].plot(it, yb, ls=bstyle, lw=1.2, color=bcol, label=blab)
+            ax[j].legend(fontsize=6)
+        ax[j].set_title(f"full loss — {slab[sc]}"); ax[j].set_xlabel("§17 iteration"); ax[j].grid(alpha=.3)
+    for nm, key, col in [("α_pos", "apos", "#2563eb"), ("α_neg", "aneg", "#dc2626"), ("β", "beta", "#16a34a"), ("s", "scale", "#d97706"), ("t_gd", "tgd", "#0891b2")]:
+        ax[4].plot(it, [(r.get(key) if r.get(key) is not None else nn) for r in recs], "-o", ms=3, label=nm, color=col)
+    ax[4].set_title("coefficients  α_pos · α_neg · β · s · t_gd"); ax[4].legend(fontsize=7); ax[4].grid(alpha=.3); ax[4].set_xlabel("§17 iteration")
+    f1.suptitle("§17 Panel 1 — full loss under each update + coefficients"); f1.tight_layout(); figs["section17_panel1_loss"] = f1
+    # Panel 2 — loss-Hessian top-k eigenvalues
+    f2, ax = plt.subplots(1, 4, figsize=(22, 4))
+    for j, sc in enumerate(scen):
+        for rk in range(k):
+            ax[j].plot(it, [(r["lH"][sc][rk] if r["lH"].get(sc) is not None else nn) for r in recs], "-o", ms=2, color=TOPC[rk % 3], label=f"λ{rk+1}")
+            if has_base:
+                for bkey, blab, bstyle, bcol in BASES:
+                    yb = [((r[bkey]["lH"][sc][rk] if (bkey in r and r[bkey]["lH"].get(sc) is not None) else nn)) for r in recs]
+                    ax[j].plot(it, yb, ls=bstyle, lw=1.0, alpha=.6, color=TOPC[rk % 3], label=(blab if rk == 0 else None))
+        ax[j].set_title(f"loss-Hessian top-{k} — {slab[sc]}"); ax[j].set_xlabel("§17 iteration"); ax[j].grid(alpha=.3); ax[j].legend(fontsize=6)
+    f2.suptitle("§17 Panel 2 — top-k eigenvalues of the loss Hessian ∇²L"); f2.tight_layout(); figs["section17_panel2_lossH_eig"] = f2
+    # Panel 3 — function-Hessian top-k & bottom-k
+    f3, ax = plt.subplots(1, 4, figsize=(22, 4))
+    for j, sc in enumerate(scen):
+        for rk in range(k):
+            ax[j].plot(it, [(r["fH"][sc]["top"][rk] if r["fH"].get(sc) is not None else nn) for r in recs], "-o", ms=2, color=TOPC[rk % 3], label=f"top{rk+1}")
+            ax[j].plot(it, [(r["fH"][sc]["bot"][rk] if r["fH"].get(sc) is not None else nn) for r in recs], "-o", ms=2, color=BOTC[rk % 3], label=f"bot{rk+1}")
+            if has_base:
+                for bkey, blab, bstyle, bcol in BASES:
+                    yt = [((r[bkey]["fH"][sc]["top"][rk] if (bkey in r and r[bkey]["fH"].get(sc) is not None) else nn)) for r in recs]
+                    yb = [((r[bkey]["fH"][sc]["bot"][rk] if (bkey in r and r[bkey]["fH"].get(sc) is not None) else nn)) for r in recs]
+                    ax[j].plot(it, yt, ls=bstyle, lw=1.0, alpha=.6, color=TOPC[rk % 3], label=(blab if rk == 0 else None))
+                    ax[j].plot(it, yb, ls=bstyle, lw=1.0, alpha=.6, color=BOTC[rk % 3])
+        ax[j].set_title(f"H̄ top/bottom-{k} — {slab[sc]}"); ax[j].set_xlabel("§17 iteration"); ax[j].grid(alpha=.3); ax[j].legend(fontsize=6)
+    f3.suptitle("§17 Panel 3 — top-k & bottom-k eigenvalues of the function Hessian H̄"); f3.tight_layout(); figs["section17_panel3_funcH_eig"] = f3
+    # Panel 4 — per-sample residuals
+    f4, ax = plt.subplots(1, 4, figsize=(22, 4))
+    for j, sc in enumerate(scen):
+        for s in range(Nres):
+            ax[j].plot(it, [(r["res"][sc][s] if r["res"].get(sc) is not None else nn) for r in recs], "-", lw=.8)
+        if has_base:
+            for bkey, blab, bstyle, bcol in BASES:
+                for s in range(Nres):
+                    yb = [((r[bkey]["res"][sc][s] if (bkey in r and r[bkey]["res"].get(sc) is not None) else nn)) for r in recs]
+                    ax[j].plot(it, yb, ls=bstyle, lw=.7, alpha=.35, color=bcol, label=(blab if s == 0 else None))
+            ax[j].legend(fontsize=6)
+        ax[j].set_title(f"per-sample residual r=y−f — {slab[sc]}"); ax[j].set_xlabel("§17 iteration"); ax[j].grid(alpha=.3); ax[j].axhline(0, color="#94a3b8", lw=.7)
+    f4.suptitle("§17 Panel 4 — per-sample residuals"); f4.tight_layout(); figs["section17_panel4_residuals"] = f4
+    # Panel 5 — held-out test loss under each update (only meaningful when a test set was passed)
+    if any(r.get("Lt", {}).get("beta") is not None for r in recs):
+        f5, ax = plt.subplots(1, 4, figsize=(22, 4))
+        for j, sc in enumerate(scen):
+            ax[j].plot(it, [(r["Lt"][sc] if r["Lt"].get(sc) is not None else nn) for r in recs], "-o", ms=3, color="#7c3aed", label="main")
+            if has_base:
+                for bkey, blab, bstyle, bcol in BASES:
+                    yb = [((r[bkey]["Lt"][sc] if (bkey in r and r[bkey]["Lt"].get(sc) is not None) else nn)) for r in recs]
+                    ax[j].plot(it, yb, ls=bstyle, lw=1.2, color=bcol, label=blab)
+            ax[j].set_title(f"held-out test loss — {slab[sc]}"); ax[j].set_xlabel("§17 iteration"); ax[j].grid(alpha=.3); ax[j].legend(fontsize=6)
+        f5.suptitle("§17 Panel 5 — held-out test loss under each update"); f5.tight_layout(); figs["section17_panel5_testloss"] = f5
+    # Panel 6 — ℓ2 norm of the applied update at each look-ahead (single-line + baselines)
+    if any(r.get("unorm", {}).get("beta") is not None for r in recs):
+        f6, ax = plt.subplots(1, 4, figsize=(22, 4))
+        for j, sc in enumerate(scen):
+            ax[j].plot(it, [(r["unorm"][sc] if r.get("unorm", {}).get(sc) is not None else nn) for r in recs], "-o", ms=3, color="#7c3aed", label="main")
+            if has_base:
+                for bkey, blab, bstyle, bcol in BASES:
+                    yb = [((r[bkey]["unorm"][sc] if (bkey in r and r[bkey]["unorm"].get(sc) is not None) else nn)) for r in recs]
+                    ax[j].plot(it, yb, ls=bstyle, lw=1.2, color=bcol, label=blab)
+            ax[j].set_title(f"‖update‖₂ — {slab[sc]}"); ax[j].set_xlabel("§17 iteration"); ax[j].grid(alpha=.3); ax[j].legend(fontsize=6)
+        f6.suptitle("§17 Panel 6 — ℓ2 norm of the applied update ‖u‖₂"); f6.tight_layout(); figs["section17_panel6_updatenorm"] = f6
     return figs
 
 
@@ -1567,8 +1667,10 @@ def save_panels(results, outdir):
             "section15_panel5_norms": plot_section15_panel5(hist),
             "section15_panel6_termchain": plot_section15_panel6(hist),
             "section15_panel7_persample_ratio": plot_section15_panel7(hist)}
-    if results.get("sec16"):                          # §16 — standalone optimizer (4 panels)
+    if results.get("sec16"):                          # §16 — standalone optimizer (6 panels)
         figs.update(plot_section16(results["sec16"]))
+    if results.get("sec17"):                          # §17 — per-sample-Hessian optimizer (6 panels)
+        figs.update(plot_section17(results["sec17"]))
     written = []
     for name, fig in figs.items():
         if fig is None:
