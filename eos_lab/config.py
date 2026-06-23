@@ -134,7 +134,7 @@ class Config:
     s24iter: int = 250    # §16: number of §16 iterations after the warmup.
     s24grid: float = 0.1  # §16: (β,s) search grid step (finer ⇒ more descent, costs (1/step)² loss-evals).
     s24ares: float = 0.01 # §16: α line-search resolution (finer ⇒ smaller beneficial steps near the plateau).
-    s24k: int = 8         # §16/§17: # eigvecs per side (top-kdir & bottom-kdir) onto which g₊/g₋ are projected (coeff ⟨g,u_i⟩, NO σ/η).
+    s24k: int = 32        # §16/§17: # eigvecs per side (top-kdir & bottom-kdir) onto which g₊/g₋ are projected (coeff ⟨g,u_i⟩, NO σ/η).
     s24base: int = 0      # §16: compute the five dotted baselines (A=random,B=shuffle,C=randfix,D=eigfix,E=gd). OFF (≈6× cost).
     s25: int = 0          # §17 — PER-SAMPLE function-Hessian variant of §16 (each sample uses its OWN Q_k eigvec). O(M²); small M. OFF.
     s25base: int = 0      # §17: compute the five dotted baselines (per-sample analog of §16's). OFF (≈6× cost).

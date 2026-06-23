@@ -189,7 +189,7 @@
       <div class="ctl"><label title="§16: number of §16 optimizer iterations after the GD warmup.">§16 iterations</label><input id="s24iter" type="number" value="250" min="1" max="2000" step="1"></div>
       <div class="ctl"><label title="§16: (β,s) search grid step. Finer (smaller) ⇒ more descent extracted per iteration, but costs (1/step)² loss evaluations. Default 0.1.">§16 β,s grid step</label><input id="s24grid" type="number" value="0.1" min="0.01" max="0.5" step="0.01"></div>
       <div class="ctl"><label title="§16: α line-search resolution. Finer (smaller) ⇒ finds smaller beneficial steps near the plateau. Default 0.01.">§16 α resolution</label><input id="s24ares" type="number" value="0.01" min="0.001" max="0.1" step="0.001"></div>
-      <div class="ctl"><label title="§16/§17: number of eigenvectors per side (top-kdir &amp; bottom-kdir of H̄, or per-sample Q_k in §17) onto which the ± residual gradients are projected. Larger ⇒ captures more of the gradient (more descent), costs ∝ kdir. Default 8.">§16/§17 kdir</label><input id="s24k" type="number" value="8" min="1" max="64" step="1"></div>
+      <div class="ctl"><label title="§16/§17: number of eigenvectors per side (top-kdir &amp; bottom-kdir of H̄, or per-sample Q_k in §17) onto which the ± residual gradients are projected. Larger ⇒ captures more of the gradient (more descent), costs ∝ kdir. Default 32. The Lanczos subspace scales as 4·kdir+32 so the eigvecs are actually resolved.">§16/§17 kdir</label><input id="s24k" type="number" value="32" min="1" max="128" step="1"></div>
       <div class="ctl"><label title="§16: also compute the FOUR dotted baselines in every panel — A: two random unit vectors instead of u₁/u₋₁ (KEEP σ₁/σ₋₁ of H̄, redrawn each iter); B: keep u₁/u₋₁/σ but shuffle the ± set membership; C (rand-fix): random directions FROZEN at warmup-end (σ recomputed); D (eig-fix): the H̄ top/bottom eigvecs FROZEN at warmup-end (σ recomputed). All PURE-curvature trajectories. ≈5× cost. OFF by default.">§16 baselines</label><input type="checkbox" id="en24base"></div>
       <div class="ctl"><label title="§17: also compute the FOUR dotted baselines (per-sample analog of §16's A/B/C/D — random per-sample dirs, shuffled ± sets, frozen-random, frozen per-sample eigvecs). ≈5× cost. OFF by default.">§17 baselines</label><input type="checkbox" id="en25base"></div>
       <div class="ctl"><label title="§12 sample cap: skip §12 when the number of samples N exceeds this. §12 extracts each sample's top-/bottom-15 Hessian eigenpairs MATRIX-FREE via Lanczos (no p×p matrix is formed), so it scales to large models like §1–§3; the grid is N×N so only N is capped.">§12 N-cap</label><input id="sec12ncap" type="number" value="500" min="1" max="600" step="1"></div>
@@ -3231,8 +3231,8 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
     const cb16=(val('dataset')==='chebyshev')?sec16Cheb(N,Math.max(1,+val('degree')||3))   // Panel-5 held-out test set (chebyshev midpoints; ksparse fresh ±1 bits; synthetic/const fresh iid-Gaussian)
               :(val('dataset')==='ksparse')?sec16Ksparse(N,inDim,Math.max(1,+val('ksparse')||3),+val('seed')||0)
               :sec16Holdout(val('dataset'),N,inDim,outDim,+val('seed')||0,+val('tgt'),+val('inputstd'),val('fixedx'),val('ssign'),+val('cvar')||0);
-    const s24k16=Math.max(1,+val('s24k')||8);
-    try{ sec16Driver(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||250),n,Math.min(p,Math.max(2*s24k16+16,n+8)),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),cb16&&cb16.X,cb16&&cb16.Y,cb16&&cb16.N,chk('en24base'),s24k16,s16Push); }
+    const s24k16=Math.max(1,+val('s24k')||32);
+    try{ sec16Driver(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||250),n,Math.min(p,Math.max(4*s24k16+32,2*n+16)),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),cb16&&cb16.X,cb16&&cb16.Y,cb16&&cb16.N,chk('en24base'),s24k16,s16Push); }
     catch(e){ console.error('§16 error',e); }
   }
   if(opt.s25 && val('arch')==='mlp' && val('loss')==='mse' && N*outDim<=64 && N*outDim*p<=300000000 && N<=64){   // §17 PER-SAMPLE (O(M²) per-sample Lanczos; browser is single-threaded ⇒ kept ≤64; the GPU/offline paths go to 256)
@@ -3240,8 +3240,8 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
     const cb17=(val('dataset')==='chebyshev')?sec16Cheb(N,Math.max(1,+val('degree')||3))   // reuse §16's held-out test sets (same observables)
               :(val('dataset')==='ksparse')?sec16Ksparse(N,inDim,Math.max(1,+val('ksparse')||3),+val('seed')||0)
               :sec16Holdout(val('dataset'),N,inDim,outDim,+val('seed')||0,+val('tgt'),+val('inputstd'),val('fixedx'),val('ssign'),+val('cvar')||0);
-    const s24k17=Math.max(1,+val('s24k')||8);
-    try{ sec17Driver(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||250),n,Math.min(p,Math.max(2*s24k17+16,n+8)),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),cb17&&cb17.X,cb17&&cb17.Y,cb17&&cb17.N,chk('en25base'),s24k17,s17Push); }
+    const s24k17=Math.max(1,+val('s24k')||32);
+    try{ sec17Driver(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||250),n,Math.min(p,Math.max(4*s24k17+32,2*n+16)),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),cb17&&cb17.X,cb17&&cb17.Y,cb17&&cb17.N,chk('en25base'),s24k17,s17Push); }
     catch(e){ console.error('§17 error',e); }
   }
   loop();

@@ -55,7 +55,7 @@ def default_params():
         "slqprobes": "4", "energyp": "99", "seed": "0", "start": "0",
         "qapprox": "25", "qmode": "1", "tset": "3", "cubicapprox": "10",
         "grid3dcap": "500", "sec12ncap": "500",
-        "s24warm": "5", "s24iter": "120", "s24grid": "0.1", "s24ares": "0.01", "s24k": "8",
+        "s24warm": "5", "s24iter": "120", "s24grid": "0.1", "s24ares": "0.01", "s24k": "32",
         "gson": "1", "mode": "run", "surrogate": "quad",
     }
     # main-run section toggles s1..s23 + s24(§16) + s25(§17), ALL ON

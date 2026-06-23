@@ -2577,9 +2577,9 @@ def run_stream(P):
         else:                                                            # real held-out images (cifar/mnist) or iid-Gaussian (synthetic/const); None for sorting
             Xt16, Yt16 = _sec16_holdout(dataset, Nfull, P, inD, outD)
         for rec16 in _sec16_driver(th16, X16, Y16, lr, P.get("s24warm", 5), P.get("s24iter", 250),
-                                   n, min(p, max(2 * P.get("s24k", 8) + 16, n + 8)), P.get("seed", 0), 1e-12,
+                                   n, min(p, max(4 * P.get("s24k", 32) + 32, 2 * n + 16)), P.get("seed", 0), 1e-12,
                                    P.get("s24grid", 0.1), P.get("s24ares", 0.01),
-                                   Xt16, Yt16, P.get("s24base", 0), P.get("s24k", 8)):
+                                   Xt16, Yt16, P.get("s24base", 0), P.get("s24k", 32)):
             if mytok != RUN_TOKEN.get(_devkey, mytok):
                 return
             yield {"type": "g16", **rec16}
@@ -2597,9 +2597,9 @@ def run_stream(P):
         else:
             Xt17, Yt17 = _sec16_holdout(dataset, Nfull, P, inD, outD)
         for rec17 in _sec17_driver(th17, X17, Y17, lr, P.get("s24warm", 5), P.get("s24iter", 250),
-                                   n, min(p, max(2 * P.get("s24k", 8) + 16, n + 8)), P.get("seed", 0), 1e-12,
+                                   n, min(p, max(4 * P.get("s24k", 32) + 32, 2 * n + 16)), P.get("seed", 0), 1e-12,
                                    P.get("s24grid", 0.1), P.get("s24ares", 0.01),
-                                   Xt17, Yt17, P.get("s25base", 0), P.get("s24k", 8)):
+                                   Xt17, Yt17, P.get("s25base", 0), P.get("s24k", 32)):
             if mytok != RUN_TOKEN.get(_devkey, mytok):
                 return
             yield {"type": "g17", **rec17}
@@ -3803,7 +3803,7 @@ def _parse_params(q):
         "s24iter": max(1, fi("s24iter", 250)),  # §16: number of §16 iterations after the warmup
         "s24grid": min(0.5, max(0.01, ff("s24grid", 0.1))),   # §16: (β,s) search grid step (finer ⇒ more descent, costs (1/step)² loss-evals)
         "s24ares": min(0.1, max(0.001, ff("s24ares", 0.01))), # §16: α line-search resolution (finer ⇒ extracts smaller steps near the plateau)
-        "s24k": max(1, fi("s24k", 8)),   # §16/§17: # eigvecs per side (top-kdir & bottom-kdir) onto which g₊/g₋ are projected
+        "s24k": max(1, fi("s24k", 32)),   # §16/§17: # eigvecs per side (top-kdir & bottom-kdir) onto which g₊/g₋ are projected
         "s24base": g("s24base", "0") == "1",  # §16: compute the five dotted baselines (A=random,B=shuffle,C=randfix,D=eigfix,E=gd); ≈6× cost
         "s25": g("s25", "0") == "1",     # §17: PER-SAMPLE function-Hessian variant of §16 (each sample uses its OWN Q_k eigvec; OFF by default)
         "s25base": g("s25base", "0") == "1",  # §17: compute the five dotted baselines (per-sample analog of §16's); ≈6× cost
