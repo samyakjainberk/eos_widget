@@ -51,7 +51,7 @@ def default_params():
         "vocab": "50257", "degree": "3", "cvar": "0.0", "divreg": "0.3",
         "c2a": "0", "c2b": "1",
         # ---- diagnostics cadence / sizes ----
-        "neig": "4", "kth": "1", "steps": "120", "eigevery": "2", "heavyevery": "4",
+        "neig": "4", "kth": "1", "steps": "120", "eigevery": "1", "heavyevery": "4",   # eigevery=1: §15 panels 1-4 (the per-step 2nd-difference) need 3 CONSECUTIVE GD steps
         "slqprobes": "4", "energyp": "99", "seed": "0", "start": "0",
         "qapprox": "25", "qmode": "1", "tset": "3", "cubicapprox": "10",
         "grid3dcap": "500", "sec12ncap": "500",
@@ -61,8 +61,12 @@ def default_params():
     # main-run section toggles s1..s23 + s24(§16) + s25(§17), ALL ON
     for i in list(range(1, 24)) + [24, 25]:
         p["s%d" % i] = "1"
-    p["s24base"] = "1"   # §16 five baselines
-    p["s25base"] = "1"   # §17 five baselines
+    # §16/§17 baselines OFF by default: they run UPFRONT (before the main §1–§15 loop) and add 5 extra
+    # trajectories (≈6× cost), which at kdir=32 can eat the whole job before §1–§15 stream. Enable per-run
+    # with --set s24base=1 --set s25base=1 when you specifically want the dotted baselines.
+    p["s24base"] = "0"
+    p["s25base"] = "0"
+    p["s24iter"] = "120"   # §16/§17 iterations (they run upfront); lower for faster captures, raise for a deeper optimizer study
     # surrogate-compare panel toggles c1..c12, ALL ON (used only if a surrogate capture is requested)
     for i in range(1, 13):
         p["c%d" % i] = "1"
@@ -90,8 +94,10 @@ def coerce_overrides(args, extra_sets):
     return p
 
 
-def capture(params, device, dtype, cifar_dir, progress=True):
-    """Run server.run_stream once with `params` and return the list of sanitized records."""
+def capture(params, device, dtype, cifar_dir, progress=True, partial_save=None, save_every=60.0):
+    """Run server.run_stream once with `params` and return the list of sanitized records.
+    If `partial_save(records)` is given it is called every `save_every` seconds (and once at the end)
+    so a job killed by the SLURM time-limit still leaves a loadable PARTIAL capture on disk."""
     server.DTYPE = dtype
     server.DEVICE = device
     server.DEVICE_POOL = [device]
@@ -112,14 +118,23 @@ def capture(params, device, dtype, cifar_dir, progress=True):
     records = []
     t0 = time.time()
     gen = server.run_surrogate_compare(P) if P.get("mode") == "surrogate" else server.run_stream(P)
-    last = t0
-    for msg in gen:
-        records.append(server._sanitize(msg))
-        if progress and (time.time() - last) > 2.0:
-            last = time.time()
-            kinds = records[-1].get("type", "?")
-            sys.stderr.write("  … %d records  (latest: %s, %.0fs)\n" % (len(records), kinds, time.time() - t0))
-            sys.stderr.flush()
+    last = t0; lastsave = t0
+    try:
+        for msg in gen:
+            records.append(server._sanitize(msg))
+            now = time.time()
+            if progress and (now - last) > 2.0:
+                last = now
+                sys.stderr.write("  … %d records  (latest: %s, %.0fs)\n" % (len(records), records[-1].get("type", "?"), now - t0))
+                sys.stderr.flush()
+            if partial_save is not None and (now - lastsave) > save_every:
+                lastsave = now
+                try:
+                    partial_save(records)            # checkpoint: a killed job still has a loadable capture
+                except Exception as e:
+                    sys.stderr.write("  (partial save failed: %s)\n" % e)
+    except KeyboardInterrupt:
+        sys.stderr.write("  interrupted — saving what we have\n")
     return records, time.time() - t0
 
 
@@ -156,45 +171,50 @@ def main():
 
     params = coerce_overrides(a, a.sets)
 
-    print("[capture] device=%s dtype=%s dataset=%s arch=%s nsamp=%s steps=%s"
-          % (dev, str(dtype).replace("torch.", ""), params["dataset"], params["arch"],
-             params["nsamp"], params["steps"]), flush=True)
-    records, wall = capture(params, dev, dtype, a.cifar_dir)
-
-    # summary of what was produced (which record types appeared)
-    by_type = {}
-    for r in records:
-        by_type[r.get("type", "?")] = by_type.get(r.get("type", "?"), 0) + 1
-    meta = next((r for r in records if r.get("type") == "meta"), {})
-    obj = {
-        "format": "eos-widget-capture/v1",
-        "kind": params.get("mode", "run"),
-        "created_unix": int(time.time()),
-        "label": a.label or "",
-        "device": str(dev),
-        "dtype": str(dtype).replace("torch.", ""),
-        "wall_sec": round(wall, 2),
-        "params": params,                 # query-style param dict → restores the widget controls
-        "p": meta.get("p"),
-        "record_counts": by_type,
-        "records": records,
-    }
-
     out = a.out
     use_gz = a.gzip or out.endswith(".gz")
     if a.gzip and not out.endswith(".gz"):
         out = out + ".gz"
     os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
-    data = json.dumps(obj, separators=(",", ":")).encode("utf-8")
-    if use_gz:
-        with gzip.open(out, "wb") as f:
+
+    def write_capture(records, wall, final):
+        """Serialize the (possibly partial) capture to `out` atomically (tmp+rename)."""
+        by_type = {}
+        for r in records:
+            by_type[r.get("type", "?")] = by_type.get(r.get("type", "?"), 0) + 1
+        meta = next((r for r in records if r.get("type") == "meta"), {})
+        obj = {
+            "format": "eos-widget-capture/v1",
+            "kind": params.get("mode", "run"),
+            "created_unix": int(time.time()),
+            "label": a.label or "",
+            "device": str(dev),
+            "dtype": str(dtype).replace("torch.", ""),
+            "wall_sec": round(wall, 2),
+            "partial": not final,             # True ⇒ job still running / was killed before finishing
+            "params": params,                 # query-style param dict → restores the widget controls
+            "p": meta.get("p"),
+            "record_counts": by_type,
+            "records": records,
+        }
+        data = json.dumps(obj, separators=(",", ":")).encode("utf-8")
+        tmp = out + ".tmp"
+        opener = gzip.open if use_gz else open
+        with opener(tmp, "wb") as f:
             f.write(data)
-    else:
-        with open(out, "wb") as f:
-            f.write(data)
+        os.replace(tmp, out)                  # atomic: a reader never sees a half-written file
+        return by_type, len(data)
+
+    print("[capture] device=%s dtype=%s dataset=%s arch=%s nsamp=%s steps=%s → %s"
+          % (dev, str(dtype).replace("torch.", ""), params["dataset"], params["arch"],
+             params["nsamp"], params["steps"], out), flush=True)
+    t_start = time.time()
+    records, wall = capture(params, dev, dtype, a.cifar_dir,
+                            partial_save=lambda recs: write_capture(recs, time.time() - t_start, final=False))
+    by_type, nbytes = write_capture(records, wall, final=True)
 
     print("[capture] wrote %s  (%d records, %.1f KB, %.1fs)" %
-          (out, len(records), len(data) / 1024.0, wall), flush=True)
+          (out, len(records), nbytes / 1024.0, wall), flush=True)
     print("[capture] record types: " + ", ".join("%s×%d" % (k, v) for k, v in sorted(by_type.items())), flush=True)
     if "error" in by_type or any(r.get("type") == "meta" and r.get("error") for r in records):
         print("[capture] WARNING: run reported an error record — check the config.", flush=True)

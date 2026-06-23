@@ -2195,7 +2195,9 @@ function s15Build(){
   mkL('p_s15_A3',lnt([['‖ψ‖','#2563eb'],['‖J₁ψ‖','#16a34a'],['‖J₂ᵀJ₁ψ‖','#d97706'],['‖J₂J₂ᵀJ₁ψ‖','#0891b2'],['|III|','#111827','dot']]),'III — forward (J_t side → r_{t−2})');
   mkL('p_s15_A4',lnt([['‖g₂‖','#2563eb'],['‖J₂g₂‖','#16a34a'],['‖z‖','#d97706'],['|III|','#111827','dot'],['‖ψ‖','#7c3aed']]),'III — backward (r_{t−2} side → J_t)');
 }
+let S15_TERMS_GOT=false;   // a §15 panels-1/2 (g15) record arrived this run (needs eigevery=1 for the per-step 2nd-difference)
 function s15Push(m){
+  S15_TERMS_GOT=true;
   if(!S15_BUILT)s15Build();
   if(!S15_DATA)S15_DATA={steps:[],I:[],II:[],III:[],divP:[],D2:[],Dsig2:[],Atop:[[],[],[]],Abot:[[],[],[]],Astat:[[],[],[],[],[]],
                          IV:[],V:[],VI:[],divS:[],Btop:[[],[],[]],Bbot:[[],[],[]],Bstat:[[],[],[],[],[]],
@@ -2971,11 +2973,13 @@ function secNote(secId,msg){const sec=document.getElementById(secId);if(!sec)ret
     n.style.cssText='margin:8px 0;padding:8px 12px;background:#fef3c7;border:1px solid #fbbf24;border-radius:6px;color:#92400e;font-size:13px;line-height:1.4';
     const h=sec.querySelector('h2');if(h&&h.nextSibling)sec.insertBefore(n,h.nextSibling);else sec.insertBefore(n,sec.firstChild);}
   n.innerHTML=msg;n.style.display='';}
-function clearAdvNotes(){ADV_GOT={};for(const tg in ADV_SECS)secNote(ADV_SECS[tg].sec,null);}   // run start
+function clearAdvNotes(){ADV_GOT={};S15_TERMS_GOT=false;for(const tg in ADV_SECS)secNote(ADV_SECS[tg].sec,null);}   // run start
 function markSkippedAdv(){   // run end (done OR error): note every enabled section that produced nothing
   const N=Math.max(1,+val('nsamp')||1),M=N*datasetOutDim();
   for(const tg in ADV_SECS){const a=ADV_SECS[tg],sec=document.getElementById(a.sec);
     if(!sec||!chk(tg)||sec.offsetParent===null){if(sec)secNote(a.sec,null);continue;}
+    if(tg==='en23'&&ADV_GOT[tg]&&!S15_TERMS_GOT&&(+val('eigevery')||1)>1){   // §15 panel 5/B streamed but panels 1-4 need consecutive GD steps
+      secNote(a.sec,`§15 panels 1–4 (the per-step 2nd-difference of ‖J‖²_F &amp; σ₁) need <b>eigevery = 1</b> — they require 3 <b>consecutive</b> GD steps, but this run used eigevery = ${val('eigevery')}. Panels 5 and B still show. Set <b>eig every k steps = 1</b> (or load a capture made with it) to fill panels 1–4.`);continue;}
     if(ADV_GOT[tg]){secNote(a.sec,null);continue;}   // it streamed data → no note
     let why;
     if(tg==='en24'&&M>256)why=`not produced — M = N·d_out = ${N}·${datasetOutDim()} = <b>${M}</b> exceeds §16's cap (M ≤ 256). Lower the number of samples.`;
@@ -4047,10 +4051,10 @@ const PRESETS={
   chebyshev:{dataset:'chebyshev',arch:'mlp',loss:'mse',depth:6,width:50,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.1,init:0.5,nsamp:20,batch:0,indim:1,outdim:1,degree:3,tgt:1.0,neig:3,kth:1,steps:5000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // k-sparse parity: 10 ±1 input bits, label = product (parity) of a fixed random k=3-subset → ±1; tanh MLP, MSE.
   // Runs in-browser; switch arch→gpt + Compute→GPU backend for the transformer version (same dataset).
-  ksparse_mlp:{dataset:'ksparse',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:24,batch:0,indim:10,outdim:1,ksparse:3,tgt:1.0,neig:3,kth:1,steps:600,eigevery:2,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en24:1,en25:1,qapprox:25,qmode:1,tset:3,compute:'browser'},
+  ksparse_mlp:{dataset:'ksparse',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:24,batch:0,indim:10,outdim:1,ksparse:3,tgt:1.0,neig:3,kth:1,steps:600,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en24:1,en25:1,qapprox:25,qmode:1,tset:3,compute:'browser'},
   // k-sparse parity with the mini-GPT transformer (GPU backend): the in_dim ±1 bits are read as a length-in_dim
   // sequence of bit-tokens and the per-position head is mean-pooled to the one scalar ±1 parity. MSE.
-  ksparse_gpt:{dataset:'ksparse',arch:'gpt',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.005,init:0.5,nsamp:24,batch:0,indim:10,outdim:1,ksparse:3,tgt:1.0,neig:3,kth:1,steps:1000,eigevery:5,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:48,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en24:1,en25:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
+  ksparse_gpt:{dataset:'ksparse',arch:'gpt',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.005,init:0.5,nsamp:24,batch:0,indim:10,outdim:1,ksparse:3,tgt:1.0,neig:3,kth:1,steps:1000,eigevery:1,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:48,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en24:1,en25:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
 };
 function setVal(id,v){document.getElementById(id).value=String(v);}
 function applyPreset(name){const P=PRESETS[name];if(!P)return;for(const k in P){const el=document.getElementById(k);if(!el)continue;if(el.type==='checkbox')el.checked=!!P[k];else el.value=String(P[k]);}syncLossPanels();updateParamBadge();syncInitScaleEnabled();}
