@@ -176,18 +176,20 @@ PRESETS = {
     "cifar_mlp": dict(dataset="cifar10", arch="mlp", loss="mse", depth=2, width=128, act="tanh",
                       bias=0, fixedx=0, nsamp=128, lr=0.02, init=0.5, steps=300, eigevery=2,
                       slqprobes=3),
-    # 2-class SCALAR CIFAR (classes c2a,c2b → ±1, d_out=1) — small N so the per-sample §16/§17 sections also run
+    # 2-class SCALAR CIFAR (classes c2a,c2b → ±1, d_out=1) — small M=N so EVERY section incl the per-sample §16/§17 runs
     "cifar2_mlp": dict(dataset="cifar2", arch="mlp", loss="mse", act="tanh", bias=1, fixedx=0, depth=1,
                        width=64, nsamp=16, lr=0.02, init=0.5, steps=300, eigevery=2, slqprobes=3,
-                       s18=1, s19=1, s22=1, s23=1, s24=1, s25=1),
-    # MNIST 10-class one-hot (padded to 3×32×32 → drop-in for cifar-shaped nets)
-    "mnist_mlp": dict(dataset="mnist", arch="mlp", loss="mse", act="tanh", bias=1, fixedx=0, depth=2,
-                      width=128, nsamp=16, lr=0.02, init=0.5, steps=300, eigevery=2, slqprobes=3,
-                      s18=1, s19=1, s22=1, s23=1, s24=1),
-    # 2-class SCALAR MNIST (classes c2a,c2b → ±1, d_out=1) — small N so §16/§17 run
+                       s18=1, s19=1, s20=1, s21=1, s22=1, s23=1, s24=1, s25=1),
+    # MNIST 10-class one-hot (padded to 3×32×32 → drop-in for cifar-shaped nets). Small N + small width so the
+    # per-sample §11–§16 sections fit (their batched Lanczos costs ~M·mV·p, and M=N·10 inflates it). §17 needs
+    # M=N·d_out ≤ 64 (so N ≤ 6) — use the scalar mnist2 preset for §17.
+    "mnist_mlp": dict(dataset="mnist", arch="mlp", loss="mse", act="tanh", bias=1, fixedx=0, depth=1,
+                      width=48, nsamp=8, lr=0.02, init=0.5, steps=300, eigevery=2, slqprobes=3,
+                      s18=1, s19=1, s20=1, s21=1, s22=1, s23=1, s24=1),
+    # 2-class SCALAR MNIST (classes c2a,c2b → ±1, d_out=1) — small M=N so every section incl §16/§17 runs
     "mnist2_mlp": dict(dataset="mnist2", arch="mlp", loss="mse", act="tanh", bias=1, fixedx=0, depth=1,
                        width=64, nsamp=16, lr=0.02, init=0.5, steps=300, eigevery=2, slqprobes=3,
-                       s18=1, s19=1, s22=1, s23=1, s24=1, s25=1),
+                       s18=1, s19=1, s20=1, s21=1, s22=1, s23=1, s24=1, s25=1),
     "cifar_cnn": dict(dataset="cifar10", arch="cnn", loss="mse", act="tanh", nsamp=128, lr=0.05, init=0.5,
                       steps=300, eigevery=2, slqprobes=3, chmul=1.0),
     "cifar_vgg": dict(dataset="cifar10", arch="vgg11", loss="mse", act="tanh", nsamp=128, batch=128, lr=0.05, init=0.5,

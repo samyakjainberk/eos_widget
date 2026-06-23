@@ -2919,6 +2919,42 @@ function clearNAonData(D){
   C(D.q10,'p_q10','p_q10N');                                                               // §4c
   C(D.d4Ht,'p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb');                                           // §4d
 }
+// ── §11–§17 "not produced" notes ──────────────────────────────────────────────────────────────────
+// §11–§17 stream their own g-records and build their plots lazily, so when a section is ENABLED but the
+// backend gates it off (M=N·d_out too large for §16/§17, N over the grid/§12 caps, single-sample, an OOM
+// that truncates the stream, …) its plot frames stay blank with no explanation. We TRACK which of these
+// sections actually streamed data and, at the end of the run, stamp a clear note on every enabled-but-empty
+// section instead of leaving a confusing blank. (Drift-free: it observes what the server actually produced.)
+const ADV_SECS={en18:{sec:'sec_g3d',name:'§11 (3D Hessian–NTK grids)'},
+  en19:{sec:'sec_s12a',name:'§12a (principal angles)'}, en22:{sec:'sec_s12b',name:'§12b (per-sample projections)'},
+  en21:{sec:'sec_s13',name:'§13 (residual-weighted curvature)'}, en20:{sec:'sec_s14',name:'§14 (Tr ΔNTK)'},
+  en23:{sec:'sec_s15',name:'§15 (2nd-difference decomposition)'}, en24:{sec:'sec_s16',name:'§16 (curvature optimizer)'},
+  en25:{sec:'sec_s17',name:'§17 (per-sample optimizer)'}};
+let ADV_GOT={};   // toggle id → true once that section's g-record has arrived this run
+function datasetOutDim(){const d=val('dataset');
+  if(d==='cifar10'||d==='mnist')return 10; if(d==='cifar2'||d==='mnist2'||d==='chebyshev')return 1;
+  if(d==='sorting')return Math.max(1,+val('seqlen')||16); if(d==='owt')return Math.max(1,+val('vocab')||50257);
+  return Math.max(1,+val('outdim')||1);}
+function secNote(secId,msg){const sec=document.getElementById(secId);if(!sec)return;
+  let n=sec.querySelector(':scope > .sec-skip');
+  if(msg==null){if(n)n.style.display='none';return;}
+  if(!n){n=document.createElement('div');n.className='sec-skip';
+    n.style.cssText='margin:8px 0;padding:8px 12px;background:#fef3c7;border:1px solid #fbbf24;border-radius:6px;color:#92400e;font-size:13px;line-height:1.4';
+    const h=sec.querySelector('h2');if(h&&h.nextSibling)sec.insertBefore(n,h.nextSibling);else sec.insertBefore(n,sec.firstChild);}
+  n.innerHTML=msg;n.style.display='';}
+function clearAdvNotes(){ADV_GOT={};for(const tg in ADV_SECS)secNote(ADV_SECS[tg].sec,null);}   // run start
+function markSkippedAdv(){   // run end (done OR error): note every enabled section that produced nothing
+  const N=Math.max(1,+val('nsamp')||1),M=N*datasetOutDim();
+  for(const tg in ADV_SECS){const a=ADV_SECS[tg],sec=document.getElementById(a.sec);
+    if(!sec||!chk(tg)||sec.offsetParent===null){if(sec)secNote(a.sec,null);continue;}
+    if(ADV_GOT[tg]){secNote(a.sec,null);continue;}   // it streamed data → no note
+    let why;
+    if(tg==='en24'&&M>256)why=`not produced — M = N·d_out = ${N}·${datasetOutDim()} = <b>${M}</b> exceeds §16's cap (M ≤ 256). Lower the number of samples.`;
+    else if(tg==='en25'&&M>64)why=`not produced — M = N·d_out = ${N}·${datasetOutDim()} = <b>${M}</b> exceeds §17's cap (M ≤ 64). Lower the number of samples.`;
+    else if((tg==='en24'||tg==='en25')&&val('loss')==='ce')why='not produced — these optimizer sections need the <b>MSE</b> loss.';
+    else why=`not produced for this run — too large for this section's cap (e.g. M = N·d_out = <b>${M}</b>, or N over the §11/§12 cap), single-sample, or the run hit a memory limit. Try fewer samples.`;
+    secNote(a.sec,`${a.name}: ${why}`);}
+}
 function pushPoint(t,D,n,kth,nResid){
   if((++_plotCall % _plotStride)!==0) return;   // decimation: plot only every _plotStride-th tick (full range, bounded points)
   clearNAonData(D);
@@ -3818,23 +3854,24 @@ function openStream(start,resuming){
       LAST_GPU_P=m.p;LAST_GPU_ARCH=val('arch');updateParamBadge();   // record backend param count for the badge / §1–§3
       if(!resuming)initLivePlots(m.n,m.kth,m.nResid,m.thr,m.n7,m.n8,m.multi);
       markUnavailable(m.multi,m.multi_ok,m.loss==='ce');   // stamp panels this run can't fill (single-sample / too-large / CE)
+      clearAdvNotes();   // reset the §11–§17 "not produced" notes for this run
       st.textContent=`running on ${m.device} … p=${m.p}, 2/lr=${m.thr.toFixed(2)}`;
     }else if(m.type==='step'){if(!META)return;pushPoint(m.t,m,META.n,META.kth,META.nResid);lastT=m.t;
       if(m.sps!=null)sp.textContent=`steps/sec: ${m.sps.toFixed(1)}`;
       st.textContent=`running on ${META.device} … step ${m.t}/${m.steps}  ·  p=${m.p}, 2/lr=${META.thr.toFixed(2)}`;
     }else if(m.type==='slq'){if(m.sH)refreshSLQ('p_sH',m.sH);if(m.sG)refreshSLQ('p_sG',m.sG);if(m.sS)refreshSLQ('p_sS',m.sS);if(m.sHL)refreshSLQ('p_sHL',m.sHL);trPush(m);
-    }else if(m.type==='g3d'){g3dPush(m);
-    }else if(m.type==='g4d'){s12Push(m);
-    }else if(m.type==='g13'){s13Push(m);
-    }else if(m.type==='g14'){s14Push(m);
-    }else if(m.type==='g15'){s15Push(m);
-    }else if(m.type==='g15n'){s15nPush(m);
-    }else if(m.type==='g15b'){s15bPush(m);
-    }else if(m.type==='g15p34'){s15p34Push(m);
-    }else if(m.type==='g16'){s16Push(m);
-    }else if(m.type==='g17'){s17Push(m);
-    }else if(m.type==='done'){st.textContent=`done — through step ${lastT} · p=${m.p} · 2/lr=${(META?META.thr:0).toFixed(3)}.`;finish();
-    }else if(m.type==='error'){st.textContent='backend: '+m.error;finish();}
+    }else if(m.type==='g3d'){ADV_GOT.en18=1;g3dPush(m);
+    }else if(m.type==='g4d'){ADV_GOT.en19=1;ADV_GOT.en22=1;s12Push(m);
+    }else if(m.type==='g13'){ADV_GOT.en21=1;s13Push(m);
+    }else if(m.type==='g14'){ADV_GOT.en20=1;s14Push(m);
+    }else if(m.type==='g15'){ADV_GOT.en23=1;s15Push(m);
+    }else if(m.type==='g15n'){ADV_GOT.en23=1;s15nPush(m);
+    }else if(m.type==='g15b'){ADV_GOT.en23=1;s15bPush(m);
+    }else if(m.type==='g15p34'){ADV_GOT.en23=1;s15p34Push(m);
+    }else if(m.type==='g16'){ADV_GOT.en24=1;s16Push(m);
+    }else if(m.type==='g17'){ADV_GOT.en25=1;s17Push(m);
+    }else if(m.type==='done'){st.textContent=`done — through step ${lastT} · p=${m.p} · 2/lr=${(META?META.thr:0).toFixed(3)}.`;markSkippedAdv();finish();
+    }else if(m.type==='error'){st.textContent='backend: '+m.error;markSkippedAdv();finish();}
   };
   es.onerror=()=>{if(RUNNING&&!PAUSED)st.textContent='backend connection lost — start it with “python server.py”, then press Run (or switch compute to browser).';finish();};
 }
@@ -3871,11 +3908,11 @@ const PRESETS={
   // CIFAR-10 (MSE on one-hot) — fully-connected net on flattened 3072-dim images (GPU backend)
   cifar_mlp:{dataset:'cifar10',arch:'mlp',loss:'mse',depth:2,width:128,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:128,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // CIFAR-2 (2-class SCALAR ±1) — small N so the per-sample §16/§17 sections also run; en24/en25 on
-  cifar2_mlp:{dataset:'cifar2',arch:'mlp',loss:'mse',depth:1,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:16,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en18:1,en19:1,en22:1,en23:1,en24:1,en25:1,s24iter:200,s24warm:5,qapprox:25,qmode:1,tset:3,compute:'gpu'},
+  cifar2_mlp:{dataset:'cifar2',arch:'mlp',loss:'mse',depth:1,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:16,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en18:1,en19:1,en20:1,en21:1,en22:1,en23:1,en24:1,en25:1,s24iter:200,s24warm:5,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // MNIST (10-class one-hot) — padded to 3×32×32, drop-in for cifar-shaped nets
-  mnist_mlp:{dataset:'mnist',arch:'mlp',loss:'mse',depth:2,width:128,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:16,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en18:1,en19:1,en22:1,en23:1,en24:1,en25:0,s24iter:200,s24warm:5,qapprox:25,qmode:1,tset:3,compute:'gpu'},
+  mnist_mlp:{dataset:'mnist',arch:'mlp',loss:'mse',depth:1,width:48,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:8,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en18:1,en19:1,en20:1,en21:1,en22:1,en23:1,en24:1,en25:0,s24iter:200,s24warm:5,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // MNIST-2 (2-class SCALAR ±1) — small N so §16/§17 run; en24/en25 on
-  mnist2_mlp:{dataset:'mnist2',arch:'mlp',loss:'mse',depth:1,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:16,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en18:1,en19:1,en22:1,en23:1,en24:1,en25:1,s24iter:200,s24warm:5,qapprox:25,qmode:1,tset:3,compute:'gpu'},
+  mnist2_mlp:{dataset:'mnist2',arch:'mlp',loss:'mse',depth:1,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:16,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en18:1,en19:1,en20:1,en21:1,en22:1,en23:1,en24:1,en25:1,s24iter:200,s24warm:5,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // CIFAR-10 (MSE) — small 3-block conv net (avg-pool, tanh) on a CIFAR subset (GPU backend)
   cifar_cnn:{dataset:'cifar10',arch:'cnn',loss:'mse',depth:2,width:128,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:128,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:1.0,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // CIFAR-10 (MSE) — VGG11 (avg-pool, no BN). chmul=0.25→~0.6M (fast); set chmul=1 for the full ~9.4M VGG11
@@ -3903,7 +3940,16 @@ function cmpSyncInitScale(pre){const sc=document.getElementById(pre+'_initscheme
   el.title=off?'ignored — '+sc.value+' sets the variance from fan-in/fan-out (canonical)':'';}
 ['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt','neig','kth','steps','eigevery','slqprobes','energyp','gson','seed','qapprox','qmode','tset','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','cvar']
   .forEach(id=>document.getElementById(id).addEventListener('input',()=>{document.getElementById('preset').value='custom';}));
-['dataset','arch','loss'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';}));
+// Each dataset has a sensible DEFAULT config (a preset): picking the dataset applies it (good lr/init/N
+// + the sections that actually run at that size) so you don't also have to hunt for the matching preset.
+const DATASET_PRESET={cifar10:'cifar_mlp',cifar2:'cifar2_mlp',mnist:'mnist_mlp',mnist2:'mnist2_mlp',
+  sorting:'sort_gpt',owt:'owt_gpt',chebyshev:'chebyshev',const:'gpu_const',synthetic:'msample'};
+document.getElementById('dataset').addEventListener('change',e=>{
+  const pn=DATASET_PRESET[e.target.value];
+  if(pn&&typeof PRESETS!=='undefined'&&PRESETS[pn]){const pe=document.getElementById('preset');pe.value=pn;applyPreset(pn);syncSectionVis();drawPreview();}
+  else{document.getElementById('preset').value='custom';}
+});
+['arch','loss'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';}));
 // keep the live parameter-count badge + §1/§2/§3 annotations in sync with the architecture controls
 ['depth','width','act','bias','indim','outdim','dataset','arch']
   .forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener(el.tagName==='SELECT'?'change':'input',updateParamBadge);});
