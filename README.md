@@ -121,12 +121,24 @@ $(u_1,v_1,\sigma_1)$ is the top NTK singular triple of the propagated $J$. Three
 | **9c** | the same predictions vs the **full-Hessian sharpness** `λmax(∇²L)` (own toggle) | MSE · single or multi |
 | **9d / 9d-c** | §9 / §9c but with the residual **self-computed by the quadratic model** (closed loop), vs actual `σ₁` / the full-Hessian sharpness (own toggles) | MSE · single or multi |
 | **10** | **cubic** approximation — Eq. 47/51 σ₁ predictions (±PSD, and Eq. 51 without the η² term) with exact `J`&`Q` propagation, vs the NTK `σ₁` and the full-Hessian `λmax`, + the `‖ΔQ‖`/`‖ΔJ‖` window drift (off by default — heaviest) | MSE · single (Eq. 47) or multi (Eq. 51) |
+| **11** | 3D Hessian–NTK grids `T1=JᵢᵀQⱼJₖ`, `T2=uⱼuₖT1`, `T3=rᵢuⱼuₖT1` — per-`(i,j,k)`-class evolution stats + sparsified cuboids (rotating GIFs offline) | multi-sample · small `N` (N³ grid, capped by `grid3dcap`) |
+| **12a / 12b** | per-sample function Hessian `Qᵢ=∇²fᵢ`: top/bottom-eigvec **principal angles** + diagonal alignment across samples (12a); per-sample **projection** panels of `∇f` / `J·r` onto each `Qᵢ`'s eigvecs (12b) | multi-sample · small `N` (capped by `sec12ncap`) |
+| **13** | residual-weighted curvature `G1/G2/G3 ≈ ∑ JᵢᵀQⱼJₖ·rₖ` vs the exact reference (own toggle) | multi-sample · small `N` |
+| **14** | `Tr(ΔNTK)` per-triplet decomposition over the `N³` cube | multi-sample · small `N` |
+| **15** | 2nd-difference decomposition of `‖J‖²_F` (=tr NTK) and `σ₁` into theory terms I/II/III (+ IV/V/VI), the matrices A/B, chained-contraction norms, and a per-sample top/bottom projection ratio | MSE · single or multi |
+| **16** | standalone **curvature-aligned per-residual-sign optimizer** — from θ₀: a GD warmup, then push `r>0` samples along the top eigvec of the sample-averaged function Hessian `H̄` and `r<0` along the bottom (each ×its eigenvalue), line-search, and advance by whichever of {curvature step, GD step} lowers the loss more. 6 panels (loss · loss-Hessian eig · function-Hessian eig · residuals · held-out test loss · ‖update‖₂) × {pos, neg, mean, best} look-aheads, plus 4 dotted **baselines** — A random dirs · B shuffled ± sets · C frozen-random · D frozen-`H̄`-eigvec | MSE · small `M = N·d_out` (≤ 256) |
+| **17** | **per-sample** variant of §16 — instead of the averaged `H̄`, each sample uses the top/bottom eigvec of its **own** function Hessian `Qₖ=∇²fₖ` (`r>0` → top, `r<0` → bottom); same 6 panels + 4 baselines | MSE · small `M = N·d_out` (≤ 64) |
 
 A checkbox per section toggles its computation. §7a/§7/§8/§4b/§4c use the *function* NTK `Jᵤ·Jᵤᵀ` and the
 generic residual `r = −∂L/∂z` (MSE: `y−f`, CE: `softmax(z)−onehot`), so they work for **cross-entropy** too;
 they only need the explicit `M×p` Jacobian (`M = N·d_out`) to be feasible — skipped (stamped *"too large"*)
-for e.g. OpenWebText, and empty for a single sample. Only **§4d** (its sign-groups need a scalar residual)
-and **§9** (the squared-loss σ₁ recursion) are MSE-only. Any panel a run can't fill is stamped *"n/a"*.
+for e.g. OpenWebText, and empty for a single sample. **§4d** (its sign-groups need a scalar residual), **§9**
+(the squared-loss σ₁ recursion) and the **§16 / §17** optimizers are MSE-only. Any §1–§10 panel a run can't
+fill is stamped *"n/a"*; the §11–§17 sections stream their own records, so when one is **enabled but gated off**
+(`M = N·d_out` over the §16 ≤256 / §17 ≤64 cap, `N` over the §11/§12 cap, single-sample, or the per-sample
+batched Lanczos hits a memory limit) the section instead shows a clear *"§X not produced — … lower the number
+of samples"* note in place of a blank frame. The per-sample sections (§12–§17) are heaviest for **multi-class**
+runs, where `M = N·d_out` is large; the **2-class scalar** datasets and the small-`N` presets keep them feasible.
 
 The cheap core (loss/sharpness/eigenvalues/§9 theory/§7a) is computed every diagnostic tick; the heaviest
 slowly-varying panels — §7's FH-eigenvector projections and §8 — are computed every **`heavy every`** ticks
@@ -137,12 +149,19 @@ compute every panel every step.
 
 Set from the dropdowns (real-data / conv / transformer runs use the GPU backend):
 
-- **Datasets** — `synthetic` (in-browser MLP), **CIFAR-10**, **sorting** (sort a sequence; MSE),
-  **OpenWebText** (GPT-2-BPE next-token LM; cross-entropy *or* MSE, minibatched — under MSE the
-  logits are regressed toward the one-hot next token, normalised per token), and **Chebyshev**
-  (Cohen et al. EoS toy task: `nsamp` points evenly spaced on [-1,1] labeled by the Chebyshev
-  polynomial `T_degree`; MSE on a 6-hidden-layer width-50 tanh MLP, ≈12.9k params.
-  `degree` is set in the hyperparameter panel; the preset sharpens to the `2/η` edge of stability).
+- **Datasets** — `synthetic` (in-browser MLP), **CIFAR-10** (10-class one-hot) and **CIFAR-2**
+  (2 classes `{c2a, c2b}` mapped to a single **scalar** target ±1), **MNIST** (10-class) and **MNIST-2**
+  (2-class scalar ±1) — MNIST digits are zero-padded 28→32 and replicated to 3 channels, so they're a
+  drop-in for the same MLP/CNN/VGG as CIFAR; **sorting** (sort a sequence; MSE), **OpenWebText**
+  (GPT-2-BPE next-token LM; cross-entropy *or* MSE, minibatched — under MSE the logits are regressed
+  toward the one-hot next token, normalised per token), and **Chebyshev** (Cohen et al. EoS toy task:
+  `nsamp` points evenly spaced on [-1,1] labeled by the Chebyshev polynomial `T_degree`; MSE on a
+  6-hidden-layer width-50 tanh MLP, ≈12.9k params. `degree` is set in the hyperparameter panel; the
+  preset sharpens to the `2/η` edge of stability). The **2-class scalar** variants (`cifar2` / `mnist2`)
+  exist so the per-sample §16/§17 optimizers run on real images: with `d_out = 1`, `M = N·1` stays small.
+  Picking a dataset auto-applies its **default preset** (good `lr`/`init`/`N` + the sections that fit
+  that size); the `cifar2_mlp` / `mnist_mlp` / `mnist2_mlp` presets use `lr = 0.02` (the default `0.36`
+  diverges on the 3072-dim inputs).
 - **Architectures** — `MLP`, `CNN`, **VGG11** (`chmul` scales channels, up to ~9.4M params),
   **mini-GPT** (sorting regressor, or a tied-embedding token-LM for OpenWebText).
 - **Loss** — `MSE` (all panels) or `cross-entropy` (keeps §4/§6; residual-NTK & theory panels n/a).
