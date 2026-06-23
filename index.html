@@ -122,6 +122,8 @@
     <option value="sort_gpt">sorting · mini-GPT transformer (GPU backend)</option>
     <option value="owt_gpt">OpenWebText · mini-GPT LM, minibatch SGD (GPU backend)</option>
     <option value="chebyshev">Chebyshev · T₃ regression on [-1,1] (GPU backend)</option>
+    <option value="ksparse_mlp">k-sparse parity · MLP (in-browser; ±1 bits → ±1)</option>
+    <option value="ksparse_gpt">k-sparse parity · mini-GPT transformer (GPU backend)</option>
     <option value="custom">— custom (manual) —</option>
   </select>
   <span class="hint">picking a preset auto-runs it · edit any control and press <b>Run</b> · hover any plot for a shared cursor</span>
@@ -4046,6 +4048,9 @@ const PRESETS={
   // k-sparse parity: 10 ±1 input bits, label = product (parity) of a fixed random k=3-subset → ±1; tanh MLP, MSE.
   // Runs in-browser; switch arch→gpt + Compute→GPU backend for the transformer version (same dataset).
   ksparse_mlp:{dataset:'ksparse',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:24,batch:0,indim:10,outdim:1,ksparse:3,tgt:1.0,neig:3,kth:1,steps:600,eigevery:2,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en24:1,en25:1,qapprox:25,qmode:1,tset:3,compute:'browser'},
+  // k-sparse parity with the mini-GPT transformer (GPU backend): the in_dim ±1 bits are read as a length-in_dim
+  // sequence of bit-tokens and the per-position head is mean-pooled to the one scalar ±1 parity. MSE.
+  ksparse_gpt:{dataset:'ksparse',arch:'gpt',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.005,init:0.5,nsamp:24,batch:0,indim:10,outdim:1,ksparse:3,tgt:1.0,neig:3,kth:1,steps:1000,eigevery:5,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:48,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en24:1,en25:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
 };
 function setVal(id,v){document.getElementById(id).value=String(v);}
 function applyPreset(name){const P=PRESETS[name];if(!P)return;for(const k in P){const el=document.getElementById(k);if(!el)continue;if(el.type==='checkbox')el.checked=!!P[k];else el.value=String(P[k]);}syncLossPanels();updateParamBadge();syncInitScaleEnabled();}
