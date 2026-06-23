@@ -186,6 +186,7 @@
       <div class="ctl"><label title="§16: number of §16 optimizer iterations after the GD warmup.">§16 iterations</label><input id="s24iter" type="number" value="250" min="1" max="2000" step="1"></div>
       <div class="ctl"><label title="§16: (β,s) search grid step. Finer (smaller) ⇒ more descent extracted per iteration, but costs (1/step)² loss evaluations. Default 0.1.">§16 β,s grid step</label><input id="s24grid" type="number" value="0.1" min="0.01" max="0.5" step="0.01"></div>
       <div class="ctl"><label title="§16: α line-search resolution. Finer (smaller) ⇒ finds smaller beneficial steps near the plateau. Default 0.01.">§16 α resolution</label><input id="s24ares" type="number" value="0.01" min="0.001" max="0.1" step="0.001"></div>
+      <div class="ctl"><label title="§16/§17: number of eigenvectors per side (top-kdir &amp; bottom-kdir of H̄, or per-sample Q_k in §17) onto which the ± residual gradients are projected. Larger ⇒ captures more of the gradient (more descent), costs ∝ kdir. Default 8.">§16/§17 kdir</label><input id="s24k" type="number" value="8" min="1" max="64" step="1"></div>
       <div class="ctl"><label title="§16: also compute the FOUR dotted baselines in every panel — A: two random unit vectors instead of u₁/u₋₁ (KEEP σ₁/σ₋₁ of H̄, redrawn each iter); B: keep u₁/u₋₁/σ but shuffle the ± set membership; C (rand-fix): random directions FROZEN at warmup-end (σ recomputed); D (eig-fix): the H̄ top/bottom eigvecs FROZEN at warmup-end (σ recomputed). All PURE-curvature trajectories. ≈5× cost. OFF by default.">§16 baselines</label><input type="checkbox" id="en24base"></div>
       <div class="ctl"><label title="§17: also compute the FOUR dotted baselines (per-sample analog of §16's A/B/C/D — random per-sample dirs, shuffled ± sets, frozen-random, frozen per-sample eigvecs). ≈5× cost. OFF by default.">§17 baselines</label><input type="checkbox" id="en25base"></div>
       <div class="ctl"><label title="§12 sample cap: skip §12 when the number of samples N exceeds this. §12 extracts each sample's top-/bottom-15 Hessian eigenpairs MATRIX-FREE via Lanczos (no p×p matrix is formed), so it scales to large models like §1–§3; the grid is N×N so only N is capped.">§12 N-cap</label><input id="sec12ncap" type="number" value="500" min="1" max="600" step="1"></div>
@@ -2329,10 +2330,11 @@ function sec16Holdout(dataset,N,inDim,outDim,seed,tgt,inStd,fixedx,ssign,cvar){ 
   else{for(let i=0;i<N*outDim;i++)Y[i]=tgt*gauss(rng);}
   return {X:X,Y:Y,N:N};
 }
-// mode: 'eig' (top/bottom eigvecs of H̄, true ± sets) · 'random' (two random unit vectors, KEEP σ₁/σ₋₁) ·
-//       'shuffle' (eigvecs, ± set membership permuted, counts kept). useGd: advance by best{curvature,GD} (main §16 — loss ↓)
-//       vs the PURE curvature step (baselines — genuinely separate trajectories). Xt/Yt/Nt: Panel-5 held-out test set (or null).
-function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,mode,useGd,push){
+// project g₊ onto the top-kdir eigvecs of H̄ and g₋ onto the bottom-kdir (coefficient ⟨g,u_i⟩, NO σ/η), then α₁/α₂/β/s.
+// mode: 'eig' (MAIN, top-/bottom-kdir eigvecs of H̄, true ± sets) · 'random' (kdir random unit vecs/side) · 'shuffle'
+//       (eigvecs, ± set membership permuted, counts kept) · 'randfix'/'eigfix' (frozen dirs) · 'gd' (u_sec16 = the
+//       line-searched gradient step). The main run is PURE curvature (no GD). Xt/Yt/Nt: Panel-5 held-out test set (or null).
+function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,mode,kdir,push){
   const k=Math.max(1,neig|0),eps=1e-3,mg=Math.max(1,Math.round(1/Math.max(1e-9,bgrid))),grid=[];for(let i=0;i<=mg;i++)grid.push(i/mg);
   const Yf=Y;
   const M=N*spec[spec.length-1].dout;   // EFFECTIVE samples = N·d_out (residual / Jacobian-row dimension)
@@ -2359,33 +2361,37 @@ function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgri
       recs.push({i:it,phase:'gd',apos:null,aneg:null,beta:null,scale:null,tgd:null,loss:real.L,unorm:{pos:null,neg:null,mean:null,beta:Math.sqrt(un)},...pack(real,null)});
       th=th.slice();for(let q=0;q<p;q++)th[q]+=cc*g[q];continue;}
     const r=resid(th),J=jacCols(th,spec,X,N,inDim,p).cols;
-    let u1,um1,sig1,sigm1;
-    if(mode==='random'||mode==='randfix'){const fv=lanczosExtremeVals(Hbar(th),p,k,mlan,sd);sig1=fv.top[0];sigm1=fv.bot[0];   // random unit vectors instead of u₁/u₋₁ (keep σ₁/σ₋₁ of H̄)
-      if(mode==='randfix'&&frozU1){u1=frozU1;um1=frozUm1;}   // BASELINE 3: reuse warmup-end frozen random directions
-      else{const rv1=randVec(p,(sd^0x16A1)>>>0),rv2=randVec(p,(sd^0x16A2)>>>0);let n1=0,n2=0;for(let q=0;q<p;q++){n1+=rv1[q]*rv1[q];n2+=rv2[q]*rv2[q];}
-        n1=Math.sqrt(n1);n2=Math.sqrt(n2);u1=new Float64Array(p);um1=new Float64Array(p);for(let q=0;q<p;q++){u1[q]=rv1[q]/n1;um1[q]=rv2[q]/n2;}
-        if(mode==='randfix'){frozU1=u1;frozUm1=um1;}}}   // freeze at warmup-end (first §16 iter)
-    else{const ex=lanczosExtreme(Hbar(th),p,k,mlan,sd);sig1=ex.topVals[0];sigm1=ex.botVals[0];
-      if(mode==='eigfix'){if(!frozU1){frozU1=ex.topVecs[0];frozUm1=ex.botVecs[0];}u1=frozU1;um1=frozUm1;}   // BASELINE 4: top/bottom eigvecs FROZEN at warmup-end (σ still recomputed)
-      else{u1=ex.topVecs[0];um1=ex.botVecs[0];}}
+    if(mode==='gd'){   // GD baseline: u_sec16 IS the line-searched gradient step (the gradient direction has no ± decomposition)
+      const dGd=new Float64Array(p);for(let a=0;a<M;a++)for(let q=0;q<p;q++)dGd[q]+=J[a][q]*r[a];for(let q=0;q<p;q++)dGd[q]/=N;
+      const tGd=lineSearch(th,dGd,null);const uSec=new Float64Array(p);for(let q=0;q<p;q++)uSec[q]=tGd*dGd[q];
+      const lookg={pos:metrics(_addV(th,uSec),sd+1),neg:metrics(_addV(th,uSec),sd+2),mean:metrics(_addV(th,uSec),sd+3),beta:metrics(_addV(th,uSec),sd+4)};
+      let ng=0;for(let q=0;q<p;q++)ng+=uSec[q]*uSec[q];ng=Math.sqrt(ng);
+      recs.push({i:it,phase:'sec16',apos:tGd,aneg:tGd,beta:tGd,scale:tGd,tgd:tGd,loss:lookg.beta.L,unorm:{pos:ng,neg:ng,mean:ng,beta:ng},...pack(lookg.beta,lookg)});
+      th=_addV(th,uSec);if(lossM(th,null)<tol)break;continue;}
+    const kd=Math.max(1,Math.min(kdir|0,p>>1));   // eigvecs per side (top-kd & bottom-kd)
+    let Ut,Ub;
+    if(mode==='random'||mode==='randfix'){   // kd random unit vectors per side instead of eigvecs
+      if(mode==='randfix'&&frozU1){Ut=frozU1;Ub=frozUm1;}   // BASELINE C: reuse warmup-end frozen random directions
+      else{Ut=[];Ub=[];for(let i=0;i<kd;i++){const rv1=randVec(p,(sd^0x16A1^(i*0x101))>>>0),rv2=randVec(p,(sd^0x16B1^(i*0x101))>>>0);
+          let n1=0,n2=0;for(let q=0;q<p;q++){n1+=rv1[q]*rv1[q];n2+=rv2[q]*rv2[q];}n1=Math.sqrt(n1);n2=Math.sqrt(n2);
+          const a1=new Float64Array(p),a2=new Float64Array(p);for(let q=0;q<p;q++){a1[q]=rv1[q]/n1;a2[q]=rv2[q]/n2;}Ut.push(a1);Ub.push(a2);}
+        if(mode==='randfix'){frozU1=Ut;frozUm1=Ub;}}}   // freeze at warmup-end (first §16 iter)
+    else{   // 'eig'/'eigfix'/'shuffle': top-kd & bottom-kd eigvecs of H̄
+      if(mode==='eigfix'&&frozU1){Ut=frozU1;Ub=frozUm1;}   // BASELINE D: top/bottom eigvecs FROZEN at warmup-end
+      else{const ex=lanczosExtreme(Hbar(th),p,kd,mlan,sd);Ut=ex.topVecs;Ub=ex.botVecs;if(mode==='eigfix'){frozU1=Ut;frozUm1=Ub;}}}
     let mpos,mneg;
     if(mode==='shuffle'){let np=0,nn=0;for(let a=0;a<M;a++){if(r[a]>0)np++;else if(r[a]<0)nn++;}   // BASELINE B: permute ± set membership over the M effective samples (keep counts; each keeps its real r)
       const sidx=_shuffle16(M,(sd^0x16B0)>>>0);mpos=new Array(M).fill(false);mneg=new Array(M).fill(false);
       for(let a=0;a<np;a++)mpos[sidx[a]]=true;for(let a=0;a<nn;a++)mneg[sidx[np+a]]=true;}
     else{mpos=Array.from(r,x=>x>0);mneg=Array.from(r,x=>x<0);}
     const gpos=new Float64Array(p),gneg=new Float64Array(p);for(let a=0;a<M;a++){if(mpos[a])for(let q=0;q<p;q++)gpos[q]+=r[a]*J[a][q];else if(mneg[a])for(let q=0;q<p;q++)gneg[q]+=r[a]*J[a][q];}
-    let dp=0,dn=0;for(let q=0;q<p;q++){dp+=gpos[q]*u1[q];dn+=gneg[q]*um1[q];}
-    const sp=dp*sig1,sn=dn*sigm1,projP=new Float64Array(p),projN=new Float64Array(p);for(let q=0;q<p;q++){projP[q]=sp*u1[q];projN[q]=sn*um1[q];}
+    const projP=new Float64Array(p),projN=new Float64Array(p);   // Σ_i ⟨g₊,u_i⟩u_i & Σ_i ⟨g₋,u₋i⟩u₋i (top/bottom-kd; NO σ/η)
+    for(let i=0;i<kd;i++){let dp=0,dn=0;for(let q=0;q<p;q++){dp+=gpos[q]*Ut[i][q];dn+=gneg[q]*Ub[i][q];}for(let q=0;q<p;q++){projP[q]+=dp*Ut[i][q];projN[q]+=dn*Ub[i][q];}}
     const apos=lineSearch(th,projP,mpos),aneg=lineSearch(th,projN,mneg);
     const uPos=new Float64Array(p),uNeg=new Float64Array(p),uMean=new Float64Array(p);for(let q=0;q<p;q++){uPos[q]=apos*projP[q];uNeg[q]=aneg*projN[q];uMean[q]=0.5*(uPos[q]+uNeg[q]);}
     let beta=0,scale=0,bestL=Infinity;for(const bb of grid)for(const ss of grid){const u=new Float64Array(p);for(let q=0;q<p;q++)u[q]=ss*(bb*uPos[q]+(1-bb)*uNeg[q]);const L=lossM(_addV(th,u),null);if(L<bestL){bestL=L;beta=bb;scale=ss;}}
     const uSec16=new Float64Array(p);for(let q=0;q<p;q++)uSec16[q]=scale*(beta*uPos[q]+(1-beta)*uNeg[q]);
-    let uBeta,tgd;
-    if(useGd){   // GD step (full-loss line-search along the gradient) ⇒ the advancing loss STRICTLY decreases
-      const dGd=new Float64Array(p);for(let a=0;a<M;a++)for(let q=0;q<p;q++)dGd[q]+=J[a][q]*r[a];for(let q=0;q<p;q++)dGd[q]/=N;
-      const tGd=lineSearch(th,dGd,null);const uGd=new Float64Array(p);for(let q=0;q<p;q++)uGd[q]=tGd*dGd[q];
-      if(lossM(_addV(th,uGd),null)<lossM(_addV(th,uSec16),null)){uBeta=uGd;tgd=tGd;}else{uBeta=uSec16;tgd=0;}   // GD when §16 step doesn't help (else tgd=0)
-    }else{uBeta=uSec16;tgd=0;}   // baseline: PURE curvature step (no GD fallback) ⇒ a genuinely separate trajectory
+    const uBeta=uSec16,tgd=0;   // advance by u_sec16 — the main run is PURE curvature (no GD fallback)
     const look={pos:metrics(_addV(th,uPos),sd+1),neg:metrics(_addV(th,uNeg),sd+2),mean:metrics(_addV(th,uMean),sd+3),beta:metrics(_addV(th,uBeta),sd+4)};
     const _n2=v=>{let s=0;for(let q=0;q<p;q++)s+=v[q]*v[q];return Math.sqrt(s);};   // Panel 6: ‖u_•‖₂
     recs.push({i:it,phase:'sec16',apos,aneg,beta,scale,tgd,loss:look.beta.L,unorm:{pos:_n2(uPos),neg:_n2(uNeg),mean:_n2(uMean),beta:_n2(uBeta)},...pack(look.beta,look)});
@@ -2394,21 +2400,22 @@ function sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgri
   }
   return recs;
 }
-// §16 driver: main (mode='eig', GD-best-of) + — if baselines — 'random' (A), 'shuffle' (B), 'randfix' (3: frozen random
-// dirs) & 'eigfix' (4: frozen H̄ eigvec dirs) PURE-curvature trajectories from the SAME θ₀, attaching their per-iteration
-// metrics as rec.bA/bB/bC/bD. MIRRORS server._sec16_driver / eos_lab.sec16_driver.
-function sec16Driver(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,baselines,push){
-  const gmain=sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,'eig',true,push);
+// §16 driver: main (mode='eig', PURE curvature) + — if baselines — 'random' (A), 'shuffle' (B), 'randfix' (C: frozen
+// random dirs), 'eigfix' (D: frozen H̄ eigvec dirs) & 'gd' (E: the plain GD step) trajectories from the SAME θ₀,
+// attaching their per-iteration metrics as rec.bA/bB/bC/bD/bE. MIRRORS server._sec16_driver / eos_lab.sec16_driver.
+function sec16Driver(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,baselines,kdir,push){
+  const gmain=sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,'eig',kdir,push);
   if(!baselines){for(const rec of gmain)push({type:'g16',...rec});return;}
-  const mk=md=>sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,-1,bgrid,ares,Xt,Yt,Nt,md,false,push);
-  const gA=mk('random'),gB=mk('shuffle'),gC=mk('randfix'),gD=mk('eigfix');
+  const mk=md=>sec16Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,-1,bgrid,ares,Xt,Yt,Nt,md,kdir,push);
+  const gA=mk('random'),gB=mk('shuffle'),gC=mk('randfix'),gD=mk('eigfix'),gE=mk('gd');
   const sub=r=>({L:r.L,Lt:r.Lt,lH:r.lH,fH:r.fH,res:r.res,unorm:r.unorm});
   for(let i=0;i<gmain.length;i++){const rec={...gmain[i]};if(i<gA.length)rec.bA=sub(gA[i]);if(i<gB.length)rec.bB=sub(gB[i]);
-    if(i<gC.length)rec.bC=sub(gC[i]);if(i<gD.length)rec.bD=sub(gD[i]);push({type:'g16',...rec});}
+    if(i<gC.length)rec.bC=sub(gC[i]);if(i<gD.length)rec.bD=sub(gD[i]);if(i<gE.length)rec.bE=sub(gE[i]);push({type:'g16',...rec});}
 }
-// §17 — PER-SAMPLE function-Hessian variant of §16: r_k>0 uses the TOP eigvec of its OWN Q_k=∇²f_k, r_k<0 the BOTTOM.
-// MIRRORS server._sec17_run / eos_lab.sec17_run. Q_k·v = jacHVP(...)[kk] (row kk of the FD Jacobian-of-grad).
-function sec17Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,mode,useGd,push){
+// §17 — PER-SAMPLE function-Hessian variant of §16: r_k>0 projects r_k∇f_k onto the TOP-kdir eigvecs of its OWN
+// Q_k=∇²f_k, r_k<0 onto the BOTTOM-kdir (coefficient ⟨r_k∇f_k,u⟩, NO σ/η), then α₁/α₂/β/s. Main is PURE curvature;
+// 'gd' baseline only. MIRRORS server._sec17_run / eos_lab.sec17_run. Q_k·v = jacHVP(...)[kk] (row kk of the FD Jacobian-of-grad).
+function sec17Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,mode,kdir,push){
   const k=Math.max(1,neig|0),eps=1e-3,mg=Math.max(1,Math.round(1/Math.max(1e-9,bgrid))),grid=[];for(let i=0;i<=mg;i++)grid.push(i/mg);
   const Yf=Y;
   const M=N*spec[spec.length-1].dout;
@@ -2436,40 +2443,46 @@ function sec17Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgri
       recs.push({i:it,phase:'gd',apos:null,aneg:null,beta:null,scale:null,tgd:null,loss:real.L,unorm:{pos:null,neg:null,mean:null,beta:Math.sqrt(un)},...pack(real,null)});
       th=th.slice();for(let q=0;q<p;q++)th[q]+=cc*g[q];continue;}
     const r=resid(th),J=jacCols(th,spec,X,N,inDim,p).cols;
+    if(mode==='gd'){   // GD baseline: u_sec IS the line-searched gradient step (no per-sample work)
+      const dGd=new Float64Array(p);for(let a=0;a<M;a++)for(let q=0;q<p;q++)dGd[q]+=J[a][q]*r[a];for(let q=0;q<p;q++)dGd[q]/=N;
+      const tGd=lineSearch(th,dGd,null);const uSec=new Float64Array(p);for(let q=0;q<p;q++)uSec[q]=tGd*dGd[q];
+      const lookg={pos:metrics(_addV(th,uSec),sd+1),neg:metrics(_addV(th,uSec),sd+2),mean:metrics(_addV(th,uSec),sd+3),beta:metrics(_addV(th,uSec),sd+4)};
+      let ng=0;for(let q=0;q<p;q++)ng+=uSec[q]*uSec[q];ng=Math.sqrt(ng);
+      recs.push({i:it,phase:'sec17',apos:tGd,aneg:tGd,beta:tGd,scale:tGd,tgd:tGd,loss:lookg.beta.L,unorm:{pos:ng,neg:ng,mean:ng,beta:ng},...pack(lookg.beta,lookg)});
+      th=_addV(th,uSec);if(lossM(th,null)<tol)break;continue;}
     const psd=(sd^0x17C0FFEE)&0x7FFFFFFF;   // per-sample Lanczos/random seed base (disjoint from metrics seeds)
-    const Up=[],Um=[],Sp=[],Sm=[];
+    const kd=Math.max(1,Math.min(kdir|0,p>>1));   // eigvecs per side, per sample
+    const Up=[],Um=[];   // per-sample lists of kd top / kd bottom eigvecs of Q_k
     for(let kk=0;kk<M;kk++){
       const skk=(psd+kk*1009)&0x7FFFFFFF,hk=Qk(th,kk);
-      if(mode==='random'||mode==='randfix'){   // per-sample random dirs, keep σ_k⁺/σ_k⁻ of Q_k
-        const fv=lanczosExtremeVals(hk,p,1,mlan,skk);Sp.push(fv.top[0]);Sm.push(fv.bot[0]);
-        const rv1=randVec(p,(skk^0x17A1)&0x7FFFFFFF),rv2=randVec(p,(skk^0x17A2)&0x7FFFFFFF);let n1=0,n2=0;for(let q=0;q<p;q++){n1+=rv1[q]*rv1[q];n2+=rv2[q]*rv2[q];}
-        n1=Math.sqrt(n1);n2=Math.sqrt(n2);const up=new Float64Array(p),um=new Float64Array(p);for(let q=0;q<p;q++){up[q]=rv1[q]/n1;um[q]=rv2[q]/n2;}Up.push(up);Um.push(um);
-      }else{   // real per-sample top/bottom eigenpairs of Q_k
-        const ex=lanczosExtreme(hk,p,1,mlan,skk);Sp.push(ex.topVals[0]);Sm.push(ex.botVals[0]);Up.push(ex.topVecs[0]);Um.push(ex.botVecs[0]);
+      if(mode==='random'||mode==='randfix'){   // per-sample kd random dirs per side
+        const ut=[],um=[];
+        for(let i=0;i<kd;i++){const rv1=randVec(p,(skk^0x17A1^(i*0x101))&0x7FFFFFFF),rv2=randVec(p,(skk^0x17A2^(i*0x101))&0x7FFFFFFF);
+          let n1=0,n2=0;for(let q=0;q<p;q++){n1+=rv1[q]*rv1[q];n2+=rv2[q]*rv2[q];}n1=Math.sqrt(n1);n2=Math.sqrt(n2);
+          const a1=new Float64Array(p),a2=new Float64Array(p);for(let q=0;q<p;q++){a1[q]=rv1[q]/n1;a2[q]=rv2[q]/n2;}ut.push(a1);um.push(a2);}
+        Up.push(ut);Um.push(um);
+      }else{   // 'eig'/'eigfix'/'shuffle': per-sample top-kd/bottom-kd eigvecs of Q_k
+        const ex=lanczosExtreme(hk,p,kd,mlan,skk);Up.push(ex.topVecs);Um.push(ex.botVecs);
       }
     }
-    if(mode==='randfix'||mode==='eigfix'){   // BASELINES C/D: freeze per-sample direction set at warmup-end (σ still recomputed)
-      if(!frozUp){frozUp=Up.map(u=>Float64Array.from(u));frozUm=Um.map(u=>Float64Array.from(u));}}
+    if(mode==='randfix'||mode==='eigfix'){   // BASELINES C/D: freeze per-sample direction set at warmup-end
+      if(!frozUp){frozUp=Up.map(lst=>lst.map(u=>Float64Array.from(u)));frozUm=Um.map(lst=>lst.map(u=>Float64Array.from(u)));}}
     const useUp=(mode==='randfix'||mode==='eigfix')?frozUp:Up,useUm=(mode==='randfix'||mode==='eigfix')?frozUm:Um;
     let mpos,mneg;
     if(mode==='shuffle'){let np=0,nn=0;for(let a=0;a<M;a++){if(r[a]>0)np++;else if(r[a]<0)nn++;}   // BASELINE B: permute ± set membership over M (keep counts)
       const sidx=_shuffle16(M,(sd^0x16B0)>>>0);mpos=new Array(M).fill(false);mneg=new Array(M).fill(false);
       for(let a=0;a<np;a++)mpos[sidx[a]]=true;for(let a=0;a<nn;a++)mneg[sidx[np+a]]=true;}
     else{mpos=Array.from(r,x=>x>0);mneg=Array.from(r,x=>x<0);}
-    const projP=new Float64Array(p),projN=new Float64Array(p);
+    const projP=new Float64Array(p),projN=new Float64Array(p);   // Σ_{r_k>0} proj of r_k∇f_k onto Q_k's top-kd eigvecs (NO σ); neg analogous
     for(let kk=0;kk<M;kk++){
-      if(mpos[kk]){let d=0;for(let q=0;q<p;q++)d+=J[kk][q]*useUp[kk][q];const c=r[kk]*d*Sp[kk];for(let q=0;q<p;q++)projP[q]+=c*useUp[kk][q];}
-      else if(mneg[kk]){let d=0;for(let q=0;q<p;q++)d+=J[kk][q]*useUm[kk][q];const c=r[kk]*d*Sm[kk];for(let q=0;q<p;q++)projN[q]+=c*useUm[kk][q];}
+      if(mpos[kk])for(let i=0;i<kd;i++){let d=0;for(let q=0;q<p;q++)d+=J[kk][q]*useUp[kk][i][q];const c=r[kk]*d;for(let q=0;q<p;q++)projP[q]+=c*useUp[kk][i][q];}
+      else if(mneg[kk])for(let i=0;i<kd;i++){let d=0;for(let q=0;q<p;q++)d+=J[kk][q]*useUm[kk][i][q];const c=r[kk]*d;for(let q=0;q<p;q++)projN[q]+=c*useUm[kk][i][q];}
     }
     const apos=lineSearch(th,projP,mpos),aneg=lineSearch(th,projN,mneg);
     const uPos=new Float64Array(p),uNeg=new Float64Array(p),uMean=new Float64Array(p);for(let q=0;q<p;q++){uPos[q]=apos*projP[q];uNeg[q]=aneg*projN[q];uMean[q]=0.5*(uPos[q]+uNeg[q]);}
     let beta=0,scale=0,bestL=Infinity;for(const bb of grid)for(const ss of grid){const u=new Float64Array(p);for(let q=0;q<p;q++)u[q]=ss*(bb*uPos[q]+(1-bb)*uNeg[q]);const L=lossM(_addV(th,u),null);if(L<bestL){bestL=L;beta=bb;scale=ss;}}
     const uSec=new Float64Array(p);for(let q=0;q<p;q++)uSec[q]=scale*(beta*uPos[q]+(1-beta)*uNeg[q]);
-    let uBeta,tgd;
-    if(useGd){const dGd=new Float64Array(p);for(let a=0;a<M;a++)for(let q=0;q<p;q++)dGd[q]+=J[a][q]*r[a];for(let q=0;q<p;q++)dGd[q]/=N;
-      const tGd=lineSearch(th,dGd,null);const uGd=new Float64Array(p);for(let q=0;q<p;q++)uGd[q]=tGd*dGd[q];
-      if(lossM(_addV(th,uGd),null)<lossM(_addV(th,uSec),null)){uBeta=uGd;tgd=tGd;}else{uBeta=uSec;tgd=0;}
-    }else{uBeta=uSec;tgd=0;}
+    const uBeta=uSec,tgd=0;   // advance by u_sec — the main run is PURE curvature (no GD fallback)
     const look={pos:metrics(_addV(th,uPos),sd+1),neg:metrics(_addV(th,uNeg),sd+2),mean:metrics(_addV(th,uMean),sd+3),beta:metrics(_addV(th,uBeta),sd+4)};
     const _n2=v=>{let s=0;for(let q=0;q<p;q++)s+=v[q]*v[q];return Math.sqrt(s);};
     recs.push({i:it,phase:'sec17',apos,aneg,beta,scale,tgd,loss:look.beta.L,unorm:{pos:_n2(uPos),neg:_n2(uNeg),mean:_n2(uMean),beta:_n2(uBeta)},...pack(look.beta,look)});
@@ -2478,15 +2491,16 @@ function sec17Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgri
   }
   return recs;
 }
-// §17 driver: main (mode='eig', per-sample Q_k) + — if baselines — A/B/C/D PURE-curvature trajectories from the SAME θ₀.
-function sec17Driver(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,baselines,push){
-  const gmain=sec17Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,'eig',true,push);
+// §17 driver: main (mode='eig', per-sample Q_k, PURE curvature) + — if baselines — A/B/C/D + 'gd' (E) trajectories from
+// the SAME θ₀, attaching rec.bA/bB/bC/bD/bE. MIRRORS server._sec17_driver / eos_lab.sec17_driver.
+function sec17Driver(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,baselines,kdir,push){
+  const gmain=sec17Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,tol,bgrid,ares,Xt,Yt,Nt,'eig',kdir,push);
   if(!baselines){for(const rec of gmain)push({type:'g17',...rec});return;}
-  const mk=md=>sec17Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,-1,bgrid,ares,Xt,Yt,Nt,md,false,push);
-  const gA=mk('random'),gB=mk('shuffle'),gC=mk('randfix'),gD=mk('eigfix');
+  const mk=md=>sec17Run(spec,X,Y,N,inDim,p,lr,th0,warmup,iters,neig,mlan,seed,-1,bgrid,ares,Xt,Yt,Nt,md,kdir,push);
+  const gA=mk('random'),gB=mk('shuffle'),gC=mk('randfix'),gD=mk('eigfix'),gE=mk('gd');
   const sub=r=>({L:r.L,Lt:r.Lt,lH:r.lH,fH:r.fH,res:r.res,unorm:r.unorm});
   for(let i=0;i<gmain.length;i++){const rec={...gmain[i]};if(i<gA.length)rec.bA=sub(gA[i]);if(i<gB.length)rec.bB=sub(gB[i]);
-    if(i<gC.length)rec.bC=sub(gC[i]);if(i<gD.length)rec.bD=sub(gD[i]);push({type:'g17',...rec});}
+    if(i<gC.length)rec.bC=sub(gC[i]);if(i<gD.length)rec.bD=sub(gD[i]);if(i<gE.length)rec.bE=sub(gE[i]);push({type:'g17',...rec});}
 }
 // ── §16 render: Panel 1 (5 plots) + Panels 2/3/4/5 (4 plots each) ──
 // Each panel also carries (when baselines are on) two DOTTED trajectories: A = random directions (dash 'dot'),
@@ -2500,7 +2514,8 @@ const S16_SCEN=['pos','neg','mean','beta'],S16_SLAB={pos:'pos-only',neg:'neg-onl
 const S16_TOPC=['#08306b','#2563eb','#80b1ff'],S16_BOTC=['#67000d','#dc2626','#fca5a5'];
 // the FOUR baselines (fixed build/restyle order A,B,C,D): A=random dirs, B=shuffled ± sets, C=frozen-random dirs (randfix), D=frozen-H̄-eigvec dirs (eigfix)
 const S16_BL=[{key:'bA',lab:'A · random',col:'#0891b2',dash:'dot'},{key:'bB',lab:'B · shuffle',col:'#f59e0b',dash:'dashdot'},
-              {key:'bC',lab:'C · rand-fix',col:'#db2777',dash:'longdash'},{key:'bD',lab:'D · eig-fix',col:'#15803d',dash:'longdashdot'}];
+              {key:'bC',lab:'C · rand-fix',col:'#db2777',dash:'longdash'},{key:'bD',lab:'D · eig-fix',col:'#15803d',dash:'longdashdot'},
+              {key:'bE',lab:'E · gd',col:'#6b7280',dash:'dash'}];
 function s16Store(K,Nn){const s={L:{},Lt:{},nu:{},lH:{},fHt:{},fHb:{},res:{}};
   for(const sc of S16_SCEN){s.L[sc]=[];s.Lt[sc]=[];s.nu[sc]=[];s.lH[sc]=Array.from({length:K},()=>[]);s.fHt[sc]=Array.from({length:K},()=>[]);s.fHb[sc]=Array.from({length:K},()=>[]);s.res[sc]=Array.from({length:Nn},()=>[]);}return s;}
 function s16Acc(store,src,K,Nn){   // append one iteration of metrics from `src` (a record or a bA/bB sub-record)
@@ -2544,7 +2559,7 @@ function s16Build(m){
 }
 function s16Push(m){
   if(m.i===0 && S16_DATA && S16_DATA.i.length){s16Reset();}   // a fresh §16 run (iteration index reset to 0) → clear stale data so the curve can't double back over a previous run
-  if(!S16_BUILT){S16_K=(m.lH&&m.lH.beta?m.lH.beta.length:3);S16_N=(m.res&&m.res.beta?m.res.beta.length:0);S16_BASE=!!(m.bA||m.bB||m.bC||m.bD);s16Build(m);
+  if(!S16_BUILT){S16_K=(m.lH&&m.lH.beta?m.lH.beta.length:3);S16_N=(m.res&&m.res.beta?m.res.beta.length:0);S16_BASE=!!(m.bA||m.bB||m.bC||m.bD||m.bE);s16Build(m);
     S16_DATA={i:[],coef:{apos:[],aneg:[],beta:[],scale:[],tgd:[]},main:s16Store(S16_K,S16_N)};
     for(const b of S16_BL)S16_DATA[b.key]=S16_BASE?s16Store(S16_K,S16_N):null;}
   const D=S16_DATA;D.i.push(m.i);const t=D.i;
@@ -2584,7 +2599,8 @@ const S17_SCEN=['pos','neg','mean','beta'],S17_SLAB={pos:'pos-only',neg:'neg-onl
 const S17_TOPC=['#08306b','#2563eb','#80b1ff'],S17_BOTC=['#67000d','#dc2626','#fca5a5'];
 // the FOUR baselines (fixed build/restyle order A,B,C,D): A=random dirs, B=shuffled ± sets, C=frozen-random dirs (randfix), D=frozen-H̄-eigvec dirs (eigfix)
 const S17_BL=[{key:'bA',lab:'A · random',col:'#0891b2',dash:'dot'},{key:'bB',lab:'B · shuffle',col:'#f59e0b',dash:'dashdot'},
-              {key:'bC',lab:'C · rand-fix',col:'#db2777',dash:'longdash'},{key:'bD',lab:'D · eig-fix',col:'#15803d',dash:'longdashdot'}];
+              {key:'bC',lab:'C · rand-fix',col:'#db2777',dash:'longdash'},{key:'bD',lab:'D · eig-fix',col:'#15803d',dash:'longdashdot'},
+              {key:'bE',lab:'E · gd',col:'#6b7280',dash:'dash'}];
 function s17Store(K,Nn){const s={L:{},Lt:{},nu:{},lH:{},fHt:{},fHb:{},res:{}};
   for(const sc of S17_SCEN){s.L[sc]=[];s.Lt[sc]=[];s.nu[sc]=[];s.lH[sc]=Array.from({length:K},()=>[]);s.fHt[sc]=Array.from({length:K},()=>[]);s.fHb[sc]=Array.from({length:K},()=>[]);s.res[sc]=Array.from({length:Nn},()=>[]);}return s;}
 function s17Acc(store,src,K,Nn){   // append one §17 iteration (record or bA/bB/bC/bD sub-record)
@@ -2628,7 +2644,7 @@ function s17Build(m){
 }
 function s17Push(m){
   if(m.i===0 && S17_DATA && S17_DATA.i.length){s17Reset();}   // a fresh §17 run (iteration index reset to 0) → clear stale data so the curve can't double back over a previous run
-  if(!S17_BUILT){S17_K=(m.lH&&m.lH.beta?m.lH.beta.length:3);S17_N=(m.res&&m.res.beta?m.res.beta.length:0);S17_BASE=!!(m.bA||m.bB||m.bC||m.bD);s17Build(m);
+  if(!S17_BUILT){S17_K=(m.lH&&m.lH.beta?m.lH.beta.length:3);S17_N=(m.res&&m.res.beta?m.res.beta.length:0);S17_BASE=!!(m.bA||m.bB||m.bC||m.bD||m.bE);s17Build(m);
     S17_DATA={i:[],coef:{apos:[],aneg:[],beta:[],scale:[],tgd:[]},main:s17Store(S17_K,S17_N)};
     for(const b of S17_BL)S17_DATA[b.key]=S17_BASE?s17Store(S17_K,S17_N):null;}
   const D=S17_DATA;D.i.push(m.i);const t=D.i;
@@ -3196,14 +3212,16 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
     s16Reset();
     const cb16=(val('dataset')==='chebyshev')?sec16Cheb(N,Math.max(1,+val('degree')||3))   // Panel-5 held-out test set (chebyshev midpoints; synthetic/const fresh iid-Gaussian)
               :sec16Holdout(val('dataset'),N,inDim,outDim,+val('seed')||0,+val('tgt'),+val('inputstd'),val('fixedx'),val('ssign'),+val('cvar')||0);
-    try{ sec16Driver(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||250),n,Math.min(p,24),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),cb16&&cb16.X,cb16&&cb16.Y,cb16&&cb16.N,chk('en24base'),s16Push); }
+    const s24k16=Math.max(1,+val('s24k')||8);
+    try{ sec16Driver(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||250),n,Math.min(p,Math.max(2*s24k16+16,n+8)),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),cb16&&cb16.X,cb16&&cb16.Y,cb16&&cb16.N,chk('en24base'),s24k16,s16Push); }
     catch(e){ console.error('§16 error',e); }
   }
-  if(opt.s25 && val('arch')==='mlp' && val('loss')==='mse' && N*outDim<=32 && N*outDim*p<=200000000 && N<=64){   // §17 PER-SAMPLE (O(M²) per-sample Lanczos ⇒ gated to a SMALLER M than §16)
+  if(opt.s25 && val('arch')==='mlp' && val('loss')==='mse' && N*outDim<=64 && N*outDim*p<=300000000 && N<=64){   // §17 PER-SAMPLE (O(M²) per-sample Lanczos; browser is single-threaded ⇒ kept ≤64; the GPU/offline paths go to 256)
     s17Reset();
     const cb17=(val('dataset')==='chebyshev')?sec16Cheb(N,Math.max(1,+val('degree')||3))   // reuse §16's held-out test sets (same observables)
               :sec16Holdout(val('dataset'),N,inDim,outDim,+val('seed')||0,+val('tgt'),+val('inputstd'),val('fixedx'),val('ssign'),+val('cvar')||0);
-    try{ sec17Driver(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||250),n,Math.min(p,16),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),cb17&&cb17.X,cb17&&cb17.Y,cb17&&cb17.N,chk('en25base'),s17Push); }
+    const s24k17=Math.max(1,+val('s24k')||8);
+    try{ sec17Driver(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||250),n,Math.min(p,Math.max(2*s24k17+16,n+8)),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),cb17&&cb17.X,cb17&&cb17.Y,cb17&&cb17.N,chk('en25base'),s24k17,s17Push); }
     catch(e){ console.error('§17 error',e); }
   }
   loop();
@@ -3833,7 +3851,7 @@ async function downloadPlots(){
 function backendURL(start){
   const ps=new URLSearchParams();
   ['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
-   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','s24warm','s24iter','s24grid','s24ares',
+   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','s24warm','s24iter','s24grid','s24ares','s24k',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg'].forEach(id=>ps.set(id,val(id)));
   [['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
    ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base']].forEach(([k,id])=>ps.set(k,chk(id)?'1':'0'));

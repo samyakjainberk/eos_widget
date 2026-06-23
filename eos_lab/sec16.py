@@ -109,12 +109,18 @@ def _lanc16_ext(hvp, p, n, m, seed, dev, dt):                # top-n & bottom-n 
 
 
 def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, ares=0.01,
-              Xtest=None, Ytest=None, mode="eig", use_gd=True):
-    # mode: 'eig' (top/bottom eigvecs of H̄, true ± sets) · 'random' (two random unit vectors, KEEP σ₁/σ₋₁) ·
-    #       'shuffle' (eigvecs, but ± set membership permuted, counts preserved) ·
-    #       'randfix' (BASELINE 3: random unit vecs FROZEN at warmup-end; σ₁/σ₋₁ still recomputed each iter) ·
-    #       'eigfix'  (BASELINE 4: top/bottom eigvecs of H̄ FROZEN at warmup-end; σ₁/σ₋₁ still recomputed each iter).
-    #       use_gd: advance by best{curvature,GD} (the main §16 — loss ↓) vs the PURE curvature step (the baselines).
+              Xtest=None, Ytest=None, mode="eig", kdir=8):
+    # Per iteration: project the positive-residual gradient g₊ = Σ_{r>0} r_k∇f_k onto the TOP-kdir eigenvectors of
+    # H̄ and the negative-residual g₋ onto the BOTTOM-kdir, using the plain projection coefficient ⟨g,u_i⟩ (NO σ/η
+    # weighting):   proj_pos = Σ_i ⟨g₊,u_i⟩ u_i ,  proj_neg = Σ_i ⟨g₋,u₋i⟩ u₋i ;  then line-search α₁,α₂ on the ±
+    # sets, the (β,s) grid on the full loss, and advance by u_sec16 = s·(β·α₁·proj_pos + (1−β)·α₂·proj_neg).
+    # EVERY trajectory advances by its own u_sec16; they differ ONLY in how it is built (set by `mode`):
+    #   'eig'     (MAIN) top-/bottom-kdir eigvecs of H̄, true ± sets ·
+    #   'random'  kdir random unit vecs per side instead of eigvecs · 'shuffle' eigvecs, ± membership permuted ·
+    #   'randfix' random dirs FROZEN at warmup-end · 'eigfix' eigvecs FROZEN at warmup-end ·
+    #   'gd'      u_sec16 IS the line-searched gradient step t_gd·(1/N)Jᵀr (plain-GD reference baseline).
+    # The main run is PURE curvature (no GD fallback; GD lives only in the 'gd' baseline).
+    # NB: the main run is PURE curvature — it does NOT use gradient information (GD lives only in the 'gd' baseline).
     dev, dt = th0.device, th0.dtype
     p = model.p
     N = X.shape[0]
@@ -198,25 +204,41 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
         # ── §16 iteration ──
         r = resid(th)
         J = jac_cols(model, th, X)[0]                         # rows ∇f_k
-        if mode in ("random", "randfix"):                    # random unit vectors instead of u₁/u₋₁ (keep σ₁/σ₋₁ of H̄)
-            tH, bH = _lanc16_vals(Hbar_hvp(th), p, k, mlan, sd, dev, dt)
-            sig1, sigm1 = tH[0], bH[0]
-            if mode == "randfix" and froz[0] is not None:    # BASELINE 3: reuse the warmup-end frozen random directions
-                u1, um1 = froz[0], froz[1]
+        if mode == "gd":                                     # GD baseline: u_sec16 IS the line-searched gradient step
+            d_gd = (J.t() @ r) / N                            # gradient-descent direction (1/N)Jᵀr, r=y−f
+            t_gd = line_search(th, d_gd, None)
+            u_sec16 = t_gd * d_gd
+            u_pos = u_neg = u_mean = u_sec16                  # the gradient direction has no ± decomposition
+            a_pos = a_neg = beta = scale = t_gd
+            u_beta = u_sec16
+            look = {"pos": metrics(th + u_pos, sd + 1), "neg": metrics(th + u_neg, sd + 2),
+                    "mean": metrics(th + u_mean, sd + 3), "beta": metrics(th + u_beta, sd + 4)}
+            yield {"i": it, "phase": "sec16", "apos": a_pos, "aneg": a_neg, "beta": beta, "scale": scale, "tgd": t_gd,
+                   "loss": look["beta"]["L"],
+                   "unorm": {"pos": float(u_pos.norm()), "neg": float(u_neg.norm()),
+                             "mean": float(u_mean.norm()), "beta": float(u_beta.norm())}, **pack(look["beta"], look)}
+            th = th + u_beta
+            if lossv(th) < tol:
+                break
+            continue
+        kd = max(1, min(int(kdir), p // 2))                  # eigenvectors per side (top-kd & bottom-kd)
+        if mode in ("random", "randfix"):                    # kd random unit vecs per side instead of eigvecs
+            if mode == "randfix" and froz[0] is not None:    # BASELINE C: reuse the warmup-end frozen random directions
+                Ut, Ub = froz[0], froz[1]
             else:                                            # BASELINE A: fresh random vectors each iter (or first 'randfix' iter)
-                u1 = _randvec16(p, sd ^ 0x16A1, dev, dt); u1 = u1 / u1.norm()
-                um1 = _randvec16(p, sd ^ 0x16A2, dev, dt); um1 = um1 / um1.norm()
+                Ut = [_randvec16(p, (sd ^ 0x16A1 ^ (i * 0x101)) & 0x7FFFFFFF, dev, dt) for i in range(kd)]
+                Ub = [_randvec16(p, (sd ^ 0x16B1 ^ (i * 0x101)) & 0x7FFFFFFF, dev, dt) for i in range(kd)]
+                Ut = [w / w.norm() for w in Ut]; Ub = [w / w.norm() for w in Ub]
                 if mode == "randfix":
-                    froz[0], froz[1] = u1, um1               # freeze at warmup-end (first §16 iter)
-        else:                                                # 'eig' / 'eigfix' / 'shuffle': real top/bottom eigenpairs of H̄
-            tv, bv, tval, bval = _lanc16_ext(Hbar_hvp(th), p, k, mlan, sd, dev, dt)
-            sig1, sigm1 = tval[0], bval[0]
-            if mode == "eigfix":                             # BASELINE 4: top/bottom eigvecs FROZEN at warmup-end (σ still recomputed)
-                if froz[0] is None:
-                    froz[0], froz[1] = tv[0], bv[0]
-                u1, um1 = froz[0], froz[1]
-            else:                                            # 'eig' / 'shuffle': eigvecs recomputed each iter
-                u1, um1 = tv[0], bv[0]
+                    froz[0], froz[1] = Ut, Ub                # freeze at warmup-end (first §16 iter)
+        else:                                                # 'eig' / 'eigfix' / 'shuffle': top-kd & bottom-kd eigvecs of H̄
+            if mode == "eigfix" and froz[0] is not None:     # BASELINE D: reuse the warmup-end frozen eigvec subspace
+                Ut, Ub = froz[0], froz[1]
+            else:
+                tv, bv, tval, bval = _lanc16_ext(Hbar_hvp(th), p, kd, mlan, sd, dev, dt)
+                Ut, Ub = tv, bv
+                if mode == "eigfix":
+                    froz[0], froz[1] = Ut, Ub
         if mode == "shuffle":                                # BASELINE B: permute ± set membership (keep counts; each sample keeps its real r_k)
             n_pos = int((r > 0).sum()); n_neg = int((r < 0).sum())
             sidx = _shuffle_idx(M, sd ^ 0x16B0)               # permute ± membership over the M effective samples
@@ -229,8 +251,11 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
             pos, neg = r > 0, r < 0
         g_pos = (J[pos].t() @ r[pos]) if bool(pos.any()) else torch.zeros(p, dtype=dt, device=dev)
         g_neg = (J[neg].t() @ r[neg]) if bool(neg.any()) else torch.zeros(p, dtype=dt, device=dev)
-        proj_pos = (float(g_pos @ u1) * sig1) * u1            # ⟨g₊,u₁⟩·σ₁·u₁   (×eigenvalue; sign-invariant in u₁)
-        proj_neg = (float(g_neg @ um1) * sigm1) * um1         # ⟨g₋,u₋₁⟩·σ₋₁·u₋₁ (×eigenvalue)
+        proj_pos = torch.zeros(p, dtype=dt, device=dev)       # Σ_i ⟨g₊,u_i⟩ u_i  (projection of g₊ onto the top-kd eigvecs; NO σ/η)
+        proj_neg = torch.zeros(p, dtype=dt, device=dev)       # Σ_i ⟨g₋,u₋i⟩ u₋i (projection of g₋ onto the bottom-kd eigvecs; NO σ/η)
+        for i in range(kd):
+            proj_pos = proj_pos + float(g_pos @ Ut[i]) * Ut[i]
+            proj_neg = proj_neg + float(g_neg @ Ub[i]) * Ub[i]
         a_pos = line_search(th, proj_pos, pos)
         a_neg = line_search(th, proj_neg, neg)
         u_pos, u_neg = a_pos * proj_pos, a_neg * proj_neg
@@ -238,16 +263,7 @@ def sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
         beta, scale = min(((bb, ss) for bb in grid for ss in grid),
                           key=lambda bs: lossv(th + bs[1] * (bs[0] * u_pos + (1 - bs[0]) * u_neg)))
         u_sec16 = scale * (beta * u_pos + (1 - beta) * u_neg)
-        if use_gd:
-            # GD step (full-loss line-search along the gradient) — guarantees the advancing loss STRICTLY decreases.
-            d_gd = (J.t() @ resid(th)) / N                    # gradient-descent direction (1/N)Jᵀr, r=y−f
-            t_gd = line_search(th, d_gd, None); u_gd = t_gd * d_gd
-            if lossv(th + u_gd) < lossv(th + u_sec16):        # advance by whichever lowers the FULL loss more
-                u_beta = u_gd; tgd = t_gd                     #   → loss goes DOWN every iteration (GD when the §16 step doesn't help)
-            else:
-                u_beta = u_sec16; tgd = 0.0                   #   → the §16 curvature step is used when it beats GD (tgd=0)
-        else:
-            u_beta = u_sec16; tgd = 0.0                       # baseline: PURE curvature step (no GD fallback) ⇒ a genuinely separate trajectory
+        u_beta = u_sec16; tgd = 0.0                           # advance by u_sec16 — the main run is PURE curvature (no GD fallback)
         look = {"pos": metrics(th + u_pos, sd + 1), "neg": metrics(th + u_neg, sd + 2),
                 "mean": metrics(th + u_mean, sd + 3), "beta": metrics(th + u_beta, sd + 4)}
         yield {"i": it, "phase": "sec16", "apos": a_pos, "aneg": a_neg, "beta": beta, "scale": scale, "tgd": tgd,
@@ -275,20 +291,21 @@ def sec16_chebyshev_testset(N, degree, dev, dt):
 
 
 def sec16_driver(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, ares=0.01,
-                 Xtest=None, Ytest=None, baselines=False):
-    """Run §16 (mode='eig') and, if `baselines`, FOUR extra trajectories — 'random' (Baseline A), 'shuffle'
-    (Baseline B), 'randfix' (Baseline 3: frozen random dirs) and 'eigfix' (Baseline 4: frozen H̄ eigvec dirs) —
-    in lockstep from the SAME θ₀, attaching per-iteration metrics as rec['bA']/['bB']/['bC']/['bD']."""
-    gmain = sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, "eig", True)
+                 Xtest=None, Ytest=None, baselines=False, kdir=8):
+    """Run §16 (mode='eig', the curvature step) and, if `baselines`, FIVE extra trajectories — 'random' (A),
+    'shuffle' (B), 'randfix' (C: frozen random dirs), 'eigfix' (D: frozen H̄ eigvec dirs) and 'gd'
+    (E: the plain gradient-descent step) — in lockstep from the SAME θ₀. All six advance by their own u_sec16;
+    they differ ONLY in how u_sec16 is built. Metrics attach as rec['bA']/['bB']/['bC']/['bD']/['bE']."""
+    gmain = sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, "eig", kdir)
     if not baselines:
         yield from gmain
         return
-    # baselines: PURE curvature (use_gd=False), never early-stop (tol=-1) so all trajectories stay the same length (lockstep)
-    mk = lambda md: sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, md, False)
-    gA, gB, gC, gD = mk("random"), mk("shuffle"), mk("randfix"), mk("eigfix")
+    # baselines never early-stop (tol=-1) so all trajectories stay the same length (lockstep)
+    mk = lambda md: sec16_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, md, kdir)
+    gA, gB, gC, gD, gE = mk("random"), mk("shuffle"), mk("randfix"), mk("eigfix"), mk("gd")
     sub = lambda r: {kk: r[kk] for kk in ("L", "Lt", "lH", "fH", "res", "unorm")}
     for rec in gmain:
         rec = dict(rec)
         rec["bA"] = sub(next(gA)); rec["bB"] = sub(next(gB))
-        rec["bC"] = sub(next(gC)); rec["bD"] = sub(next(gD))
+        rec["bC"] = sub(next(gC)); rec["bD"] = sub(next(gD)); rec["bE"] = sub(next(gE))
         yield rec

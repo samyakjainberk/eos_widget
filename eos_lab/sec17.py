@@ -30,10 +30,15 @@ from .sec16 import _randvec16, _shuffle_idx, _lanc16_vals, _lanc16_ext
 
 
 def sec17_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, ares=0.01,
-              Xtest=None, Ytest=None, mode="eig", use_gd=True):
-    # mode: 'eig' (per-sample top/bottom eigvecs of Q_k, true ± sets) · 'random' (per-sample random unit vecs, keep σ_k) ·
-    #       'shuffle' (per-sample eigvecs, ± set membership permuted) · 'randfix' (per-sample random dirs FROZEN at warmup-end) ·
-    #       'eigfix' (per-sample Q_k eigvecs FROZEN at warmup-end).  use_gd: best{curvature,GD} (main) vs pure curvature (baselines).
+              Xtest=None, Ytest=None, mode="eig", kdir=8):
+    # PER-SAMPLE variant of §16: for each positive-residual sample k, project r_k∇f_k onto the TOP-kdir eigvecs of
+    # its OWN function Hessian Q_k=∇²f_k (coefficient ⟨r_k∇f_k,u⟩, NO σ/η); for negative-residual samples onto the
+    # BOTTOM-kdir. proj_pos = Σ_{r_k>0} Σ_i ⟨r_k∇f_k,u_{k,i}⟩u_{k,i}, proj_neg analogous; then α₁,α₂,β,s as in §16.
+    # Every trajectory advances by its own u_sec16; they differ ONLY in how it is built (set by `mode`):
+    #   'eig' (MAIN) per-sample top-/bottom-kdir eigvecs of Q_k · 'random' per-sample kdir random dirs per side ·
+    #   'shuffle' per-sample eigvecs, ± membership permuted · 'randfix' per-sample random dirs FROZEN at warmup-end ·
+    #   'eigfix' per-sample Q_k eigvecs FROZEN at warmup-end · 'gd' u_sec16 = line-searched gradient step (reference).
+    # The main run is PURE curvature — no gradient information (GD lives only in the 'gd' baseline).
     dev, dt = th0.device, th0.dtype
     p = model.p
     N = X.shape[0]
@@ -120,24 +125,38 @@ def sec17_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
         # ── §17 iteration: per-sample curvature directions ──
         r = resid(th)
         J = jac_cols(model, th, X)[0]                        # rows ∇f_k
+        if mode == "gd":                                     # GD baseline: u_sec IS the line-searched gradient step (no per-sample work)
+            d_gd = (J.t() @ r) / N
+            t_gd = line_search(th, d_gd, None)
+            u_sec = t_gd * d_gd
+            u_pos = u_neg = u_mean = u_sec                   # the gradient direction has no ± decomposition
+            u_beta = u_sec
+            look = {"pos": metrics(th + u_pos, sd + 1), "neg": metrics(th + u_neg, sd + 2),
+                    "mean": metrics(th + u_mean, sd + 3), "beta": metrics(th + u_beta, sd + 4)}
+            yield {"i": it, "phase": "sec17", "apos": t_gd, "aneg": t_gd, "beta": t_gd, "scale": t_gd, "tgd": t_gd,
+                   "loss": look["beta"]["L"],
+                   "unorm": {"pos": float(u_pos.norm()), "neg": float(u_neg.norm()),
+                             "mean": float(u_mean.norm()), "beta": float(u_beta.norm())}, **pack(look["beta"], look)}
+            th = th + u_beta
+            if lossv(th) < tol:
+                break
+            continue
         psd = (sd ^ 0x17C0FFEE) & 0x7FFFFFFF                 # per-sample Lanczos/random seed base (disjoint from metrics seeds)
-        Up = []; Um = []; Sp = []; Sm = []                   # per-sample top/bottom eigvec + eigenvalue
+        kd = max(1, min(int(kdir), p // 2))                  # eigvecs per side, per sample
+        Up = []; Um = []                                     # per-sample lists of kd top / kd bottom eigvecs of Q_k
         for kk in range(M):
             skk = (psd + kk * 1009) & 0x7FFFFFFF
             hk = Qk_hvp(th, kk)
-            if mode in ("random", "randfix"):               # per-sample random dirs, keep σ_k⁺/σ_k⁻ of Q_k
-                tH, bH = _lanc16_vals(hk, p, 1, mlan, skk, dev, dt)
-                Sp.append(tH[0]); Sm.append(bH[0])
-                up = _randvec16(p, (skk ^ 0x17A1) & 0x7FFFFFFF, dev, dt); up = up / up.norm()
-                um = _randvec16(p, (skk ^ 0x17A2) & 0x7FFFFFFF, dev, dt); um = um / um.norm()
-                Up.append(up); Um.append(um)
-            else:                                           # 'eig'/'eigfix'/'shuffle': real per-sample top/bottom eigenpairs of Q_k
-                tv, bv, tval, bval = _lanc16_ext(hk, p, 1, mlan, skk, dev, dt)
-                Sp.append(tval[0]); Sm.append(bval[0])
-                Up.append(tv[0]); Um.append(bv[0])
-        if mode in ("randfix", "eigfix"):                   # BASELINES C/D: freeze the per-sample direction set at warmup-end (σ still recomputed)
+            if mode in ("random", "randfix"):               # per-sample kd random dirs per side
+                ut = [_randvec16(p, (skk ^ 0x17A1 ^ (i * 0x101)) & 0x7FFFFFFF, dev, dt) for i in range(kd)]
+                um = [_randvec16(p, (skk ^ 0x17A2 ^ (i * 0x101)) & 0x7FFFFFFF, dev, dt) for i in range(kd)]
+                Up.append([w / w.norm() for w in ut]); Um.append([w / w.norm() for w in um])
+            else:                                           # 'eig'/'eigfix'/'shuffle': per-sample top-kd / bottom-kd eigvecs of Q_k
+                tv, bv, tval, bval = _lanc16_ext(hk, p, kd, mlan, skk, dev, dt)
+                Up.append(list(tv)); Um.append(list(bv))
+        if mode in ("randfix", "eigfix"):                   # BASELINES C/D: freeze the per-sample direction set at warmup-end
             if froz[0] is None:
-                froz[0] = [u.clone() for u in Up]; froz[1] = [u.clone() for u in Um]
+                froz[0] = [[u.clone() for u in lst] for lst in Up]; froz[1] = [[u.clone() for u in lst] for lst in Um]
             Up, Um = froz[0], froz[1]
         if mode == "shuffle":                               # BASELINE B: permute ± set membership over the M effective samples (counts preserved)
             n_pos = int((r > 0).sum()); n_neg = int((r < 0).sum())
@@ -149,13 +168,15 @@ def sec17_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
                 neg[torch.tensor(sidx[n_pos:n_pos + n_neg], dtype=torch.long, device=dev)] = True
         else:
             pos, neg = r > 0, r < 0
-        proj_pos = torch.zeros(p, dtype=dt, device=dev)     # Σ_{r_k>0} r_k·⟨∇f_k, u_k⁺⟩·σ_k⁺·u_k⁺
-        proj_neg = torch.zeros(p, dtype=dt, device=dev)     # Σ_{r_k<0} r_k·⟨∇f_k, u_k⁻⟩·σ_k⁻·u_k⁻
+        proj_pos = torch.zeros(p, dtype=dt, device=dev)     # Σ_{r_k>0} proj of r_k∇f_k onto Q_k's top-kd eigvecs (NO σ)
+        proj_neg = torch.zeros(p, dtype=dt, device=dev)     # Σ_{r_k<0} proj of r_k∇f_k onto Q_k's bottom-kd eigvecs (NO σ)
         for kk in range(M):
             if bool(pos[kk]):
-                proj_pos = proj_pos + (float(r[kk]) * float(J[kk] @ Up[kk]) * Sp[kk]) * Up[kk]
+                for i in range(kd):
+                    proj_pos = proj_pos + (float(r[kk]) * float(J[kk] @ Up[kk][i])) * Up[kk][i]
             elif bool(neg[kk]):
-                proj_neg = proj_neg + (float(r[kk]) * float(J[kk] @ Um[kk]) * Sm[kk]) * Um[kk]
+                for i in range(kd):
+                    proj_neg = proj_neg + (float(r[kk]) * float(J[kk] @ Um[kk][i])) * Um[kk][i]
         a_pos = line_search(th, proj_pos, pos)
         a_neg = line_search(th, proj_neg, neg)
         u_pos, u_neg = a_pos * proj_pos, a_neg * proj_neg
@@ -163,15 +184,7 @@ def sec17_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
         beta, scale = min(((bb, ss) for bb in grid for ss in grid),
                           key=lambda bs: lossv(th + bs[1] * (bs[0] * u_pos + (1 - bs[0]) * u_neg)))
         u_sec = scale * (beta * u_pos + (1 - beta) * u_neg)
-        if use_gd:
-            d_gd = (J.t() @ resid(th)) / N
-            t_gd = line_search(th, d_gd, None); u_gd = t_gd * d_gd
-            if lossv(th + u_gd) < lossv(th + u_sec):
-                u_beta = u_gd; tgd = t_gd
-            else:
-                u_beta = u_sec; tgd = 0.0
-        else:
-            u_beta = u_sec; tgd = 0.0
+        u_beta = u_sec; tgd = 0.0                            # advance by u_sec — the main run is PURE curvature (no GD fallback)
         look = {"pos": metrics(th + u_pos, sd + 1), "neg": metrics(th + u_neg, sd + 2),
                 "mean": metrics(th + u_mean, sd + 3), "beta": metrics(th + u_beta, sd + 4)}
         yield {"i": it, "phase": "sec17", "apos": a_pos, "aneg": a_neg, "beta": beta, "scale": scale, "tgd": tgd,
@@ -184,19 +197,20 @@ def sec17_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, 
 
 
 def sec17_driver(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, ares=0.01,
-                 Xtest=None, Ytest=None, baselines=False):
-    """Run §17 (mode='eig') and, if `baselines`, FOUR extra trajectories — 'random' (A), 'shuffle' (B),
-    'randfix' (C), 'eigfix' (D) — in lockstep from the SAME θ₀, attaching per-iteration metrics as
-    rec['bA']/['bB']/['bC']/['bD'].  MIRRORS sec16_driver."""
-    gmain = sec17_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, "eig", True)
+                 Xtest=None, Ytest=None, baselines=False, kdir=8):
+    """Run §17 (mode='eig') and, if `baselines`, FIVE extra trajectories — 'random' (A), 'shuffle' (B),
+    'randfix' (C), 'eigfix' (D) and 'gd' (E: the plain gradient-descent step) — in lockstep from the SAME θ₀.
+    All six advance by their own u_sec; they differ ONLY in how it is built. Metrics attach as
+    rec['bA']/['bB']/['bC']/['bD']/['bE'].  MIRRORS sec16_driver."""
+    gmain = sec17_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, "eig", kdir)
     if not baselines:
         yield from gmain
         return
-    mk = lambda md: sec17_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, md, False)
-    gA, gB, gC, gD = mk("random"), mk("shuffle"), mk("randfix"), mk("eigfix")
+    mk = lambda md: sec17_run(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, md, kdir)
+    gA, gB, gC, gD, gE = mk("random"), mk("shuffle"), mk("randfix"), mk("eigfix"), mk("gd")
     sub = lambda r: {kk: r[kk] for kk in ("L", "Lt", "lH", "fH", "res", "unorm")}
     for rec in gmain:
         rec = dict(rec)
         rec["bA"] = sub(next(gA)); rec["bB"] = sub(next(gB))
-        rec["bC"] = sub(next(gC)); rec["bD"] = sub(next(gD))
+        rec["bC"] = sub(next(gC)); rec["bD"] = sub(next(gD)); rec["bE"] = sub(next(gE))
         yield rec

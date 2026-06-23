@@ -621,7 +621,10 @@ def _lanc16_ext(hvp, p, n, m, seed):                 # top-n & bottom-n (eigVEC,
     return tv, bv, tval, bval
 
 def _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, ares=0.01,
-               Xtest=None, Ytest=None, mode="eig", use_gd=True):
+               Xtest=None, Ytest=None, mode="eig", kdir=8):
+    # project g₊ onto the top-kdir eigvecs of H̄ and g₋ onto the bottom-kdir (coefficient ⟨g,u_i⟩, NO σ/η), then α₁/α₂/β/s.
+    # every trajectory advances by its own u_sec16; modes differ ONLY in how it is built — 'eig' (main curvature),
+    # 'random'/'shuffle'/'randfix'/'eigfix' (the curvature baselines), 'gd' (u_sec16 = the line-searched gradient step).
     p = th0.numel(); N = X.shape[0]; Yf = Y.reshape(-1)
     M = Yf.numel()                                                    # EFFECTIVE samples = N·d_out (the residual / Jacobian-row dimension)
     Ytf = Ytest.reshape(-1) if Ytest is not None else None
@@ -675,24 +678,38 @@ def _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, a
                    "loss": real["L"], "unorm": {"pos": None, "neg": None, "mean": None, "beta": float(upd.norm())}, **pack(real)}
             th = th + upd; continue
         r = resid(th); J = jac_cols(th, X)[0]
-        if mode in ("random", "randfix"):                             # random unit vectors instead of u₁/u₋₁ (keep σ₁/σ₋₁ of H̄)
-            tH, bH = _lanc16_vals(Hbar(th), p, k, mlan, sd); sig1, sigm1 = tH[0], bH[0]
-            if mode == "randfix" and froz[0] is not None:             # Baseline 3: reuse the warmup-end frozen random directions
-                u1, um1 = froz[0], froz[1]
-            else:                                                     # Baseline A: fresh random vectors each iter (or first 'randfix' iter)
-                u1 = _randvec16(p, sd ^ 0x16A1); u1 = u1 / u1.norm()
-                um1 = _randvec16(p, sd ^ 0x16A2); um1 = um1 / um1.norm()
-                if mode == "randfix":
-                    froz[0], froz[1] = u1, um1                        # freeze at warmup-end (first §16 iter)
-        else:                                                         # 'eig' / 'eigfix' / 'shuffle': real top/bottom eigenpairs of H̄
-            tv, bv, tval, bval = _lanc16_ext(Hbar(th), p, k, mlan, sd)
-            sig1, sigm1 = tval[0], bval[0]
-            if mode == "eigfix":                                      # Baseline 4: top/bottom eigvecs FROZEN at warmup-end (σ still recomputed)
-                if froz[0] is None:
-                    froz[0], froz[1] = tv[0], bv[0]
-                u1, um1 = froz[0], froz[1]
+        if mode == "gd":                                              # GD baseline: u_sec16 IS the line-searched gradient step
+            d_gd = (J.t() @ r) / N
+            t_gd = line_search(th, d_gd, None); u_sec16 = t_gd * d_gd
+            u_pos = u_neg = u_mean = u_sec16; u_beta = u_sec16        # the gradient direction has no ± decomposition
+            look = {"pos": metrics(th + u_pos, sd + 1), "neg": metrics(th + u_neg, sd + 2),
+                    "mean": metrics(th + u_mean, sd + 3), "beta": metrics(th + u_beta, sd + 4)}
+            yield {"i": it, "phase": "sec16", "apos": t_gd, "aneg": t_gd, "beta": t_gd, "scale": t_gd, "tgd": t_gd,
+                   "loss": look["beta"]["L"],
+                   "unorm": {"pos": float(u_pos.norm()), "neg": float(u_neg.norm()),
+                             "mean": float(u_mean.norm()), "beta": float(u_beta.norm())}, **pack(look["beta"], look)}
+            th = th + u_beta
+            if lossv(th) < tol:
+                break
+            continue
+        kd = max(1, min(int(kdir), p // 2))                           # eigenvectors per side (top-kd & bottom-kd)
+        if mode in ("random", "randfix"):                             # kd random unit vecs per side instead of eigvecs
+            if mode == "randfix" and froz[0] is not None:             # Baseline C: reuse the warmup-end frozen random dirs
+                Ut, Ub = froz[0], froz[1]
             else:
-                u1, um1 = tv[0], bv[0]
+                Ut = [_randvec16(p, (sd ^ 0x16A1 ^ (i * 0x101)) & 0x7FFFFFFF) for i in range(kd)]
+                Ub = [_randvec16(p, (sd ^ 0x16B1 ^ (i * 0x101)) & 0x7FFFFFFF) for i in range(kd)]
+                Ut = [w / w.norm() for w in Ut]; Ub = [w / w.norm() for w in Ub]
+                if mode == "randfix":
+                    froz[0], froz[1] = Ut, Ub                         # freeze at warmup-end (first §16 iter)
+        else:                                                         # 'eig' / 'eigfix' / 'shuffle': top-kd & bottom-kd eigvecs of H̄
+            if mode == "eigfix" and froz[0] is not None:              # Baseline D: reuse the warmup-end frozen eigvec subspace
+                Ut, Ub = froz[0], froz[1]
+            else:
+                tv, bv, tval, bval = _lanc16_ext(Hbar(th), p, kd, mlan, sd)
+                Ut, Ub = tv, bv
+                if mode == "eigfix":
+                    froz[0], froz[1] = Ut, Ub
         if mode == "shuffle":                                         # Baseline B: permute ± membership over the M effective samples (counts preserved)
             n_pos = int((r > 0).sum()); n_neg = int((r < 0).sum()); sidx = _shuffle16(M, sd ^ 0x16B0)
             pos = torch.zeros(M, dtype=torch.bool, device=th.device); neg = torch.zeros(M, dtype=torch.bool, device=th.device)
@@ -704,22 +721,17 @@ def _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, a
             pos, neg = r > 0, r < 0
         g_pos = (J[pos].t() @ r[pos]) if bool(pos.any()) else torch.zeros(p, dtype=th.dtype, device=th.device)
         g_neg = (J[neg].t() @ r[neg]) if bool(neg.any()) else torch.zeros(p, dtype=th.dtype, device=th.device)
-        proj_pos = (float(g_pos @ u1) * sig1) * u1                     # ⟨g₊,u₁⟩·σ₁·u₁
-        proj_neg = (float(g_neg @ um1) * sigm1) * um1                  # ⟨g₋,u₋₁⟩·σ₋₁·u₋₁
+        proj_pos = torch.zeros(p, dtype=th.dtype, device=th.device)    # Σ_i ⟨g₊,u_i⟩ u_i (g₊ onto top-kd eigvecs; NO σ/η)
+        proj_neg = torch.zeros(p, dtype=th.dtype, device=th.device)    # Σ_i ⟨g₋,u₋i⟩ u₋i (g₋ onto bottom-kd eigvecs; NO σ/η)
+        for i in range(kd):
+            proj_pos = proj_pos + float(g_pos @ Ut[i]) * Ut[i]
+            proj_neg = proj_neg + float(g_neg @ Ub[i]) * Ub[i]
         a_pos = line_search(th, proj_pos, pos); a_neg = line_search(th, proj_neg, neg)
         u_pos, u_neg = a_pos * proj_pos, a_neg * proj_neg; u_mean = 0.5 * (u_pos + u_neg)
         beta, scale = min(((bb, ss) for bb in grid for ss in grid),
                           key=lambda bs: lossv(th + bs[1] * (bs[0] * u_pos + (1 - bs[0]) * u_neg)))
         u_sec16 = scale * (beta * u_pos + (1 - beta) * u_neg)
-        if use_gd:
-            d_gd = (J.t() @ resid(th)) / N                            # GD step (full-loss line-search) ⇒ loss STRICTLY decreases
-            t_gd = line_search(th, d_gd, None); u_gd = t_gd * d_gd
-            if lossv(th + u_gd) < lossv(th + u_sec16):
-                u_beta = u_gd; tgd = t_gd                              # GD when the §16 curvature step doesn't help
-            else:
-                u_beta = u_sec16; tgd = 0.0                            # §16 curvature step when it beats GD (tgd=0)
-        else:
-            u_beta = u_sec16; tgd = 0.0                                # baseline: PURE curvature step (separate trajectory)
+        u_beta = u_sec16; tgd = 0.0                                    # advance by u_sec16 — the main run is PURE curvature (no GD fallback)
         look = {"pos": metrics(th + u_pos, sd + 1), "neg": metrics(th + u_neg, sd + 2),
                 "mean": metrics(th + u_mean, sd + 3), "beta": metrics(th + u_beta, sd + 4)}
         yield {"i": it, "phase": "sec16", "apos": a_pos, "aneg": a_neg, "beta": beta, "scale": scale, "tgd": tgd,
@@ -805,27 +817,28 @@ def _sec16_holdout(dataset, N, P, inD, outD):
             torch.tensor(Yl, dtype=torch.float64, device=dev))
 
 
-def _sec16_driver(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, baselines):
-    """§16 main ('eig', GD-best-of) and, if `baselines`, FOUR PURE-curvature trajectories — 'random' (A),
-    'shuffle' (B), 'randfix' (3: frozen random dirs), 'eigfix' (4: frozen H̄ eigvec dirs) — in lockstep from
-    the SAME θ₀, attaching rec['bA']/['bB']/['bC']/['bD']."""
-    gmain = _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, "eig", True)
+def _sec16_driver(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, baselines, kdir=8):
+    """§16 main ('eig', PURE curvature) and, if `baselines`, FIVE trajectories — 'random' (A), 'shuffle' (B),
+    'randfix' (C: frozen random dirs), 'eigfix' (D: frozen H̄ eigvec dirs), 'gd' (E: the plain GD step) — in
+    lockstep from the SAME θ₀. All six advance by their own u_sec16. rec['bA']/['bB']/['bC']/['bD']/['bE']."""
+    gmain = _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, "eig", kdir)
     if not baselines:
         yield from gmain
         return
-    mk = lambda md: _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, md, False)
-    gA, gB, gC, gD = mk("random"), mk("shuffle"), mk("randfix"), mk("eigfix")
+    mk = lambda md: _sec16_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, md, kdir)
+    gA, gB, gC, gD, gE = mk("random"), mk("shuffle"), mk("randfix"), mk("eigfix"), mk("gd")
     sub = lambda r: {kk: r[kk] for kk in ("L", "Lt", "lH", "fH", "res", "unorm")}
     for rec in gmain:
         rec = dict(rec)
         rec["bA"] = sub(next(gA)); rec["bB"] = sub(next(gB))
-        rec["bC"] = sub(next(gC)); rec["bD"] = sub(next(gD))
+        rec["bC"] = sub(next(gC)); rec["bD"] = sub(next(gD)); rec["bE"] = sub(next(gE))
         yield rec
 
 
 def _sec17_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, ares=0.01,
-               Xtest=None, Ytest=None, mode="eig", use_gd=True):
-    # §17 = §16 but PER-SAMPLE function Hessians Q_k=∇²f_k: r_k>0 → top eigvec u_k⁺ of Q_k, r_k<0 → bottom u_k⁻.
+               Xtest=None, Ytest=None, mode="eig", kdir=8):
+    # §17 = §16 but PER-SAMPLE function Hessians Q_k=∇²f_k: r_k>0 → project r_k∇f_k onto the TOP-kdir eigvecs of Q_k,
+    # r_k<0 → onto the BOTTOM-kdir (coefficient ⟨r_k∇f_k,u⟩, NO σ/η), then α₁/α₂/β/s. Main is PURE curvature; 'gd' baseline only.
     # MIRRORS eos_lab.sec17_run / index.html sec17Run. Q_k·v = jac_hvp(...)[k] (row k of the FD Jacobian-of-grad).
     p = th0.numel(); N = X.shape[0]; Yf = Y.reshape(-1)
     M = Yf.numel()                                                    # EFFECTIVE samples = N·d_out (per-sample-Q dimension)
@@ -881,23 +894,35 @@ def _sec17_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, a
             yield {"i": it, "phase": "gd", "apos": None, "aneg": None, "beta": None, "scale": None, "tgd": None,
                    "loss": real["L"], "unorm": {"pos": None, "neg": None, "mean": None, "beta": float(upd.norm())}, **pack(real)}
             th = th + upd; continue
-        r = resid(th); J = jac_cols(th, X)[0]
+        r = resid(th); J = jac_cols(th, X)[0]                        # rows ∇f_k
+        if mode == "gd":                                             # GD baseline: u_sec IS the line-searched gradient step (no per-sample work)
+            d_gd = (J.t() @ r) / N; t_gd = line_search(th, d_gd, None); u_sec = t_gd * d_gd
+            u_pos = u_neg = u_mean = u_beta = u_sec                  # the gradient direction has no ± decomposition
+            look = {"pos": metrics(th + u_pos, sd + 1), "neg": metrics(th + u_neg, sd + 2),
+                    "mean": metrics(th + u_mean, sd + 3), "beta": metrics(th + u_beta, sd + 4)}
+            yield {"i": it, "phase": "sec17", "apos": t_gd, "aneg": t_gd, "beta": t_gd, "scale": t_gd, "tgd": t_gd,
+                   "loss": look["beta"]["L"],
+                   "unorm": {"pos": float(u_pos.norm()), "neg": float(u_neg.norm()),
+                             "mean": float(u_mean.norm()), "beta": float(u_beta.norm())}, **pack(look["beta"], look)}
+            th = th + u_beta
+            if lossv(th) < tol:
+                break
+            continue
         psd = (sd ^ 0x17C0FFEE) & 0x7FFFFFFF                          # per-sample Lanczos/random seed base
-        Up = []; Um = []; Sp = []; Sm = []
+        kd = max(1, min(int(kdir), p // 2))                          # eigvecs per side, per sample
+        Up = []; Um = []                                             # per-sample lists of kd top / kd bottom eigvecs of Q_k
         for kk in range(M):
             skk = (psd + kk * 1009) & 0x7FFFFFFF
             hk = Qk(th, kk)
-            if mode in ("random", "randfix"):                        # per-sample random dirs, keep σ_k⁺/σ_k⁻ of Q_k
-                tH, bH = _lanc16_vals(hk, p, 1, mlan, skk); Sp.append(tH[0]); Sm.append(bH[0])
-                up = _randvec16(p, (skk ^ 0x17A1) & 0x7FFFFFFF); up = up / up.norm()
-                um = _randvec16(p, (skk ^ 0x17A2) & 0x7FFFFFFF); um = um / um.norm()
-                Up.append(up); Um.append(um)
-            else:                                                    # real per-sample top/bottom eigenpairs of Q_k
-                tv, bv, tval, bval = _lanc16_ext(hk, p, 1, mlan, skk); Sp.append(tval[0]); Sm.append(bval[0])
-                Up.append(tv[0]); Um.append(bv[0])
-        if mode in ("randfix", "eigfix"):                            # Baselines C/D: freeze per-sample directions at warmup-end (σ recomputed)
+            if mode in ("random", "randfix"):                        # per-sample kd random dirs per side
+                ut = [_randvec16(p, (skk ^ 0x17A1 ^ (i * 0x101)) & 0x7FFFFFFF) for i in range(kd)]
+                um = [_randvec16(p, (skk ^ 0x17A2 ^ (i * 0x101)) & 0x7FFFFFFF) for i in range(kd)]
+                Up.append([w / w.norm() for w in ut]); Um.append([w / w.norm() for w in um])
+            else:                                                    # 'eig'/'eigfix'/'shuffle': per-sample top-kd/bottom-kd eigvecs of Q_k
+                tv, bv, tval, bval = _lanc16_ext(hk, p, kd, mlan, skk); Up.append(list(tv)); Um.append(list(bv))
+        if mode in ("randfix", "eigfix"):                            # Baselines C/D: freeze per-sample direction set at warmup-end
             if froz[0] is None:
-                froz[0] = [u.clone() for u in Up]; froz[1] = [u.clone() for u in Um]
+                froz[0] = [[u.clone() for u in lst] for lst in Up]; froz[1] = [[u.clone() for u in lst] for lst in Um]
             Up, Um = froz[0], froz[1]
         if mode == "shuffle":                                        # Baseline B: permute ± membership over the M effective samples
             n_pos = int((r > 0).sum()); n_neg = int((r < 0).sum()); sidx = _shuffle16(M, sd ^ 0x16B0)
@@ -908,27 +933,21 @@ def _sec17_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, a
                 neg[torch.tensor(sidx[n_pos:n_pos + n_neg], dtype=torch.long, device=dev)] = True
         else:
             pos, neg = r > 0, r < 0
-        proj_pos = torch.zeros(p, dtype=th.dtype, device=dev)        # Σ_{r_k>0} r_k·⟨∇f_k,u_k⁺⟩·σ_k⁺·u_k⁺
-        proj_neg = torch.zeros(p, dtype=th.dtype, device=dev)        # Σ_{r_k<0} r_k·⟨∇f_k,u_k⁻⟩·σ_k⁻·u_k⁻
+        proj_pos = torch.zeros(p, dtype=th.dtype, device=dev)        # Σ_{r_k>0} proj of r_k∇f_k onto Q_k's top-kd eigvecs (NO σ)
+        proj_neg = torch.zeros(p, dtype=th.dtype, device=dev)        # Σ_{r_k<0} proj of r_k∇f_k onto Q_k's bottom-kd eigvecs (NO σ)
         for kk in range(M):
             if bool(pos[kk]):
-                proj_pos = proj_pos + (float(r[kk]) * float(J[kk] @ Up[kk]) * Sp[kk]) * Up[kk]
+                for i in range(kd):
+                    proj_pos = proj_pos + (float(r[kk]) * float(J[kk] @ Up[kk][i])) * Up[kk][i]
             elif bool(neg[kk]):
-                proj_neg = proj_neg + (float(r[kk]) * float(J[kk] @ Um[kk]) * Sm[kk]) * Um[kk]
+                for i in range(kd):
+                    proj_neg = proj_neg + (float(r[kk]) * float(J[kk] @ Um[kk][i])) * Um[kk][i]
         a_pos = line_search(th, proj_pos, pos); a_neg = line_search(th, proj_neg, neg)
         u_pos, u_neg = a_pos * proj_pos, a_neg * proj_neg; u_mean = 0.5 * (u_pos + u_neg)
         beta, scale = min(((bb, ss) for bb in grid for ss in grid),
                           key=lambda bs: lossv(th + bs[1] * (bs[0] * u_pos + (1 - bs[0]) * u_neg)))
         u_sec = scale * (beta * u_pos + (1 - beta) * u_neg)
-        if use_gd:
-            d_gd = (J.t() @ resid(th)) / N
-            t_gd = line_search(th, d_gd, None); u_gd = t_gd * d_gd
-            if lossv(th + u_gd) < lossv(th + u_sec):
-                u_beta = u_gd; tgd = t_gd
-            else:
-                u_beta = u_sec; tgd = 0.0
-        else:
-            u_beta = u_sec; tgd = 0.0
+        u_beta = u_sec; tgd = 0.0                                    # advance by u_sec — the main run is PURE curvature (no GD fallback)
         look = {"pos": metrics(th + u_pos, sd + 1), "neg": metrics(th + u_neg, sd + 2),
                 "mean": metrics(th + u_mean, sd + 3), "beta": metrics(th + u_beta, sd + 4)}
         yield {"i": it, "phase": "sec17", "apos": a_pos, "aneg": a_neg, "beta": beta, "scale": scale, "tgd": tgd,
@@ -940,20 +959,21 @@ def _sec17_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, a
             break
 
 
-def _sec17_driver(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, baselines):
-    """§17 main ('eig', per-sample Q_k) and, if `baselines`, FOUR PURE-curvature trajectories — 'random' (A),
-    'shuffle' (B), 'randfix' (C), 'eigfix' (D) — in lockstep from the SAME θ₀, attaching rec['bA']/['bB']/['bC']/['bD']."""
-    gmain = _sec17_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, "eig", True)
+def _sec17_driver(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, baselines, kdir=8):
+    """§17 main ('eig', per-sample Q_k, PURE curvature) and, if `baselines`, FIVE trajectories — 'random' (A),
+    'shuffle' (B), 'randfix' (C), 'eigfix' (D), 'gd' (E: the plain GD step) — in lockstep from the SAME θ₀,
+    attaching rec['bA']/['bB']/['bC']/['bD']/['bE']. All six advance by their own u_sec16. MIRRORS _sec16_driver."""
+    gmain = _sec17_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ares, Xtest, Ytest, "eig", kdir)
     if not baselines:
         yield from gmain
         return
-    mk = lambda md: _sec17_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, md, False)
-    gA, gB, gC, gD = mk("random"), mk("shuffle"), mk("randfix"), mk("eigfix")
+    mk = lambda md: _sec17_run(th0, X, Y, lr, warmup, iters, neig, mlan, seed, -1.0, bgrid, ares, Xtest, Ytest, md, kdir)
+    gA, gB, gC, gD, gE = mk("random"), mk("shuffle"), mk("randfix"), mk("eigfix"), mk("gd")
     sub = lambda r: {kk: r[kk] for kk in ("L", "Lt", "lH", "fH", "res", "unorm")}
     for rec in gmain:
         rec = dict(rec)
         rec["bA"] = sub(next(gA)); rec["bB"] = sub(next(gB))
-        rec["bC"] = sub(next(gC)); rec["bD"] = sub(next(gD))
+        rec["bC"] = sub(next(gC)); rec["bD"] = sub(next(gD)); rec["bE"] = sub(next(gE))
         yield rec
 
 
@@ -2507,17 +2527,18 @@ def run_stream(P):
         else:                                                            # real held-out images (cifar/mnist) or iid-Gaussian (synthetic/const); None for sorting
             Xt16, Yt16 = _sec16_holdout(dataset, Nfull, P, inD, outD)
         for rec16 in _sec16_driver(th16, X16, Y16, lr, P.get("s24warm", 5), P.get("s24iter", 250),
-                                   n, min(p, 24), P.get("seed", 0), 1e-12,
+                                   n, min(p, max(2 * P.get("s24k", 8) + 16, n + 8)), P.get("seed", 0), 1e-12,
                                    P.get("s24grid", 0.1), P.get("s24ares", 0.01),
-                                   Xt16, Yt16, P.get("s24base", 0)):
+                                   Xt16, Yt16, P.get("s24base", 0), P.get("s24k", 8)):
             if mytok != RUN_TOKEN.get(_devkey, mytok):
                 return
             yield {"type": "g16", **rec16}
 
     # ── §17: PER-SAMPLE function-Hessian variant of §16 (each sample uses the top/bottom eigvec of its OWN Q_k=∇²f_k).
-    #    Per-sample Lanczos every iteration ⇒ O(M²) jac evals, so it is gated to a SMALLER M than §16. ──
+    #    Per-sample Lanczos every iteration ⇒ O(M²) jac evals (HEAVY at the ceiling), gated to M≤256 like §16 — the
+    #    A100 (80GB) target. The M·p memory ceiling + N≤64 keep it bounded. ──
     if (P.get("s25", 0) and start == 0 and _TL.loss.name == "mse"
-            and M16 <= 64 and M16 * p <= 200_000_000 and Nfull <= 64):
+            and M16 <= 256 and M16 * p <= 300_000_000 and Nfull <= 64):
         th17 = th.double(); X17 = Xpool.double() if Xpool.is_floating_point() else Xpool
         Y17 = Ypool.double() if Ypool.is_floating_point() else Ypool
         Xt17 = Yt17 = None
@@ -2526,9 +2547,9 @@ def run_stream(P):
         else:
             Xt17, Yt17 = _sec16_holdout(dataset, Nfull, P, inD, outD)
         for rec17 in _sec17_driver(th17, X17, Y17, lr, P.get("s24warm", 5), P.get("s24iter", 250),
-                                   n, min(p, 16), P.get("seed", 0), 1e-12,
+                                   n, min(p, max(2 * P.get("s24k", 8) + 16, n + 8)), P.get("seed", 0), 1e-12,
                                    P.get("s24grid", 0.1), P.get("s24ares", 0.01),
-                                   Xt17, Yt17, P.get("s25base", 0)):
+                                   Xt17, Yt17, P.get("s25base", 0), P.get("s24k", 8)):
             if mytok != RUN_TOKEN.get(_devkey, mytok):
                 return
             yield {"type": "g17", **rec17}
@@ -3731,9 +3752,10 @@ def _parse_params(q):
         "s24iter": max(1, fi("s24iter", 250)),  # §16: number of §16 iterations after the warmup
         "s24grid": min(0.5, max(0.01, ff("s24grid", 0.1))),   # §16: (β,s) search grid step (finer ⇒ more descent, costs (1/step)² loss-evals)
         "s24ares": min(0.1, max(0.001, ff("s24ares", 0.01))), # §16: α line-search resolution (finer ⇒ extracts smaller steps near the plateau)
-        "s24base": g("s24base", "0") == "1",  # §16: compute the four dotted baselines (A=random,B=shuffle,C=randfix,D=eigfix); ≈5× cost
+        "s24k": max(1, fi("s24k", 8)),   # §16/§17: # eigvecs per side (top-kdir & bottom-kdir) onto which g₊/g₋ are projected
+        "s24base": g("s24base", "0") == "1",  # §16: compute the five dotted baselines (A=random,B=shuffle,C=randfix,D=eigfix,E=gd); ≈6× cost
         "s25": g("s25", "0") == "1",     # §17: PER-SAMPLE function-Hessian variant of §16 (each sample uses its OWN Q_k eigvec; OFF by default)
-        "s25base": g("s25base", "0") == "1",  # §17: compute the four dotted baselines (per-sample analog of §16's); ≈5× cost
+        "s25base": g("s25base", "0") == "1",  # §17: compute the five dotted baselines (per-sample analog of §16's); ≈6× cost
         "grid3dcap": max(1, fi("grid3dcap", 500)),
         "sec12ncap": max(1, fi("sec12ncap", 500)),
         "gs": g("gson", "1") == "1",

@@ -154,15 +154,17 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
         else:                                                           # all others: real held-out split (cifar/mnist/sorting/synthetic/const) or None
             _ts16 = make_test_set(model, P, cfg.dataset, N, in_dim, out_dim, dev, dtype, cifar_dir)
             Xt16, Yt16 = _ts16 if _ts16 is not None else (None, None)
+        _k16 = max(1, getattr(cfg, 's24k', 8))
         sec16 = list(sec16_driver(model, loss, th0, X, Y, cfg.lr, cfg.s24warm, cfg.s24iter,
-                                  min(max(1, cfg.neig), max(1, model.p // 2)), min(model.p, 24), cfg.seed, 1e-12,
+                                  min(max(1, cfg.neig), max(1, model.p // 2)),
+                                  min(model.p, max(2 * _k16 + 16, cfg.neig + 8)), cfg.seed, 1e-12,
                                   getattr(cfg, 's24grid', 0.1), getattr(cfg, 's24ares', 0.01),
-                                  Xt16, Yt16, getattr(cfg, 's24base', 0)))   # baselines A/B/C/D if s24base
+                                  Xt16, Yt16, getattr(cfg, 's24base', 0), _k16))   # baselines A/B/C/D/E if s24base
 
     # §17 — PER-SAMPLE function-Hessian variant of §16 (each sample uses its OWN Q_k eigvec). O(M²) per-sample
     # Lanczos ⇒ gated to a SMALLER M than §16. Reuses §16's hyperparameters + held-out test sets (same observables).
     sec17 = None
-    if getattr(cfg, "s25", 0) and loss.name == "mse" and M16 <= 64 and M16 * model.p <= 200_000_000 and N <= 64:
+    if getattr(cfg, "s25", 0) and loss.name == "mse" and M16 <= 256 and M16 * model.p <= 300_000_000 and N <= 64:
         from .sec17 import sec17_driver
         from .sec16 import sec16_chebyshev_testset
         if progress:
@@ -172,10 +174,12 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
         else:
             _ts17 = make_test_set(model, P, cfg.dataset, N, in_dim, out_dim, dev, dtype, cifar_dir)
             Xt17, Yt17 = _ts17 if _ts17 is not None else (None, None)
+        _k17 = max(1, getattr(cfg, 's24k', 8))
         sec17 = list(sec17_driver(model, loss, th0, X, Y, cfg.lr, cfg.s24warm, cfg.s24iter,
-                                  min(max(1, cfg.neig), max(1, model.p // 2)), min(model.p, 16), cfg.seed, 1e-12,
+                                  min(max(1, cfg.neig), max(1, model.p // 2)),
+                                  min(model.p, max(2 * _k17 + 16, cfg.neig + 8)), cfg.seed, 1e-12,
                                   getattr(cfg, 's24grid', 0.1), getattr(cfg, 's24ares', 0.01),
-                                  Xt17, Yt17, getattr(cfg, 's25base', 0)))   # baselines A/B/C/D if s25base
+                                  Xt17, Yt17, getattr(cfg, 's25base', 0), _k17))   # baselines A/B/C/D/E if s25base
 
     meta["wall_sec"] = time.time() - t0
     return {"meta": meta, "config": cfg, "history": history, "series": _to_series(history),

@@ -1413,9 +1413,9 @@ def plot_section16(recs):
     Panel 2: loss-Hessian top-k eig ×4; Panel 3: function-Hessian top/bottom-k eig ×4;
     Panel 4: per-sample residuals ×4; Panel 5: held-out test loss ×4), each over the
     pos/neg/mean/best-(β,s) update look-aheads. When the records carry baselines, every panel
-    also draws the FOUR DOTTED baseline trajectories — A = random directions, B = shuffled ±
-    sets, C = frozen-random dirs (randfix), D = frozen-H̄-eigvec dirs (eigfix) — clearly
-    separated from the solid main run."""
+    also draws the FIVE DOTTED baseline trajectories — A = random directions, B = shuffled ±
+    sets, C = frozen-random dirs (randfix), D = frozen-H̄-eigvec dirs (eigfix), E = the plain
+    GD step (gd) — clearly separated from the solid main run."""
     import matplotlib.pyplot as plt
     if not recs:
         return {}
@@ -1425,10 +1425,11 @@ def plot_section16(recs):
     slab = {"pos": "pos-only", "neg": "neg-only", "mean": "mean", "beta": "best (β,s)"}
     k = len(recs[0]["lH"]["beta"]); Nres = len(recs[0]["res"]["beta"])
     TOPC = ["#08306b", "#2563eb", "#80b1ff"]; BOTC = ["#67000d", "#dc2626", "#fca5a5"]
-    has_base = any(("bA" in r or "bB" in r or "bC" in r or "bD" in r) for r in recs)
-    # the FOUR baselines (fixed order A,B,C,D): (key, label, linestyle, accent colour)
+    has_base = any(("bA" in r or "bB" in r or "bC" in r or "bD" in r or "bE" in r) for r in recs)
+    # the FIVE baselines (fixed order A,B,C,D,E): (key, label, linestyle, accent colour)
     BASES = [("bA", "A · random", "dotted", "#0891b2"), ("bB", "B · shuffle", "dashdot", "#f59e0b"),
-             ("bC", "C · rand-fix", "dashed", "#db2777"), ("bD", "D · eig-fix", (0, (3, 1, 1, 1, 1, 1)), "#15803d")]
+             ("bC", "C · rand-fix", "dashed", "#db2777"), ("bD", "D · eig-fix", (0, (3, 1, 1, 1, 1, 1)), "#15803d"),
+             ("bE", "E · gd", (0, (5, 2)), "#6b7280")]
     figs = {}
     # Panel 1 — loss under each update + coefficients
     f1, ax = plt.subplots(1, 5, figsize=(26, 4))
@@ -1512,9 +1513,9 @@ def plot_section17(recs):
     Panel 2: loss-Hessian top-k eig ×4; Panel 3: function-Hessian top/bottom-k eig ×4;
     Panel 4: per-sample residuals ×4; Panel 5: held-out test loss ×4), each over the
     pos/neg/mean/best-(β,s) update look-aheads. When the records carry baselines, every panel
-    also draws the FOUR DOTTED baseline trajectories — A = random directions, B = shuffled ±
-    sets, C = frozen-random dirs (randfix), D = frozen-H̄-eigvec dirs (eigfix) — clearly
-    separated from the solid main run."""
+    also draws the FIVE DOTTED baseline trajectories — A = random directions, B = shuffled ±
+    sets, C = frozen-random dirs (randfix), D = frozen-H̄-eigvec dirs (eigfix), E = the plain
+    GD step (gd) — clearly separated from the solid main run."""
     import matplotlib.pyplot as plt
     if not recs:
         return {}
@@ -1524,10 +1525,11 @@ def plot_section17(recs):
     slab = {"pos": "pos-only", "neg": "neg-only", "mean": "mean", "beta": "best (β,s)"}
     k = len(recs[0]["lH"]["beta"]); Nres = len(recs[0]["res"]["beta"])
     TOPC = ["#08306b", "#2563eb", "#80b1ff"]; BOTC = ["#67000d", "#dc2626", "#fca5a5"]
-    has_base = any(("bA" in r or "bB" in r or "bC" in r or "bD" in r) for r in recs)
-    # the FOUR baselines (fixed order A,B,C,D): (key, label, linestyle, accent colour)
+    has_base = any(("bA" in r or "bB" in r or "bC" in r or "bD" in r or "bE" in r) for r in recs)
+    # the FIVE baselines (fixed order A,B,C,D,E): (key, label, linestyle, accent colour)
     BASES = [("bA", "A · random", "dotted", "#0891b2"), ("bB", "B · shuffle", "dashdot", "#f59e0b"),
-             ("bC", "C · rand-fix", "dashed", "#db2777"), ("bD", "D · eig-fix", (0, (3, 1, 1, 1, 1, 1)), "#15803d")]
+             ("bC", "C · rand-fix", "dashed", "#db2777"), ("bD", "D · eig-fix", (0, (3, 1, 1, 1, 1, 1)), "#15803d"),
+             ("bE", "E · gd", (0, (5, 2)), "#6b7280")]
     figs = {}
     # Panel 1 — loss under each update + coefficients
     f1, ax = plt.subplots(1, 5, figsize=(26, 4))
