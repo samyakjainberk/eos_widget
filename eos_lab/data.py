@@ -231,6 +231,8 @@ def make_test_set(model, P, dataset, n_test, in_dim, out_dim, device, dtype, cif
         return _two_class_test(raw, n_test, P, device, dtype)
     if dataset == "chebyshev":
         return None                                      # fixed deterministic dataset — no held-out split
+    if dataset == "ksparse":
+        return make_ksparse_testset(n_test, in_dim, P.get("ksparse", 3), P["seed"], device, dtype)
     trng = mulberry32(u32(P["seed"] * 7919 + 99991))     # separate stream ⇒ disjoint from train
     tgt, in_std = float(P["tgt"]), float(P["inputstd"])
     if dataset == "sorting":
@@ -273,6 +275,57 @@ def load_chebyshev(n, k, device, dtype):
             tm2, tm1 = tm1, 2 * x * tm1 - tm2
         y = tm1
     return x.unsqueeze(1), y.unsqueeze(1)
+
+
+def _ksparse_perm(nbits, seed):
+    """Fisher–Yates permutation of range(nbits) with mulberry32 — IDENTICAL to server._shuffle16 / browser
+    _shuffle16, so the k-sparse subset S matches across backends."""
+    rng = mulberry32(u32(int(seed)))
+    idx = list(range(int(nbits)))
+    for i in range(int(nbits) - 1, 0, -1):
+        j = int(rng() * (i + 1))
+        idx[i], idx[j] = idx[j], idx[i]
+    return idx
+
+
+def load_ksparse(n, nbits, k, seed, device, dtype):
+    """k-sparse parity: input an `nbits`-dim ±1 bit vector; target = PARITY (product) of a FIXED random
+    size-k subset S of the bits → scalar ±1. MSE, oc = 1. Subset S + bits from the shared mulberry32 RNG
+    so the dataset is byte-identical across server / eos_lab / browser. For the transformer (gpt) the SAME
+    nbits-length ±1 vector is read as a length-nbits bit sequence, mean-pooled to the scalar parity.
+    MIRRORS server.load_ksparse."""
+    nb = max(1, int(nbits)); kk = max(1, min(int(k), nb))
+    S = set(_ksparse_perm(nb, (int(seed) ^ 0x4B5A11) & 0x7FFFFFFF)[:kk])
+    rng = mulberry32(u32(int(seed) * 7919 + 1))
+    X = torch.empty(int(n), nb, dtype=dtype, device=device)
+    Y = torch.empty(int(n), 1, dtype=dtype, device=device)
+    for i in range(int(n)):
+        prod = 1.0
+        for j in range(nb):
+            b = 1.0 if rng() < 0.5 else -1.0
+            X[i, j] = b
+            if j in S:
+                prod *= b
+        Y[i, 0] = prod
+    return X, Y
+
+
+def make_ksparse_testset(n_test, nbits, k, seed, device, dtype):
+    """Held-out k-sparse parity: SAME subset S, fresh ±1 bits from a DISJOINT stream (seed*7919+99991)."""
+    nb = max(1, int(nbits)); kk = max(1, min(int(k), nb))
+    S = set(_ksparse_perm(nb, (int(seed) ^ 0x4B5A11) & 0x7FFFFFFF)[:kk])
+    rng = mulberry32(u32(int(seed) * 7919 + 99991))
+    X = torch.empty(int(n_test), nb, dtype=dtype, device=device)
+    Y = torch.empty(int(n_test), 1, dtype=dtype, device=device)
+    for i in range(int(n_test)):
+        prod = 1.0
+        for j in range(nb):
+            b = 1.0 if rng() < 0.5 else -1.0
+            X[i, j] = b
+            if j in S:
+                prod *= b
+        Y[i, 0] = prod
+    return X, Y
 
 
 _OWT_CACHE = {}
@@ -347,6 +400,8 @@ def init_data_theta(model, P, dataset, N, in_dim, out_dim, device, dtype, cifar_
         X, Y = load_sort(N, in_dim, drng, device, dtype)
     elif dataset == "chebyshev":
         X, Y = load_chebyshev(N, P.get("degree", 3), device, dtype)
+    elif dataset == "ksparse":
+        X, Y = load_ksparse(N, in_dim, P.get("ksparse", 3), P["seed"], device, dtype)   # n ±1 bits → scalar ±1 parity of a fixed k-subset
     elif dataset == "const":
         # iid Gaussian inputs; target = CONSTANT POSITIVE |tgt| + Gaussian noise of variance cvar (0 ⇒ exact
         # constant ⇒ uniform residuals; cvar>0 decorrelates the residuals). MIRRORS server.
@@ -404,7 +459,7 @@ def init_data_theta(model, P, dataset, N, in_dim, out_dim, device, dtype, cifar_
     # Fixed-target datasets (cifar10/sorting/chebyshev) load Y directly and so skip the residual-sign
     # construction above — force the requested initial residual sign here by overriding Y per sample
     # (keep the dataset's inputs X and the residual's natural magnitude; only its sign is pinned).
-    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev") and ssign in ("pos", "neg"):
+    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev", "ksparse") and ssign in ("pos", "neg"):
         s = 1.0 if ssign == "pos" else -1.0
         floor = 0.25 * max(abs(tgt), 1e-6)
         f0 = model.forward(th, X)

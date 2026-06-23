@@ -13,7 +13,7 @@ from dataclasses import dataclass, asdict, field
 @dataclass
 class Config:
     # ---- dataset & architecture (mirror index.html 'Dataset & architecture' panel) ----
-    dataset: str = "synthetic"      # synthetic | cifar10 | cifar2 | mnist | mnist2 | sorting | owt | chebyshev
+    dataset: str = "synthetic"      # synthetic | cifar10 | cifar2 | mnist | mnist2 | sorting | owt | chebyshev | ksparse
     arch: str = "mlp"               # mlp | cnn | vgg11 | gpt
     loss: str = "mse"               # mse | ce
     chmul: float = 0.25             # CNN/VGG channel multiplier
@@ -23,6 +23,7 @@ class Config:
     seqlen: int = 16                # sorting sequence length / owt block size (tokens per sequence)
     vocab: int = 50257              # owt vocabulary (GPT-2 BPE) — token-embedding/head size
     degree: int = 3                 # chebyshev: degree of the target Chebyshev polynomial T_k
+    ksparse: int = 3                # k-sparse parity: #bits in the parity subset S (≤ indim = #input bits)
     c2a: int = 0                    # cifar2: first CIFAR-10 class index → scalar label +1
     c2b: int = 1                    # cifar2: second CIFAR-10 class index → scalar label −1
     cvar: float = 0.0               # const dataset: variance of Gaussian noise added to the constant target (0 ⇒ exact constant)

@@ -39,10 +39,10 @@ A handful of small, single-purpose modules:
 
 - **`config.py`** — the `Config` dataclass and the named presets.
 - **`models.py`** — the networks (MLP, CNN, VGG11, mini-GPT), the MSE / cross-entropy losses, and exact gradients + Hessian-vector products via autograd.
-- **`data.py`** — the datasets (synthetic, CIFAR-10, **CIFAR-2** = 2-class scalar ±1, **MNIST** & **MNIST-2** [padded to 3×32×32], sorting, OpenWebText, Chebyshev) and seeded initialization.
+- **`data.py`** — the datasets (synthetic, CIFAR-10, **CIFAR-2** = 2-class scalar ±1, **MNIST** & **MNIST-2** [padded to 3×32×32], sorting, OpenWebText, Chebyshev, **k-sparse parity** [`ksparse`: `in_dim` ±1 bits → scalar ±1 = parity of a fixed random `k`-subset; works with the MLP and the mean-pooled mini-GPT]) and seeded initialization.
 - **`linalg.py`** — the matrix-free linear algebra: Lanczos, stochastic Lanczos quadrature, principal angles, subspaces, and a robust `safe_eigh`/`safe_eigvalsh` (ramp + numpy fallback) so degenerate scalar-output Hessians never crash LAPACK/cuSOLVER.
 - **`diagnostics.py`** — the per-step measurements behind every panel (§1–§15).
-- **`sec16.py` / `sec17.py`** — the two standalone curvature-aligned optimizers (§16 averaged-Hessian, §17 per-sample) with their four baselines.
+- **`sec16.py` / `sec17.py`** — the two standalone curvature-aligned optimizers (§16 averaged-Hessian, §17 per-sample): project `g₊`/`g₋` onto the top-/bottom-`kdir` eigvectors (coefficient `⟨g,uᵢ⟩`, no `σ/η`), pure-curvature main run, with their five baselines (incl. E·gd).
 - **`train.py`** — the gradient-descent loop and `run_job`.
 - **`plots.py`** — renders each panel as a matplotlib figure.
 - **`cli.py`** / **`logging_wandb.py`** — the command-line runner and optional Weights & Biases logging.
@@ -71,8 +71,8 @@ Every section from the widget is here, and each is a flag on `config.Config` (al
 - **§12a / §12b (`s19` / `s22`)** — the per-sample function Hessian `Qᵢ=∇²fᵢ` (one matrix-free Lanczos per sample): top/bottom-eigvec **principal angles** + diagonal alignment across samples (12a), and per-sample **projection** panels of `∇f` / `J·r` onto each `Qᵢ`'s eigvecs (12b). Both share one §12 Lanczos; small `N` (capped by `sec12ncap`).
 - **§13 (`s21`)** — residual-weighted curvature `G1/G2/G3 ≈ ∑ JᵢᵀQⱼJₖ·rₖ` vs the exact reference. **§14 (`s20`)** — `Tr(ΔNTK)` per-triplet decomposition over the `N³` cube. Both reuse §12's per-sample eigenpairs.
 - **§15 (`s23`)** — 2nd-difference decomposition of `‖J‖²_F` (=tr NTK) and `σ₁` into theory terms I/II/III (resp. IV/V/VI), the matrices A/B, the chained-contraction norms, and a per-**effective**-sample top/bottom projection ratio. MSE, single or multi.
-- **§16 (`s24`, OFF by default)** — a standalone **curvature-aligned per-residual-sign optimizer** started from θ₀ (`sec16.py` / `plot_section16`): a GD warmup, then push `r>0` samples along the top eigvec of the sample-averaged function Hessian `H̄` and `r<0` along the bottom (each ×its eigenvalue), line-search, and advance by whichever of {curvature step, GD step} lowers the loss more. 6 panels (loss · loss-Hessian eig · function-Hessian eig · per-sample residuals · held-out test loss · ‖update‖₂) × {pos, neg, mean, best} look-aheads. `--set s24base=1` adds 4 dotted **baselines**: A random dirs · B shuffled ± sets · C frozen-random · D frozen-`H̄`-eigvec. MSE, small `M = N·d_out` (≤ 256).
-- **§17 (`s25`, OFF by default)** — the **per-sample** variant of §16 (`sec17.py` / `plot_section17`): each sample uses the top/bottom eigvec of its **own** `Qₖ=∇²fₖ` (`r>0` → top, `r<0` → bottom) instead of the averaged `H̄`. Same 6 panels + the 4 baselines (`--set s25base=1`). Per-sample Lanczos every iteration ⇒ small `M = N·d_out` only (≤ 64).
+- **§16 (`s24`, OFF by default)** — a standalone **curvature-aligned per-residual-sign optimizer** started from θ₀ (`sec16.py` / `plot_section16`): a GD warmup, then **project** the positive-residual gradient `g₊` onto the **top-`kdir`** eigvectors of the sample-averaged function Hessian `H̄` and `g₋` onto the **bottom-`kdir`** (coefficient `⟨g,uᵢ⟩`, *no* `σ/η` weighting), then `α₊/α₋` line-searches + a `(β,s)` grid. The **main run is pure curvature** (no gradient info). 6 panels (loss · loss-Hessian eig · function-Hessian eig · per-sample residuals · held-out test loss · ‖update‖₂) × {pos, neg, mean, best} look-aheads. `--set s24base=1` adds 5 dotted **baselines**: A random dirs · B shuffled ± sets · C frozen-random · D frozen-`H̄`-eigvec · **E the plain GD step**. `--set s24k=K` sets the eigvectors per side (default 8). MSE, small `M = N·d_out` (≤ 256).
+- **§17 (`s25`, OFF by default)** — the **per-sample** variant of §16 (`sec17.py` / `plot_section17`): each sample projects `rₖ∇fₖ` onto the top-/bottom-`kdir` eigvectors of its **own** `Qₖ=∇²fₖ` (`r>0` → top, `r<0` → bottom) instead of the averaged `H̄`. Same 6 panels + the 5 baselines (`--set s25base=1`, incl. E·gd). Per-sample Lanczos every iteration, so `M = N·d_out` ≤ 256 (and ≤ 64 in the single-threaded browser).
 
 The multi-sample sections build an explicit `M×p` Jacobian (`M = N·d_out`), so they're **skipped
 automatically** when that's too big to form (the budget is `M ≤ 2048` and `M·p ≤ 7e8`; whatever is skipped
@@ -80,8 +80,8 @@ is recorded in `meta["sections_skipped"]`). The matrix-free sections — §1–�
 run, so even large-`N` runs still tell the full PS/EoS story. The **per-sample** sections (§12–§17) run a
 batched Lanczos over the `M = N·d_out` effective samples, so their cost scales with `M`; on **multi-class**
 data (`d_out = 10`) that grows fast, so the `cifar2` / `mnist2` (2-class **scalar**, `d_out = 1`) datasets and
-the small-`N` presets (`cifar2_mlp`, `mnist_mlp`, `mnist2_mlp`) keep them feasible — §16 needs `M ≤ 256` and
-§17 `M ≤ 64`.
+the small-`N` presets (`cifar2_mlp`, `mnist_mlp`, `mnist2_mlp`) keep them feasible — §16 and §17 both need `M ≤ 256`
+(§17 ≤ 64 in the single-threaded browser).
 
 To keep runs fast the heaviest slowly-varying panels are throttled (matching the widget): §5 SLQ runs ~50×
 per run and §7's FH-eigenvector projections + §8 run every `heavyevery` ticks (default 4); the cheap core

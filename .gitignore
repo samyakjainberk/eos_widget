@@ -37,3 +37,4 @@ eos_lab/slurm/submit_all.sh
 
 # ---- W&B local keys ----
 .wandb_key
+runs_captured/

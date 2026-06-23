@@ -126,8 +126,8 @@ $(u_1,v_1,\sigma_1)$ is the top NTK singular triple of the propagated $J$. Three
 | **13** | residual-weighted curvature `G1/G2/G3 ≈ ∑ JᵢᵀQⱼJₖ·rₖ` vs the exact reference (own toggle) | multi-sample · small `N` |
 | **14** | `Tr(ΔNTK)` per-triplet decomposition over the `N³` cube | multi-sample · small `N` |
 | **15** | 2nd-difference decomposition of `‖J‖²_F` (=tr NTK) and `σ₁` into theory terms I/II/III (+ IV/V/VI), the matrices A/B, chained-contraction norms, and a per-sample top/bottom projection ratio | MSE · single or multi |
-| **16** | standalone **curvature-aligned per-residual-sign optimizer** — from θ₀: a GD warmup, then push `r>0` samples along the top eigvec of the sample-averaged function Hessian `H̄` and `r<0` along the bottom (each ×its eigenvalue), line-search, and advance by whichever of {curvature step, GD step} lowers the loss more. 6 panels (loss · loss-Hessian eig · function-Hessian eig · residuals · held-out test loss · ‖update‖₂) × {pos, neg, mean, best} look-aheads, plus 4 dotted **baselines** — A random dirs · B shuffled ± sets · C frozen-random · D frozen-`H̄`-eigvec | MSE · small `M = N·d_out` (≤ 256) |
-| **17** | **per-sample** variant of §16 — instead of the averaged `H̄`, each sample uses the top/bottom eigvec of its **own** function Hessian `Qₖ=∇²fₖ` (`r>0` → top, `r<0` → bottom); same 6 panels + 4 baselines | MSE · small `M = N·d_out` (≤ 64) |
+| **16** | standalone **curvature-aligned per-residual-sign optimizer** — from θ₀: a GD warmup, then **project** the positive-residual gradient `g₊` onto the **top-`kdir`** eigvectors of the sample-averaged function Hessian `H̄` and `g₋` onto the **bottom-`kdir`** (coefficient `⟨g,uᵢ⟩`, *no* `σ/η` weighting — the gradient lives in the moderate-curvature directions the old `σ·η` form suppressed), then `α₊/α₋` line-searches + a `(β,s)` grid. The **main run is pure curvature** (no gradient info). 6 panels (loss · loss-Hessian eig · function-Hessian eig · residuals · held-out test loss · ‖update‖₂) × {pos, neg, mean, best} look-aheads, plus **5 dotted baselines** — A random dirs · B shuffled ± sets · C frozen-random · D frozen-`H̄`-eigvec · **E the plain GD step**. `kdir` (the *§16/§17 kdir* control, default 8) sets the eigvectors per side | MSE · small `M = N·d_out` (≤ 256) |
+| **17** | **per-sample** variant of §16 — instead of the averaged `H̄`, each sample projects `rₖ∇fₖ` onto the top-/bottom-`kdir` eigvectors of its **own** function Hessian `Qₖ=∇²fₖ` (`r>0` → top, `r<0` → bottom); same 6 panels + 5 baselines (incl. E·gd) | MSE · small `M = N·d_out` (≤ 256 GPU/offline, ≤ 64 in-browser) |
 
 A checkbox per section toggles its computation. §7a/§7/§8/§4b/§4c use the *function* NTK `Jᵤ·Jᵤᵀ` and the
 generic residual `r = −∂L/∂z` (MSE: `y−f`, CE: `softmax(z)−onehot`), so they work for **cross-entropy** too;
@@ -135,7 +135,7 @@ they only need the explicit `M×p` Jacobian (`M = N·d_out`) to be feasible — 
 for e.g. OpenWebText, and empty for a single sample. **§4d** (its sign-groups need a scalar residual), **§9**
 (the squared-loss σ₁ recursion) and the **§16 / §17** optimizers are MSE-only. Any §1–§10 panel a run can't
 fill is stamped *"n/a"*; the §11–§17 sections stream their own records, so when one is **enabled but gated off**
-(`M = N·d_out` over the §16 ≤256 / §17 ≤64 cap, `N` over the §11/§12 cap, single-sample, or the per-sample
+(`M = N·d_out` over the §16/§17 ≤256 cap — ≤64 for §17 in-browser, `N` over the §11/§12 cap, single-sample, or the per-sample
 batched Lanczos hits a memory limit) the section instead shows a clear *"§X not produced — … lower the number
 of samples"* note in place of a blank frame. The per-sample sections (§12–§17) are heaviest for **multi-class**
 runs, where `M = N·d_out` is large; the **2-class scalar** datasets and the small-`N` presets keep them feasible.
@@ -157,7 +157,12 @@ Set from the dropdowns (real-data / conv / transformer runs use the GPU backend)
   toward the one-hot next token, normalised per token), and **Chebyshev** (Cohen et al. EoS toy task:
   `nsamp` points evenly spaced on [-1,1] labeled by the Chebyshev polynomial `T_degree`; MSE on a
   6-hidden-layer width-50 tanh MLP, ≈12.9k params. `degree` is set in the hyperparameter panel; the
-  preset sharpens to the `2/η` edge of stability). The **2-class scalar** variants (`cifar2` / `mnist2`)
+  preset sharpens to the `2/η` edge of stability), and **k-sparse parity** (`ksparse`): the input is an
+  `in_dim`-bit ±1 vector and the **scalar ±1 label is the parity (product) of a fixed random size-`k`
+  subset** of the bits — `k` (the *k-sparse k* control) and the bit-count (`in_dim`) are set in the
+  panel. It runs **in-browser with the MLP** and on the **GPU backend with the transformer** (the
+  mini-GPT reads the bits as a length-`in_dim` sequence and mean-pools its per-position head to the one
+  scalar parity); MSE throughout. The **2-class scalar** variants (`cifar2` / `mnist2`)
   exist so the per-sample §16/§17 optimizers run on real images: with `d_out = 1`, `M = N·1` stays small.
   Picking a dataset auto-applies its **default preset** (good `lr`/`init`/`N` + the sections that fit
   that size); the `cifar2_mlp` / `mnist_mlp` / `mnist2_mlp` presets use `lr = 0.02` (the default `0.36`
@@ -197,13 +202,35 @@ python -m eos_lab.owt_prepare                                  # build the OpenW
 
 Data + init use the same `mulberry32` RNG across all three, so the GD trajectory matches for a given seed.
 
+## Batch runs offline (SLURM / GPU), analyse in the browser later
+
+Run the **full computation headless** (no live server, no tab open), save **every section's records** to a
+file, then **load it back into the widget** to scrub all the plots offline — so you can fan many runs out
+across SLURM and your GPUs and analyse them whenever. See **[capture_README.md](capture_README.md)**.
+
+```bash
+# one capture (every §1–§17 toggle ON by default, incl. the §16/§17 baselines):
+python capture_run.py --dataset cifar10 --arch vgg11 --nsamp 25 --steps 400 \
+                      --device cuda:0 --out runs_captured/cifar_vgg.json
+
+# on SLURM (one job → one capture file); sweep_capture.sh submits a grid:
+sbatch --export=ALL,ARGS="--dataset cifar10 --arch mlp --nsamp 25 --steps 400 \
+                          --out runs_captured/cifar_mlp.json" run_capture.sh
+```
+
+In the page: **Compute → "⬆ load run"** picks a capture and replays it into every plot (and restores the
+run's controls); **"⬇ save run"** downloads the most recent **GPU-backend** run in the same format.
+
 ## Layout
 
 ```
-index.html      browser widget (also served by server.py)
-server.py       GPU backend — HTTP + SSE, PyTorch
-eos_lab/        headless package: config (presets) · models · data · train · diagnostics · plots · cli · slurm/
-data/           cifar-10-batches-py/ and owt/   (git-ignored; regenerable)
+index.html        browser widget (also served by server.py)
+server.py         GPU backend — HTTP + SSE, PyTorch
+capture_run.py    headless capture runner (→ a .json the widget can reload offline)
+run_capture.sh    SLURM wrapper for capture_run.py · sweep_capture.sh submits a grid · capture_README.md
+eos_lab/          headless package: config (presets) · models · data · train · diagnostics · plots · cli · slurm/
+data/             cifar-10-batches-py/ and owt/   (git-ignored; regenerable)
+runs_captured/    saved captures (git-ignored)
 ```
 
 Run outputs and datasets are git-ignored — rebuild the OWT shard with `python -m eos_lab.owt_prepare` and

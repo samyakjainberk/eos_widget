@@ -56,6 +56,8 @@ def effective_dims(cfg):
         return cfg.seqlen, cfg.vocab       # in_dim = block size (tokens/seq), out_dim = vocab
     if cfg.dataset == "chebyshev":
         return 1, 1                        # scalar x → scalar T_k(x)
+    if cfg.dataset == "ksparse":
+        return cfg.indim, 1                # n ±1 bits in → scalar ±1 parity out (gpt: read as a length-n bit sequence, mean-pooled)
     return cfg.indim, cfg.outdim
 
 

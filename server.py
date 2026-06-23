@@ -757,6 +757,24 @@ def _sec16_chebyshev_testset(N, degree, dt):
     return xm.unsqueeze(1), y.unsqueeze(1)
 
 
+def _ksparse_testset(N, nbits, k, seed, dt):
+    """Held-out k-sparse parity test set: the SAME fixed subset S as training, fresh ±1 bits from a
+    DISJOINT mulberry32 stream (seed*7919+99991). MIRRORS eos_lab.make_test_set / index.html sec16Holdout."""
+    nb = max(1, int(nbits)); kk = max(1, min(int(k), nb))
+    perm = _shuffle16(nb, (int(seed) ^ 0x4B5A11) & 0x7FFFFFFF); S = set(perm[:kk])
+    rng = mulberry32(u32(int(seed) * 7919 + 99991))
+    X = torch.empty(int(N), nb, dtype=dt, device=_dev()); Y = torch.empty(int(N), 1, dtype=dt, device=_dev())
+    for i in range(int(N)):
+        prod = 1.0
+        for j in range(nb):
+            b = 1.0 if rng() < 0.5 else -1.0
+            X[i, j] = b
+            if j in S:
+                prod *= b
+        Y[i, 0] = prod
+    return X, Y
+
+
 def _two_class_test_raw(raw, N, P):
     """Held-out 2-class SCALAR test set (classes {c2a,c2b} → ±1) from a (X_images, int_labels) split. float64."""
     import numpy as np
@@ -801,6 +819,8 @@ def _sec16_holdout(dataset, N, P, inD, outD):
         Yt = torch.zeros(len(idx), 10, dtype=torch.float64, device=dev)
         Yt[torch.arange(len(idx)), torch.tensor(Ya[idx], dtype=torch.long, device=dev)] = 1.0
         return torch.tensor(Xa[idx], dtype=torch.float64, device=dev), Yt
+    if dataset == "ksparse":
+        return _ksparse_testset(int(N), int(inD), int(P.get("ksparse", 3)), int(P["seed"]), torch.float64)
     if dataset not in ("synthetic", "const") or P.get("ssign", "off") != "off":
         return None, None
     if dataset == "synthetic" and P.get("fixedx", "0") == "1":
@@ -1499,6 +1519,7 @@ class GptModel(AutogradModel):
     def __init__(self, inDim, outDim, P):
         super().__init__()
         self.L, self.oc, self.in_shape = inDim, outDim, (inDim,)
+        self.pool = (P.get("dataset") == "ksparse")     # k-sparse parity: mean-pool the per-position head to ONE scalar (oc=1)
         d, h, nl = int(P.get("dmodel", 64)), int(P.get("nhead", 4)), int(P.get("nlayer", 2))
         assert d % h == 0, "dmodel must be divisible by nhead"
         self.d, self.h, self.nl = d, h, nl
@@ -1541,7 +1562,8 @@ class GptModel(AutogradModel):
             mm = F.gelu(a2 @ p[q + "fc1w"].t() + p[q + "fc1b"])
             z = z + (mm @ p[q + "fc2w"].t() + p[q + "fc2b"])
         z = self._ln(z, p["lnfg"], p["lnfb"])
-        return (z @ p["headw"].t() + p["headb"]).view(N, L)                          # (N, L)
+        out = z @ p["headw"].t() + p["headb"]                                         # (N, L, 1)
+        return out.mean(1) if self.pool else out.view(N, L)                          # ksparse: (N,1) pooled scalar parity · sorting: (N, L)
 
 
 class GptLMModel(AutogradModel):
@@ -2223,6 +2245,30 @@ def load_chebyshev(n, k):
     return x.unsqueeze(1), y.unsqueeze(1)
 
 
+def load_ksparse(n, nbits, k, seed):
+    """k-sparse parity: input is an `nbits`-dim ±1 bit vector; the target is the PARITY (product) of a
+    FIXED random size-k subset S of the bits → scalar ±1 (+1 for even #(−1) over S, −1 for odd). MSE
+    regression, oc = 1. The subset S and the bits are drawn from the shared mulberry32 RNG so the
+    dataset is byte-identical across server / eos_lab / browser. For the transformer (gpt) the SAME
+    nbits-length ±1 vector is read as a length-nbits sequence of bit-tokens and the per-position head
+    is mean-pooled to the single scalar parity. MIRRORS eos_lab.data.load_ksparse."""
+    nb = max(1, int(nbits)); kk = max(1, min(int(k), nb))
+    perm = _shuffle16(nb, (int(seed) ^ 0x4B5A11) & 0x7FFFFFFF)           # fixed sparse subset = first kk of a seeded shuffle of [0,nb)
+    S = set(perm[:kk])
+    rng = mulberry32(u32(int(seed) * 7919 + 1))                          # same seed family as synthetic; bits drawn row-major
+    X = torch.empty(int(n), nb, dtype=DTYPE, device=_dev())
+    Y = torch.empty(int(n), 1, dtype=DTYPE, device=_dev())
+    for i in range(int(n)):
+        prod = 1.0
+        for j in range(nb):
+            b = 1.0 if rng() < 0.5 else -1.0
+            X[i, j] = b
+            if j in S:
+                prod *= b
+        Y[i, 0] = prod
+    return X, Y
+
+
 _OWT_CACHE = {}
 
 
@@ -2300,6 +2346,8 @@ def init_data_theta(P, dataset, N, inD, outD):
         X, Y = load_sort(N, inD, drng)
     elif dataset == "chebyshev":
         X, Y = load_chebyshev(N, P.get("degree", 3))
+    elif dataset == "ksparse":
+        X, Y = load_ksparse(N, inD, P.get("ksparse", 3), P["seed"])     # n ±1 bits → scalar ±1 parity of a fixed k-subset
     elif dataset == "const":
         # iid Gaussian inputs (like synthetic); every target is the CONSTANT POSITIVE |tgt| PLUS optional Gaussian
         # noise of VARIANCE `cvar` (default 0 ⇒ exactly constant). cvar=0 ⇒ all initial residuals r=y−f(x,θ₀) share
@@ -2358,7 +2406,7 @@ def init_data_theta(P, dataset, N, inD, outD):
     # Fixed-target datasets (cifar10/sorting/chebyshev) load Y directly and so skip the residual-sign
     # construction above — force the requested initial residual sign here by overriding Y per sample
     # (keep the dataset's inputs X and the residual's natural magnitude; only its sign is pinned).
-    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev") and ssign in ("pos", "neg"):
+    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev", "ksparse") and ssign in ("pos", "neg"):
         s = 1.0 if ssign == "pos" else -1.0
         floor = 0.25 * max(abs(tgt), 1e-6)
         F0 = _TL.model.forward(th, X)
@@ -2391,6 +2439,8 @@ def run_stream(P):
         inDimE, outDimE = int(P["seqlen"]), int(P["vocab"])   # block size, vocab
     elif dataset == "chebyshev":
         inDimE = outDimE = 1                                  # scalar x → scalar T_k(x)
+    elif dataset == "ksparse":
+        inDimE, outDimE = int(P["indim"]), 1                  # n ±1 bits in → scalar ±1 parity out (gpt: read as a length-n bit sequence, mean-pooled)
     else:
         inDimE, outDimE = P["indim"], P["outdim"]
     _TL.model = build_model(arch, inDimE, outDimE, P)
@@ -3727,6 +3777,7 @@ def _parse_params(q):
         "chmul": ff("chmul", 0.25), "nlayer": fi("nlayer", 2), "nhead": fi("nhead", 4),
         "dmodel": fi("dmodel", 64), "seqlen": fi("seqlen", 16), "vocab": fi("vocab", 50257),
         "degree": fi("degree", 3),       # Chebyshev polynomial degree (chebyshev dataset)
+        "ksparse": max(1, fi("ksparse", 3)),   # k-sparse parity: #bits in the parity subset S (≤ indim = #input bits)
         "c2a": fi("c2a", 0), "c2b": fi("c2b", 1),   # cifar2: the two CIFAR-10 class indices → scalar labels +1 / −1
         "divreg": ff("divreg", 0.3),     # §15 divergence ε strength: softens the 0/0 spike at D²→0 inflections (0 ⇒ exact /D²)
         "cvar": ff("cvar", 0.0),         # const dataset: variance of Gaussian noise added to the constant target (0 ⇒ exact constant)

@@ -242,6 +242,7 @@ class GptModel(AutogradModel):
     def __init__(self, in_dim, out_dim, P, device, dtype):
         super().__init__(device, dtype)
         self.L, self.oc, self.in_shape = in_dim, out_dim, (in_dim,)
+        self.pool = (P.get("dataset") == "ksparse")     # k-sparse parity: mean-pool the per-position head → ONE scalar (oc=1)
         d, h, nl = int(P.get("dmodel", 64)), int(P.get("nhead", 4)), int(P.get("nlayer", 2))
         assert d % h == 0, "dmodel must be divisible by nhead"
         self.d, self.h, self.nl = d, h, nl
@@ -284,7 +285,8 @@ class GptModel(AutogradModel):
             mm = F.gelu(a2 @ p[q + "fc1w"].t() + p[q + "fc1b"])
             z = z + (mm @ p[q + "fc2w"].t() + p[q + "fc2b"])
         z = self._ln(z, p["lnfg"], p["lnfb"])
-        return (z @ p["headw"].t() + p["headb"]).view(N, L)
+        out = z @ p["headw"].t() + p["headb"]                                         # (N, L, 1)
+        return out.mean(1) if self.pool else out.view(N, L)                          # ksparse: (N,1) pooled scalar parity · sorting: (N, L)
 
 
 class GptLMModel(AutogradModel):

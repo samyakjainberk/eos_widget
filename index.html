@@ -131,7 +131,7 @@
   <div class="panel">
     <div class="panel-title">Dataset &amp; architecture <span style="color:#94a3b8;font-weight:400;text-transform:none">· GPU backend only</span></div>
     <div class="grid">
-      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="const">const target (iid x → fixed +y)</option><option value="cifar10">CIFAR-10 (10-class one-hot)</option><option value="cifar2">CIFAR-2 (2-class scalar ±1)</option><option value="mnist">MNIST (10-class one-hot)</option><option value="mnist2">MNIST-2 (2-class scalar ±1)</option><option value="sorting">sorting</option><option value="owt">OpenWebText</option><option value="chebyshev">Chebyshev</option></select></div>
+      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="const">const target (iid x → fixed +y)</option><option value="cifar10">CIFAR-10 (10-class one-hot)</option><option value="cifar2">CIFAR-2 (2-class scalar ±1)</option><option value="mnist">MNIST (10-class one-hot)</option><option value="mnist2">MNIST-2 (2-class scalar ±1)</option><option value="sorting">sorting</option><option value="owt">OpenWebText</option><option value="chebyshev">Chebyshev</option><option value="ksparse">k-sparse parity (±1 bits → ±1)</option></select></div>
       <div class="ctl"><label>architecture</label><select id="arch"><option value="mlp" selected>MLP</option><option value="cnn">CNN</option><option value="vgg11">VGG11</option><option value="gpt">mini-GPT</option></select></div>
       <div class="ctl"><label>loss</label><select id="loss"><option value="mse" selected>MSE</option><option value="ce">cross-entropy</option></select></div>
       <div class="ctl"><label>CNN/VGG channel mult</label><input id="chmul" type="number" value="0.25" min="0.05" max="2" step="0.05"></div>
@@ -141,6 +141,7 @@
       <div class="ctl"><label>seq len (sorting / owt block)</label><input id="seqlen" type="number" value="16" min="2" max="512" step="1"></div>
       <div class="ctl"><label>vocab (owt)</label><input id="vocab" type="number" value="50257" min="2" max="50257" step="1"></div>
       <div class="ctl"><label>cheby degree</label><input id="degree" type="number" value="3" min="1" max="12" step="1"></div>
+      <div class="ctl"><label title="k-sparse parity: the number of input bits (k) whose parity (product of ±1) determines the ±1 label. The bit-subset is a fixed random size-k subset of the in_dim input bits. Must be ≤ in_dim.">k-sparse k</label><input id="ksparse" type="number" value="3" min="1" max="40" step="1"></div>
     </div>
   </div>
   <div class="panel">
@@ -2323,6 +2324,12 @@ function sec16Cheb(N,degree){   // §16 Panel 5 held-out test set — N−1 MIDP
   const d=degree|0;for(let i=0;i<m;i++){if(d<=0){Yt[i]=1;continue;}let t2=1,t1=xm[i];for(let kk=2;kk<=d;kk++){const t=2*xm[i]*t1-t2;t2=t1;t1=t;}Yt[i]=t1;}
   return {X:xm,Y:Yt,N:m};
 }
+function sec16Ksparse(N,nbits,k,seed){   // §16/§17 held-out k-sparse parity test set — SAME fixed subset S, fresh ±1 bits from a DISJOINT stream (mirror server._ksparse_testset)
+  const nb=Math.max(1,nbits|0),kk=Math.max(1,Math.min(k|0,nb)),perm=_shuffle16(nb,((seed^0x4B5A11)>>>0)),Sset=new Set(perm.slice(0,kk));
+  const rng=mulberry32(((seed*7919+99991)>>>0)),X=new Float64Array(N*nb),Y=new Float64Array(N);
+  for(let i=0;i<N;i++){let prod=1;for(let j=0;j<nb;j++){const b=rng()<0.5?1:-1;X[i*nb+j]=b;if(Sset.has(j))prod*=b;}Y[i]=prod;}
+  return {X:X,Y:Y,N:N};
+}
 function sec16Holdout(dataset,N,inDim,outDim,seed,tgt,inStd,fixedx,ssign,cvar){   // §16 Panel 5 held-out set for synthetic/const — MIRRORS eos_lab.make_test_set / server._sec16_holdout
   if(ssign!=='off')return null;                                                   // sign-forced ⇒ no clean held-out split
   if(dataset==='synthetic'&&fixedx==='1')return null;
@@ -2952,7 +2959,7 @@ const ADV_SECS={en18:{sec:'sec_g3d',name:'§11 (3D Hessian–NTK grids)'},
   en25:{sec:'sec_s17',name:'§17 (per-sample optimizer)'}};
 let ADV_GOT={};   // toggle id → true once that section's g-record has arrived this run
 function datasetOutDim(){const d=val('dataset');
-  if(d==='cifar10'||d==='mnist')return 10; if(d==='cifar2'||d==='mnist2'||d==='chebyshev')return 1;
+  if(d==='cifar10'||d==='mnist')return 10; if(d==='cifar2'||d==='mnist2'||d==='chebyshev'||d==='ksparse')return 1;
   if(d==='sorting')return Math.max(1,+val('seqlen')||16); if(d==='owt')return Math.max(1,+val('vocab')||50257);
   return Math.max(1,+val('outdim')||1);}
 function secNote(secId,msg){const sec=document.getElementById(secId);if(!sec)return;
@@ -3142,11 +3149,11 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   if(RUNNING){ABORT=true;await new Promise(r=>setTimeout(r,40));}
   ABORT=false;PAUSED=false;
   const st=document.getElementById('status');
-  if(val('dataset')!=='synthetic'||val('arch')!=='mlp'){   // conv/transformer/CIFAR are GPU-backend only
-    st.textContent='CIFAR-10 / sorting / OpenWebText and CNN / VGG11 / mini-GPT runs require the GPU backend — set Compute → "GPU backend (server.py)".';
+  if((val('dataset')!=='synthetic'&&val('dataset')!=='ksparse')||val('arch')!=='mlp'){   // conv/transformer/CIFAR are GPU-backend only; ksparse-MLP runs in-browser (ksparse-transformer is GPU-backend)
+    st.textContent='CIFAR-10 / sorting / OpenWebText and CNN / VGG11 / mini-GPT runs require the GPU backend — set Compute → "GPU backend (server.py)". (k-sparse parity runs in-browser with the MLP; use the GPU backend for the transformer.)';
     ST=null;RUNNING=false;updateButtons();return;}
   const depth=+val('depth'),width=+val('width'),act=val('act'),useBias=val('bias')==='1';
-  const lr=+val('lr'),initScale=+val('init'),N=+val('nsamp'),inDim=+val('indim'),outDim=+val('outdim'),tgt=+val('tgt');
+  const lr=+val('lr'),initScale=+val('init'),N=+val('nsamp'),inDim=+val('indim'),outDim=(val('dataset')==='ksparse')?1:(+val('outdim')),tgt=+val('tgt');
   const fixedX=val('fixedx')==='1', inputStd=+val('inputstd');
   let n=+val('neig'),kth=+val('kth'),steps=+val('steps'),eigEvery=+val('eigevery'),seed=+val('seed');
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
@@ -3189,6 +3196,10 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
       for(let c=0;c<inDim;c++)X[i*inDim+c]=Xc[k*inDim+c];
       for(let c=0;c<outDim;c++){const f=Fc[k*outDim+c];Y[i*outDim+c]=f+s*Math.max(Math.abs(Yc[k*outDim+c]-f),floor);}}  // r=y−f has sign s, |r|≥floor
   }
+  else if(val('dataset')==='ksparse'){   // n ±1 bits → scalar ±1 parity of a fixed k-subset (MIRRORS server.load_ksparse; bits from drng = mulberry32(seed*7919+1))
+    const nb=inDim, kk=Math.max(1,Math.min(+val('ksparse')||3,nb)), perm=_shuffle16(nb,((seed^0x4B5A11)>>>0)), Sset=new Set(perm.slice(0,kk));
+    for(let i=0;i<N;i++){let prod=1;for(let j=0;j<nb;j++){const b=drng()<0.5?1:-1;X[i*inDim+j]=b;if(Sset.has(j))prod*=b;}Y[i]=prod;}   // outDim=1 ⇒ M=N
+  }
   else { for(let i=0;i<N*inDim;i++)X[i]=inputStd*gauss(drng); for(let i=0;i<M;i++)Y[i]=tgt*gauss(drng); }
   const multi=M>1, n7=Math.min(n,Math.max(M,1)), n8=Math.min(n,Math.max(1,Math.floor(p/2)));
   initLivePlots(n,kth,nResid,thr,n7,n8,multi);
@@ -3215,7 +3226,8 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   // §16: standalone curvature-aligned optimizer (browser compute). Runs ONCE from θ₀ (synchronous; gated to small MLP+MSE+scalar).
   if(opt.s24 && val('arch')==='mlp' && val('loss')==='mse' && N*outDim<=256 && N*outDim*p<=300000000 && N<=64){   // §16 multi-output: effective samples M=N·d_out
     s16Reset();
-    const cb16=(val('dataset')==='chebyshev')?sec16Cheb(N,Math.max(1,+val('degree')||3))   // Panel-5 held-out test set (chebyshev midpoints; synthetic/const fresh iid-Gaussian)
+    const cb16=(val('dataset')==='chebyshev')?sec16Cheb(N,Math.max(1,+val('degree')||3))   // Panel-5 held-out test set (chebyshev midpoints; ksparse fresh ±1 bits; synthetic/const fresh iid-Gaussian)
+              :(val('dataset')==='ksparse')?sec16Ksparse(N,inDim,Math.max(1,+val('ksparse')||3),+val('seed')||0)
               :sec16Holdout(val('dataset'),N,inDim,outDim,+val('seed')||0,+val('tgt'),+val('inputstd'),val('fixedx'),val('ssign'),+val('cvar')||0);
     const s24k16=Math.max(1,+val('s24k')||8);
     try{ sec16Driver(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||250),n,Math.min(p,Math.max(2*s24k16+16,n+8)),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),cb16&&cb16.X,cb16&&cb16.Y,cb16&&cb16.N,chk('en24base'),s24k16,s16Push); }
@@ -3224,6 +3236,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   if(opt.s25 && val('arch')==='mlp' && val('loss')==='mse' && N*outDim<=64 && N*outDim*p<=300000000 && N<=64){   // §17 PER-SAMPLE (O(M²) per-sample Lanczos; browser is single-threaded ⇒ kept ≤64; the GPU/offline paths go to 256)
     s17Reset();
     const cb17=(val('dataset')==='chebyshev')?sec16Cheb(N,Math.max(1,+val('degree')||3))   // reuse §16's held-out test sets (same observables)
+              :(val('dataset')==='ksparse')?sec16Ksparse(N,inDim,Math.max(1,+val('ksparse')||3),+val('seed')||0)
               :sec16Holdout(val('dataset'),N,inDim,outDim,+val('seed')||0,+val('tgt'),+val('inputstd'),val('fixedx'),val('ssign'),+val('cvar')||0);
     const s24k17=Math.max(1,+val('s24k')||8);
     try{ sec17Driver(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||250),n,Math.min(p,Math.max(2*s24k17+16,n+8)),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),cb17&&cb17.X,cb17&&cb17.Y,cb17&&cb17.N,chk('en25base'),s24k17,s17Push); }
@@ -4030,6 +4043,9 @@ const PRESETS={
   // Chebyshev regression (Cohen et al. EoS): nsamp points on [-1,1] labeled by T_degree; a 6-hidden-layer
   // width-50 tanh MLP (≈12.9k params). Sharpness climbs to the 2/η edge of stability.
   chebyshev:{dataset:'chebyshev',arch:'mlp',loss:'mse',depth:6,width:50,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.1,init:0.5,nsamp:20,batch:0,indim:1,outdim:1,degree:3,tgt:1.0,neig:3,kth:1,steps:5000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
+  // k-sparse parity: 10 ±1 input bits, label = product (parity) of a fixed random k=3-subset → ±1; tanh MLP, MSE.
+  // Runs in-browser; switch arch→gpt + Compute→GPU backend for the transformer version (same dataset).
+  ksparse_mlp:{dataset:'ksparse',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:24,batch:0,indim:10,outdim:1,ksparse:3,tgt:1.0,neig:3,kth:1,steps:600,eigevery:2,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en24:1,en25:1,qapprox:25,qmode:1,tset:3,compute:'browser'},
 };
 function setVal(id,v){document.getElementById(id).value=String(v);}
 function applyPreset(name){const P=PRESETS[name];if(!P)return;for(const k in P){const el=document.getElementById(k);if(!el)continue;if(el.type==='checkbox')el.checked=!!P[k];else el.value=String(P[k]);}syncLossPanels();updateParamBadge();syncInitScaleEnabled();}
@@ -4048,7 +4064,7 @@ function cmpSyncInitScale(pre){const sc=document.getElementById(pre+'_initscheme
 // Each dataset has a sensible DEFAULT config (a preset): picking the dataset applies it (good lr/init/N
 // + the sections that actually run at that size) so you don't also have to hunt for the matching preset.
 const DATASET_PRESET={cifar10:'cifar_mlp',cifar2:'cifar2_mlp',mnist:'mnist_mlp',mnist2:'mnist2_mlp',
-  sorting:'sort_gpt',owt:'owt_gpt',chebyshev:'chebyshev',const:'gpu_const',synthetic:'msample'};
+  sorting:'sort_gpt',owt:'owt_gpt',chebyshev:'chebyshev',ksparse:'ksparse_mlp',const:'gpu_const',synthetic:'msample'};
 document.getElementById('dataset').addEventListener('change',e=>{
   const pn=DATASET_PRESET[e.target.value];
   if(pn&&typeof PRESETS!=='undefined'&&PRESETS[pn]){const pe=document.getElementById('preset');pe.value=pn;applyPreset(pn);syncSectionVis();drawPreview();}
