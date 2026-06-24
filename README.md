@@ -128,6 +128,8 @@ $(u_1,v_1,\sigma_1)$ is the top NTK singular triple of the propagated $J$. Three
 | **15** | 2nd-difference decomposition of `‖J‖²_F` (=tr NTK) and `σ₁` into theory terms I/II/III (+ IV/V/VI), the matrices A/B, chained-contraction norms, and a per-sample top/bottom projection ratio | MSE · single or multi |
 | **16** | standalone **curvature-aligned per-residual-sign optimizer** — from θ₀: a GD warmup, then **project** the positive-residual gradient `g₊` onto the **top-`kdir`** eigvectors of the sample-averaged function Hessian `H̄` and `g₋` onto the **bottom-`kdir`** (coefficient `⟨g,uᵢ⟩`, *no* `σ/η` weighting — the gradient lives in the moderate-curvature directions the old `σ·η` form suppressed), then `α₊/α₋` line-searches + a `(β,s)` grid. The **main run is pure curvature** (no gradient info). 6 panels (loss · loss-Hessian eig · function-Hessian eig · residuals · held-out test loss · ‖update‖₂) × {pos, neg, mean, best} look-aheads, plus **5 dotted baselines** — A random dirs · B shuffled ± sets · C frozen-random · D frozen-`H̄`-eigvec · **E the plain GD step**. `kdir` (the *§16/§17 kdir* control, default 32) sets the eigvectors per side — projecting onto the curvature extremes captures only a fraction of the gradient, so a larger `kdir` (more directions) descends better; the Lanczos subspace scales as `4·kdir+32` so the eigvectors are actually resolved on the clustered tanh-MLP spectrum | MSE · small `M = N·d_out` (≤ 256) |
 | **17** | **per-sample** variant of §16 — instead of the averaged `H̄`, each sample projects `rₖ∇fₖ` onto the top-/bottom-`kdir` eigvectors of its **own** function Hessian `Qₖ=∇²fₖ` (`r>0` → top, `r<0` → bottom); same 6 panels + 5 baselines (incl. E·gd) | MSE · small `M = N·d_out` (≤ 256 GPU/offline, ≤ 64 in-browser) |
+| **18** | the **§12b panels 1 & 2 plotted per sample** — the product `|⟨Jᵢ,u⟩|·σ·rᵢ` and alignment `|⟨Jᵢ,u⟩|/‖Jᵢ‖` onto the top-2/bottom-2 eigvectors of each `Qᵢ`, shown for **sample 1 vs sample 2** separately (instead of mean/std over samples). Reuses §12's Lanczos | **exactly 2 samples** (`nsamp = 2`) |
+| **19** | correlation of two events: **A** = the one-step change in gradient norm `‖J_{t+1}ᵀr_{t+1}‖ − ‖J_tᵀr_t‖` (first-order GD prediction, `r_{t+1}=(I−(η/N)NTK)r_t`, `J_{t+1}=J_t+(η/N)Q_t(Jᵀr)`, using the run's actual `η/N` step) vs **B** = `D²(tr NTK)` (centered 2nd difference of `‖J‖²_F`). Plot 1: A & B over training; Plot 2: raw `A−B` and normalized `Â−B̂` — does the step where each first turns negative coincide? | MSE · small `N` · best with `eigevery = 1` |
 
 A checkbox per section toggles its computation. §7a/§7/§8/§4b/§4c use the *function* NTK `Jᵤ·Jᵤᵀ` and the
 generic residual `r = −∂L/∂z` (MSE: `y−f`, CE: `softmax(z)−onehot`), so they work for **cross-entropy** too;
@@ -162,7 +164,14 @@ Set from the dropdowns (real-data / conv / transformer runs use the GPU backend)
   subset** of the bits — `k` (the *k-sparse k* control) and the bit-count (`in_dim`) are set in the
   panel. It runs **in-browser with the MLP** and on the **GPU backend with the transformer** (the
   mini-GPT reads the bits as a length-`in_dim` sequence and mean-pools its per-position head to the one
-  scalar parity); MSE throughout. The **2-class scalar** variants (`cifar2` / `mnist2`)
+  scalar parity); MSE throughout. **angle pair** (`anglepair`): a **2-sample** dataset (by default) for
+  studying the geometry between two points — sample 1 is an iid-Gaussian direction scaled to `‖x₁‖ = norm1`,
+  and sample 2 has `‖x₂‖ = norm2` at a **controllable angle** from x₁ (`⟨x₁,x₂⟩ = norm1·norm2·cos(angle)`).
+  The `angle`, `norm1`, `norm2` and the per-sample **±1 labels** (`label x₁` / `label x₂`) are panel
+  controls; `nsamp > 2` adds fresh iid-Gaussian samples at `norm1` with random ±1 labels. Residual-sign
+  works (off ⇒ the ±1 labels; pos/neg ⇒ pins the residual signs). Runs in-browser with the MLP; pairs
+  naturally with **§18** (per-sample projections) and **§19** (grad-norm vs `D²(NTK)`). The **2-class scalar**
+  variants (`cifar2` / `mnist2`)
   exist so the per-sample §16/§17 optimizers run on real images: with `d_out = 1`, `M = N·1` stays small.
   Picking a dataset auto-applies its **default preset** (good `lr`/`init`/`N` + the sections that fit
   that size); the `cifar2_mlp` / `mnist_mlp` / `mnist2_mlp` presets use `lr = 0.02` (the default `0.36`
