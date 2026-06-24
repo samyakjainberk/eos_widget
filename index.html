@@ -3019,10 +3019,20 @@ function applyTimeScrub(frac){
   let repHi=null,repMax=null;
   document.querySelectorAll('div.plot').forEach(gd=>{
     if(!gd._fullLayout||gd.offsetParent===null||!_scrubable(gd))return;   // visible time-series plots only
-    if(live){try{Plotly.relayout(gd,{'xaxis.autorange':true});}catch(e){}return;}
+    if(live){try{Plotly.relayout(gd,{'xaxis.autorange':true,'yaxis.autorange':true});}catch(e){}return;}   // live: both axes auto-fit the full run
     const ex=_xExtent(gd); if(!ex||ex[1]<=ex[0])return;
     const hi=ex[0]+frac*(ex[1]-ex[0]);
-    try{Plotly.relayout(gd,{'xaxis.range':[ex[0],hi],'xaxis.autorange':false});}catch(e){}
+    const rl={'xaxis.range':[ex[0],hi],'xaxis.autorange':false};
+    // RESCALE Y to the data visible in [ex[0],hi] so a rewound (small-value) window stays readable instead of
+    // being squished against a y-range fixed by the full run (Plotly's autorange spans ALL x, so it can't do this).
+    let ylo=Infinity,yhi=-Infinity;
+    for(const tr of (gd.data||[])){const xs=tr.x,ys=tr.y; if(!xs||!ys)continue; const n=Math.min(xs.length,ys.length);
+      for(let i=0;i<n;i++){const xv=xs[i]; if(xv==null||xv<ex[0]||xv>hi)continue; const yv=ys[i];
+        if(yv==null||typeof yv!=='number'||!isFinite(yv))continue; if(yv<ylo)ylo=yv; if(yv>yhi)yhi=yv;}}
+    if(ylo<=yhi){const ya=gd._fullLayout.yaxis;
+      if(ya&&ya.type==='log'){ if(ylo>0){const lp=(Math.log10(yhi)-Math.log10(ylo))*0.06||0.05; rl['yaxis.range']=[Math.log10(ylo)-lp,Math.log10(yhi)+lp]; rl['yaxis.autorange']=false;} }
+      else{ const span=yhi-ylo, pad=span>0?span*0.06:(Math.abs(yhi)*0.06||1e-9); rl['yaxis.range']=[ylo-pad,yhi+pad]; rl['yaxis.autorange']=false; } }
+    try{Plotly.relayout(gd,rl);}catch(e){}
     if(repHi===null){repHi=hi;repMax=ex[1];}   // first time-series plot (loss curve) drives the readout
   });
   const read=document.getElementById('scrubread');
