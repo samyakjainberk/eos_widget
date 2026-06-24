@@ -1412,7 +1412,7 @@ function s14GridStats(snap,meta){   // ALL 9 stats over the SAME off-diagonal ce
   if(!pk)return {top:[null,null,null],bot:[null,null,null],mean:null,mpos:null,mneg:null};
   const N=snap.M,N2=N*N,v=pk.v,idx=pk.idx,off=[];
   for(let q=0;q<v.length;q++){const p=idx?idx[q]:q,i=(p/N2)|0,j=((p%N2)/N)|0,k=p%N;
-    if(i!==j&&j!==k&&i!==k)off.push(v[q]);}                       // off-diagonal: all three indices distinct
+    if(i!==j&&j!==k&&i!==k&&v[q]!=null&&isFinite(v[q]))off.push(v[q]);}            // off-diagonal (i≠j≠k), FINITE only (non-finite excluded from top/bot — matches the mean's filter + compact_capture._stats)
   off.sort((a,b)=>b-a);const L=off.length,gv=a=>(a==null?null:a);
   let s=0,c=0,sp=0,cp=0,sn=0,cn=0;                               // mean is the count-weighted (n⁺·mean⁺+n⁻·mean⁻)/N, NOT (mean⁺+mean⁻)/2
   for(const x of off){if(x!=null&&isFinite(x)){s+=x;c++;if(x>0){sp+=x;cp++;}else if(x<0){sn+=x;cn++;}}}
@@ -1634,7 +1634,7 @@ function s12ProjRender(){
 // ── §18: §12b panels 1&2, but plotted PER SAMPLE (sample 1 vs sample 2) instead of mean/std. N=2 only.
 //    Reuses the §12 per-sample projection payload (m.proj.top/bot[rank].pvals[i]=product, .vals[i]=alignment). ──
 const S18_GRP=[['top','p_s18_top','#2563eb','#93c5fd'],['bot','p_s18_bot','#dc2626','#fca5a5']];   // top (blue) / bottom (red); 2nd shade = rank-2
-const S18_SPEC=[['pvals',0],['pvals',1],['vals',0],['vals',1]];   // 4 plots: [proj·r sample1, proj·r sample2, align sample1, align sample2]
+const S18_SPEC=[['pbysamp','pvals',0],['pbysamp','pvals',1],['vbysamp','vals',0],['vbysamp','vals',1]];   // 4 plots: [proj·r s1, proj·r s2, align s1, align s2]; pbysamp/vbysamp = TRUE positional per-sample (fallback to the masked pvals/vals for old captures)
 const S18_TITLE=['proj·r — sample 1','proj·r — sample 2','|⟨J,u⟩|/‖J‖ — sample 1','|⟨J,u⟩|/‖J‖ — sample 2'];
 const S18_NRANK=2, S18_RLAB=['rank-1','rank-2'];
 let S18_DATA=null, S18_BUILT=false;
@@ -1654,8 +1654,9 @@ function s18Append(m){
   if(!S18_DATA){S18_DATA={steps:[]};for(const [grp] of S18_GRP){S18_DATA[grp]=[];for(let n=0;n<4;n++){S18_DATA[grp][n]=[];for(let rk=0;rk<S18_NRANK;rk++)S18_DATA[grp][n][rk]=[];}}}
   S18_DATA.steps.push(m.t);
   for(const [grp] of S18_GRP){const ranks=m.proj[grp]||[];
-    for(let n=0;n<4;n++){const[key,si]=S18_SPEC[n];
-      for(let rk=0;rk<S18_NRANK;rk++){const e=ranks[rk],arr=e?e[key]:null;S18_DATA[grp][n][rk].push((arr&&arr.length>si)?arr[si]:null);}}}   // null → gap (rank-2 absent / sample missing)
+    for(let n=0;n<4;n++){const[key,fb,si]=S18_SPEC[n];
+      for(let rk=0;rk<S18_NRANK;rk++){const e=ranks[rk],arr=e?(e[key]||e[fb]):null;   // prefer positional pbysamp/vbysamp; fall back to the masked list for old captures
+        S18_DATA[grp][n][rk].push((arr&&arr.length>si&&arr[si]!=null&&isFinite(arr[si]))?arr[si]:null);}}}   // null → gap (rank-2 absent / spurious eigvec / ‖J‖=0)
 }
 function s18Render(){
   if(!S18_DATA||!S18_DATA.steps.length)return;const t=S18_DATA.steps;
@@ -1928,13 +1929,13 @@ function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap,gTV,gTW,gBV,gBW,wbases){ 
   const rankStats=(V,W,largest)=>{
     const orders=[];for(let i=0;i<N;i++){const ord=Array.from(W[i],(_,j)=>j);ord.sort((a,b)=>largest?W[i][b]-W[i][a]:W[i][a]-W[i][b]);orders.push(ord);}   // per-sample eigval ranking (rank 0 = largest/most-negative)
     const out=[];
-    for(let rk=0;rk<nrank;rk++){const pv=[],vv=[];
+    for(let rk=0;rk<nrank;rk++){const pv=[],vv=[],pbysamp=[],vbysamp=[];
       for(let i=0;i<N;i++){const ir=orders[i][rk],u=V[i][ir];
-        if(s12Dot(u,u,p)<=0.25)continue;                         // spurious (non-existent) eigvec at this rank → exclude sample
-        const sig=W[i][ir],jd=s12Dot(Jg[i],u,p);
-        pv.push(Math.abs(jd)*sig*r[i]);                          // PRODUCT |⟨J,u⟩|·σ·r_i  (real-eigvec samples)
-        if(jnorm[i]>0)vv.push(Math.abs(jd)/jnorm[i]);}           // ALIGNMENT |⟨J,u⟩|/‖J‖ = |cos∠| (‖J‖=0 dropped)
-      out.push({prod:ms(pv),pvals:pv,cos:ms(vv),vals:vv});}
+        if(s12Dot(u,u,p)<=0.25){pbysamp.push(null);vbysamp.push(null);continue;}   // spurious eigvec → exclude sample (null in the positional arrays)
+        const sig=W[i][ir],jd=s12Dot(Jg[i],u,p),pr=Math.abs(jd)*sig*r[i];
+        pv.push(pr); pbysamp.push(pr);                           // PRODUCT |⟨J,u⟩|·σ·r_i  (masked list + positional)
+        if(jnorm[i]>0){vv.push(Math.abs(jd)/jnorm[i]);vbysamp.push(Math.abs(jd)/jnorm[i]);}else vbysamp.push(null);}   // ALIGNMENT |⟨J,u⟩|/‖J‖ (‖J‖=0 dropped → null in positional)
+      out.push({prod:ms(pv),pvals:pv,cos:ms(vv),vals:vv,pbysamp:pbysamp,vbysamp:vbysamp});}   // §18 reads pbysamp/vbysamp (true per-sample, null=spurious/zero)
     return out;};
   // panels 3/4 (AVERAGED view): each per-sample ∇f_i onto the top-2/bottom-2 eigvecs w of the AVERAGED Hessian (1/N)Σ_i Q_i
   // (shared basis gTV/gBV with eigenvalues gTW/gBW). Same two quantities as panels 1/2. MIRRORS server gproj_stats.
@@ -2139,7 +2140,7 @@ function realEigParts(Aflat,n){
 // in the narrow band where D²→0 (‖J‖²/σ₁ inflections), bounding the 0/0 spike.
 // divergence = (D²−2Σ)/(D² + sign(D²)·eps·scale), scale = 2(Σ|term|) (the D²-magnitude). eps→0 ⇒ exactly the defined (D²−2Σ)/D²
 // (spiky at D²→0 inflections); larger eps softens the 0/0 spike (eps≳1 ⇒ ≈ residual/scale). eps = the `divreg` UI hyperparameter.
-function _divreg(num,den,scale,eps){return num/(den+(den>=0?1:-1)*eps*scale)*100;}
+function _divreg(num,den,scale,eps){const d=den+(den>=0?1:-1)*eps*scale;return d!==0?num/d*100:0;}   // den=0 AND scale=0 ⇒ all terms vanish (num=0): 0/0 → 0 (parity with server; avoids JS NaN/∞)
 function sec15Stats(hvp1,hvp2,Jt,Jtm1,Jtm2,rtm1,rtm2,lr,N,p,diveps){
   const c=lr/N, c2=c*c, D=(a,b)=>s15Dotp(a,b,p), WS=(v,w)=>s15Wsum(v,w,p);
   const Ne=Jt.length;   // EFFECTIVE samples = N·d_out (A,B are Ne×Ne); c=lr/N uses N input samples
@@ -3101,7 +3102,8 @@ const ADV_SECS={en18:{sec:'sec_g3d',name:'§11 (3D Hessian–NTK grids)'},
   en19:{sec:'sec_s12a',name:'§12a (principal angles)'}, en22:{sec:'sec_s12b',name:'§12b (per-sample projections)'},
   en21:{sec:'sec_s13',name:'§13 (residual-weighted curvature)'}, en20:{sec:'sec_s14',name:'§14 (Tr ΔNTK)'},
   en23:{sec:'sec_s15',name:'§15 (2nd-difference decomposition)'}, en24:{sec:'sec_s16',name:'§16 (curvature optimizer)'},
-  en25:{sec:'sec_s17',name:'§17 (per-sample optimizer)'}};
+  en25:{sec:'sec_s17',name:'§17 (per-sample optimizer)'},
+  en26:{sec:'sec_s18',name:'§18 (per-sample projections, N=2)'}, en27:{sec:'sec_s19',name:'§19 (grad-norm vs D²NTK)'}};
 let ADV_GOT={};   // toggle id → true once that section's g-record has arrived this run
 function datasetOutDim(){const d=val('dataset');
   if(d==='cifar10'||d==='mnist')return 10; if(d==='cifar2'||d==='mnist2'||d==='chebyshev'||d==='ksparse'||d==='anglepair')return 1;
@@ -3300,7 +3302,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
     st.textContent='CIFAR-10 / sorting / OpenWebText and CNN / VGG11 / mini-GPT runs require the GPU backend — set Compute → "GPU backend (server.py)". (k-sparse parity runs in-browser with the MLP; use the GPU backend for the transformer.)';
     ST=null;RUNNING=false;updateButtons();return;}
   const depth=+val('depth'),width=+val('width'),act=val('act'),useBias=val('bias')==='1';
-  const lr=+val('lr'),initScale=+val('init'),N=+val('nsamp'),inDim=(val('dataset')==='anglepair')?Math.max(2,+val('indim')||2):(+val('indim')),outDim=(val('dataset')==='ksparse'||val('dataset')==='anglepair')?1:(+val('outdim')),tgt=+val('tgt');
+  const lr=+val('lr'),initScale=+val('init'),N=Math.max(1,+val('nsamp')||1),inDim=(val('dataset')==='anglepair')?Math.max(2,+val('indim')||2):(+val('indim')),outDim=(val('dataset')==='ksparse'||val('dataset')==='anglepair')?1:(+val('outdim')),tgt=+val('tgt');
   const fixedX=val('fixedx')==='1', inputStd=+val('inputstd');
   let n=+val('neig'),kth=+val('kth'),steps=+val('steps'),eigEvery=+val('eigevery'),seed=+val('seed');
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
@@ -3323,7 +3325,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
     for(let i=0;i<M;i++){const mag=Math.abs(tgt)+cstd*gauss(drng);   // |tgt| (+cvar noise); gauss drawn for EVERY ssign (RNG parity)
       Y[i]=s?(F[i]+s*Math.max(mag,floor)):mag;}   // off: const target |tgt|+noise ; pos/neg: r_i=s·max(|tgt|+noise,floor) ⇒ guaranteed sign s
   }
-  else if(fixedX){X.fill(1.0);
+  else if(fixedX&&val('dataset')!=='anglepair'&&val('dataset')!=='ksparse'){X.fill(1.0);   // anglepair/ksparse build their own X below — fixedx must not clobber it (parity with server, where the dataset branch precedes fixedx)
     if(ssign==='off'){Y.fill(tgt);}
     else{const s=ssign==='pos'?1:-1,floor=0.25*Math.max(Math.abs(tgt),1e-6),F=forward(th,spec,X,N,inDim).out;for(let i=0;i<M;i++)Y[i]=F[i]+s*Math.max(Math.abs(tgt),floor);} // r=y−f(x=1)=s·|tgt|, sign s
   }
@@ -3688,7 +3690,7 @@ async function loop(){                                   // drives ST forward; r
           S15_HIST_JS.push({th:S.th.slice(),J:Jg15,r:r15,t:S.t});
           if(S15_HIST_JS.length>2)S15_HIST_JS.shift();
         }
-        if(O.s27&&M<=S.grid3dcap&&bJc&&rrs){   // §19: A_t=‖J_{t+1}ᵀr_{t+1}‖−‖J_tᵀr_t‖ (one-step GD, η_eff=lr/N) + tr(NTK). MIRRORS server._sec19_payload
+        if(O.s27&&S.optim==='gd'&&M<=S.grid3dcap&&bJc&&rrs){   // §19: A_t=‖J_{t+1}ᵀr_{t+1}‖−‖J_tᵀr_t‖ (one-step GD, η_eff=lr/N) + tr(NTK). GD-only. MIRRORS server._sec19_payload
           const g=new Float64Array(p); for(let k=0;k<M;k++){const jk=bJc[k],rk=rrs[k];for(let i=0;i<p;i++)g[i]+=rk*jk[i];}   // g=Jᵀr ("J r")
           let gn=0; for(let i=0;i<p;i++)gn+=g[i]*g[i]; gn=Math.sqrt(gn);
           const etaN=S.lr/Math.max(N,1);                                                                    // actual GD step (mean loss ⇒ η/N)
@@ -4115,7 +4117,7 @@ function gpuHandle(m,st,sp,finish,resuming){
       st.textContent=`running on ${META.device} … step ${m.t}/${m.steps}  ·  p=${m.p}, 2/lr=${META.thr.toFixed(2)}`;
     }else if(m.type==='slq'){if(m.sH)refreshSLQ('p_sH',m.sH);if(m.sG)refreshSLQ('p_sG',m.sG);if(m.sS)refreshSLQ('p_sS',m.sS);if(m.sHL)refreshSLQ('p_sHL',m.sHL);trPush(m);
     }else if(m.type==='g3d'){ADV_GOT.en18=1;g3dPush(m);
-    }else if(m.type==='g4d'){ADV_GOT.en19=1;ADV_GOT.en22=1;s12Push(m);
+    }else if(m.type==='g4d'){ADV_GOT.en19=1;ADV_GOT.en22=1;if(m.M===2)ADV_GOT.en26=1;s12Push(m);
     }else if(m.type==='g13'){ADV_GOT.en21=1;s13Push(m);
     }else if(m.type==='g14'){ADV_GOT.en20=1;s14Push(m);
     }else if(m.type==='g15'){ADV_GOT.en23=1;s15Push(m);
@@ -4165,7 +4167,7 @@ function makeCaptureParser(onHeader,onRecord){
   let buf='',scanPos=0,started=false,depth=0,recStart=-1,inStr=false,esc=false,done=false,emitEnd=0;
   return {feed(chunk){
     if(done)return; buf+=chunk;
-    if(!started){ const m=buf.indexOf('"records"'); if(m<0)return; const br=buf.indexOf('[',m); if(br<0)return;
+    if(!started){ const m=buf.indexOf('"records":'); if(m<0)return; const br=buf.indexOf('[',m); if(br<0)return;   // ":" anchors the top-level key (JSON escapes quotes, so a label value can't contain the literal "records":)
       onHeader(JSON.parse(buf.slice(0,m)+'"records":[]}')); scanPos=br+1; emitEnd=br+1; started=true; }
     let i=scanPos;
     for(;i<buf.length;i++){ const ch=buf[i];

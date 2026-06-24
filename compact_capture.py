@@ -35,10 +35,10 @@ def _stats(pk, N):
     for q in range(len(v)):
         p = idx[q] if idx is not None else q
         i = p // N2; j = (p % N2) // N; k = p % N
-        if i != j and j != k and i != k:
-            off.append(v[q])
-    # browser: off.sort((a,b)=>b-a)  -> descending; values are finite floats
-    off.sort(key=lambda x: (x is None, -(x if isinstance(x, (int, float)) and x == x else float("-inf"))))
+        x = v[q]
+        if i != j and j != k and i != k and x is not None and isinstance(x, (int, float)) and math.isfinite(x):
+            off.append(x)   # FINITE off-diagonal only — matches index.html s14GridStats (non-finite excluded from top/bot)
+    off.sort(reverse=True)   # descending; all-finite now, so a plain numeric sort matches JS off.sort((a,b)=>b-a)
     L = len(off)
     s = c = sp = cp = sn = cn = 0.0
     for x in off:

@@ -273,8 +273,12 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL, gTV=None,
             sig = W[ai, irk]                                   # σ (signed eigenvalue)
             prod = ((jdot.abs() * sig) * r)[real]              # PRODUCT |⟨J_i,u⟩|·σ·r_i  (real-eigvec samples)
             q = jdot[nz & real].abs() / jnorm[nz & real]       # ALIGNMENT |⟨J_i,u⟩|/‖J_i‖ = |cos∠(J_i,u)| ∈ [0,1]
-            out.append({"prod": ms(prod), "pvals": prod.detach().cpu().tolist(),   # product (+ per-sample for histogram)
-                        "cos": ms(q), "vals": q.detach().cpu().tolist()})          # alignment (+ per-sample for histogram)
+            prod_all = (jdot.abs() * sig) * r; realL = real.tolist(); nzL = nz.tolist()   # §18 positional per-sample (null = spurious/‖J‖=0)
+            pbysamp = [float(prod_all[i]) if realL[i] else None for i in range(N)]
+            vbysamp = [float(jdot[i].abs() / jnorm[i]) if (realL[i] and nzL[i]) else None for i in range(N)]
+            out.append({"prod": ms(prod), "pvals": prod.detach().cpu().tolist(),   # product (+ per-sample masked list for histogram)
+                        "cos": ms(q), "vals": q.detach().cpu().tolist(),           # alignment (+ per-sample masked list for histogram)
+                        "pbysamp": pbysamp, "vbysamp": vbysamp})                   # §18: true positional per-sample
         return out
 
     # panels 3/4 (AVERAGED view): each per-sample ∇f_i onto the top-2/bottom-2 eigvecs w of the AVERAGED Hessian (1/N)Σ_i Q_i
@@ -602,7 +606,8 @@ def principal_angles(A, B):
 #   IV/V/VI/B: the σ₁ analogs — S→(Q̄ᵘ)² with Q̄ᵘ=Σ_k u_{t,1,k}Q_{t−1,k}, and the trace-tie → u_{t,1} projection.
 _DEPS = 0.3     # default additive-ε strength (UI hyperparameter `divreg`). divergence = (D²−2Σ)/(D² + sign(D²)·ε·scale), scale =
 def _divreg(num, den, scale, eps=_DEPS):   # MAGNITUDE of the 2nd-difference 2(Σ|term|). eps→0 ⇒ exactly the defined (D²−2Σ)/D² (spiky at D²→0);
-    return num / (den + math.copysign(eps * scale, den)) * 100.0   # larger eps softens the 0/0 spike at ‖J‖²/σ₁ inflections (eps≳1 ⇒ ≈ residual/scale). User-tunable.
+    d = den + math.copysign(eps * scale, den)   # larger eps softens the 0/0 spike at ‖J‖²/σ₁ inflections (eps≳1 ⇒ ≈ residual/scale). User-tunable.
+    return (num / d * 100.0) if d != 0.0 else 0.0   # den=0 AND scale=0 (all terms vanish ⇒ num=0): 0/0 → 0 (avoid crash; parity with JS)
 def sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N, diveps=_DEPS):
     dt, dev = Jt.dtype, Jt.device
     c = lr / N                                                # c = η/N uses the N INPUT samples (GD-step coefficient)

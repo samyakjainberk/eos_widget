@@ -162,8 +162,14 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL, gTV=None
             sig = W[ai, irk]                                   # σ (signed eigenvalue)
             prod = ((jdot.abs() * sig) * r)[real]              # PRODUCT |⟨J_i,u⟩|·σ·r_i  (real-eigvec samples)
             q = jdot[nz & real].abs() / jnorm[nz & real]       # ALIGNMENT |⟨J_i,u⟩|/‖J_i‖ = |cos∠(J_i,u)| ∈ [0,1]
-            out.append({"prod": ms(prod), "pvals": prod.detach().cpu().tolist(),   # product (+ per-sample for histogram)
-                        "cos": ms(q), "vals": q.detach().cpu().tolist()})          # alignment (+ per-sample for histogram)
+            # §18 needs POSITIONAL per-sample series (sample 1 vs sample 2), NOT the histogram-masked pvals/vals above
+            # (those drop spurious/‖J‖=0 samples and shift indices). Build length-N arrays indexed by TRUE sample, null where dropped.
+            prod_all = (jdot.abs() * sig) * r; realL = real.tolist(); nzL = nz.tolist()
+            pbysamp = [float(prod_all[i]) if realL[i] else None for i in range(N)]
+            vbysamp = [float(jdot[i].abs() / jnorm[i]) if (realL[i] and nzL[i]) else None for i in range(N)]
+            out.append({"prod": ms(prod), "pvals": prod.detach().cpu().tolist(),   # product (+ per-sample masked list for histogram)
+                        "cos": ms(q), "vals": q.detach().cpu().tolist(),           # alignment (+ per-sample masked list for histogram)
+                        "pbysamp": pbysamp, "vbysamp": vbysamp})                   # §18: true positional per-sample (null = spurious/zero)
         return out
 
     # ---- panels 3/4 (AVERAGED view): project each per-sample ∇f_i onto the TOP-2 / BOTTOM-2 eigenvectors w of the
@@ -407,7 +413,8 @@ def _sec14_payload(prev, cur, lr, grid3dcap, rhist):
 
 _DEPS = 0.3     # default additive-ε strength (UI hyperparameter `divreg`). divergence = (D²−2Σ)/(D² + sign(D²)·ε·scale), scale =
 def _divreg(num, den, scale, eps=_DEPS):   # MAGNITUDE of the 2nd-difference 2(Σ|term|). eps→0 ⇒ exactly the defined (D²−2Σ)/D² (spiky at D²→0);
-    return num / (den + math.copysign(eps * scale, den)) * 100.0   # larger eps softens the 0/0 spike at ‖J‖²/σ₁ inflections (eps≳1 ⇒ ≈ residual/scale). User-tunable.
+    d = den + math.copysign(eps * scale, den)   # larger eps softens the 0/0 spike at ‖J‖²/σ₁ inflections (eps≳1 ⇒ ≈ residual/scale). User-tunable.
+    return (num / d * 100.0) if d != 0.0 else 0.0   # den=0 AND scale=0 (all terms vanish ⇒ num=0 too): 0/0 → 0 (avoid crash; JS gives NaN here, keep parity at 0)
 
 
 def _sec15_stats(hvp1, hvp2, Jt, Jtm1, Jtm2, rtm1, rtm2, lr, N, diveps=_DEPS):
@@ -3317,7 +3324,7 @@ def run_stream(P):
                     sec15_th64 = sec15_th64 - lr * _opt_dir(   # float32 trajectory, but in float64 ⇒ next step's D² stays cancellation-free)
                         _TL.model, gradL(sec15_th64, X15, Y.double())[0], opt)
 
-            if s27 and (N * outD) <= grid3dcap and Jc is not None and rr is not None:   # §19: A_t = Δ‖gradient‖ (one-step GD prediction) + tr(NTK); B=D²(trNTK) formed client-side
+            if s27 and opt == "gd" and (N * outD) <= grid3dcap and Jc is not None and rr is not None:   # §19: A_t = Δ‖gradient‖ (one-step GD prediction) + tr(NTK); B=D²(trNTK) client-side. GD-only (A_t assumes the η/N GD step)
                 sec19 = _sec19_payload(Jc, rr, th, X, lr, N, outD)
 
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness λmax(∇²L) ≈ λmax(GN) = σ₁/N
@@ -3449,6 +3456,10 @@ def run_surrogate_compare(P):
         inDimE = outDimE = int(P["seqlen"])
     elif dataset == "chebyshev":
         inDimE = outDimE = 1                              # scalar x → scalar T_k(x)
+    elif dataset == "ksparse":
+        inDimE, outDimE = int(P["indim"]), 1             # mirror run_stream (surrogate path must match the dataset's effective dims)
+    elif dataset == "anglepair":
+        inDimE, outDimE = max(2, int(P["indim"])), 1
     else:
         inDimE, outDimE = P["indim"], P["outdim"]
     _TL.model = build_model(arch, inDimE, outDimE, P)
