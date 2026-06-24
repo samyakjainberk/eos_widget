@@ -1669,6 +1669,54 @@ def _sec19_payload(Jc, rr, th, X, lr, N, outD):
     return {"A": gn_next - gn, "trNTK": float((Jg * Jg).sum()), "gn": gn, "gn_next": gn_next}
 
 
+SEC20_SEED = 0x205EE0   # fixed cross-backend Lanczos start seed for §20 (mulberry32+gauss, matches index.html/eos_lab)
+
+def _sec20_payload(Jc, rr, th, X, N, outD, K):
+    """§20: spectral histograms of the RESIDUAL-WEIGHTED function Hessian M_r = Σ_k r_k Q_k (Q_k=∇²f_k), and of its
+    eigenvalues weighted by alignment with the top Jacobian directions. From the top-K ⊕ bottom-K eigenpairs
+    (λ_i, v_i) of M_r — matrix-free Lanczos on hvpS(·, r) started from the cross-backend mulberry32 vector:
+        lam      : {λ_i}                                  (Plot 1 histogram)
+        q1/q2/q3 : {λ_i · |⟨v_i, u_k⟩|}  for k=1,2,3      (Plots 2/3/4 histograms)
+    where u_k = the top-k RIGHT-singular vector of J (= normalize(Jᵀ g_k), g_k the k-th NTK=J Jᵀ eigenvector) — the
+    "topmost eigenvectors of the Jacobian", in the same θ-space as v_i. |⟨·⟩| is gauge-free (eigvec signs arbitrary).
+    Lanczos uses the SAME q0/T-eig/top-K⊕bottom-K-distinct extraction as index.html s20Compute / eos_lab (parity).
+    Any loss / optimizer (M_r is well-defined from the generic residual). Evolves over training (browser slider)."""
+    M = N * outD
+    Jg = Jc[:M]                                              # M×p effective-sample Jacobian
+    r = rr[:M]                                               # M residual (Y−f for MSE, onehot−softmax for CE)
+    p = Jg.shape[1]
+    rc = r.reshape(N, outD)
+    Klan = max(1, min(int(K), p))
+    mlan = min(p, max(2 * Klan + 16, 32))
+    q0 = _randvec16(p, SEC20_SEED)                          # mulberry32+gauss start (cross-backend identical)
+    Q, T, k = _lanczos_core(lambda v: hvpS(th, X, v, rc), p, mlan, 0, dt=Jg.dtype, q0=q0)
+    mu, Sv = _safe_eigh(T)                                  # k Ritz pairs of M_r, ascending
+    desc = torch.argsort(mu, descending=True)              # indices, descending eigenvalue
+    Qmat = torch.stack(Q)                                   # (k, p)
+    def ritz(ix):                                          # Ritz vector in θ-space (p,)
+        return Sv[:, ix].to(device=_dev(), dtype=Jg.dtype) @ Qmat
+    kt = min(Klan, k); bs = max(kt, k - Klan)               # top-K ⊕ bottom-K DISTINCT positions (no double-count when 2K>k)
+    positions = list(range(kt)) + list(range(bs, k))
+    Kc, Vc = sym_eig_desc(Jg @ Jg.t())                     # M×M NTK, eigvecs in columns (descending eigenvalue σ_k²)
+    ntol = 1e-9 * max(float(Kc[0]) if int(Kc.numel()) > 0 else 0.0, 1e-30)   # null-direction cutoff: σ_k²≤tol·σ_1² ⇒ no k-th Jacobian dir
+    zero = torch.zeros(p, dtype=Jg.dtype, device=_dev())
+    us = []
+    for kk in range(3):                                    # top-3 right-singular vectors u_k = normalize(Jᵀ g_k); GATE on the NTK eigenvalue,
+        if kk < M and float(Kc[kk]) > ntol:                #   not ‖u_k‖ — a zero σ_k² makes Jᵀg_k≈round-off noise (backend-divergent if normalized)
+            uk = Jg.t() @ Vc[:, kk]; nu = float(uk.norm())
+            us.append(uk / nu if nu > 1e-30 else zero)
+        else:
+            us.append(zero)
+    lam, q1, q2, q3 = [], [], [], []
+    for pos in positions:
+        ix = int(desc[pos]); li = float(mu[ix]); vi = ritz(ix)
+        lam.append(li)
+        q1.append(li * abs(float(vi @ us[0])))
+        q2.append(li * abs(float(vi @ us[1])))
+        q3.append(li * abs(float(vi @ us[2])))
+    return {"lam": lam, "q1": q1, "q2": q2, "q3": q3, "K": Klan}
+
+
 def hvpG(th, X, v):
     """Gauss-Newton (Jᵀ A J) · v, loss-aware output Hessian A."""
     N = X.shape[0]
@@ -1878,9 +1926,9 @@ def _randn_vec(p, seed, dt=None):
     return torch.randn(p, dtype=(dt if dt is not None else DTYPE), device=_dev(), generator=g)
 
 
-def _lanczos_core(hvp, p, m, seed, dt=None):
+def _lanczos_core(hvp, p, m, seed, dt=None, q0=None):
     dt = dt if dt is not None else DTYPE
-    q = _randn_vec(p, seed, dt)
+    q = (q0.to(dtype=dt, device=_dev()) if q0 is not None else _randn_vec(p, seed, dt))   # q0: cross-backend start (§20 uses _randvec16)
     q = q / q.norm()
     Q = []
     al = []
@@ -2542,6 +2590,8 @@ def run_stream(P):
     s23 = P.get("s23", 0)                # §15: 2nd-difference decomposition of ‖J‖²_F & σ₁ (own toggle; holds 3 eig-ticks; multi-only, small-N)
     s26 = P.get("s26", 0)                # §18: per-sample (sample1 vs sample2) projections — reuses §12's proj; browser-rendered, N=2 only
     s27 = P.get("s27", 0)                # §19: one-step gradient-norm change A_t vs D²(trNTK); needs the M×p Jacobian + hvpS
+    s28 = P.get("s28", 0)                # §20: spectral histograms of M_r=Σr_kQ_k (needs the M×p Jacobian + hvpS); evolves over training
+    sec20k = max(1, int(P.get("s28k", 40)))   # §20: # eigenpairs per side (top-K ⊕ bottom-K) of M_r
     grid3dcap = max(1, P.get("grid3dcap", 30))
     sec12ncap = max(1, P.get("sec12ncap", 500))    # §12 sample cap (gates N). NOTE: §12 builds dense p×p Hessians
                                                     # (p HVPs + O(p³) eig per sample) → large p is SLOW; keep models small.
@@ -2759,7 +2809,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27)) or ((s23 or s27) and N <= grid3dcap):   # §15/§19 also run for a single sample
+            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28)) or ((s23 or s27 or s28) and N <= grid3dcap):   # §15/§19/§20 also run for a single sample
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -3141,7 +3191,7 @@ def run_stream(P):
             # bottom-K12 eigenpairs of each Q_i by Lanczos on v↦Q_i·v — no p×p Hessian is formed. For the MLP
             # the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (a single vectorised forward/backward per
             # step instead of N) — ~4–8× faster on GPU. Other archs fall back to the per-sample loop. Gated on N.
-            sec12 = None; sec14 = None; sec13 = None; sec15 = None; sec15n = None; sec15p34 = None; sec15b = None; sec15corr = None; sec19 = None
+            sec12 = None; sec14 = None; sec13 = None; sec15 = None; sec15n = None; sec15p34 = None; sec15b = None; sec15corr = None; sec19 = None; sec20 = None
             if ((s19 or s20 or s21 or s22 or s26) and eigTick % g3dstride == 0   # §12/§13/§14 share §11's cube cadence (the N³ cubes dominate file size); §18 reuses §12 proj
                     and (multi_ok or s12single) and Jc is not None and rr is not None and N <= sec12ncap):
                 lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
@@ -3342,6 +3392,9 @@ def run_stream(P):
             if s27 and opt == "gd" and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and Jc is not None and rr is not None:   # §19: A_t = Δ‖gradient‖ (one-step GD prediction) + tr(NTK); B=D²(trNTK) client-side. MSE + GD only: A_t hardcodes the MSE residual update r_{t+1}=(I−η/N·NTK)r (output-Hessian A=I); CE needs A=diag(p)−ppᵀ≠I.
                 sec19 = _sec19_payload(Jc, rr, th, X, lr, N, outD)
 
+            if s28 and eigTick % g3dstride == 0 and (N * outD) <= grid3dcap and Jc is not None and rr is not None:   # §20: M_r=Σr_kQ_k spectral histograms (any loss/optimizer). §12 cube cadence; browser stores snapshots + slider
+                sec20 = _sec20_payload(Jc, rr, th, X, N, outD, sec20k)
+
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness λmax(∇²L) ≈ λmax(GN) = σ₁/N
             thPr = [(x / N if x is not None else None) for x in thP] if thP else None
             thAr = [(x / N if x is not None else None) for x in thA] if thA else None
@@ -3409,6 +3462,8 @@ def run_stream(P):
                 yield {"type": "g15corr", "t": t, **sec15corr}  # §15 correlation panel — ⟨∇θ‖∇f‖², ∇θ‖∇L‖²⟩ vs D²(trNTK)
             if sec19 is not None:
                 yield {"type": "g19", "t": t, **sec19}          # §19 — gradient-norm one-step change A_t + tr(NTK)
+            if sec20 is not None:
+                yield {"type": "g20", "t": t, **sec20}          # §20 — M_r=Σr_kQ_k eigenvalue histograms + λ·|⟨v,u_k⟩| (slider snapshot)
             eigTick += 1
             done += 1
 
@@ -3958,6 +4013,8 @@ def _parse_params(q):
         "s25base": g("s25base", "0") == "1",  # §17: compute the five dotted baselines (per-sample analog of §16's); ≈6× cost
         "s26": g("s26", "0") == "1",     # §18: per-sample (sample1 vs sample2) projections — reuses §12's proj; browser-rendered, N=2 only
         "s27": g("s27", "0") == "1",     # §19: one-step gradient-norm change A_t vs D²(trNTK) correlation
+        "s28": g("s28", "0") == "1",     # §20: spectral histograms of M_r=Σr_kQ_k (eigvals + λ·|⟨v,u_k⟩| for top-3 right-singular u_k); evolves over training (slider)
+        "s28k": max(1, fi("s28k", 40)),  # §20: # eigenpairs per side (top-K ⊕ bottom-K) of M_r in the histogram
         "grid3dcap": max(1, fi("grid3dcap", 500)),
         "sec12ncap": max(1, fi("sec12ncap", 500)),
         "cubeevery": max(1, fi("cubeevery", 1)),   # §11-§14 (3D-grid/cube + per-sample) snapshot cadence: emit every k-th eig-tick.

@@ -259,6 +259,7 @@
   <label title="§17 — PER-SAMPLE function-Hessian variant of §16. Identical optimizer and identical 6 panels, but instead of the AVERAGED H̄ each sample uses its OWN function Hessian Q_k=∇²f_k: a positive-residual sample is pushed along the TOP eigvec of its Q_k, a negative-residual sample along the BOTTOM. proj = Σ_k r_k·⟨∇f_k,u_k⟩·σ_k·u_k. Per-sample Lanczos every iteration ⇒ O(M²); gated to small M=N·d_out. MLP+MSE; OFF by default."><input type="checkbox" id="en25"> 17 · per-sample curvature optimizer</label>
   <label title="§18 — per-sample projection TIME-SERIES for EXACTLY 2 samples. Same two quantities as §12b panels 1 & 2 (the product |⟨J_i,u⟩|·σ·r_i and the alignment |⟨J_i,u⟩|/‖J_i‖ onto the top-2 / bottom-2 eigenvectors of each Q_i) but plotted for sample 1 and sample 2 SEPARATELY over training, instead of the mean/std across samples. Reuses §12's matrix-free Lanczos — enabling this alone computes the projections. Only renders when nsamp = 2."><input type="checkbox" id="en26"> 18 · per-sample projections · sample-1 vs sample-2 (N=2)</label>
   <label title="§19 — correlation between (A) the one-step-ahead change in gradient norm ‖J_{t+1}r_{t+1}‖−‖J_t r_t‖ (first-order GD prediction with the run's actual η/N step) and (B) D²(tr NTK), the centered 2nd difference of tr(NTK)=‖J‖²_F. Plot 1: A and B over time; Plot 2: raw A−B and normalized Â−B̂. Asks whether the steps where A and B first turn negative coincide. Small N; best with eigevery=1."><input type="checkbox" id="en27"> 19 · grad-norm change vs D²(NTK) correlation</label>
+  <label title="§20 — spectral histograms of the residual-weighted function Hessian M_r=Σ_k r_k Q_k (Q_k=∇²f_k), evolving over training (slider). Plot 1: histogram of its top-K⊕bottom-K eigenvalues λ_i (matrix-free Lanczos). Plots 2/3/4: histogram of λ_i·|⟨v_i,u_k⟩| where u_k is the k-th RIGHT-singular vector of J (k=1,2,3) — the eigenvalues weighted by how strongly each eigenvector v_i aligns with the top-3 Jacobian directions. Small N; K set below."><input type="checkbox" id="en28"> 20 · M_r=Σr_kQ_k spectral histograms <input type="number" id="s28k" value="40" min="1" max="400" step="1" title="§20: number of eigenpairs per side (top-K ⊕ bottom-K) of M_r" style="width:52px;margin-left:4px"></label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -390,10 +391,20 @@
 <div id="sec_s19" style="display:none">
 <h2>19 · gradient-norm change vs D²(NTK) — where each turns negative</h2>
 <p class="cap">Correlates two events over training. <b>A</b> = the one-step-ahead change in the gradient norm, $A_t=\lVert J_{t+1}^\top r_{t+1}\rVert-\lVert J_t^\top r_t\rVert$, where $r_{t+1}=(I-\tfrac{\eta}{N}\,\mathrm{NTK}_t)\,r_t$ and $J_{t+1}=J_t+\tfrac{\eta}{N}\,Q_t(J_t^\top r_t)$ are the first-order GD predictions ($Q_t$ = function Hessian, applied via a residual-weighted HVP; $\tfrac{\eta}{N}$ = the run's <b>actual</b> mean-loss GD step). <b>B</b> = $D^2(\mathrm{tr\,NTK})=\mathrm{tr\,NTK}_{t+1}-2\,\mathrm{tr\,NTK}_t+\mathrm{tr\,NTK}_{t-1}$, the centered 2nd difference of $\mathrm{tr\,NTK}=\lVert J\rVert_F^2$ (its "rate of change of rate of change"). The question: does the step where <b>A first goes negative</b> line up with the step where <b>B first goes negative</b>? Best with <b>eigevery = 1</b> (consecutive GD steps); small N.</p>
-<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Plot 1 — evolution of A and B over training (each crosses zero where its quantity starts decreasing)</h3>
-<div class="plotrow row1"><div id="p_s19_evo" class="plot" style="height:340px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Plot 2 — evolution of their difference: raw A−B (black) and normalized Â−B̂ (purple, each scaled to [−1,1] so the zero-crossings are comparable)</h3>
-<div class="plotrow row1"><div id="p_s19_diff" class="plot" style="height:340px"></div></div>
+<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Plot 1 — A and B over training (each crosses zero where its quantity starts decreasing)  ·  Plot 2 — their difference: raw A−B (black) and normalized Â−B̂ (purple, each scaled to [−1,1])</h3>
+<div class="plotrow row2"><div id="p_s19_evo" class="plot" style="height:340px"></div><div id="p_s19_diff" class="plot" style="height:340px"></div></div>
+</div>
+
+<div id="sec_s20" style="display:none">
+<h2>20 · spectral histograms of $M_r=\sum_k r_k Q_k$ — eigenvalues &amp; alignment with the top Jacobian directions</h2>
+<p class="cap">Builds the <b>residual-weighted function Hessian</b> $M_r=\sum_k r_k\,Q_k$ ($Q_k=\nabla^2 f_k$, $r_k$ the residual) and extracts its <b>top-$K$ ⊕ bottom-$K$</b> eigenpairs $(\lambda_i,v_i)$ matrix-free by Lanczos. <b>Plot 1</b>: histogram of the eigenvalues $\{\lambda_i\}$. <b>Plots 2/3/4</b>: histogram of $\{\lambda_i\,|\langle v_i,u_k\rangle|\}$ for $k=1,2,3$, where $u_k$ = the $k$-th <b>right-singular vector</b> of $J$ (= $\mathrm{normalize}(J^\top g_k)$, $g_k$ the $k$-th NTK $=JJ^\top$ eigenvector) — the "topmost eigenvectors of the Jacobian". So each eigenvalue is weighted by how strongly its eigenvector aligns with the top-3 Jacobian directions ($|\langle\cdot\rangle|$ is gauge-free). The histograms <b>evolve over training</b> — drag the slider to scrub. Small $N$; $K$ set in the toggle box. <span style="color:#94a3b8">(Plot $k$ is empty when $J$ has fewer than $k$ <b>nonzero</b> singular values — a zero $\sigma_k$ has no $k$-th Jacobian direction. anglepair has NTK rank 2 (plot 4 empty); the default <i>synthetic</i> dataset uses identical inputs, so its NTK is rank-1 (only plots 1–2 non-trivial). Datasets with distinct samples — e.g. <b>ksparse</b> — fill all four.)</span></p>
+<div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
+  <label style="white-space:nowrap">snapshot</label>
+  <input id="s20_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
+  <span id="s20_step" style="white-space:nowrap;color:#475569;font-size:13px;min-width:140px">—</span>
+</div>
+<div class="plotrow row2"><div id="p_s20_lam" class="plot" style="height:320px"></div><div id="p_s20_q1" class="plot" style="height:320px"></div></div>
+<div class="plotrow row2"><div id="p_s20_q2" class="plot" style="height:320px"></div><div id="p_s20_q3" class="plot" style="height:320px"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -2452,6 +2463,39 @@ function s19Push(m){
 }
 function s19Reset(){S19_DATA=null;S19_BUILT=false;for(const id of S19_IDS){try{Plotly.purge(id);}catch(e){}}}
 
+// ── §20: spectral histograms of M_r=Σ_k r_k Q_k — eigenvalue distribution + λ·|⟨v,u_k⟩| onto the top-3
+//    right-singular vectors of J. Each g20 record {t,lam,q1,q2,q3,K} is ONE snapshot; the slider scrubs them.
+//    Pushing just STORES the arrays (cheap) and redraws only the current snapshot → loading never hangs.
+const S20_IDS=['p_s20_lam','p_s20_q1','p_s20_q2','p_s20_q3'];
+const S20_HISTBINS=44;
+let S20_SNAPS=[], S20_RAF=0, S20_PENDING=-1, S20_CURIDX=0; const S20_MAXSNAPS=2000;
+function s20HistDraw(id,vals,title,color){const div=document.getElementById(id);if(!div)return;
+  const xs=(vals||[]).filter(v=>isFinite(v));
+  let lo=Infinity,hi=-Infinity;for(const v of xs){if(v<lo)lo=v;if(v>hi)hi=v;}
+  let xbins=null;if(isFinite(lo)&&isFinite(hi)){if(hi===lo){lo-=0.5;hi+=0.5;}const sz=(hi-lo)/S20_HISTBINS||1;xbins={start:lo,end:hi+sz,size:sz};}
+  const tr={x:xs.slice(),type:'histogram',marker:{color:color,line:{color:'#fff',width:0.4}}};if(xbins)tr.xbins=xbins;
+  Plotly.react(id,[tr],{title:{text:title,font:{size:11,color:'#475569'},x:0.04,xanchor:'left',y:0.98},
+    margin:{l:42,r:8,t:24,b:30},bargap:0.04,paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{size:9,color:'#374151'},
+    xaxis:{gridcolor:'#eef0f3',zeroline:true,zerolinecolor:'#d1d5db'},yaxis:{title:{text:'count',font:{size:9}},gridcolor:'#eef0f3'},
+    showlegend:false},{responsive:true,displaylogo:false});}
+function s20RenderNow(i){const s=S20_SNAPS[i];if(!s)return;S20_CURIDX=i;
+  s20HistDraw('p_s20_lam',s.lam,'eigenvalues λ_i of M_r=Σr_kQ_k   (step '+s.t+')','#0f766e');
+  s20HistDraw('p_s20_q1',s.q1,'λ_i · |⟨v_i, u_1⟩|   (top Jacobian dir)','#2563eb');
+  s20HistDraw('p_s20_q2',s.q2,'λ_i · |⟨v_i, u_2⟩|   (2nd Jacobian dir)','#7c3aed');
+  s20HistDraw('p_s20_q3',s.q3,'λ_i · |⟨v_i, u_3⟩|   (3rd Jacobian dir)','#db2777');
+  const sp=document.getElementById('s20_step');if(sp)sp.textContent=`step ${s.t}  ·  snapshot ${i+1}/${S20_SNAPS.length}  ·  K=${s.K}`;
+  const sl=document.getElementById('s20_slider');if(sl&&+sl.value!==i)sl.value=i;}
+function s20RenderIdx(i){S20_PENDING=i;if(S20_RAF)return;S20_RAF=requestAnimationFrame(()=>{S20_RAF=0;const j=S20_PENDING;S20_PENDING=-1;if(j>=0)s20RenderNow(j);});}
+function s20Push(m){if(!m||!m.lam)return;const sl=document.getElementById('s20_slider'),wasLive=!sl||(+sl.value>=+sl.max);
+  S20_SNAPS.push(m);
+  if(S20_SNAPS.length>S20_MAXSNAPS){S20_SNAPS=S20_SNAPS.filter((_,ix)=>ix%2===0);if(S20_CURIDX>=S20_SNAPS.length)S20_CURIDX=S20_SNAPS.length-1;}
+  if(sl){sl.max=S20_SNAPS.length-1;if(wasLive)sl.value=sl.max;}
+  s20RenderIdx(wasLive?S20_SNAPS.length-1:(sl?+sl.value:0));}
+function s20Reset(){S20_SNAPS=[];S20_CURIDX=0;if(S20_RAF){cancelAnimationFrame(S20_RAF);S20_RAF=0;}S20_PENDING=-1;
+  for(const id of S20_IDS){try{Plotly.purge(id);}catch(e){}}
+  const sl=document.getElementById('s20_slider');if(sl){sl.max=0;sl.value=0;}
+  const sp=document.getElementById('s20_step');if(sp)sp.textContent='—';}
+
 // ═══════════════ §16: curvature-aligned per-residual-sign optimizer (standalone) ═══════════════
 // MIRRORS eos_lab.sec16.sec16_run / server._sec16_run (float64). Computes the whole standalone trajectory
 // from θ₀ and calls push(record) per iteration. r = y−f(x); the weight update is ADDED.
@@ -2848,6 +2892,7 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_s12b');if(el)el.style.display=chk('en22')?'':'none';}   // §12b per-sample projections (s22) — works for N≥1 (single-sample too); its cross-projection panels just stay empty without sample pairs
   {const el=document.getElementById('sec_s18');if(el)el.style.display=(chk('en26')&&(+val('nsamp'))===2)?'':'none';}   // §18 per-sample (sample1 vs sample2) projections — exactly 2 samples
   {const el=document.getElementById('sec_s19');if(el)el.style.display=chk('en27')?'':'none';}   // §19 grad-norm change vs D²(NTK) correlation
+  {const el=document.getElementById('sec_s20');if(el)el.style.display=chk('en28')?'':'none';}   // §20 M_r=Σr_kQ_k spectral histograms (slider)
   {const el=document.getElementById('sec_s13');if(el)el.style.display=(chk('en21')&&multi)?'':'none';}   // §13 residual-weighted curvature alignment (own toggle en21; reuses the §12 Lanczos)
   {const el=document.getElementById('sec_s14');if(el){const vis=(chk('en20')&&multi);el.style.display=vis?'':'none';   // §14 Tr(ΔNTK) per-triplet decomposition (s20, multi-only)
     if(vis&&typeof S14_SNAPS!=='undefined'&&S14_SNAPS.length)requestAnimationFrame(()=>s14RenderNow(S14_CURIDX));}}   // redraw canvases now that the divs have size
@@ -2866,7 +2911,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   s12Reset();   // §12: drop snapshots from the previous run
   s13Reset();   // §13: drop the approximation-comparison time-series from the previous run
   s14Reset();   // §14: drop snapshots from the previous run
-  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s16Reset();s17Reset();   // §15+§16+§19: drop the 2nd-difference + optimizer + grad-norm time-series
+  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s16Reset();s17Reset();   // §15+§16+§19+§20: drop the 2nd-difference + optimizer + grad-norm + M_r-histogram series
   trReset();    // §5: clear the trace-over-iterations curves
   syncSectionVis(multi);   // gate sections by the panel toggles (multi from the actual run)
   const dis=s=>OPT.gs?s:s+'  (off)';
@@ -3113,7 +3158,8 @@ const ADV_SECS={en18:{sec:'sec_g3d',name:'§11 (3D Hessian–NTK grids)'},
   en21:{sec:'sec_s13',name:'§13 (residual-weighted curvature)'}, en20:{sec:'sec_s14',name:'§14 (Tr ΔNTK)'},
   en23:{sec:'sec_s15',name:'§15 (2nd-difference decomposition)'}, en24:{sec:'sec_s16',name:'§16 (curvature optimizer)'},
   en25:{sec:'sec_s17',name:'§17 (per-sample optimizer)'},
-  en26:{sec:'sec_s18',name:'§18 (per-sample projections, N=2)'}, en27:{sec:'sec_s19',name:'§19 (grad-norm vs D²NTK)'}};
+  en26:{sec:'sec_s18',name:'§18 (per-sample projections, N=2)'}, en27:{sec:'sec_s19',name:'§19 (grad-norm vs D²NTK)'},
+  en28:{sec:'sec_s20',name:'§20 (M_r spectral histograms)'}};
 let ADV_GOT={};   // toggle id → true once that section's g-record has arrived this run
 function datasetOutDim(){const d=val('dataset');
   if(d==='cifar10'||d==='mnist')return 10; if(d==='cifar2'||d==='mnist2'||d==='chebyshev'||d==='ksparse'||d==='anglepair')return 1;
@@ -3320,7 +3366,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
   const qmode=Math.max(1,+val('qmode')||1), tset=Math.max(1,+val('tset')||1);   // qmode (legacy, unused by Eq-22); Eq-29 set-T size
   const nProbe=Math.max(1,+val('slqprobes')), efrac=Math.min(1,Math.max(0.5,(+val('energyp'))/100));
-  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),gs:val('gson')==='1'};
+  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),gs:val('gson')==='1'};
   OPT=opt;
   const {spec,p}=buildSpec(inDim,width,depth,act,useBias,outDim);
   if(p>100000){st.textContent=`p=${p} parameters exceeds the cap (100000). Reduce width/depth.`;ST=null;updateButtons();return;}
@@ -3393,7 +3439,8 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const heavyEvery=Math.max(1,+val('heavyevery')||4);   // §7-proj + §8 throttle (mirror server.run_stream)
   const grid3dcap=Math.max(1,+val('grid3dcap')||30);    // §11 3D-grid cap (skip when M>this)
   const g3dStride=Math.max(1,+val('cubeevery')||1);   // §11-§14 cube cadence: emit every k-th tick (mirror server cubeevery/g3dstride); §15/§1-9/§16-17 stay per-tick
-  ST={opt,optim:val('optimizer'),spec,p,X,Y,N,inDim,outDim,M,nResid,th,lr,eps,thr,n,kth,nSub,mF,mV,mSLQ,nProbe,efrac,eigEvery,slqStride,heavyEvery,grid3dcap,divreg:Math.max(0,+val('divreg')||0.3),sec12ncap:Math.max(1,+val('sec12ncap')||500),g3dStride,steps,posIdx,negIdx,
+  const s28k=Math.max(1,Math.floor(+val('s28k')||40));   // §20: # eigenpairs per side (top-K ⊕ bottom-K) of M_r
+  ST={opt,optim:val('optimizer'),spec,p,X,Y,N,inDim,outDim,M,nResid,th,lr,eps,thr,n,kth,nSub,mF,mV,mSLQ,nProbe,efrac,eigEvery,slqStride,heavyEvery,grid3dcap,divreg:Math.max(0,+val('divreg')||0.3),sec12ncap:Math.max(1,+val('sec12ncap')||500),g3dStride,s28k,steps,posIdx,negIdx,
       needVecs,needVals,prevTop:Array(nSub).fill(null),prevBot:Array(nSub).fill(null),prevPos:null,prevNeg:null,
       pNtk:Array(n).fill(null),pVH:Array(n).fill(null),pUJ:Array(n).fill(null),pM1:[null,null,null,null],pM2:[null,null,null,null],pG2:Array(n).fill(null),
       prevSharp7a:null,prevNtkR7a:null,prevPrevNtkR7a:null,sumGsync:null,sumGlag:null,cntGs:0,cntGl:0,   // §7a Δλ·Δr running products
@@ -3526,7 +3573,7 @@ async function loop(){                                   // drives ST forward; r
         }
         // §4b/§4c shared base: top-n NTK eigenvectors v_k (sign-tracked) and J·r = Σ_a r_a ∇f_a, r=y−f
         let u1s=null,Jrs=null,Jrns=0,Rn=0,bJc=null,bEk=null,rrs=null;
-        if((O.s9||O.s10||O.s11||O.s12||O.s15||O.s16||O.s18||O.s19||O.s20||O.s21||O.s22||O.s23||O.s26||O.s27)&&(M>1||O.s19||O.s22||O.s23||O.s26||O.s27)){   // §12a/§12b/§15/§18/§19 also run for a single sample (M=1)
+        if((O.s9||O.s10||O.s11||O.s12||O.s15||O.s16||O.s18||O.s19||O.s20||O.s21||O.s22||O.s23||O.s26||O.s27||O.s28)&&(M>1||O.s19||O.s22||O.s23||O.s26||O.s27||O.s28)){   // §12a/§12b/§15/§18/§19/§20 also run for a single sample (M=1)
           const dn=M;const jc=jacCols(S.th,spec,X,N,inDim,p);bJc=jc.cols;
           const Km=new Float64Array(dn*dn);for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(bJc[a],bJc[b]);Km[a*dn+b]=v;Km[b*dn+a]=v;}
           bEk=symEigDesc(Km,dn);
@@ -3715,6 +3762,23 @@ async function loop(){                                   // drives ST forward; r
           let gnn=0; for(let i=0;i<p;i++){const v=g[i]-etaN*JtJg[i]+etaN*Hg[i];gnn+=v*v;} gnn=Math.sqrt(gnn);// ‖J_{t+1}ᵀr_{t+1}‖
           let trNTK=0; for(let k=0;k<M;k++){const jk=bJc[k];for(let i=0;i<p;i++)trNTK+=jk[i]*jk[i];}         // ‖J‖²_F=tr(NTK)
           s19Push({type:'g19',t:S.t,A:gnn-gn,trNTK:trNTK,gn:gn,gn_next:gnn});
+        }
+        if(O.s28&&S.eigTick%S.g3dStride===0&&M<=S.grid3dcap&&bJc&&rrs){   // §20: M_r=Σr_kQ_k spectral histograms — top-K⊕bottom-K eigvals + λ·|⟨v,u_k⟩| for top-3 right-singular u_k. MIRRORS server._sec20_payload
+          const K=Math.max(1,Math.min(S.s28k|0,p)),mlan=Math.min(p,Math.max(2*K+16,32));
+          const lc=lanczosCore(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,rrs),p,mlan,randVec(p,0x205EE0));   // mulberry32 start (cross-backend); M_r v = Σ_k r_k Q_k v
+          const kk=lc.k,eg=jacobiEig(lc.T,kk);                                  // Ritz eigenpairs of M_r
+          const desc=Array.from({length:kk},(_,i)=>i).sort((a,b)=>eg.vals[b]-eg.vals[a]);
+          const ritz=ti=>{const out=new Float64Array(p);for(let j=0;j<kk;j++){const c=eg.V[j*kk+ti],qj=lc.Q[j];for(let i=0;i<p;i++)out[i]+=c*qj[i];}return out;};
+          const ntol=1e-9*Math.max((bEk&&bEk.vals.length)?bEk.vals[0]:0,1e-30);   // null-direction cutoff (σ_k²≤tol·σ_1² ⇒ no k-th Jacobian dir; avoids normalizing round-off noise)
+          const us=[];for(let c=0;c<3;c++){                                     // u_k = normalize(Jᵀ g_k), g_k = k-th NTK eigvec; GATE on the NTK eigenvalue bEk.vals[c]
+            if(c<M&&bEk&&bEk.vecs[c]&&bEk.vals[c]>ntol){const g=bEk.vecs[c],u=new Float64Array(p);for(let a=0;a<M;a++){const ca=g[a],ja=bJc[a];for(let i=0;i<p;i++)u[i]+=ca*ja[i];}
+              const nu=norm(u);if(nu>1e-30)for(let i=0;i<p;i++)u[i]/=nu;else u.fill(0);us.push(u);}
+            else us.push(new Float64Array(p));}
+          const kt=Math.min(K,kk),bs=Math.max(kt,kk-K),pos=[];for(let i=0;i<kt;i++)pos.push(i);for(let i=bs;i<kk;i++)pos.push(i);   // top-K⊕bottom-K DISTINCT
+          const lam=[],q1=[],q2=[],q3=[];
+          for(const pp of pos){const ti=desc[pp],li=eg.vals[ti],v=ritz(ti);lam.push(li);
+            q1.push(li*Math.abs(dot(v,us[0])));q2.push(li*Math.abs(dot(v,us[1])));q3.push(li*Math.abs(dot(v,us[2])));}
+          s20Push({type:'g20',t:S.t,lam,q1,q2,q3,K});
         }
         // Q[u₁] = Σ_a (u₁)_a ∇²f_a — extreme eigvecs (shared by §4b and §4d), sign-tracked once
         let qe=null;
@@ -3913,7 +3977,7 @@ function resetSim(){
   s12Reset();   // §12: clear the eigvec-similarity grids/cuboids + snapshots/slider too
   s13Reset();   // §13: clear the approximation-comparison time-series too
   s14Reset();   // §14: clear the triplet-decomposition cubes + snapshots/slider too
-  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s16Reset();s17Reset();   // §15+§16+§19: clear the time-series too
+  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s16Reset();s17Reset();   // §15+§16+§19+§20: clear the time-series too
   updateButtons();
 }
 
@@ -4085,10 +4149,10 @@ async function downloadPlots(){
 // shared by backendURL (live stream) and the capture save/load (Compute → "Load saved run").
 // QUERY_IDS: plain value controls; SEC_TOGGLE_MAP: query-key ↔ checkbox-id for every section toggle.
 const QUERY_IDS=['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
-   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','cubeevery','s24warm','s24iter','s24grid','s24ares','s24k',
+   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','cubeevery','s24warm','s24iter','s24grid','s24ares','s24k','s28k',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg','ksparse','angle','norm1','norm2','lab1','lab2'];
 const SEC_TOGGLE_MAP=[['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
-   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base'],['s26','en26'],['s27','en27']];
+   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base'],['s26','en26'],['s27','en27'],['s28','en28']];
 function currentQueryParams(){   // the exact query-style param dict the backend receives (also stored in a browser-saved capture)
   const o={};
   for(const id of QUERY_IDS){const el=document.getElementById(id);if(el)o[id]=val(id);}
@@ -4139,6 +4203,7 @@ function gpuHandle(m,st,sp,finish,resuming){
     }else if(m.type==='g15b'){ADV_GOT.en23=1;s15bPush(m);
     }else if(m.type==='g15p34'){ADV_GOT.en23=1;s15p34Push(m);
     }else if(m.type==='g19'){ADV_GOT.en27=1;s19Push(m);
+    }else if(m.type==='g20'){ADV_GOT.en28=1;s20Push(m);
     }else if(m.type==='g15corr'){ADV_GOT.en23=1;S15_TERMS_GOT=true;s15corrPush(m);
     }else if(m.type==='g16'){ADV_GOT.en24=1;s16Push(m);
     }else if(m.type==='g17'){ADV_GOT.en25=1;s17Push(m);
@@ -4383,7 +4448,7 @@ const PRESETS={
   ksparse_gpt:{dataset:'ksparse',arch:'gpt',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.005,init:0.5,nsamp:24,batch:0,indim:10,outdim:1,ksparse:3,tgt:1.0,neig:3,kth:1,steps:1000,eigevery:1,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:48,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en24:1,en25:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // angle-pair: 2 iid-Gaussian samples with controllable ‖x₁‖,‖x₂‖ and the angle between them; ±1 labels (default +1/−1).
   // tanh MLP, MSE, runs in-browser. N=2 is the point, so the per-sample structure sections (§11/§12/§13 + §18) are on.
-  anglepair:{dataset:'anglepair',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:2,batch:0,indim:8,outdim:1,angle:90,norm1:1,norm2:1,lab1:1,lab2:-1,tgt:1.0,neig:3,kth:1,steps:600,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:1,en12:1,en13:1,en18:1,en19:1,en22:1,en26:1,en27:1,en24:0,en25:0,qapprox:25,qmode:1,tset:3,compute:'browser'},
+  anglepair:{dataset:'anglepair',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:2,batch:0,indim:8,outdim:1,angle:90,norm1:1,norm2:1,lab1:1,lab2:-1,tgt:1.0,neig:3,kth:1,steps:600,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:1,en12:1,en13:1,en18:1,en19:1,en22:1,en26:1,en27:1,en28:1,s28k:40,en24:0,en25:0,qapprox:25,qmode:1,tset:3,compute:'browser'},
 };
 function setVal(id,v){document.getElementById(id).value=String(v);}
 function applyPreset(name){const P=PRESETS[name];if(!P)return;for(const k in P){const el=document.getElementById(k);if(!el)continue;if(el.type==='checkbox')el.checked=!!P[k];else el.value=String(P[k]);}syncLossPanels();updateParamBadge();syncInitScaleEnabled();}
@@ -4426,7 +4491,7 @@ function syncLossPanels(){
 function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic' && val('arch')==='mlp'){ runLocal(true); } }
 document.getElementById('loss').addEventListener('change',syncLossPanels);
 document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
-['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','en24','en25','en26','en27','gson'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();});});
+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','en24','en25','en26','en27','en28','gson'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();});});
 ['s14f_y1','s14f_y2','s14f_y5','s14f_agg','s14f_max','s14f_min','s14f_ratio'].forEach(id=>{const e=document.getElementById(id);if(e)e.addEventListener('change',s14ApplyPanelFilter);});
 if(typeof s14ApplyPanelFilter==='function')s14ApplyPanelFilter();   // apply the default §14 panel selection on load
 syncInitScaleEnabled();   // grey out init_scale on load if the current scheme ignores it (mup/xavier_*)
