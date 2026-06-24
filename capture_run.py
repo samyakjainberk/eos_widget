@@ -177,8 +177,9 @@ def main():
         out = out + ".gz"
     os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
 
-    def write_capture(records, wall, final):
-        """Serialize the (possibly partial) capture to `out` atomically (tmp+rename)."""
+    def write_capture(records, wall, final, out_path=None, compacted=False):
+        """Serialize the (possibly partial) capture to `out_path` (default `out`) atomically (tmp+rename)."""
+        op = out_path or out
         by_type = {}
         for r in records:
             by_type[r.get("type", "?")] = by_type.get(r.get("type", "?"), 0) + 1
@@ -192,17 +193,18 @@ def main():
             "dtype": str(dtype).replace("torch.", ""),
             "wall_sec": round(wall, 2),
             "partial": not final,             # True ⇒ job still running / was killed before finishing
+            "compacted": compacted,           # True ⇒ §14 cubes reduced to time-series stats (p14r/ratioR)
             "params": params,                 # query-style param dict → restores the widget controls
             "p": meta.get("p"),
             "record_counts": by_type,
             "records": records,
         }
         data = json.dumps(obj, separators=(",", ":")).encode("utf-8")
-        tmp = out + ".tmp"
+        tmp = op + ".tmp"
         opener = gzip.open if use_gz else open
         with opener(tmp, "wb") as f:
             f.write(data)
-        os.replace(tmp, out)                  # atomic: a reader never sees a half-written file
+        os.replace(tmp, op)                   # atomic: a reader never sees a half-written file
         return by_type, len(data)
 
     print("[capture] device=%s dtype=%s dataset=%s arch=%s nsamp=%s steps=%s → %s"
@@ -216,6 +218,24 @@ def main():
     print("[capture] wrote %s  (%d records, %.1f KB, %.1fs)" %
           (out, len(records), nbytes / 1024.0, wall), flush=True)
     print("[capture] record types: " + ", ".join("%s×%d" % (k, v) for k, v in sorted(by_type.items())), flush=True)
+
+    # Also emit a compacted <out>.min.json — the §14 N³ cubes (≈80% of an all-sections file) reduced to the
+    # time-series stats the browser actually plots. The full file above is preserved ("everything as it is");
+    # load the .min for fast, no-hang browser loading. Mutates `records` in place (full file already on disk).
+    try:
+        import compact_capture as _cc
+        n14 = sum(_cc.compact_record(r) for r in records)
+        if out.endswith(".json.gz"):
+            min_out = out[:-8] + ".min.json.gz"
+        elif out.endswith(".json"):
+            min_out = out[:-5] + ".min.json"
+        else:
+            min_out = out + ".min"
+        _bt, mbytes = write_capture(records, wall, final=True, out_path=min_out, compacted=True)
+        print("[capture] also wrote %s  (compacted: %d g14 records reduced, %.1f KB, %.1fx smaller) — load this one"
+              % (min_out, n14, mbytes / 1024.0, nbytes / max(mbytes, 1)), flush=True)
+    except Exception as e:
+        print("[capture] compaction step skipped (%s) — full capture is fine, just larger" % e, flush=True)
     if "error" in by_type or any(r.get("type") == "meta" and r.get("error") for r in records):
         print("[capture] WARNING: run reported an error record — check the config.", flush=True)
 

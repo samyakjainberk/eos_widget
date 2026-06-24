@@ -1365,7 +1365,8 @@ function s14RatioIds(){return S14_YS.map(y=>'p_s14ratio_'+y);}   // Panel 10: 3 
 function s14Meta(id){   // §14 cube id → {label, color mode, signed, snapshot→pack}
   let m=id.match(/^p_s14_(\d+)_(agg|max|min)_(\d)$/);
   if(m){const y=m[1],g=m[2],n=+m[3],lab=(g==='agg'?S14_AGGLAB[n]:S14_SUBLAB[n]);
-    return {label:(g==='agg'?'':g+'·')+lab+' y='+y,mode:'symlog',signed:true,pack:s=>(s.p14&&s.p14[y]&&s.p14[y][g])?s.p14[y][g][n]:null};}
+    return {label:(g==='agg'?'':g+'·')+lab+' y='+y,mode:'symlog',signed:true,pack:s=>(s.p14&&s.p14[y]&&s.p14[y][g])?s.p14[y][g][n]:null,
+            stat:s=>(s.p14r&&s.p14r[y]&&s.p14r[y][g])?s.p14r[y][g][n]:null};}   // p14r = precomputed 9 stats (compacted captures)
   m=id.match(/^p_s14r_(\d)$/);const i=+m[1];
   return {label:'ratio '+S14_RLAB[i],mode:'symlog',signed:true,pack:s=>(s.ratio?s.ratio[i]:null)};}
 function s14Reset(){
@@ -1381,6 +1382,7 @@ function s14Reset(){
 const S14_C3=['#2ca02c','#ff7f0e','#9467bd'];   // top/bottom 1,2,3 colours (distinct from black/blue/red)
 const S14_SERIES={}, S14_RSERIES={};   // S14_SERIES: grid id → {xs,t,b,mean,mpos,mneg,label}.  S14_RSERIES: y → {xs,first,last} (Panel 10)
 function s14GridStats(snap,meta){   // ALL 9 stats over the SAME off-diagonal cells (i≠j≠k): top-3, bottom-3, and
+  if(snap&&snap.p14r&&meta.stat){const st=meta.stat(snap);if(st)return st;}   // compacted capture: the 9 stats are precomputed (no cube stored)
   const pk=(snap&&snap.do3d)?meta.pack(snap):null;                //   mean / mean⁺ (mean of +cells) / mean⁻ (mean of −cells)
   if(!pk)return {top:[null,null,null],bot:[null,null,null],mean:null,mpos:null,mneg:null};
   const N=snap.M,N2=N*N,v=pk.v,idx=pk.idx,off=[];
@@ -1401,6 +1403,7 @@ function s14SeriesAppend(snap){   // push one snapshot's stats onto every grid's
     if(!R)R=S14_RSERIES[y]={xs:[],first:[],last:[]};
     R.xs.push(snap.t);R.first.push(s14RatioMean(snap,yi));R.last.push(s14RatioMean(snap,yi+3));}}
 function s14RatioMean(snap,idx){   // off-diagonal (i≠j≠k) mean of the ratio[idx] grid at one snapshot
+  if(snap&&snap.ratioR){const v=snap.ratioR[idx];return v===undefined?null:v;}   // compacted capture: precomputed off-diagonal ratio mean
   if(!snap||!snap.do3d||!snap.ratio||!snap.ratio[idx])return null;
   const pk=snap.ratio[idx],N=snap.M,N2=N*N,v=pk.v,ix=pk.idx;let s=0,c=0;
   for(let q=0;q<v.length;q++){const p=ix?ix[q]:q,i=(p/N2)|0,j=((p%N2)/N)|0,k=p%N,x=v[q];
@@ -1428,7 +1431,7 @@ function s14RenderNow(i){   // redraw the §14 time-series (the slider doesn't s
   S14_CURIDX=i;for(const id of s14CubeIds())s14SeriesDraw(id);for(const y of S14_YS)s14RatioDraw(y);
   const st=document.getElementById('s14_step');if(st&&S14_SNAPS.length)st.textContent=`${S14_SNAPS.length} snapshots · latest step ${S14_SNAPS[S14_SNAPS.length-1].t}`;}
 function s14Push(m){
-  if(!m.p14&&!m.ratio)return;
+  if(!m.p14&&!m.ratio&&!m.p14r&&!m.ratioR)return;   // accept compacted (p14r/ratioR) records too
   S14_SNAPS.push(m);
   if(S14_SNAPS.length>S14_MAXSNAPS){S14_SNAPS=S14_SNAPS.filter((_,ix)=>ix%2===0);if(S14_CURIDX>=S14_SNAPS.length)S14_CURIDX=S14_SNAPS.length-1;}   // decimate (plots use S14_SERIES, not these) to bound memory
   {const em=document.getElementById('s14_empty');if(em)em.style.display='none';}   // §14 data arrived — hide the hint
@@ -4029,6 +4032,45 @@ function saveCurrentRun(){
   const st=document.getElementById('status');if(st)st.textContent=`saved run — ${GPU_CAPTURE.length} records (${a.download}).`;
 }
 // Replay a loaded capture: restore controls, then feed every record through gpuHandle (async-chunked so the tab stays responsive).
+// ── Streaming capture parser: a 100–200 MB capture would block the tab for seconds in one JSON.parse. This
+//    extracts the {header} and then each record incrementally as bytes arrive, so the work spreads across frames
+//    (the caller yields between reads). O(N): the buffer is compacted once per feed(), not per record. Brace-counts
+//    with string/escape awareness; assumes "records" is the last top-level key (it is — see capture_run.write_capture).
+function makeCaptureParser(onHeader,onRecord){
+  let buf='',scanPos=0,started=false,depth=0,recStart=-1,inStr=false,esc=false,done=false,emitEnd=0;
+  return {feed(chunk){
+    if(done)return; buf+=chunk;
+    if(!started){ const m=buf.indexOf('"records"'); if(m<0)return; const br=buf.indexOf('[',m); if(br<0)return;
+      onHeader(JSON.parse(buf.slice(0,m)+'"records":[]}')); scanPos=br+1; emitEnd=br+1; started=true; }
+    let i=scanPos;
+    for(;i<buf.length;i++){ const ch=buf[i];
+      if(inStr){ if(esc)esc=false; else if(ch==='\\')esc=true; else if(ch==='"')inStr=false; }
+      else if(ch==='"')inStr=true;
+      else if(ch==='{'){ if(depth===0)recStart=i; depth++; }
+      else if(ch==='}'){ if(--depth===0&&recStart>=0){ onRecord(buf.slice(recStart,i+1)); recStart=-1; emitEnd=i+1; } }
+      else if(ch===']'&&depth===0){ done=true; i++; break; }
+    }
+    scanPos=i;
+    if(emitEnd>0){ buf=buf.slice(emitEnd); scanPos-=emitEnd; if(recStart>=0)recStart-=emitEnd; emitEnd=0; }   // amortized-O(1) compaction
+  },done(){return done;}};
+}
+// Stream a fetch Response into a capture object without one giant JSON.parse (frame-budgeted yields between reads).
+async function streamParseCapture(resp,st,label){
+  if(!resp.body||!resp.body.getReader)throw new Error('no stream');
+  const reader=resp.body.getReader(),dec=new TextDecoder();
+  const now=()=>(typeof performance!=='undefined'&&performance.now)?performance.now():0;
+  let header=null; const records=[];
+  const parser=makeCaptureParser(h=>header=h,s=>records.push(JSON.parse(s)));
+  const SLICE=65536;   // cap work per feed() to ~64 KB — localhost may deliver the whole file in ONE read, so we
+  let t0=now();        // sub-slice it (byte views; TextDecoder stream:true stitches multibyte across slices) and yield
+  for(;;){ const {done,value}=await reader.read(); if(done)break;
+    for(let off=0;off<value.length;off+=SLICE){
+      parser.feed(dec.decode(value.subarray(off,off+SLICE),{stream:true}));
+      if(now()-t0>12){ if(st)st.textContent=`parsing ${label} … ${records.length} records`; await new Promise(r=>setTimeout(r,0)); t0=now(); } } }
+  parser.feed(dec.decode());   // flush any multibyte tail
+  if(!header)throw new Error('no header parsed (not a capture stream?)');
+  header.records=records; return header;
+}
 async function loadCapture(obj){
   const st=document.getElementById('status'),sp=document.getElementById('sps');
   if(!obj||!Array.isArray(obj.records)){if(st)st.textContent='not a valid capture file (expected {records:[…]}).';return;}
@@ -4039,23 +4081,42 @@ async function loadCapture(obj){
   lastT=-1;META=null;cursorX=null;GPU_CAPTURE=obj.records.slice();   // keep loaded records re-savable
   const finish=()=>{RUNNING=false;updateButtons();};
   const recs=obj.records;
-  // ── FAST replay: a big capture restyles every plot on every record (O(N²) → the tab hangs). So during replay
-  //    we (a) cap §1–§9 plotted points by lowering PLOT_DECIM, and (b) DEFER the §11–§17 restyle/react renders —
-  //    capturing only the latest call per plot (they restyle with the full accumulated arrays) and firing it ONCE
-  //    at the end. Turns O(records×plots) renders into O(plots). ──
+  // ── NON-BLOCKING replay: a big capture would restyle every plot on every record (O(N²)) and then render dozens
+  //    of large plots in one burst → the tab freezes. Instead we (a) cap §1–§9 plotted points via PLOT_DECIM,
+  //    (b) DEFER the §11–§17 restyle/react renders — the per-iteration plots (3D cubes / heatmaps) are also
+  //    rAF-coalesced upstream, so deferral keeps only the LATEST snapshot per plot — and (c) drive BOTH the record
+  //    ingestion AND the final render off a ~12 ms FRAME BUDGET: process records (or render plots) until ~12 ms
+  //    elapse, then yield to the browser. No synchronous block exceeds ~one frame, so the UI never hangs — at any
+  //    capture size. (Time-series load cheaply once; only the heavy cube/heatmap data is the cost, and the §14
+  //    cubes — ~80% of an all-sections file — are pre-reduced to time-series stats in compacted captures.) ──
+  const _now=()=>(typeof performance!=='undefined'&&performance.now)?performance.now():0;
+  const _yield=()=>new Promise(r=>setTimeout(r,0));
   const _savedDecim=PLOT_DECIM; PLOT_DECIM=Math.min(PLOT_DECIM,1200);   // ≤~1200 plotted points per §1–§9 trace
   const _R={},_C={}; const _oRestyle=Plotly.restyle,_oReact=Plotly.react;
   Plotly.restyle=function(id,u,tr){_R[id]={u:u,tr:tr};return Promise.resolve();};   // keep latest (refs the full arrays)
   Plotly.react=function(id,d,l,c){_C[id]={d:d,l:l,c:c};return Promise.resolve();};
+  const _spreadFlush=async()=>{   // render each touched plot once, yielding every ~12 ms so a 50-plot flush can't freeze the tab
+    const items=[];
+    for(const id in _R){items.push([0,id,_R[id]]);delete _R[id];}
+    for(const id in _C){items.push([1,id,_C[id]]);delete _C[id];}
+    let t0=_now();
+    for(let k=0;k<items.length;k++){const it=items[k];
+      try{if(it[0]===0)_oRestyle(it[1],it[2].u,it[2].tr);else _oReact(it[1],it[2].d,it[2].l,it[2].c);}catch(e){console.error('flush',it[1],e);}
+      if(_now()-t0>12){await _yield();t0=_now();}}
+  };
   try{
+    let t0=_now(), lastFlush=0;
     for(let i=0;i<recs.length;i++){
       try{gpuHandle(recs[i],st,sp,finish,false);}catch(e){console.error('replay error at record',i,recs[i],e);}
-      if((i&511)===0){st.textContent=`loading saved run … ${i+1}/${recs.length} (rendering at the end)`;await new Promise(r=>setTimeout(r,0));}
+      if(_now()-t0>12){                                   // frame budget spent → repaint, show progress, keep UI alive
+        if(i-lastFlush>=2500){await _spreadFlush();lastFlush=i;}   // periodic progressive render (so plots fill in)
+        st.textContent=`loading saved run … ${i+1}/${recs.length}`;
+        await _yield(); t0=_now();
+      }
     }
   }finally{ Plotly.restyle=_oRestyle; Plotly.react=_oReact; PLOT_DECIM=_savedDecim; }
-  st.textContent=`rendering ${recs.length} records …`; await new Promise(r=>setTimeout(r,0));
-  for(const id in _R){try{_oRestyle(id,_R[id].u,_R[id].tr);}catch(e){console.error('flush restyle',id,e);}}   // one render per plot
-  for(const id in _C){try{_oReact(id,_C[id].d,_C[id].l,_C[id].c);}catch(e){console.error('flush react',id,e);}}
+  st.textContent=`rendering …`; await _yield();
+  await _spreadFlush();   // final render, frame-budgeted
   // ensure the end-of-run bookkeeping ran even if the capture lacks a trailing done record
   if(!recs.some(r=>r&&(r.type==='done'||r.type==='error')))markSkippedAdv();
   RUNNING=false;updateButtons();
@@ -4063,10 +4124,15 @@ async function loadCapture(obj){
   st.textContent=`loaded saved run — ${recs.length} records · p=${obj.p||(META?META.p:'?')} · ${val('dataset')}/${val('arch')}${lab}${when?(' · '+when):''}`;
 }
 // File-input handler for the "⬆ load run" button (.json or .json.gz).
-function loadCaptureFile(file){
+async function loadCaptureFile(file){
   if(!file)return;
   const st=document.getElementById('status');if(st)st.textContent=`reading ${file.name} …`;
   const isGz=/\.gz$/i.test(file.name);
+  // Non-gz: stream-parse off the Blob (frame-budgeted, no big parse freeze). gz: inflate then parse.
+  if(!isGz&&file.stream){
+    try{ const obj=await streamParseCapture({body:file.stream()},st,file.name); await loadCapture(obj); return; }
+    catch(e){ console.warn('file stream parse failed; falling back to FileReader',e); }
+  }
   const fr=new FileReader();
   fr.onload=()=>{
     try{
@@ -4102,15 +4168,18 @@ async function loadFromServer(){
     if(!name)return;
   }
   if(!/\.json(\.gz)?$/i.test(name))name+='.json';
-  if(st)st.textContent=`fetching runs_captured/${name} from the server … (large files take a moment)`;
+  // Prefer the compacted sibling (X.min.json) — it loads fast and never hangs; fall back to the full file.
+  const cands=/\.min\.json$/i.test(name)?[name]:(/\.json$/i.test(name)?[name.replace(/\.json$/i,'.min.json'),name]:[name]);
+  let r=null,used=null;
+  for(const c of cands){try{const rr=await fetch('runs_captured/'+encodeURIComponent(c),{cache:'no-store'});if(rr.ok){r=rr;used=c;break;}}catch(e){}}
+  if(!r){if(st)st.textContent=`server has no ${cands.join(' or ')} in runs_captured/ — is the backend running and the file there?`;return;}
+  const len=+(r.headers.get('content-length')||0), mb=len?(' ('+(len/1e6).toFixed(0)+' MB)'):'';
+  if(st)st.textContent=`streaming ${used}${mb} …`;
   try{
-    const r=await fetch('runs_captured/'+encodeURIComponent(name),{cache:'no-store'});
-    if(!r.ok){if(st)st.textContent=`server returned ${r.status} for runs_captured/${name} — is the backend running and the file there?`;return;}
-    const len=+(r.headers.get('content-length')||0);
-    const mb=len?(' ('+(len/1e6).toFixed(0)+' MB)'):'';
-    if(st)st.textContent=`parsing ${name}${mb} … (a large capture takes a few seconds — the tab may pause)`;
-    await new Promise(rr=>setTimeout(rr,0));
-    const obj=await r.json();
+    let obj;
+    try{ obj=await streamParseCapture(r,st,used); }                                   // incremental, frame-budgeted — no big parse freeze
+    catch(e){ console.warn('stream parse failed; falling back to JSON.parse',e);       // safety net: re-fetch + atomic parse
+      const r2=await fetch('runs_captured/'+encodeURIComponent(used),{cache:'no-store'}); obj=await r2.json(); }
     await loadCapture(obj);
   }catch(e){if(st)st.textContent='failed to load from server: '+e.message;console.error(e);}
 }
