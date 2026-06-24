@@ -258,6 +258,7 @@
   <label title="§16 — standalone curvature-aligned per-residual-sign optimizer. From θ₀: `GD warmup` standard-GD steps, then per iteration form the sample-averaged function Hessian H̄, push positive-residual samples along its top eigenvector and negative-residual samples along its bottom eigenvector (each projection ×its eigenvalue), line-search α_pos/α_neg on each set, then advance by the better of the (β,s) curvature step or a gradient-descent step so the loss strictly decreases. 4 panels: loss / loss-Hessian eig / function-Hessian eig / per-sample residuals, each under the pos/neg/mean/advancing update; plot 5 adds the GD scale t_gd. MLP+MSE, small N & p; OFF by default."><input type="checkbox" id="en24"> 16 · curvature-aligned per-residual-sign optimizer</label>
   <label title="§17 — PER-SAMPLE function-Hessian variant of §16. Identical optimizer and identical 6 panels, but instead of the AVERAGED H̄ each sample uses its OWN function Hessian Q_k=∇²f_k: a positive-residual sample is pushed along the TOP eigvec of its Q_k, a negative-residual sample along the BOTTOM. proj = Σ_k r_k·⟨∇f_k,u_k⟩·σ_k·u_k. Per-sample Lanczos every iteration ⇒ O(M²); gated to small M=N·d_out. MLP+MSE; OFF by default."><input type="checkbox" id="en25"> 17 · per-sample curvature optimizer</label>
   <label title="§18 — per-sample projection TIME-SERIES for EXACTLY 2 samples. Same two quantities as §12b panels 1 & 2 (the product |⟨J_i,u⟩|·σ·r_i and the alignment |⟨J_i,u⟩|/‖J_i‖ onto the top-2 / bottom-2 eigenvectors of each Q_i) but plotted for sample 1 and sample 2 SEPARATELY over training, instead of the mean/std across samples. Reuses §12's matrix-free Lanczos — enabling this alone computes the projections. Only renders when nsamp = 2."><input type="checkbox" id="en26"> 18 · per-sample projections · sample-1 vs sample-2 (N=2)</label>
+  <label title="§19 — correlation between (A) the one-step-ahead change in gradient norm ‖J_{t+1}r_{t+1}‖−‖J_t r_t‖ (first-order GD prediction with the run's actual η/N step) and (B) D²(tr NTK), the centered 2nd difference of tr(NTK)=‖J‖²_F. Plot 1: A and B over time; Plot 2: raw A−B and normalized Â−B̂. Asks whether the steps where A and B first turn negative coincide. Small N; best with eigevery=1."><input type="checkbox" id="en27"> 19 · grad-norm change vs D²(NTK) correlation</label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -384,6 +385,15 @@
 <div class="plotrow row4"><div id="p_s18_top0" class="plot" style="height:290px"></div><div id="p_s18_top1" class="plot" style="height:290px"></div><div id="p_s18_top2" class="plot" style="height:290px"></div><div id="p_s18_top3" class="plot" style="height:290px"></div></div>
 <h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — BOTTOM-2 eigenvectors $u_{i,-1},u_{i,-2}$ (most-negative eigenvalues): proj·r and alignment, per sample</h3>
 <div class="plotrow row4"><div id="p_s18_bot0" class="plot" style="height:290px"></div><div id="p_s18_bot1" class="plot" style="height:290px"></div><div id="p_s18_bot2" class="plot" style="height:290px"></div><div id="p_s18_bot3" class="plot" style="height:290px"></div></div>
+</div>
+
+<div id="sec_s19" style="display:none">
+<h2>19 · gradient-norm change vs D²(NTK) — where each turns negative</h2>
+<p class="cap">Correlates two events over training. <b>A</b> = the one-step-ahead change in the gradient norm, $A_t=\lVert J_{t+1}^\top r_{t+1}\rVert-\lVert J_t^\top r_t\rVert$, where $r_{t+1}=(I-\tfrac{\eta}{N}\,\mathrm{NTK}_t)\,r_t$ and $J_{t+1}=J_t+\tfrac{\eta}{N}\,Q_t(J_t^\top r_t)$ are the first-order GD predictions ($Q_t$ = function Hessian, applied via a residual-weighted HVP; $\tfrac{\eta}{N}$ = the run's <b>actual</b> mean-loss GD step). <b>B</b> = $D^2(\mathrm{tr\,NTK})=\mathrm{tr\,NTK}_{t+1}-2\,\mathrm{tr\,NTK}_t+\mathrm{tr\,NTK}_{t-1}$, the centered 2nd difference of $\mathrm{tr\,NTK}=\lVert J\rVert_F^2$ (its "rate of change of rate of change"). The question: does the step where <b>A first goes negative</b> line up with the step where <b>B first goes negative</b>? Best with <b>eigevery = 1</b> (consecutive GD steps); small N.</p>
+<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Plot 1 — evolution of A and B over training (each crosses zero where its quantity starts decreasing)</h3>
+<div class="plotrow row1"><div id="p_s19_evo" class="plot" style="height:340px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Plot 2 — evolution of their difference: raw A−B (black) and normalized Â−B̂ (purple, each scaled to [−1,1] so the zero-crossings are comparable)</h3>
+<div class="plotrow row1"><div id="p_s19_diff" class="plot" style="height:340px"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -2412,6 +2422,35 @@ function s15corrPush(m){
 }
 function s15corrReset(){S15CORR_DATA=null;S15CORR_BUILT=false;for(const id of S15CORR_IDS){try{Plotly.purge(id);}catch(e){}}}
 
+// ── §19: correlation between (A) the one-step change in gradient norm ‖Jᵀr‖ and (B) D²(tr NTK). Two plots:
+//    (1) A_t and B_t over training, (2) raw A−B and normalized Â−B̂. A comes from the g19 record (server or
+//    browser-compute, the one-step GD prediction); B = centered 2nd difference of tr(NTK), formed here. ──
+const S19_IDS=['p_s19_evo','p_s19_diff'];
+let S19_DATA=null,S19_BUILT=false;
+function s19Build(){
+  S19_BUILT=true;
+  const ln=(name,col,dash)=>({x:[],y:[],mode:'lines+markers',name:name,line:{color:col,width:1.7,dash:dash||'solid'},marker:{size:3,color:col}});
+  Plotly.newPlot('p_s19_evo',[ln('A = ‖J_{t+1}r_{t+1}‖ − ‖J_t r_t‖','#2563eb'),ln('B = D²(tr NTK)','#dc2626')],
+    withZero(baseLayout('A (one-step Δ‖gradient‖)  &  B = D²(tr NTK)','value',false)),{responsive:true,displaylogo:false});
+  Plotly.newPlot('p_s19_diff',[ln('A − B (raw)','#111827'),ln('Â − B̂ (each scaled to [−1,1])','#7c3aed')],
+    withZero(baseLayout('difference of the two: raw A−B  &  normalized Â−B̂','value',false)),{responsive:true,displaylogo:false});
+}
+function s19Push(m){
+  if(!S19_BUILT)s19Build();
+  if(!S19_DATA)S19_DATA={steps:[],A:[],trNTK:[]};
+  const D=S19_DATA; D.steps.push(m.t); D.A.push(m.A); D.trNTK.push(m.trNTK);
+  const n=D.steps.length,t=D.steps,A=D.A,tr=D.trNTK;
+  const B=new Array(n).fill(null);                              // centered 2nd difference of tr(NTK); null at the endpoints
+  for(let i=1;i<n-1;i++)B[i]=tr[i+1]-2*tr[i]+tr[i-1];
+  Plotly.restyle('p_s19_evo',{x:[t,t],y:[A,B]});
+  let mA=0; for(let i=0;i<n;i++){const a=Math.abs(A[i]);if(a>mA)mA=a;} mA=mA||1;   // running max|·| for the normalization
+  let mB=0; for(let i=0;i<n;i++)if(B[i]!=null){const b=Math.abs(B[i]);if(b>mB)mB=b;} mB=mB||1;
+  const raw=new Array(n).fill(null),nrm=new Array(n).fill(null);
+  for(let i=0;i<n;i++)if(B[i]!=null){raw[i]=A[i]-B[i];nrm[i]=A[i]/mA-B[i]/mB;}
+  Plotly.restyle('p_s19_diff',{x:[t,t],y:[raw,nrm]});
+}
+function s19Reset(){S19_DATA=null;S19_BUILT=false;for(const id of S19_IDS){try{Plotly.purge(id);}catch(e){}}}
+
 // ═══════════════ §16: curvature-aligned per-residual-sign optimizer (standalone) ═══════════════
 // MIRRORS eos_lab.sec16.sec16_run / server._sec16_run (float64). Computes the whole standalone trajectory
 // from θ₀ and calls push(record) per iteration. r = y−f(x); the weight update is ADDED.
@@ -2807,6 +2846,7 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_s12a');if(el)el.style.display=(chk('en19')&&multi)?'':'none';}   // §12a principal angles + diagonal alignment (s19, multi-only)
   {const el=document.getElementById('sec_s12b');if(el)el.style.display=chk('en22')?'':'none';}   // §12b per-sample projections (s22) — works for N≥1 (single-sample too); its cross-projection panels just stay empty without sample pairs
   {const el=document.getElementById('sec_s18');if(el)el.style.display=(chk('en26')&&(+val('nsamp'))===2)?'':'none';}   // §18 per-sample (sample1 vs sample2) projections — exactly 2 samples
+  {const el=document.getElementById('sec_s19');if(el)el.style.display=chk('en27')?'':'none';}   // §19 grad-norm change vs D²(NTK) correlation
   {const el=document.getElementById('sec_s13');if(el)el.style.display=(chk('en21')&&multi)?'':'none';}   // §13 residual-weighted curvature alignment (own toggle en21; reuses the §12 Lanczos)
   {const el=document.getElementById('sec_s14');if(el){const vis=(chk('en20')&&multi);el.style.display=vis?'':'none';   // §14 Tr(ΔNTK) per-triplet decomposition (s20, multi-only)
     if(vis&&typeof S14_SNAPS!=='undefined'&&S14_SNAPS.length)requestAnimationFrame(()=>s14RenderNow(S14_CURIDX));}}   // redraw canvases now that the divs have size
@@ -2825,7 +2865,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   s12Reset();   // §12: drop snapshots from the previous run
   s13Reset();   // §13: drop the approximation-comparison time-series from the previous run
   s14Reset();   // §14: drop snapshots from the previous run
-  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s16Reset();s17Reset();   // §15+§16: drop the 2nd-difference + optimizer time-series
+  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s16Reset();s17Reset();   // §15+§16+§19: drop the 2nd-difference + optimizer + grad-norm time-series
   trReset();    // §5: clear the trace-over-iterations curves
   syncSectionVis(multi);   // gate sections by the panel toggles (multi from the actual run)
   const dis=s=>OPT.gs?s:s+'  (off)';
@@ -3266,7 +3306,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
   const qmode=Math.max(1,+val('qmode')||1), tset=Math.max(1,+val('tset')||1);   // qmode (legacy, unused by Eq-22); Eq-29 set-T size
   const nProbe=Math.max(1,+val('slqprobes')), efrac=Math.min(1,Math.max(0.5,(+val('energyp'))/100));
-  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),gs:val('gson')==='1'};
+  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),gs:val('gson')==='1'};
   OPT=opt;
   const {spec,p}=buildSpec(inDim,width,depth,act,useBias,outDim);
   if(p>100000){st.textContent=`p=${p} parameters exceeds the cap (100000). Reduce width/depth.`;ST=null;updateButtons();return;}
@@ -3470,7 +3510,7 @@ async function loop(){                                   // drives ST forward; r
         }
         // §4b/§4c shared base: top-n NTK eigenvectors v_k (sign-tracked) and J·r = Σ_a r_a ∇f_a, r=y−f
         let u1s=null,Jrs=null,Jrns=0,Rn=0,bJc=null,bEk=null,rrs=null;
-        if((O.s9||O.s10||O.s11||O.s12||O.s15||O.s16||O.s18||O.s19||O.s20||O.s21||O.s22||O.s23||O.s26)&&(M>1||O.s19||O.s22||O.s23||O.s26)){   // §12a/§12b/§15/§18 also run for a single sample (M=1)
+        if((O.s9||O.s10||O.s11||O.s12||O.s15||O.s16||O.s18||O.s19||O.s20||O.s21||O.s22||O.s23||O.s26||O.s27)&&(M>1||O.s19||O.s22||O.s23||O.s26||O.s27)){   // §12a/§12b/§15/§18/§19 also run for a single sample (M=1)
           const dn=M;const jc=jacCols(S.th,spec,X,N,inDim,p);bJc=jc.cols;
           const Km=new Float64Array(dn*dn);for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(bJc[a],bJc[b]);Km[a*dn+b]=v;Km[b*dn+a]=v;}
           bEk=symEigDesc(Km,dn);
@@ -3647,6 +3687,18 @@ async function loop(){                                   // drives ST forward; r
           }
           S15_HIST_JS.push({th:S.th.slice(),J:Jg15,r:r15,t:S.t});
           if(S15_HIST_JS.length>2)S15_HIST_JS.shift();
+        }
+        if(O.s27&&M<=S.grid3dcap&&bJc&&rrs){   // §19: A_t=‖J_{t+1}ᵀr_{t+1}‖−‖J_tᵀr_t‖ (one-step GD, η_eff=lr/N) + tr(NTK). MIRRORS server._sec19_payload
+          const g=new Float64Array(p); for(let k=0;k<M;k++){const jk=bJc[k],rk=rrs[k];for(let i=0;i<p;i++)g[i]+=rk*jk[i];}   // g=Jᵀr ("J r")
+          let gn=0; for(let i=0;i<p;i++)gn+=g[i]*g[i]; gn=Math.sqrt(gn);
+          const etaN=S.lr/Math.max(N,1);                                                                    // actual GD step (mean loss ⇒ η/N)
+          const Jgg=new Float64Array(M); for(let k=0;k<M;k++){const jk=bJc[k];let s=0;for(let i=0;i<p;i++)s+=jk[i]*g[i];Jgg[k]=s;}   // J g (=NTK·r)
+          const r_next=new Float64Array(M); for(let k=0;k<M;k++)r_next[k]=rrs[k]-etaN*Jgg[k];               // (I−η_eff·NTK)r
+          const JtJg=new Float64Array(p); for(let k=0;k<M;k++){const jk=bJc[k],c=Jgg[k];for(let i=0;i<p;i++)JtJg[i]+=c*jk[i];}   // Jᵀ J g
+          const Hg=hvpS(S.th,spec,X,N,inDim,p,g,eps,r_next);                                                // (Σ_k r_{t+1,k} Q_k) g
+          let gnn=0; for(let i=0;i<p;i++){const v=g[i]-etaN*JtJg[i]+etaN*Hg[i];gnn+=v*v;} gnn=Math.sqrt(gnn);// ‖J_{t+1}ᵀr_{t+1}‖
+          let trNTK=0; for(let k=0;k<M;k++){const jk=bJc[k];for(let i=0;i<p;i++)trNTK+=jk[i]*jk[i];}         // ‖J‖²_F=tr(NTK)
+          s19Push({type:'g19',t:S.t,A:gnn-gn,trNTK:trNTK,gn:gn,gn_next:gnn});
         }
         // Q[u₁] = Σ_a (u₁)_a ∇²f_a — extreme eigvecs (shared by §4b and §4d), sign-tracked once
         let qe=null;
@@ -3845,7 +3897,7 @@ function resetSim(){
   s12Reset();   // §12: clear the eigvec-similarity grids/cuboids + snapshots/slider too
   s13Reset();   // §13: clear the approximation-comparison time-series too
   s14Reset();   // §14: clear the triplet-decomposition cubes + snapshots/slider too
-  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s16Reset();s17Reset();   // §15+§16: clear the time-series too
+  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s16Reset();s17Reset();   // §15+§16+§19: clear the time-series too
   updateButtons();
 }
 
@@ -4020,7 +4072,7 @@ const QUERY_IDS=['depth','width','act','bias','fixedx','inputstd','ssign','optim
    'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','cubeevery','s24warm','s24iter','s24grid','s24ares','s24k',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg','ksparse','angle','norm1','norm2','lab1','lab2'];
 const SEC_TOGGLE_MAP=[['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
-   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base'],['s26','en26']];
+   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base'],['s26','en26'],['s27','en27']];
 function currentQueryParams(){   // the exact query-style param dict the backend receives (also stored in a browser-saved capture)
   const o={};
   for(const id of QUERY_IDS){const el=document.getElementById(id);if(el)o[id]=val(id);}
@@ -4070,6 +4122,7 @@ function gpuHandle(m,st,sp,finish,resuming){
     }else if(m.type==='g15n'){ADV_GOT.en23=1;s15nPush(m);
     }else if(m.type==='g15b'){ADV_GOT.en23=1;s15bPush(m);
     }else if(m.type==='g15p34'){ADV_GOT.en23=1;s15p34Push(m);
+    }else if(m.type==='g19'){ADV_GOT.en27=1;s19Push(m);
     }else if(m.type==='g15corr'){ADV_GOT.en23=1;S15_TERMS_GOT=true;s15corrPush(m);
     }else if(m.type==='g16'){ADV_GOT.en24=1;s16Push(m);
     }else if(m.type==='g17'){ADV_GOT.en25=1;s17Push(m);
@@ -4313,7 +4366,7 @@ const PRESETS={
   ksparse_gpt:{dataset:'ksparse',arch:'gpt',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.005,init:0.5,nsamp:24,batch:0,indim:10,outdim:1,ksparse:3,tgt:1.0,neig:3,kth:1,steps:1000,eigevery:1,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:48,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en24:1,en25:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // angle-pair: 2 iid-Gaussian samples with controllable ‖x₁‖,‖x₂‖ and the angle between them; ±1 labels (default +1/−1).
   // tanh MLP, MSE, runs in-browser. N=2 is the point, so the per-sample structure sections (§11/§12/§13 + §18) are on.
-  anglepair:{dataset:'anglepair',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:2,batch:0,indim:8,outdim:1,angle:90,norm1:1,norm2:1,lab1:1,lab2:-1,tgt:1.0,neig:3,kth:1,steps:600,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:1,en12:1,en13:1,en18:1,en19:1,en22:1,en26:1,en24:0,en25:0,qapprox:25,qmode:1,tset:3,compute:'browser'},
+  anglepair:{dataset:'anglepair',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:2,batch:0,indim:8,outdim:1,angle:90,norm1:1,norm2:1,lab1:1,lab2:-1,tgt:1.0,neig:3,kth:1,steps:600,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:1,en12:1,en13:1,en18:1,en19:1,en22:1,en26:1,en27:1,en24:0,en25:0,qapprox:25,qmode:1,tset:3,compute:'browser'},
 };
 function setVal(id,v){document.getElementById(id).value=String(v);}
 function applyPreset(name){const P=PRESETS[name];if(!P)return;for(const k in P){const el=document.getElementById(k);if(!el)continue;if(el.type==='checkbox')el.checked=!!P[k];else el.value=String(P[k]);}syncLossPanels();updateParamBadge();syncInitScaleEnabled();}
@@ -4356,7 +4409,7 @@ function syncLossPanels(){
 function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic' && val('arch')==='mlp'){ runLocal(true); } }
 document.getElementById('loss').addEventListener('change',syncLossPanels);
 document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
-['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','en24','en25','en26','gson'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();});});
+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','en24','en25','en26','en27','gson'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();});});
 ['s14f_y1','s14f_y2','s14f_y5','s14f_agg','s14f_max','s14f_min','s14f_ratio'].forEach(id=>{const e=document.getElementById(id);if(e)e.addEventListener('change',s14ApplyPanelFilter);});
 if(typeof s14ApplyPanelFilter==='function')s14ApplyPanelFilter();   // apply the default §14 panel selection on load
 syncInitScaleEnabled();   // grey out init_scale on load if the current scheme ignores it (mup/xavier_*)

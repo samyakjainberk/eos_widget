@@ -1639,6 +1639,29 @@ def hvpS(th, X, v, c):
     return (gradW(th + EPS * v, X, c) - gradW(th - EPS * v, X, c)) / (2 * EPS)
 
 
+def _sec19_payload(Jc, rr, th, X, lr, N, outD):
+    """§19: the one-step-ahead change in GRADIENT NORM
+        A_t = ‖J_{t+1}ᵀ r_{t+1}‖ − ‖J_tᵀ r_t‖
+    under the run's ACTUAL GD step (η_eff = lr/N, since the loss is the mean), where the first-order GD
+    predictions are r_{t+1} = (I − η_eff·NTK_t) r_t and J_{t+1} = J_t + η_eff·Q_t (J_tᵀr_t). With g = J_tᵀr_t
+    (the user's "J r"):  J_{t+1}ᵀr_{t+1} = g − η_eff·Jᵀ(J g) + η_eff·(Σ_k r_{t+1,k} Q_k) g, the last term via
+    hvpS (residual-weighted function-Hessian HVP). Also returns tr(NTK)=‖J‖²_F (the browser forms its centered
+    2nd difference B_t client-side). MIRRORS index.html runLocal / eos_lab. Cheap: a few matvecs + one hvpS."""
+    M = N * outD
+    Jg = Jc[:M]                                              # M×p effective-sample Jacobian
+    r = rr[:M]                                               # M residual (y − f)
+    g = Jg.t() @ r                                           # p   gradient g = Jᵀr  ("J r")
+    gn = float(g.norm())                                    # ‖J_t r_t‖
+    etaN = lr / max(N, 1)                                    # actual GD step (mean loss ⇒ η/N)
+    Jgg = Jg @ g                                             # M   NTK·r = J Jᵀ r
+    r_next = r - etaN * Jgg                                  # (I − η_eff·NTK) r
+    JtJg = Jg.t() @ Jgg                                      # p   Jᵀ J g
+    Hg = hvpS(th, X, g, r_next.reshape(N, outD))            # (Σ_k r_{t+1,k} Q_k) g
+    g_next = g - etaN * JtJg + etaN * Hg                     # J_{t+1}ᵀ r_{t+1}
+    gn_next = float(g_next.norm())                          # ‖J_{t+1} r_{t+1}‖
+    return {"A": gn_next - gn, "trNTK": float((Jg * Jg).sum()), "gn": gn, "gn_next": gn_next}
+
+
 def hvpG(th, X, v):
     """Gauss-Newton (Jᵀ A J) · v, loss-aware output Hessian A."""
     N = X.shape[0]
@@ -2511,6 +2534,7 @@ def run_stream(P):
     s22 = P.get("s22", 0)                # §12b: per-sample projection panels (s19=§12a angles+diag-align; both share the §12 Lanczos)
     s23 = P.get("s23", 0)                # §15: 2nd-difference decomposition of ‖J‖²_F & σ₁ (own toggle; holds 3 eig-ticks; multi-only, small-N)
     s26 = P.get("s26", 0)                # §18: per-sample (sample1 vs sample2) projections — reuses §12's proj; browser-rendered, N=2 only
+    s27 = P.get("s27", 0)                # §19: one-step gradient-norm change A_t vs D²(trNTK); needs the M×p Jacobian + hvpS
     grid3dcap = max(1, P.get("grid3dcap", 30))
     sec12ncap = max(1, P.get("sec12ncap", 500))    # §12 sample cap (gates N). NOTE: §12 builds dense p×p Hessians
                                                     # (p HVPs + O(p³) eig per sample) → large p is SLOW; keep models small.
@@ -2728,7 +2752,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26)) or (s23 and N <= grid3dcap):   # §15 also runs for a single sample
+            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27)) or ((s23 or s27) and N <= grid3dcap):   # §15/§19 also run for a single sample
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -3110,7 +3134,7 @@ def run_stream(P):
             # bottom-K12 eigenpairs of each Q_i by Lanczos on v↦Q_i·v — no p×p Hessian is formed. For the MLP
             # the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (a single vectorised forward/backward per
             # step instead of N) — ~4–8× faster on GPU. Other archs fall back to the per-sample loop. Gated on N.
-            sec12 = None; sec14 = None; sec13 = None; sec15 = None; sec15n = None; sec15p34 = None; sec15b = None; sec15corr = None
+            sec12 = None; sec14 = None; sec13 = None; sec15 = None; sec15n = None; sec15p34 = None; sec15b = None; sec15corr = None; sec19 = None
             if ((s19 or s20 or s21 or s22 or s26) and eigTick % g3dstride == 0   # §12/§13/§14 share §11's cube cadence (the N³ cubes dominate file size); §18 reuses §12 proj
                     and (multi_ok or s12single) and Jc is not None and rr is not None and N <= sec12ncap):
                 lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
@@ -3293,6 +3317,9 @@ def run_stream(P):
                     sec15_th64 = sec15_th64 - lr * _opt_dir(   # float32 trajectory, but in float64 ⇒ next step's D² stays cancellation-free)
                         _TL.model, gradL(sec15_th64, X15, Y.double())[0], opt)
 
+            if s27 and (N * outD) <= grid3dcap and Jc is not None and rr is not None:   # §19: A_t = Δ‖gradient‖ (one-step GD prediction) + tr(NTK); B=D²(trNTK) formed client-side
+                sec19 = _sec19_payload(Jc, rr, th, X, lr, N, outD)
+
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness λmax(∇²L) ≈ λmax(GN) = σ₁/N
             thPr = [(x / N if x is not None else None) for x in thP] if thP else None
             thAr = [(x / N if x is not None else None) for x in thA] if thA else None
@@ -3358,6 +3385,8 @@ def run_stream(P):
                 yield {"type": "g15p34", "t": t, **sec15p34}  # §15 panels 3/4 — Q̇≠0 terms VII/VIII + A'/B'
             if sec15corr is not None:
                 yield {"type": "g15corr", "t": t, **sec15corr}  # §15 correlation panel — ⟨∇θ‖∇f‖², ∇θ‖∇L‖²⟩ vs D²(trNTK)
+            if sec19 is not None:
+                yield {"type": "g19", "t": t, **sec19}          # §19 — gradient-norm one-step change A_t + tr(NTK)
             eigTick += 1
             done += 1
 
@@ -3902,6 +3931,7 @@ def _parse_params(q):
         "s25": g("s25", "0") == "1",     # §17: PER-SAMPLE function-Hessian variant of §16 (each sample uses its OWN Q_k eigvec; OFF by default)
         "s25base": g("s25base", "0") == "1",  # §17: compute the five dotted baselines (per-sample analog of §16's); ≈6× cost
         "s26": g("s26", "0") == "1",     # §18: per-sample (sample1 vs sample2) projections — reuses §12's proj; browser-rendered, N=2 only
+        "s27": g("s27", "0") == "1",     # §19: one-step gradient-norm change A_t vs D²(trNTK) correlation
         "grid3dcap": max(1, fi("grid3dcap", 500)),
         "sec12ncap": max(1, fi("sec12ncap", 500)),
         "cubeevery": max(1, fi("cubeevery", 1)),   # §11-§14 (3D-grid/cube + per-sample) snapshot cadence: emit every k-th eig-tick.
