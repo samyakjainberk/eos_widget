@@ -3339,7 +3339,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
     if(ssign==='off'){Y.fill(tgt);}
     else{const s=ssign==='pos'?1:-1,floor=0.25*Math.max(Math.abs(tgt),1e-6),F=forward(th,spec,X,N,inDim).out;for(let i=0;i<M;i++)Y[i]=F[i]+s*Math.max(Math.abs(tgt),floor);} // r=y−f(x=1)=s·|tgt|, sign s
   }
-  else if(ssign!=='off'&&val('dataset')!=='anglepair'){   // anglepair builds its fixed geometry below, then pins residual signs there
+  else if(ssign!=='off'&&val('dataset')!=='anglepair'&&val('dataset')!=='ksparse'){   // anglepair/ksparse build their fixed data below, then pin residual signs there (mirror server: dataset first, then ssign override)
     // sample a pool of candidate (x,y) and keep the N whose initial residual r=y-f(x,θ₀) is sign-definite
     // (every output component the chosen sign) with the largest magnitude; sign/floor are then enforced so |r| isn't tiny.
     const s=ssign==='pos'?1:-1, floor=0.25*Math.max(Math.abs(tgt),1e-6), K=Math.max(64*N,3000);
@@ -3358,6 +3358,8 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   else if(val('dataset')==='ksparse'){   // n ±1 bits → scalar ±1 parity of a fixed k-subset (MIRRORS server.load_ksparse; bits from drng = mulberry32(seed*7919+1))
     const nb=inDim, kk=Math.max(1,Math.min(+val('ksparse')||3,nb)), perm=_shuffle16(nb,((seed^0x4B5A11)>>>0)), Sset=new Set(perm.slice(0,kk));
     for(let i=0;i<N;i++){let prod=1;for(let j=0;j<nb;j++){const b=drng()<0.5?1:-1;X[i*inDim+j]=b;if(Sset.has(j))prod*=b;}Y[i]=prod;}   // outDim=1 ⇒ M=N
+    if(ssign!=='off'){const s=ssign==='pos'?1:-1, floor=0.25*Math.max(Math.abs(tgt),1e-6), F=forward(th,spec,X,N,inDim).out;   // pin residual signs (mirror server override for ksparse)
+      for(let i=0;i<M;i++)Y[i]=F[i]+s*Math.max(Math.abs(Y[i]-F[i]),floor);}
   }
   else if(val('dataset')==='anglepair'){   // 2 iid-Gaussian samples: ‖x₁‖=norm1, ‖x₂‖=norm2, controllable angle; ±1 labels (MIRRORS server.load_anglepair; drng = mulberry32(seed*7919+1))
     const dd=inDim, ang=(+val('angle')||0)*Math.PI/180, ct=Math.cos(ang), stt=Math.sin(ang);
