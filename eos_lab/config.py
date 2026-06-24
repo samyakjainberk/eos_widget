@@ -145,6 +145,8 @@ class Config:
     s24base: int = 0      # §16: compute the five dotted baselines (A=random,B=shuffle,C=randfix,D=eigfix,E=gd). OFF (≈6× cost).
     s25: int = 0          # §17 — PER-SAMPLE function-Hessian variant of §16 (each sample uses its OWN Q_k eigvec). O(M²); small M. OFF.
     s25base: int = 0      # §17: compute the five dotted baselines (per-sample analog of §16's). OFF (≈6× cost).
+    s26: int = 0          # §18 — per-sample (sample1 vs sample2) projections; browser-rendered from the §12 proj. Here only so Config accepts capture params.
+    s27: int = 0          # §19 — one-step grad-norm change vs D²(trNTK); browser-rendered. Here only so Config accepts capture params.
 
     # ---- test set (held-out) ----
     n_test: int = 0                # held-out test points (0 ⇒ default: max(nsamp, 256), capped per dataset)
