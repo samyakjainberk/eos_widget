@@ -3255,7 +3255,12 @@ def run_stream(P):
                 sec15n = {"g": _ms15(gn15), "j": _ms15(jn15), "h": _ms15(hn15), "r": _ms15(rn15)}
                 # ---- new Panel B: per-EFFECTIVE-sample top/bottom-eigvec projection ratio of ∇f_k on its own Q_k (k = one of M=N·d outputs) ----
                 mB15 = min(p, 48); seedsB15 = [(0x5EC15B + k * 7919) & 0x7FFFFFFF for k in range(M15)]
-                if arch == "mlp":
+                # The MLP batched Lanczos stacks (M15, mB15, p) — for the 10-class datasets (M15=N·d_out) with large p
+                # that's multi-GB and OOMs small GPUs. Fall back to the per-sample loop (same eigenpairs, lower memory)
+                # when the batched buffer would exceed ~1 GB. Identical result; only speed/memory differ.
+                _bytes15 = 8 if X15.dtype == torch.float64 else 4
+                batched15 = (arch == "mlp") and (M15 * mB15 * p * _bytes15 <= 1_000_000_000)
+                if batched15:
                     import torch.func as _tf
                     XrepB = X15.repeat_interleave(outD, dim=0)                 # (M,indim): input for effective sample k = X[k//d_out]
                     OHB15 = torch.eye(outD, dtype=X15.dtype, device=_dev()).repeat(N, 1)   # (M,d_out): row k one-hot at output c=k%d_out
@@ -3265,7 +3270,7 @@ def run_stream(P):
                     hvpB15 = lambda V: _tf.vmap(_hvB15, in_dims=(None, 0, 0, 0))(th15, XrepB, OHB15, V)
                     TVb15, TWb15, BVb15, BWb15 = batched_lanczos_extreme(hvpB15, p, M15, 1, mB15, seedsB15, dt=X15.dtype)
                     AsumQJ15 = hvpB15(Jg15).sum(0)                             # Σ_k Q_k J_k  (½·∇θ‖J‖²_F, batched per-sample HVP)
-                else:                                                         # non-MLP (cifar conv / sorting GPT): per-effective-sample Lanczos with a single-output cotangent
+                else:                                                         # non-MLP (cifar conv / sorting GPT) OR large-MLP (batched would OOM): per-effective-sample Lanczos, one output cotangent at a time
                     TVl = []; TWl = []; BVl = []; BWl = []
                     AsumQJ15 = torch.zeros(p, dtype=X15.dtype, device=_dev())
                     for k in range(M15):
