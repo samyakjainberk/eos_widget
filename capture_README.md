@@ -60,6 +60,20 @@ static page too.
 You can also **⬇ save run** to download the most recent **GPU-backend** run from the browser (the same
 capture format), then reload it later.
 
+### Loading is fast and never hangs
+
+An all-sections capture is large because §14 alone is ~80% of it (45 N³ cubes per snapshot), even though
+§14 only ever shows time-series. So:
+
+- Every finished capture also gets a **`<name>.min.json`** — the §14 cubes reduced to the exact
+  time-series stats the browser plots (≈5× smaller, e.g. 200 MB → 40 MB). `capture_run.py` writes it
+  automatically; **⬆ load from server** loads the `.min` sibling automatically (you don't pick it). The
+  plots are bit-identical — the raw cubes were never displayed. To compact an old capture by hand:
+  `python compact_capture.py runs_captured/<name>.json` (non-destructive → `<name>.min.json`).
+- Loading **streams** the file and renders on a frame budget — records are parsed in ≤64 KB slices and
+  plots render a few per frame — so the tab stays responsive for **any** size (no multi-second freeze,
+  no big `JSON.parse` block). The full uncompacted `.json` still loads too (just a bit slower).
+
 ### Notes
 - Output is plain `.json` (loads everywhere). `--gzip` writes `.json.gz` (smaller, but the browser
   loader needs `pako` bundled — keep plain `.json` unless you've added it).
