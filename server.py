@@ -150,7 +150,7 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL, gTV=None
     nz = jnorm > 0                                              # drop samples with ‖J_i‖=0 (can't normalise the alignment)
 
     def rank_stats(V, W, largest):                             # V/W = (TV,TW) top or (BV,BW) bottom
-        idx = W.topk(nrank, dim=1, largest=largest).indices    # (N,nrank): rank 0 = largest (top)/most-negative (bottom), rank 1 = 2nd
+        idx = torch.argsort(W, dim=1, descending=largest, stable=True)[:, :nrank]   # (N,nrank): rank 0 = largest (top)/most-negative (bottom). STABLE (ties → lowest index) to match the browser's stable Array.sort — torch.topk breaks ties to the LAST index, diverging when spurious eigvals clamp to exactly 0
         Vn = V.norm(dim=2)                                      # (N,K) eigenvector norms (spurious ≈ 0)
         def ms(x):
             return [float(x.mean()), float(x.std(unbiased=False))] if x.numel() else [0.0, 0.0]
@@ -3270,15 +3270,25 @@ def run_stream(P):
                     hvpB15 = lambda V: _tf.vmap(_hvB15, in_dims=(None, 0, 0, 0))(th15, XrepB, OHB15, V)
                     TVb15, TWb15, BVb15, BWb15 = batched_lanczos_extreme(hvpB15, p, M15, 1, mB15, seedsB15, dt=X15.dtype)
                     AsumQJ15 = hvpB15(Jg15).sum(0)                             # Σ_k Q_k J_k  (½·∇θ‖J‖²_F, batched per-sample HVP)
-                else:                                                         # non-MLP (cifar conv / sorting GPT) OR large-MLP (batched would OOM): per-effective-sample Lanczos, one output cotangent at a time
+                else:                                                         # non-MLP OR large-MLP (batched would OOM): per-effective-sample Lanczos
                     TVl = []; TWl = []; BVl = []; BWl = []
                     AsumQJ15 = torch.zeros(p, dtype=X15.dtype, device=_dev())
+                    if arch == "mlp":                                         # MLP: use the EXACT per-sample function-Hessian HVP (matches the batched path; plain hvpS would be FINITE-DIFFERENCE for MLP, drifting ~1e-5 ⇒ §15 would depend on whether the OOM fallback fired)
+                        import torch.func as _tf
+                        XrepB15 = X15.repeat_interleave(outD, dim=0)
+                        OH15 = torch.eye(outD, dtype=X15.dtype, device=_dev()).repeat(N, 1)
+                        spec15 = _TL.model.spec
+                        def _f15(tt, x, oh): return (fwd(tt, spec15, x.unsqueeze(0))[0].reshape(-1) * oh).sum()
+                        def _hvp15(v, k): return _tf.jvp(lambda q: _tf.grad(_f15)(q, XrepB15[k], OH15[k]), (th15,), (v,))[1]
+                    else:                                                    # cifar conv / sorting GPT: exact_hvp=True ⇒ hvpS is already exact
+                        def _hvp15(v, k):
+                            ck = torch.zeros(N * outD, dtype=X15.dtype, device=_dev()); ck[k] = 1.0; ck = ck.reshape(N, outD)
+                            return hvpS(th15, X15, v, ck)
                     for k in range(M15):
-                        ck = torch.zeros(N * outD, dtype=X15.dtype, device=_dev()); ck[k] = 1.0; ck = ck.reshape(N, outD)
-                        tv, bv, tw, bw = lanczos_extreme(lambda v, ck=ck: hvpS(th15, X15, v, ck), p, 1, mB15, seedsB15[k], dt=X15.dtype)
+                        tv, bv, tw, bw = lanczos_extreme(lambda v, k=k: _hvp15(v, k), p, 1, mB15, seedsB15[k], dt=X15.dtype)
                         TVl.append(torch.stack(tv)); BVl.append(torch.stack(bv))
                         TWl.append(torch.tensor(tw, dtype=X15.dtype, device=_dev())); BWl.append(torch.tensor(bw, dtype=X15.dtype, device=_dev()))
-                        AsumQJ15 = AsumQJ15 + hvpS(th15, X15, Jg15[k], ck)     # Q_k J_k accumulated → ½·∇θ‖J‖²_F
+                        AsumQJ15 = AsumQJ15 + _hvp15(Jg15[k], k)              # Q_k J_k accumulated → ½·∇θ‖J‖²_F
                     TVb15, TWb15, BVb15, BWb15 = torch.stack(TVl), torch.stack(TWl), torch.stack(BVl), torch.stack(BWl)
                 sec15b = _sec15_panelB(TVb15[:, 0], BVb15[:, 0], TWb15[:, 0], BWb15[:, 0], Jg15)
                 # ── §15 new panel: correlation of the two θ-gradients  A = ∇θ‖∇θf‖² = ∇θ tr(NTK) = 2Σ_k Q_k J_k  and
@@ -3329,7 +3339,7 @@ def run_stream(P):
                     sec15_th64 = sec15_th64 - lr * _opt_dir(   # float32 trajectory, but in float64 ⇒ next step's D² stays cancellation-free)
                         _TL.model, gradL(sec15_th64, X15, Y.double())[0], opt)
 
-            if s27 and opt == "gd" and (N * outD) <= grid3dcap and Jc is not None and rr is not None:   # §19: A_t = Δ‖gradient‖ (one-step GD prediction) + tr(NTK); B=D²(trNTK) client-side. GD-only (A_t assumes the η/N GD step)
+            if s27 and opt == "gd" and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and Jc is not None and rr is not None:   # §19: A_t = Δ‖gradient‖ (one-step GD prediction) + tr(NTK); B=D²(trNTK) client-side. MSE + GD only: A_t hardcodes the MSE residual update r_{t+1}=(I−η/N·NTK)r (output-Hessian A=I); CE needs A=diag(p)−ppᵀ≠I.
                 sec19 = _sec19_payload(Jc, rr, th, X, lr, N, outD)
 
             # report σ₁ per-sample (÷N) so the theory matches the true sharpness λmax(∇²L) ≈ λmax(GN) = σ₁/N
@@ -4026,11 +4036,14 @@ class Handler(BaseHTTPRequestHandler):
         if not fp.startswith(DIR) or not os.path.isfile(fp):
             self.send_error(404)
             return
-        ctype = mimetypes.guess_type(fp)[0] or "application/octet-stream"
+        ctype, cenc = mimetypes.guess_type(fp)   # (.json.gz → ('application/json','gzip'))
+        ctype = ctype or "application/octet-stream"
         with open(fp, "rb") as f:
             data = f.read()
         self.send_response(200)
         self.send_header("Content-Type", ctype)
+        if cenc == "gzip" or fp.endswith(".gz"):   # serve gzipped captures with the encoding header so the browser auto-inflates (loadFromServer streams plain JSON)
+            self.send_header("Content-Encoding", "gzip")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")  # always serve the latest page (no stale cache)
         self.end_headers()

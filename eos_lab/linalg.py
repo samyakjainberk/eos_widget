@@ -261,7 +261,7 @@ def sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL, gTV=None,
     nz = jnorm > 0                                              # drop samples with ‖J_i‖=0 (can't normalise the alignment)
 
     def rank_stats(V, W, largest):                             # V/W = (TV,TW) top or (BV,BW) bottom
-        idx = W.topk(nrank, dim=1, largest=largest).indices    # (N,nrank): rank 0 = largest (top)/most-negative (bottom), rank 1 = 2nd
+        idx = torch.argsort(W, dim=1, descending=largest, stable=True)[:, :nrank]   # (N,nrank): rank 0 = largest (top)/most-negative (bottom). STABLE (ties → lowest index) to match the browser's stable Array.sort (torch.topk breaks ties to the LAST index)
         Vn = V.norm(dim=2)                                      # (N,K) eigenvector norms (spurious ≈ 0)
         def ms(x):
             return [float(x.mean()), float(x.std(unbiased=False))] if x.numel() else [0.0, 0.0]

@@ -3138,6 +3138,8 @@ function markSkippedAdv(){   // run end (done OR error): note every enabled sect
     if(tg==='en24'&&M>256)why=`not produced — M = N·d_out = ${N}·${datasetOutDim()} = <b>${M}</b> exceeds §16's cap (M ≤ 256). Lower the number of samples.`;
     else if(tg==='en25'&&M>64)why=`not produced — M = N·d_out = ${N}·${datasetOutDim()} = <b>${M}</b> exceeds §17's cap (M ≤ 64). Lower the number of samples.`;
     else if((tg==='en24'||tg==='en25')&&val('loss')==='ce')why='not produced — these optimizer sections need the <b>MSE</b> loss.';
+    else if(tg==='en27'&&val('loss')==='ce')why='not produced — §19’s one-step prediction assumes the <b>MSE</b> residual update rₜ₊₁=(I−η/N·NTK)r (output-Hessian A=I); cross-entropy needs A=diag(p)−ppᵀ≠I.';
+    else if(tg==='en27'&&val('optimizer')!=='gd')why='not produced — §19 assumes the plain <b>GD</b> step (η/N)·Jᵀr; it is gated off for other optimizers.';
     else why=`not produced for this run — too large for this section's cap (e.g. M = N·d_out = <b>${M}</b>, or N over the §11/§12 cap), single-sample, or the run hit a memory limit. Try fewer samples.`;
     secNote(a.sec,`${a.name}: ${why}`);}
 }
@@ -3312,7 +3314,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
     st.textContent='CIFAR-10 / sorting / OpenWebText and CNN / VGG11 / mini-GPT runs require the GPU backend — set Compute → "GPU backend (server.py)". (k-sparse parity runs in-browser with the MLP; use the GPU backend for the transformer.)';
     ST=null;RUNNING=false;updateButtons();return;}
   const depth=+val('depth'),width=+val('width'),act=val('act'),useBias=val('bias')==='1';
-  const lr=+val('lr'),initScale=+val('init'),N=Math.max(1,+val('nsamp')||1),inDim=(val('dataset')==='anglepair')?Math.max(2,+val('indim')||2):(+val('indim')),outDim=(val('dataset')==='ksparse'||val('dataset')==='anglepair')?1:(+val('outdim')),tgt=+val('tgt');
+  const lr=+val('lr'),initScale=+val('init'),N=Math.max(1,Math.floor(+val('nsamp'))||1),inDim=(val('dataset')==='anglepair')?Math.max(2,Math.floor(+val('indim'))||2):Math.max(1,Math.floor(+val('indim'))||1),outDim=(val('dataset')==='ksparse'||val('dataset')==='anglepair')?1:Math.max(1,Math.floor(+val('outdim'))||1),tgt=+val('tgt');   // floor (mirror server int()) so a fractional field can't make a non-integer array length
   const fixedX=val('fixedx')==='1', inputStd=+val('inputstd');
   let n=+val('neig'),kth=+val('kth'),steps=+val('steps'),eigEvery=+val('eigevery'),seed=+val('seed');
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
@@ -3702,7 +3704,7 @@ async function loop(){                                   // drives ST forward; r
           S15_HIST_JS.push({th:S.th.slice(),J:Jg15,r:r15,t:S.t});
           if(S15_HIST_JS.length>2)S15_HIST_JS.shift();
         }
-        if(O.s27&&S.optim==='gd'&&M<=S.grid3dcap&&bJc&&rrs){   // §19: A_t=‖J_{t+1}ᵀr_{t+1}‖−‖J_tᵀr_t‖ (one-step GD, η_eff=lr/N) + tr(NTK). GD-only. MIRRORS server._sec19_payload
+        if(O.s27&&S.optim==='gd'&&val('loss')==='mse'&&M<=S.grid3dcap&&bJc&&rrs){   // §19: A_t=‖J_{t+1}ᵀr_{t+1}‖−‖J_tᵀr_t‖ (one-step GD, η_eff=lr/N) + tr(NTK). MSE+GD only (A_t hardcodes the MSE residual update). MIRRORS server._sec19_payload
           const g=new Float64Array(p); for(let k=0;k<M;k++){const jk=bJc[k],rk=rrs[k];for(let i=0;i<p;i++)g[i]+=rk*jk[i];}   // g=Jᵀr ("J r")
           let gn=0; for(let i=0;i<p;i++)gn+=g[i]*g[i]; gn=Math.sqrt(gn);
           const etaN=S.lr/Math.max(N,1);                                                                    // actual GD step (mean loss ⇒ η/N)
@@ -4162,8 +4164,9 @@ function saveCurrentRun(){
   if(!GPU_CAPTURE||!GPU_CAPTURE.length){const st=document.getElementById('status');if(st)st.textContent='nothing to save yet — run on the GPU backend first (browser-compute runs aren’t record-based).';return;}
   const meta=GPU_CAPTURE.find(r=>r&&r.type==='meta')||{};
   const counts={};for(const r of GPU_CAPTURE){const t=r&&r.type||'?';counts[t]=(counts[t]||0)+1;}
+  const _compacted=GPU_CAPTURE.some(r=>r&&r.type==='g14'&&r.p14r);   // preserve the compacted flag when re-saving a loaded .min (§14 reduced to p14r) so tooling keying on it stays correct
   const obj={format:'eos-widget-capture/v1',kind:'run',created_unix:Math.floor(Date.now()/1000),
-             label:'',device:meta.device||'',p:meta.p,params:currentQueryParams(),record_counts:counts,records:GPU_CAPTURE};
+             label:'',device:meta.device||'',compacted:_compacted,p:meta.p,params:currentQueryParams(),record_counts:counts,records:GPU_CAPTURE};
   const blob=new Blob([JSON.stringify(obj)],{type:'application/json'});
   const a=document.createElement('a');const ds=new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
   a.href=URL.createObjectURL(blob);a.download=`eos-run-${val('dataset')}-${val('arch')}-${ds}.json`;
