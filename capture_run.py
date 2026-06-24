@@ -58,8 +58,9 @@ def default_params():
         "s24warm": "5", "s24iter": "120", "s24grid": "0.1", "s24ares": "0.01", "s24k": "32",
         "gson": "1", "mode": "run", "surrogate": "quad",
     }
-    # main-run section toggles s1..s23 + s24(§16) + s25(§17), ALL ON
-    for i in list(range(1, 24)) + [24, 25]:
+    # main-run section toggles s1..s23 + s24(§16) + s25(§17) + s26(§18) + s27(§19), ALL ON
+    # (s26/§18 only renders at nsamp=2; s27/§19 is small-N — both gated, harmless when not applicable)
+    for i in list(range(1, 24)) + [24, 25, 26, 27]:
         p["s%d" % i] = "1"
     # §16/§17 baselines OFF by default: they run UPFRONT (before the main §1–§15 loop) and add 5 extra
     # trajectories (≈6× cost), which at kdir=32 can eat the whole job before §1–§15 stream. Enable per-run
