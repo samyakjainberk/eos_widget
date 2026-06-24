@@ -2510,6 +2510,7 @@ def run_stream(P):
     s21 = P.get("s21", 0)                # §13: residual-weighted curvature G1/G2/G3 vs exact J_iᵀQ_jJ_k·r_k (own toggle; shares §12 Lanczos + adds N HVPs)
     s22 = P.get("s22", 0)                # §12b: per-sample projection panels (s19=§12a angles+diag-align; both share the §12 Lanczos)
     s23 = P.get("s23", 0)                # §15: 2nd-difference decomposition of ‖J‖²_F & σ₁ (own toggle; holds 3 eig-ticks; multi-only, small-N)
+    s26 = P.get("s26", 0)                # §18: per-sample (sample1 vs sample2) projections — reuses §12's proj; browser-rendered, N=2 only
     grid3dcap = max(1, P.get("grid3dcap", 30))
     sec12ncap = max(1, P.get("sec12ncap", 500))    # §12 sample cap (gates N). NOTE: §12 builds dense p×p Hessians
                                                     # (p HVPs + O(p³) eig per sample) → large p is SLOW; keep models small.
@@ -2727,7 +2728,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22)) or (s23 and N <= grid3dcap):   # §15 also runs for a single sample
+            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26)) or (s23 and N <= grid3dcap):   # §15 also runs for a single sample
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -3110,7 +3111,7 @@ def run_stream(P):
             # the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (a single vectorised forward/backward per
             # step instead of N) — ~4–8× faster on GPU. Other archs fall back to the per-sample loop. Gated on N.
             sec12 = None; sec14 = None; sec13 = None; sec15 = None; sec15n = None; sec15p34 = None; sec15b = None; sec15corr = None
-            if ((s19 or s20 or s21 or s22) and eigTick % g3dstride == 0   # §12/§13/§14 share §11's cube cadence (the N³ cubes dominate file size)
+            if ((s19 or s20 or s21 or s22 or s26) and eigTick % g3dstride == 0   # §12/§13/§14 share §11's cube cadence (the N³ cubes dominate file size); §18 reuses §12 proj
                     and (multi_ok or s12single) and Jc is not None and rr is not None and N <= sec12ncap):
                 lblsel12 = (torch.arange(N, device=_dev()) * outD + Y.reshape(N, outD).argmax(dim=1)
                             if outD > 1 else torch.arange(N, device=_dev()))
@@ -3166,7 +3167,7 @@ def run_stream(P):
                         wtv, wbv, wtw, wbw = lanczos_extreme(lambda v, c=cW: hvpS(th, X, v, c), p, 2, m12, (0x7B0001 + wi * 0x101))
                         wbases.append({"tv": torch.stack(wtv), "tw": torch.tensor(wtw, dtype=DTYPE, device=_dev()),
                                        "bv": torch.stack(wbv), "bw": torch.tensor(wbw, dtype=DTYPE, device=_dev())})
-                if s19 or s22:             # §12a (angles+diag-align) ⊕ §12b (proj) — both in one payload, shown by their toggles
+                if s19 or s22 or s26:      # §12a (angles+diag-align) ⊕ §12b (proj) ⊕ §18 (per-sample proj) — one payload, shown by their toggles
                     sec12 = _sec12_payload(TV, TW, BV, BW, r12, Jg12, grid3dcap, gTV=gTV, gTW=gTW, gBV=gBV, gBW=gBW, wbases=wbases)
                 if s21 and multi_ok and N <= grid3dcap:       # §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k (N HVPs, §11's tool) + G1/G2/G3 — multi-only (N³ cube)
                     T1_13 = torch.zeros(N, N, N, dtype=DTYPE, device=_dev())
@@ -3900,6 +3901,7 @@ def _parse_params(q):
         "s24base": g("s24base", "0") == "1",  # §16: compute the five dotted baselines (A=random,B=shuffle,C=randfix,D=eigfix,E=gd); ≈6× cost
         "s25": g("s25", "0") == "1",     # §17: PER-SAMPLE function-Hessian variant of §16 (each sample uses its OWN Q_k eigvec; OFF by default)
         "s25base": g("s25base", "0") == "1",  # §17: compute the five dotted baselines (per-sample analog of §16's); ≈6× cost
+        "s26": g("s26", "0") == "1",     # §18: per-sample (sample1 vs sample2) projections — reuses §12's proj; browser-rendered, N=2 only
         "grid3dcap": max(1, fi("grid3dcap", 500)),
         "sec12ncap": max(1, fi("sec12ncap", 500)),
         "cubeevery": max(1, fi("cubeevery", 1)),   # §11-§14 (3D-grid/cube + per-sample) snapshot cadence: emit every k-th eig-tick.

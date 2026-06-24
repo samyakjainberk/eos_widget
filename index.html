@@ -3266,7 +3266,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
   const qmode=Math.max(1,+val('qmode')||1), tset=Math.max(1,+val('tset')||1);   // qmode (legacy, unused by Eq-22); Eq-29 set-T size
   const nProbe=Math.max(1,+val('slqprobes')), efrac=Math.min(1,Math.max(0.5,(+val('energyp'))/100));
-  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),gs:val('gson')==='1'};
+  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),gs:val('gson')==='1'};
   OPT=opt;
   const {spec,p}=buildSpec(inDim,width,depth,act,useBias,outDim);
   if(p>100000){st.textContent=`p=${p} parameters exceeds the cap (100000). Reduce width/depth.`;ST=null;updateButtons();return;}
@@ -3470,7 +3470,7 @@ async function loop(){                                   // drives ST forward; r
         }
         // §4b/§4c shared base: top-n NTK eigenvectors v_k (sign-tracked) and J·r = Σ_a r_a ∇f_a, r=y−f
         let u1s=null,Jrs=null,Jrns=0,Rn=0,bJc=null,bEk=null,rrs=null;
-        if((O.s9||O.s10||O.s11||O.s12||O.s15||O.s16||O.s18||O.s19||O.s20||O.s21||O.s22||O.s23)&&(M>1||O.s19||O.s22||O.s23)){   // §12a/§12b/§15 also run for a single sample (M=1)
+        if((O.s9||O.s10||O.s11||O.s12||O.s15||O.s16||O.s18||O.s19||O.s20||O.s21||O.s22||O.s23||O.s26)&&(M>1||O.s19||O.s22||O.s23||O.s26)){   // §12a/§12b/§15/§18 also run for a single sample (M=1)
           const dn=M;const jc=jacCols(S.th,spec,X,N,inDim,p);bJc=jc.cols;
           const Km=new Float64Array(dn*dn);for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(bJc[a],bJc[b]);Km[a*dn+b]=v;Km[b*dn+a]=v;}
           bEk=symEigDesc(Km,dn);
@@ -3539,7 +3539,7 @@ async function loop(){                                   // drives ST forward; r
         // §12 — per-sample Hessian Q_i=∇²f_i eigenvector cross-similarity (ground-truth-label output).
         // MATRIX-FREE: Lanczos on the per-sample HVP v↦Q_i·v (=hvpS with a one-hot cotangent) gives the top-/
         // bottom-K12 eigenpairs — no p×p Hessian formed, scales to any p. Gated on N (≤sec12ncap). Mirrors server.
-        if((O.s19||O.s20||O.s21||O.s22)&&S.eigTick%S.g3dStride===0&&(M>1||O.s19||O.s22)&&bJc&&rrs&&N<=S.sec12ncap){   // §12-§14 share §11's cube cadence (g3dStride); §15 below stays per-tick. matrix-free Lanczos; shared eigenpairs
+        if((O.s19||O.s20||O.s21||O.s22||O.s26)&&S.eigTick%S.g3dStride===0&&(M>1||O.s19||O.s22||O.s26)&&bJc&&rrs&&N<=S.sec12ncap){   // §12-§14 share §11's cube cadence (g3dStride); §15 below stays per-tick. matrix-free Lanczos; shared eigenpairs (§18 reuses §12's proj)
           const oD=Math.round(M/N), lblsel=new Array(N);
           for(let i=0;i<N;i++){if(oD>1){let mx=-Infinity,mi=0;for(let c=0;c<oD;c++){const yv=Y[i*oD+c];if(yv>mx){mx=yv;mi=c;}}lblsel[i]=i*oD+mi;}else lblsel[i]=i;}
           const K12=Math.max(1,Math.min(SEC12_KFULL,Math.floor(p/2))), m12=Math.min(p,Math.max(6*K12,64));
@@ -3567,7 +3567,7 @@ async function loop(){                                   // drives ST forward; r
               const cW=new Float64Array(M);for(let i=0;i<N;i++)cW[lblsel[i]]=wv[i]/ws;   // weighted-average cotangent (Σ c_i = 1)
               const wle=lanczosExtreme(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,cW),p,2,m12,(0x7B0001+wi*0x101)>>>0);
               wbases.push({tv:wle.topVecs,tw:wle.topVals,bv:wle.botVecs,bw:wle.botVals});}}
-          if(O.s19||O.s22){          // §12a (angles+diag-align) ⊕ §12b (proj) — one payload, shown by their toggles
+          if(O.s19||O.s22||O.s26){          // §12a (angles+diag-align) ⊕ §12b (proj) ⊕ §18 (per-sample proj) — one payload, shown by their toggles
             s12Push({type:'g4d',t:S.t,...sec1213Payload(TV,TW,BV,BW,r12,Jg12,N,p,S.grid3dcap,gTV,gTW,gBV,gBW,wbases)});
           }
           if(O.s21&&M>1&&N<=S.grid3dcap){   // §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k via jacHVP (like §11) + G1/G2/G3 vs ref; needs t-1 — multi-only (N³ cube)
@@ -4313,7 +4313,7 @@ const PRESETS={
   ksparse_gpt:{dataset:'ksparse',arch:'gpt',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.005,init:0.5,nsamp:24,batch:0,indim:10,outdim:1,ksparse:3,tgt:1.0,neig:3,kth:1,steps:1000,eigevery:1,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:48,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en24:1,en25:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // angle-pair: 2 iid-Gaussian samples with controllable ‖x₁‖,‖x₂‖ and the angle between them; ±1 labels (default +1/−1).
   // tanh MLP, MSE, runs in-browser. N=2 is the point, so the per-sample structure sections (§11/§12/§13 + §18) are on.
-  anglepair:{dataset:'anglepair',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:2,batch:0,indim:8,outdim:1,angle:90,norm1:1,norm2:1,lab1:1,lab2:-1,tgt:1.0,neig:3,kth:1,steps:600,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:1,en12:1,en13:1,en18:1,en19:1,en22:1,en24:0,en25:0,qapprox:25,qmode:1,tset:3,compute:'browser'},
+  anglepair:{dataset:'anglepair',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:2,batch:0,indim:8,outdim:1,angle:90,norm1:1,norm2:1,lab1:1,lab2:-1,tgt:1.0,neig:3,kth:1,steps:600,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:1,en12:1,en13:1,en18:1,en19:1,en22:1,en26:1,en24:0,en25:0,qapprox:25,qmode:1,tset:3,compute:'browser'},
 };
 function setVal(id,v){document.getElementById(id).value=String(v);}
 function applyPreset(name){const P=PRESETS[name];if(!P)return;for(const k in P){const el=document.getElementById(k);if(!el)continue;if(el.type==='checkbox')el.checked=!!P[k];else el.value=String(P[k]);}syncLossPanels();updateParamBadge();syncInitScaleEnabled();}
