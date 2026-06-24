@@ -2269,6 +2269,48 @@ def load_ksparse(n, nbits, k, seed):
     return X, Y
 
 
+def load_anglepair(n, d, angle_deg, norm1, norm2, lab1, lab2, seed):
+    """Two-sample 'angle pair' dataset (default n=2). Sample 1 is an iid-Gaussian DIRECTION scaled to
+    ‖x₁‖=norm1; sample 2 has ‖x₂‖=norm2 and makes a controllable ANGLE `angle_deg` (degrees) with sample 1
+    — built from a second Gaussian draw orthogonalised against x₁, so ⟨x₁,x₂⟩=norm1·norm2·cos(angle) exactly.
+    Labels are ±1, ASSIGNED per sample (sign of lab1, lab2). For n>2 the extra samples are fresh iid-Gaussian
+    directions at norm1 with random ±1 labels. d≥2. Scalar output (oc=1), MSE. All draws come from the shared
+    mulberry32 stream (seed*7919+1) so the dataset is byte-identical across server / eos_lab / browser.
+    MIRRORS eos_lab.data.load_anglepair / index.html runLocal."""
+    import math
+    nn = max(1, int(n)); dd = max(2, int(d))
+    rng = mulberry32(u32(int(seed) * 7919 + 1))
+    s1 = 1.0 if float(lab1) >= 0 else -1.0
+    s2 = 1.0 if float(lab2) >= 0 else -1.0
+    th = float(angle_deg) * math.pi / 180.0
+    ct, stt = math.cos(th), math.sin(th)
+    X = torch.zeros(nn, dd, dtype=DTYPE, device=_dev())
+    Y = torch.zeros(nn, 1, dtype=DTYPE, device=_dev())
+    g1 = [gauss(rng) for _ in range(dd)]                                  # sample 1: iid-Gaussian direction
+    nrm1 = math.sqrt(sum(v * v for v in g1)) or 1.0
+    u1 = [v / nrm1 for v in g1]
+    for j in range(dd):
+        X[0, j] = float(norm1) * u1[j]
+    Y[0, 0] = s1
+    if nn >= 2:                                                           # sample 2: norm2, angle `angle_deg` from x₁
+        g2 = [gauss(rng) for _ in range(dd)]
+        dotp = sum(g2[j] * u1[j] for j in range(dd))
+        perp = [g2[j] - dotp * u1[j] for j in range(dd)]                  # Gram–Schmidt: component of g2 ⟂ u1
+        pn = math.sqrt(sum(v * v for v in perp))
+        denom = pn if pn > 1e-30 else 1.0
+        uperp = [v / denom for v in perp]
+        for j in range(dd):
+            X[1, j] = float(norm2) * (ct * u1[j] + stt * uperp[j])
+        Y[1, 0] = s2
+    for i in range(2, nn):                                               # extras: fresh direction at norm1, random ±1 label
+        gi = [gauss(rng) for _ in range(dd)]
+        nin = math.sqrt(sum(v * v for v in gi)) or 1.0
+        for j in range(dd):
+            X[i, j] = float(norm1) * gi[j] / nin
+        Y[i, 0] = 1.0 if rng() < 0.5 else -1.0
+    return X, Y
+
+
 _OWT_CACHE = {}
 
 
@@ -2348,6 +2390,9 @@ def init_data_theta(P, dataset, N, inD, outD):
         X, Y = load_chebyshev(N, P.get("degree", 3))
     elif dataset == "ksparse":
         X, Y = load_ksparse(N, inD, P.get("ksparse", 3), P["seed"])     # n ±1 bits → scalar ±1 parity of a fixed k-subset
+    elif dataset == "anglepair":
+        X, Y = load_anglepair(N, inD, P.get("angle", 90.0), P.get("norm1", 1.0), P.get("norm2", 1.0),
+                              P.get("lab1", 1.0), P.get("lab2", -1.0), P["seed"])   # 2 samples: controllable norm/angle, ±1 labels
     elif dataset == "const":
         # iid Gaussian inputs (like synthetic); every target is the CONSTANT POSITIVE |tgt| PLUS optional Gaussian
         # noise of VARIANCE `cvar` (default 0 ⇒ exactly constant). cvar=0 ⇒ all initial residuals r=y−f(x,θ₀) share
@@ -2406,7 +2451,7 @@ def init_data_theta(P, dataset, N, inD, outD):
     # Fixed-target datasets (cifar10/sorting/chebyshev) load Y directly and so skip the residual-sign
     # construction above — force the requested initial residual sign here by overriding Y per sample
     # (keep the dataset's inputs X and the residual's natural magnitude; only its sign is pinned).
-    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev", "ksparse") and ssign in ("pos", "neg"):
+    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev", "ksparse", "anglepair") and ssign in ("pos", "neg"):
         s = 1.0 if ssign == "pos" else -1.0
         floor = 0.25 * max(abs(tgt), 1e-6)
         F0 = _TL.model.forward(th, X)
@@ -2441,6 +2486,8 @@ def run_stream(P):
         inDimE = outDimE = 1                                  # scalar x → scalar T_k(x)
     elif dataset == "ksparse":
         inDimE, outDimE = int(P["indim"]), 1                  # n ±1 bits in → scalar ±1 parity out (gpt: read as a length-n bit sequence, mean-pooled)
+    elif dataset == "anglepair":
+        inDimE, outDimE = max(2, int(P["indim"])), 1          # two iid-Gaussian samples (norm/angle controlled) → scalar ±1
     else:
         inDimE, outDimE = P["indim"], P["outdim"]
     _TL.model = build_model(arch, inDimE, outDimE, P)
@@ -3819,6 +3866,11 @@ def _parse_params(q):
         "dmodel": fi("dmodel", 64), "seqlen": fi("seqlen", 16), "vocab": fi("vocab", 50257),
         "degree": fi("degree", 3),       # Chebyshev polynomial degree (chebyshev dataset)
         "ksparse": max(1, fi("ksparse", 3)),   # k-sparse parity: #bits in the parity subset S (≤ indim = #input bits)
+        "angle": ff("angle", 90.0),      # anglepair: angle (deg) between the two samples
+        "norm1": ff("norm1", 1.0),       # anglepair: ‖x₁‖
+        "norm2": ff("norm2", 1.0),       # anglepair: ‖x₂‖  (default = norm1 ⇒ equal norms)
+        "lab1": ff("lab1", 1.0),         # anglepair: label of sample 1 (sign ⇒ +1/−1)
+        "lab2": ff("lab2", -1.0),        # anglepair: label of sample 2 (sign ⇒ +1/−1)
         "c2a": fi("c2a", 0), "c2b": fi("c2b", 1),   # cifar2: the two CIFAR-10 class indices → scalar labels +1 / −1
         "divreg": ff("divreg", 0.3),     # §15 divergence ε strength: softens the 0/0 spike at D²→0 inflections (0 ⇒ exact /D²)
         "cvar": ff("cvar", 0.0),         # const dataset: variance of Gaussian noise added to the constant target (0 ⇒ exact constant)

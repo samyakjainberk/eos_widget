@@ -133,7 +133,7 @@
   <div class="panel">
     <div class="panel-title">Dataset &amp; architecture <span style="color:#94a3b8;font-weight:400;text-transform:none">· GPU backend only</span></div>
     <div class="grid">
-      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="const">const target (iid x → fixed +y)</option><option value="cifar10">CIFAR-10 (10-class one-hot)</option><option value="cifar2">CIFAR-2 (2-class scalar ±1)</option><option value="mnist">MNIST (10-class one-hot)</option><option value="mnist2">MNIST-2 (2-class scalar ±1)</option><option value="sorting">sorting</option><option value="owt">OpenWebText</option><option value="chebyshev">Chebyshev</option><option value="ksparse">k-sparse parity (±1 bits → ±1)</option></select></div>
+      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="const">const target (iid x → fixed +y)</option><option value="cifar10">CIFAR-10 (10-class one-hot)</option><option value="cifar2">CIFAR-2 (2-class scalar ±1)</option><option value="mnist">MNIST (10-class one-hot)</option><option value="mnist2">MNIST-2 (2-class scalar ±1)</option><option value="sorting">sorting</option><option value="owt">OpenWebText</option><option value="chebyshev">Chebyshev</option><option value="ksparse">k-sparse parity (±1 bits → ±1)</option><option value="anglepair">angle pair (2 samples · controllable norm/angle · ±1)</option></select></div>
       <div class="ctl"><label>architecture</label><select id="arch"><option value="mlp" selected>MLP</option><option value="cnn">CNN</option><option value="vgg11">VGG11</option><option value="gpt">mini-GPT</option></select></div>
       <div class="ctl"><label>loss</label><select id="loss"><option value="mse" selected>MSE</option><option value="ce">cross-entropy</option></select></div>
       <div class="ctl"><label>CNN/VGG channel mult</label><input id="chmul" type="number" value="0.25" min="0.05" max="2" step="0.05"></div>
@@ -144,6 +144,11 @@
       <div class="ctl"><label>vocab (owt)</label><input id="vocab" type="number" value="50257" min="2" max="50257" step="1"></div>
       <div class="ctl"><label>cheby degree</label><input id="degree" type="number" value="3" min="1" max="12" step="1"></div>
       <div class="ctl"><label title="k-sparse parity: the number of input bits (k) whose parity (product of ±1) determines the ±1 label. The bit-subset is a fixed random size-k subset of the in_dim input bits. Must be ≤ in_dim.">k-sparse k</label><input id="ksparse" type="number" value="3" min="1" max="40" step="1"></div>
+      <div class="ctl"><label title="angle-pair dataset: angle (degrees) between sample 1 and sample 2. ⟨x₁,x₂⟩ = ‖x₁‖‖x₂‖cos(angle).">angle (deg)</label><input id="angle" type="number" value="90" min="0" max="180" step="1"></div>
+      <div class="ctl"><label title="angle-pair dataset: norm of sample 1 (‖x₁‖).">‖x₁‖ (norm1)</label><input id="norm1" type="number" value="1" min="0" max="100" step="0.1"></div>
+      <div class="ctl"><label title="angle-pair dataset: norm of sample 2 (‖x₂‖). Default = norm1 ⇒ equal norms.">‖x₂‖ (norm2)</label><input id="norm2" type="number" value="1" min="0" max="100" step="0.1"></div>
+      <div class="ctl"><label title="angle-pair dataset: ±1 label assigned to sample 1.">label x₁</label><select id="lab1"><option value="1" selected>+1</option><option value="-1">−1</option></select></div>
+      <div class="ctl"><label title="angle-pair dataset: ±1 label assigned to sample 2.">label x₂</label><select id="lab2"><option value="1">+1</option><option value="-1" selected>−1</option></select></div>
     </div>
   </div>
   <div class="panel">
@@ -247,6 +252,7 @@
   <label title="3D grids over sample indices (i,j,k): T1=JᵢᵀQⱼJₖ, T2=uⱼuₖ·T1, T3=rᵢuⱼuₖ·T1 (u=top NTK eigvec, r=residual). Multi-sample only; OFF by default (N³ points + N Hessian-vector products → small N). Live-updates + scrub past snapshots; drag to rotate."><input type="checkbox" id="en18"> 11 · 3D Hessian–NTK grids</label>
   <label title="§12a — per-sample Hessian Q_i=∇²f_i eigenvector SUBSPACE alignment over sample pairs (i,j): principal angles (heatmaps + min/max/mean evolution) and the diagonal alignment mean_{i≠j}(1/2k)Σ|⟨e_{i,a},e_{j,a}⟩| for k=1,2,5,15. Multi-sample only; OFF by default. top-/bottom-15 eigenpairs via matrix-free Lanczos."><input type="checkbox" id="en19"> 12a · eigvec subspace angles</label>
   <label title="§12b — per-sample projection panels: for the top-2 / bottom-2 eigenvectors of each Q_i, the product |⟨J_i,u⟩|·σ·r_i and the gradient alignment |⟨J_i,u⟩|/‖J_i‖, mean/std over samples + histograms. Shares §12a's Lanczos eigenpairs; multi-sample only; OFF by default."><input type="checkbox" id="en22"> 12b · per-sample projections</label>
+  <label title="§18 — per-sample projection TIME-SERIES for EXACTLY 2 samples. Same two quantities as §12b panels 1 & 2 (the product |⟨J_i,u⟩|·σ·r_i and the alignment |⟨J_i,u⟩|/‖J_i‖ onto the top-2 / bottom-2 eigenvectors of each Q_i) but plotted for sample 1 and sample 2 SEPARATELY over training, instead of the mean/std across samples. Reuses §12's Lanczos eigenpairs (needs §12a/§12b/§13 on so the per-sample projections are computed). Only renders when nsamp = 2."><input type="checkbox" id="en26"> 18 · per-sample projections · sample-1 vs sample-2 (N=2)</label>
   <label title="§13 — residual-weighted curvature: rank-k₀ approximations G1/G2/G3 of the exact reference J_iᵀQ_jJ_k·r_k, from the per-sample Lanczos top-k₀⊕bottom-k₀ eigenpairs, vs the exact reference (N extra HVPs). Multi-sample only, small N (N³); OFF by default. Its OWN toggle — independent of §12; turning it on triggers the shared per-sample Lanczos by itself."><input type="checkbox" id="en21"> 13 · residual-weighted curvature G1/G2/G3</label>
   <label title="§14 — per-triplet (i,j,k) decomposition of Tr(ΔNTK)=Σ a·b·c·d·e over rank-2y eigenpairs of the per-sample function Hessians. 10 panels of N×N×N cubes (sorted-term aggregates, sub-products, eq-③ history ratio). Shares §12's matrix-free Lanczos eigenpairs; multi-sample only, small N (N³ cubes); OFF by default."><input type="checkbox" id="en20"> 14 · Tr(ΔNTK) triplet decomposition</label>
   <label title="§15 — 2nd-difference decomposition of ‖J‖²_F (=tr NTK) and σ₁ (top NTK eigenvalue) into theory terms I/II/III (resp. IV/V/VI) + the matrices A (resp. B), over GD with step (η/N)Σr_i∇f_i. Holds 3 consecutive GD steps (run with eigevery=1); needs the per-sample function-Hessian HVPs at t−1 and t−2. Single OR multi-sample, small N; OFF by default."><input type="checkbox" id="en23"> 15 · 2nd-difference decomposition (‖J‖² &amp; σ₁)</label>
@@ -369,6 +375,15 @@
 <p class="cap">Same as Panel 3 but for the <b>maximum</b> principal-angle direction (smallest singular value, most-orthogonal): $a^\ast=\arg\max_a|U_{a,D}|$, $b^\ast=\arg\max_b|V_{b,D}|$ ($D=2K$ = last singular column). Same 4 means over $i\neq j$: (1) $|\langle J_i,u_j\rangle|\sigma_i r_i$ ; (2) $|\langle J_i,u_j\rangle||\langle J_j,u_i\rangle|\sigma_i\sigma_j r_i r_j$ ; (3) $|\langle J_i,u_j\rangle|/\lVert J_i\rVert$ ; (4) $|\langle J_i,u_j\rangle||\langle J_j,u_i\rangle|/(\lVert J_i\rVert\lVert J_j\rVert)$.</p>
 <div class="plotrow row4"><div id="p_s12xp_max_0" class="plot" style="height:280px"></div><div id="p_s12xp_max_1" class="plot" style="height:280px"></div><div id="p_s12xp_max_2" class="plot" style="height:280px"></div><div id="p_s12xp_max_3" class="plot" style="height:280px"></div></div>
 </div>
+</div>
+
+<div id="sec_s18" style="display:none">
+<h2>18 · per-sample projections — sample 1 vs sample 2 (exactly 2 samples)</h2>
+<p class="cap">The SAME two quantities as <b>§12b panels 1 &amp; 2</b> — the product $\text{proj}_i\cdot r_i=|\langle J_i,u\rangle|\,\sigma\,r_i$ and the alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert=|\cos\angle(J_i,u)|$ onto the top-2 / bottom-2 eigenvectors $u$ of each per-sample Hessian $Q_i=\nabla^2 f_i$ — but plotted for <b>sample 1</b> and <b>sample 2</b> SEPARATELY over training (instead of the mean/std across samples). <b>rank-1 solid, rank-2 dotted.</b> Reuses §12's matrix-free Lanczos eigenpairs (turn on §12a/§12b/§13 so the per-sample projections are computed); <b>only renders when nsamp = 2</b>.</p>
+<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — TOP-2 eigenvectors $u_{i,1},u_{i,2}$ (largest eigenvalues): proj·r and alignment, per sample</h3>
+<div class="plotrow row4"><div id="p_s18_top0" class="plot" style="height:290px"></div><div id="p_s18_top1" class="plot" style="height:290px"></div><div id="p_s18_top2" class="plot" style="height:290px"></div><div id="p_s18_top3" class="plot" style="height:290px"></div></div>
+<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — BOTTOM-2 eigenvectors $u_{i,-1},u_{i,-2}$ (most-negative eigenvalues): proj·r and alignment, per sample</h3>
+<div class="plotrow row4"><div id="p_s18_bot0" class="plot" style="height:290px"></div><div id="p_s18_bot1" class="plot" style="height:290px"></div><div id="p_s18_bot2" class="plot" style="height:290px"></div><div id="p_s18_bot3" class="plot" style="height:290px"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -1304,7 +1319,7 @@ function s13Draw(){
       y:[bandY(D.rm,D.rs),D.rm.slice(),bandY(D.gm,D.gs),D.gm.slice()]},[0,1,2,3]);}
 }
 function s13Reset(){S13_STEPS=[];S13_DATA=null;S13_BUILT=false;S13N_STEPS=[];S13N_VALS=[];S13N_BUILT=false;if(typeof S13_PREV_JS!=='undefined')S13_PREV_JS=null;if(typeof S13_QJPREV_JS!=='undefined')S13_QJPREV_JS=null;for(const id of s13Ids().concat(['p_s13_ndiff'])){try{Plotly.purge(id);}catch(e){}}}
-function s12Reset(){S12_SNAPS=[];S12_N=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEPS=[];S12E_DATA=null;S12P_DATA=null;S12GP_DATA=null;S12WP_DATA=null;S12DAL_STEPS=[];S12DAL_DATA=null;S12XP_STEPS=[];S12XP_DATA=null;S12_CURIDX=0;
+function s12Reset(){s18Reset();S12_SNAPS=[];S12_N=0;S12_BUILT=false;S12_CAMKEY='';S12E_STEPS=[];S12E_DATA=null;S12P_DATA=null;S12GP_DATA=null;S12WP_DATA=null;S12DAL_STEPS=[];S12DAL_DATA=null;S12XP_STEPS=[];S12XP_DATA=null;S12_CURIDX=0;
   if(S12_RAF){cancelAnimationFrame(S12_RAF);S12_RAF=0;}S12_PENDING=-1;
   if(S12_IO){S12_IO.disconnect();S12_IO=null;}if(S12_IOT){clearTimeout(S12_IOT);S12_IOT=null;}S12_BUILTSET.clear();S12_VISIBLE.clear();
   for(const id of s12AllIds()){try{Plotly.purge(id);}catch(e){}}
@@ -1606,6 +1621,43 @@ function s12ProjRender(){
     const xs=[],ys=[];for(let rk=0;rk<S12P_NRANK;rk++){xs.push(t.slice());ys.push(S12P_DATA[grp][n][rk].slice());}
     Plotly.restyle(pre+n,{x:xs,y:ys});}
 }
+// ── §18: §12b panels 1&2, but plotted PER SAMPLE (sample 1 vs sample 2) instead of mean/std. N=2 only.
+//    Reuses the §12 per-sample projection payload (m.proj.top/bot[rank].pvals[i]=product, .vals[i]=alignment). ──
+const S18_GRP=[['top','p_s18_top','#2563eb','#93c5fd'],['bot','p_s18_bot','#dc2626','#fca5a5']];   // top (blue) / bottom (red); 2nd shade = rank-2
+const S18_SPEC=[['pvals',0],['pvals',1],['vals',0],['vals',1]];   // 4 plots: [proj·r sample1, proj·r sample2, align sample1, align sample2]
+const S18_TITLE=['proj·r — sample 1','proj·r — sample 2','|⟨J,u⟩|/‖J‖ — sample 1','|⟨J,u⟩|/‖J‖ — sample 2'];
+const S18_NRANK=2, S18_RLAB=['rank-1','rank-2'];
+let S18_DATA=null, S18_BUILT=false;
+function s18Ids(){const a=[];for(const [grp,pre] of S18_GRP)for(let n=0;n<4;n++)a.push(pre+n);return a;}
+function s18Reset(){S18_DATA=null;S18_BUILT=false;for(const id of s18Ids()){try{Plotly.purge(id);}catch(e){}}}
+function s18Build(){
+  for(const [grp,pre,col,col2] of S18_GRP)for(let n=0;n<4;n++){
+    const cols=[col,col2],dash=['solid','dot'],traces=[];
+    for(let rk=0;rk<S18_NRANK;rk++)traces.push({x:[],y:[],mode:'lines+markers',name:S18_RLAB[rk],line:{color:cols[rk],width:1.8,dash:dash[rk]},marker:{size:4,color:cols[rk]}});
+    const lay=withZero(baseLayout(S18_TITLE[n],S18_TITLE[n],false));
+    lay.showlegend=true;lay.legend={font:{size:8},x:0.99,xanchor:'right',y:0.99,yanchor:'top',bgcolor:'rgba(255,255,255,0.6)'};
+    Plotly.newPlot(pre+n,traces,lay,{responsive:true,displaylogo:false});}
+  S18_BUILT=true;
+}
+function s18Append(m){
+  if(!m.proj||!m.proj.top||m.M!==2)return;
+  if(!S18_DATA){S18_DATA={steps:[]};for(const [grp] of S18_GRP){S18_DATA[grp]=[];for(let n=0;n<4;n++){S18_DATA[grp][n]=[];for(let rk=0;rk<S18_NRANK;rk++)S18_DATA[grp][n][rk]=[];}}}
+  S18_DATA.steps.push(m.t);
+  for(const [grp] of S18_GRP){const ranks=m.proj[grp]||[];
+    for(let n=0;n<4;n++){const[key,si]=S18_SPEC[n];
+      for(let rk=0;rk<S18_NRANK;rk++){const e=ranks[rk],arr=e?e[key]:null;S18_DATA[grp][n][rk].push((arr&&arr.length>si)?arr[si]:null);}}}   // null → gap (rank-2 absent / sample missing)
+}
+function s18Render(){
+  if(!S18_DATA||!S18_DATA.steps.length)return;const t=S18_DATA.steps;
+  for(const [grp,pre] of S18_GRP)for(let n=0;n<4;n++){
+    const xs=[],ys=[];for(let rk=0;rk<S18_NRANK;rk++){xs.push(t.slice());ys.push(S18_DATA[grp][n][rk].slice());}
+    Plotly.restyle(pre+n,{x:xs,y:ys});}
+}
+function s18Maybe(m){   // hook from s12Push: §18 = §12b panels 1&2 per-sample, only for exactly 2 samples + toggle on
+  if(!chk('en26')||!m||m.M!==2||!m.proj||!m.proj.top)return;
+  if(!S18_BUILT)s18Build();
+  s18Append(m);s18Render();
+}
 // panels 3/4 (AVERAGED view) — identical plots to panels 1/2 (S12P_* config) but reading m.gproj ((1/N)Σ_i Q_i basis)
 const S12GP_GRP=[['top','p_s12gproj_top','#2563eb','#93c5fd'],['bot','p_s12gproj_bot','#dc2626','#fca5a5']];
 function s12GProjBuild(){
@@ -1728,6 +1780,7 @@ function s12Push(m){
   {const sl3=document.getElementById('s13_slider');if(sl3){sl3.max=S12_SNAPS.length-1;if(wasLive)sl3.value=sl3.max;}}   // §13 shares §12's snapshots
   if(!S12_BUILT||S12_N!==m.M)s12Build(m.M);   // build synchronously so the evolution restyle targets exist
   s12EvoAppend(m);s12EvoRender();s12DalAppend(m);s12DalRender();s12XpAppend(m);s12XpRender();s12ProjAppend(m);s12ProjRender();s12GProjAppend(m);s12GProjRender();s12WProjAppend(m);s12WProjRender();
+  s18Maybe(m);   // §18: per-sample (sample1 vs sample2) projections — reuses §12b's per-sample proj data (N=2 only)
   s12RenderIdx(wasLive?S12_SNAPS.length-1:(sl?+sl.value:0));
 }
 // ── §12 browser-mode compute (JS port of server._sec12_payload) ──────────────
@@ -2753,6 +2806,7 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_g3d');if(el)el.style.display=(chk('en18')&&multi)?'':'none';}   // §11 3D Hessian–NTK grids (s18, multi-only)
   {const el=document.getElementById('sec_s12a');if(el)el.style.display=(chk('en19')&&multi)?'':'none';}   // §12a principal angles + diagonal alignment (s19, multi-only)
   {const el=document.getElementById('sec_s12b');if(el)el.style.display=chk('en22')?'':'none';}   // §12b per-sample projections (s22) — works for N≥1 (single-sample too); its cross-projection panels just stay empty without sample pairs
+  {const el=document.getElementById('sec_s18');if(el)el.style.display=(chk('en26')&&(+val('nsamp'))===2)?'':'none';}   // §18 per-sample (sample1 vs sample2) projections — exactly 2 samples
   {const el=document.getElementById('sec_s13');if(el)el.style.display=(chk('en21')&&multi)?'':'none';}   // §13 residual-weighted curvature alignment (own toggle en21; reuses the §12 Lanczos)
   {const el=document.getElementById('sec_s14');if(el){const vis=(chk('en20')&&multi);el.style.display=vis?'':'none';   // §14 Tr(ΔNTK) per-triplet decomposition (s20, multi-only)
     if(vis&&typeof S14_SNAPS!=='undefined'&&S14_SNAPS.length)requestAnimationFrame(()=>s14RenderNow(S14_CURIDX));}}   // redraw canvases now that the divs have size
@@ -3010,7 +3064,7 @@ const ADV_SECS={en18:{sec:'sec_g3d',name:'§11 (3D Hessian–NTK grids)'},
   en25:{sec:'sec_s17',name:'§17 (per-sample optimizer)'}};
 let ADV_GOT={};   // toggle id → true once that section's g-record has arrived this run
 function datasetOutDim(){const d=val('dataset');
-  if(d==='cifar10'||d==='mnist')return 10; if(d==='cifar2'||d==='mnist2'||d==='chebyshev'||d==='ksparse')return 1;
+  if(d==='cifar10'||d==='mnist')return 10; if(d==='cifar2'||d==='mnist2'||d==='chebyshev'||d==='ksparse'||d==='anglepair')return 1;
   if(d==='sorting')return Math.max(1,+val('seqlen')||16); if(d==='owt')return Math.max(1,+val('vocab')||50257);
   return Math.max(1,+val('outdim')||1);}
 function secNote(secId,msg){const sec=document.getElementById(secId);if(!sec)return;
@@ -3202,11 +3256,11 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   if(RUNNING){ABORT=true;await new Promise(r=>setTimeout(r,40));}
   ABORT=false;PAUSED=false;
   const st=document.getElementById('status');
-  if((val('dataset')!=='synthetic'&&val('dataset')!=='ksparse')||val('arch')!=='mlp'){   // conv/transformer/CIFAR are GPU-backend only; ksparse-MLP runs in-browser (ksparse-transformer is GPU-backend)
+  if((val('dataset')!=='synthetic'&&val('dataset')!=='ksparse'&&val('dataset')!=='anglepair')||val('arch')!=='mlp'){   // conv/transformer/CIFAR are GPU-backend only; ksparse-MLP + anglepair-MLP run in-browser
     st.textContent='CIFAR-10 / sorting / OpenWebText and CNN / VGG11 / mini-GPT runs require the GPU backend — set Compute → "GPU backend (server.py)". (k-sparse parity runs in-browser with the MLP; use the GPU backend for the transformer.)';
     ST=null;RUNNING=false;updateButtons();return;}
   const depth=+val('depth'),width=+val('width'),act=val('act'),useBias=val('bias')==='1';
-  const lr=+val('lr'),initScale=+val('init'),N=+val('nsamp'),inDim=+val('indim'),outDim=(val('dataset')==='ksparse')?1:(+val('outdim')),tgt=+val('tgt');
+  const lr=+val('lr'),initScale=+val('init'),N=+val('nsamp'),inDim=(val('dataset')==='anglepair')?Math.max(2,+val('indim')||2):(+val('indim')),outDim=(val('dataset')==='ksparse'||val('dataset')==='anglepair')?1:(+val('outdim')),tgt=+val('tgt');
   const fixedX=val('fixedx')==='1', inputStd=+val('inputstd');
   let n=+val('neig'),kth=+val('kth'),steps=+val('steps'),eigEvery=+val('eigevery'),seed=+val('seed');
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
@@ -3233,7 +3287,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
     if(ssign==='off'){Y.fill(tgt);}
     else{const s=ssign==='pos'?1:-1,floor=0.25*Math.max(Math.abs(tgt),1e-6),F=forward(th,spec,X,N,inDim).out;for(let i=0;i<M;i++)Y[i]=F[i]+s*Math.max(Math.abs(tgt),floor);} // r=y−f(x=1)=s·|tgt|, sign s
   }
-  else if(ssign!=='off'){
+  else if(ssign!=='off'&&val('dataset')!=='anglepair'){   // anglepair builds its fixed geometry below, then pins residual signs there
     // sample a pool of candidate (x,y) and keep the N whose initial residual r=y-f(x,θ₀) is sign-definite
     // (every output component the chosen sign) with the largest magnitude; sign/floor are then enforced so |r| isn't tiny.
     const s=ssign==='pos'?1:-1, floor=0.25*Math.max(Math.abs(tgt),1e-6), K=Math.max(64*N,3000);
@@ -3252,6 +3306,22 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   else if(val('dataset')==='ksparse'){   // n ±1 bits → scalar ±1 parity of a fixed k-subset (MIRRORS server.load_ksparse; bits from drng = mulberry32(seed*7919+1))
     const nb=inDim, kk=Math.max(1,Math.min(+val('ksparse')||3,nb)), perm=_shuffle16(nb,((seed^0x4B5A11)>>>0)), Sset=new Set(perm.slice(0,kk));
     for(let i=0;i<N;i++){let prod=1;for(let j=0;j<nb;j++){const b=drng()<0.5?1:-1;X[i*inDim+j]=b;if(Sset.has(j))prod*=b;}Y[i]=prod;}   // outDim=1 ⇒ M=N
+  }
+  else if(val('dataset')==='anglepair'){   // 2 iid-Gaussian samples: ‖x₁‖=norm1, ‖x₂‖=norm2, controllable angle; ±1 labels (MIRRORS server.load_anglepair; drng = mulberry32(seed*7919+1))
+    const dd=inDim, ang=(+val('angle')||0)*Math.PI/180, ct=Math.cos(ang), stt=Math.sin(ang);
+    const nm1=+val('norm1')||0, nm2=+val('norm2')||0, sl1=(+val('lab1')>=0)?1:-1, sl2=(+val('lab2')>=0)?1:-1;
+    const g1=new Array(dd); let s1=0; for(let j=0;j<dd;j++){g1[j]=gauss(drng);s1+=g1[j]*g1[j];}
+    const nr1=Math.sqrt(s1)||1, u1=g1.map(v=>v/nr1);
+    for(let j=0;j<dd;j++)X[j]=nm1*u1[j]; Y[0]=sl1;                       // sample 1
+    if(N>=2){const g2=new Array(dd); for(let j=0;j<dd;j++)g2[j]=gauss(drng);   // sample 2: norm2, angle from x₁
+      let dotp=0; for(let j=0;j<dd;j++)dotp+=g2[j]*u1[j];
+      const perp=new Array(dd); let sp=0; for(let j=0;j<dd;j++){perp[j]=g2[j]-dotp*u1[j];sp+=perp[j]*perp[j];}
+      const pn=Math.sqrt(sp), den=pn>1e-30?pn:1, up=perp.map(v=>v/den);
+      for(let j=0;j<dd;j++)X[inDim+j]=nm2*(ct*u1[j]+stt*up[j]); Y[1]=sl2;}
+    for(let i=2;i<N;i++){const gi=new Array(dd); let si=0; for(let j=0;j<dd;j++){gi[j]=gauss(drng);si+=gi[j]*gi[j];}   // extras: fresh dir at norm1, random ±1
+      const ni=Math.sqrt(si)||1; for(let j=0;j<dd;j++)X[i*inDim+j]=nm1*gi[j]/ni; Y[i]=drng()<0.5?1:-1;}
+    if(ssign!=='off'){const s=ssign==='pos'?1:-1, floor=0.25*Math.max(Math.abs(tgt),1e-6), F=forward(th,spec,X,N,inDim).out;   // pin residual signs (mirror server override)
+      for(let i=0;i<M;i++)Y[i]=F[i]+s*Math.max(Math.abs(Y[i]-F[i]),floor);}
   }
   else { for(let i=0;i<N*inDim;i++)X[i]=inputStd*gauss(drng); for(let i=0;i<M;i++)Y[i]=tgt*gauss(drng); }
   const multi=M>1, n7=Math.min(n,Math.max(M,1)), n8=Math.min(n,Math.max(1,Math.floor(p/2)));
@@ -3281,6 +3351,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
     s16Reset();
     const cb16=(val('dataset')==='chebyshev')?sec16Cheb(N,Math.max(1,+val('degree')||3))   // Panel-5 held-out test set (chebyshev midpoints; ksparse fresh ±1 bits; synthetic/const fresh iid-Gaussian)
               :(val('dataset')==='ksparse')?sec16Ksparse(N,inDim,Math.max(1,+val('ksparse')||3),+val('seed')||0)
+              :(val('dataset')==='anglepair')?null   // 2-point geometry — no held-out set (Panel 5 skipped)
               :sec16Holdout(val('dataset'),N,inDim,outDim,+val('seed')||0,+val('tgt'),+val('inputstd'),val('fixedx'),val('ssign'),+val('cvar')||0);
     const s24k16=Math.max(1,+val('s24k')||32);
     try{ sec16Driver(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||250),n,Math.min(p,Math.max(4*s24k16+32,2*n+16)),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),cb16&&cb16.X,cb16&&cb16.Y,cb16&&cb16.N,chk('en24base'),s24k16,s16Push); }
@@ -3290,6 +3361,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
     s17Reset();
     const cb17=(val('dataset')==='chebyshev')?sec16Cheb(N,Math.max(1,+val('degree')||3))   // reuse §16's held-out test sets (same observables)
               :(val('dataset')==='ksparse')?sec16Ksparse(N,inDim,Math.max(1,+val('ksparse')||3),+val('seed')||0)
+              :(val('dataset')==='anglepair')?null
               :sec16Holdout(val('dataset'),N,inDim,outDim,+val('seed')||0,+val('tgt'),+val('inputstd'),val('fixedx'),val('ssign'),+val('cvar')||0);
     const s24k17=Math.max(1,+val('s24k')||32);
     try{ sec17Driver(spec,X,Y,N,inDim,p,lr,th,Math.max(0,+val('s24warm')||5),Math.max(1,+val('s24iter')||250),n,Math.min(p,Math.max(4*s24k17+32,2*n+16)),+val('seed')||0,1e-12,Math.min(0.5,Math.max(0.01,+val('s24grid')||0.1)),Math.min(0.1,Math.max(0.001,+val('s24ares')||0.01)),cb17&&cb17.X,cb17&&cb17.Y,cb17&&cb17.N,chk('en25base'),s24k17,s17Push); }
@@ -3791,7 +3863,7 @@ function _zip(files){const enc=new TextEncoder(),parts=[],cd=[];let off=0;
   const eo=new Uint8Array([].concat(u32(0x06054b50),u16(0),u16(0),u16(cd.length),u16(cd.length),u32(cs),u32(off),u16(0)));
   return new Blob([...parts,...cp,eo],{type:'application/zip'});}
 function _b64bytes(durl){const s=atob(durl.split(',')[1]),a=new Uint8Array(s.length);for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return a;}
-function _cfgText(){const ids=['preset','compute','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','cvar','depth','width','act','bias','fixedx','inputstd','ssign','optimizer','indim','outdim','nsamp','batch','tgt','lr','init','initscheme','steps','seed','neig','kth','eigevery','heavyevery','slqprobes','energyp','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','divreg'];
+function _cfgText(){const ids=['preset','compute','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','cvar','ksparse','angle','norm1','norm2','lab1','lab2','depth','width','act','bias','fixedx','inputstd','ssign','optimizer','indim','outdim','nsamp','batch','tgt','lr','init','initscheme','steps','seed','neig','kth','eigevery','heavyevery','slqprobes','energyp','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','divreg'];
   const L=ids.map(id=>{const e=document.getElementById(id);return e?(id+' = '+e.value):null;}).filter(Boolean);
   L.push('panels: '+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23'].map(id=>id+'='+(chk(id)?1:0)).join(' '));
   const stt=document.getElementById('status');if(stt&&stt.textContent)L.push('status: '+stt.textContent);
@@ -3946,9 +4018,9 @@ async function downloadPlots(){
 // QUERY_IDS: plain value controls; SEC_TOGGLE_MAP: query-key ↔ checkbox-id for every section toggle.
 const QUERY_IDS=['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
    'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','cubeevery','s24warm','s24iter','s24grid','s24ares','s24k',
-   'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg','ksparse'];
+   'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg','ksparse','angle','norm1','norm2','lab1','lab2'];
 const SEC_TOGGLE_MAP=[['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
-   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base']];
+   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base'],['s26','en26']];
 function currentQueryParams(){   // the exact query-style param dict the backend receives (also stored in a browser-saved capture)
   const o={};
   for(const id of QUERY_IDS){const el=document.getElementById(id);if(el)o[id]=val(id);}
@@ -4239,6 +4311,9 @@ const PRESETS={
   // k-sparse parity with the mini-GPT transformer (GPU backend): the in_dim ±1 bits are read as a length-in_dim
   // sequence of bit-tokens and the per-position head is mean-pooled to the one scalar ±1 parity. MSE.
   ksparse_gpt:{dataset:'ksparse',arch:'gpt',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.005,init:0.5,nsamp:24,batch:0,indim:10,outdim:1,ksparse:3,tgt:1.0,neig:3,kth:1,steps:1000,eigevery:1,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:48,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en24:1,en25:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
+  // angle-pair: 2 iid-Gaussian samples with controllable ‖x₁‖,‖x₂‖ and the angle between them; ±1 labels (default +1/−1).
+  // tanh MLP, MSE, runs in-browser. N=2 is the point, so the per-sample structure sections (§11/§12/§13 + §18) are on.
+  anglepair:{dataset:'anglepair',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:2,batch:0,indim:8,outdim:1,angle:90,norm1:1,norm2:1,lab1:1,lab2:-1,tgt:1.0,neig:3,kth:1,steps:600,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:1,en12:1,en13:1,en18:1,en19:1,en22:1,en24:0,en25:0,qapprox:25,qmode:1,tset:3,compute:'browser'},
 };
 function setVal(id,v){document.getElementById(id).value=String(v);}
 function applyPreset(name){const P=PRESETS[name];if(!P)return;for(const k in P){const el=document.getElementById(k);if(!el)continue;if(el.type==='checkbox')el.checked=!!P[k];else el.value=String(P[k]);}syncLossPanels();updateParamBadge();syncInitScaleEnabled();}
@@ -4252,12 +4327,12 @@ document.getElementById('initscheme').addEventListener('change',syncInitScaleEna
 function cmpSyncInitScale(pre){const sc=document.getElementById(pre+'_initscheme'),el=document.getElementById(pre+'_init');if(!sc||!el)return;
   const off=(sc.value==='mup'||sc.value==='xavier_normal'||sc.value==='xavier_uniform');el.disabled=off;el.style.opacity=off?0.4:'';
   el.title=off?'ignored — '+sc.value+' sets the variance from fan-in/fan-out (canonical)':'';}
-['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt','neig','kth','steps','eigevery','slqprobes','energyp','gson','seed','qapprox','qmode','tset','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','cvar']
-  .forEach(id=>document.getElementById(id).addEventListener('input',()=>{document.getElementById('preset').value='custom';}));
+['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt','neig','kth','steps','eigevery','slqprobes','energyp','gson','seed','qapprox','qmode','tset','dataset','arch','loss','chmul','dmodel','nhead','nlayer','seqlen','vocab','degree','cvar','ksparse','angle','norm1','norm2','lab1','lab2']
+  .forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('input',()=>{document.getElementById('preset').value='custom';});});
 // Each dataset has a sensible DEFAULT config (a preset): picking the dataset applies it (good lr/init/N
 // + the sections that actually run at that size) so you don't also have to hunt for the matching preset.
 const DATASET_PRESET={cifar10:'cifar_mlp',cifar2:'cifar2_mlp',mnist:'mnist_mlp',mnist2:'mnist2_mlp',
-  sorting:'sort_gpt',owt:'owt_gpt',chebyshev:'chebyshev',ksparse:'ksparse_mlp',const:'gpu_const',synthetic:'msample'};
+  sorting:'sort_gpt',owt:'owt_gpt',chebyshev:'chebyshev',ksparse:'ksparse_mlp',anglepair:'anglepair',const:'gpu_const',synthetic:'msample'};
 document.getElementById('dataset').addEventListener('change',e=>{
   const pn=DATASET_PRESET[e.target.value];
   if(pn&&typeof PRESETS!=='undefined'&&PRESETS[pn]){const pe=document.getElementById('preset');pe.value=pn;applyPreset(pn);syncSectionVis();drawPreview();}
@@ -4281,7 +4356,7 @@ function syncLossPanels(){
 function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic' && val('arch')==='mlp'){ runLocal(true); } }
 document.getElementById('loss').addEventListener('change',syncLossPanels);
 document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
-['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','en24','en25','gson'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();}));
+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','en24','en25','en26','gson'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();});});
 ['s14f_y1','s14f_y2','s14f_y5','s14f_agg','s14f_max','s14f_min','s14f_ratio'].forEach(id=>{const e=document.getElementById(id);if(e)e.addEventListener('change',s14ApplyPanelFilter);});
 if(typeof s14ApplyPanelFilter==='function')s14ApplyPanelFilter();   // apply the default §14 panel selection on load
 syncInitScaleEnabled();   // grey out init_scale on load if the current scheme ignores it (mup/xavier_*)

@@ -58,6 +58,8 @@ def effective_dims(cfg):
         return 1, 1                        # scalar x → scalar T_k(x)
     if cfg.dataset == "ksparse":
         return cfg.indim, 1                # n ±1 bits in → scalar ±1 parity out (gpt: read as a length-n bit sequence, mean-pooled)
+    if cfg.dataset == "anglepair":
+        return max(2, cfg.indim), 1        # two iid-Gaussian samples (norm/angle controlled) → scalar ±1
     return cfg.indim, cfg.outdim
 
 

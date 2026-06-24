@@ -233,6 +233,8 @@ def make_test_set(model, P, dataset, n_test, in_dim, out_dim, device, dtype, cif
         return None                                      # fixed deterministic dataset — no held-out split
     if dataset == "ksparse":
         return make_ksparse_testset(n_test, in_dim, P.get("ksparse", 3), P["seed"], device, dtype)
+    if dataset == "anglepair":
+        return None                                      # 2-point geometry dataset — no meaningful held-out split
     trng = mulberry32(u32(P["seed"] * 7919 + 99991))     # separate stream ⇒ disjoint from train
     tgt, in_std = float(P["tgt"]), float(P["inputstd"])
     if dataset == "sorting":
@@ -328,6 +330,45 @@ def make_ksparse_testset(n_test, nbits, k, seed, device, dtype):
     return X, Y
 
 
+def load_anglepair(n, d, angle_deg, norm1, norm2, lab1, lab2, seed, device, dtype):
+    """Two-sample 'angle pair' dataset (default n=2). Sample 1 is an iid-Gaussian DIRECTION scaled to
+    ‖x₁‖=norm1; sample 2 has ‖x₂‖=norm2 and makes a controllable ANGLE `angle_deg` (degrees) with sample 1
+    (a second Gaussian draw orthogonalised against x₁). Labels are ±1, assigned per sample (sign of lab1,lab2).
+    For n>2 the extras are fresh iid-Gaussian directions at norm1 with random ±1 labels. d≥2, oc=1, MSE.
+    All draws from the shared mulberry32 stream (seed*7919+1). MIRRORS server.load_anglepair / index.html."""
+    nn = max(1, int(n)); dd = max(2, int(d))
+    rng = mulberry32(u32(int(seed) * 7919 + 1))
+    s1 = 1.0 if float(lab1) >= 0 else -1.0
+    s2 = 1.0 if float(lab2) >= 0 else -1.0
+    th = float(angle_deg) * math.pi / 180.0
+    ct, stt = math.cos(th), math.sin(th)
+    X = torch.zeros(nn, dd, dtype=dtype, device=device)
+    Y = torch.zeros(nn, 1, dtype=dtype, device=device)
+    g1 = [gauss(rng) for _ in range(dd)]
+    nrm1 = math.sqrt(sum(v * v for v in g1)) or 1.0
+    u1 = [v / nrm1 for v in g1]
+    for j in range(dd):
+        X[0, j] = float(norm1) * u1[j]
+    Y[0, 0] = s1
+    if nn >= 2:
+        g2 = [gauss(rng) for _ in range(dd)]
+        dotp = sum(g2[j] * u1[j] for j in range(dd))
+        perp = [g2[j] - dotp * u1[j] for j in range(dd)]
+        pn = math.sqrt(sum(v * v for v in perp))
+        denom = pn if pn > 1e-30 else 1.0
+        uperp = [v / denom for v in perp]
+        for j in range(dd):
+            X[1, j] = float(norm2) * (ct * u1[j] + stt * uperp[j])
+        Y[1, 0] = s2
+    for i in range(2, nn):
+        gi = [gauss(rng) for _ in range(dd)]
+        nin = math.sqrt(sum(v * v for v in gi)) or 1.0
+        for j in range(dd):
+            X[i, j] = float(norm1) * gi[j] / nin
+        Y[i, 0] = 1.0 if rng() < 0.5 else -1.0
+    return X, Y
+
+
 _OWT_CACHE = {}
 
 
@@ -402,6 +443,9 @@ def init_data_theta(model, P, dataset, N, in_dim, out_dim, device, dtype, cifar_
         X, Y = load_chebyshev(N, P.get("degree", 3), device, dtype)
     elif dataset == "ksparse":
         X, Y = load_ksparse(N, in_dim, P.get("ksparse", 3), P["seed"], device, dtype)   # n ±1 bits → scalar ±1 parity of a fixed k-subset
+    elif dataset == "anglepair":
+        X, Y = load_anglepair(N, in_dim, P.get("angle", 90.0), P.get("norm1", 1.0), P.get("norm2", 1.0),
+                              P.get("lab1", 1.0), P.get("lab2", -1.0), P["seed"], device, dtype)   # 2 samples: norm/angle, ±1 labels
     elif dataset == "const":
         # iid Gaussian inputs; target = CONSTANT POSITIVE |tgt| + Gaussian noise of variance cvar (0 ⇒ exact
         # constant ⇒ uniform residuals; cvar>0 decorrelates the residuals). MIRRORS server.
@@ -459,7 +503,7 @@ def init_data_theta(model, P, dataset, N, in_dim, out_dim, device, dtype, cifar_
     # Fixed-target datasets (cifar10/sorting/chebyshev) load Y directly and so skip the residual-sign
     # construction above — force the requested initial residual sign here by overriding Y per sample
     # (keep the dataset's inputs X and the residual's natural magnitude; only its sign is pinned).
-    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev", "ksparse") and ssign in ("pos", "neg"):
+    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev", "ksparse", "anglepair") and ssign in ("pos", "neg"):
         s = 1.0 if ssign == "pos" else -1.0
         floor = 0.25 * max(abs(tgt), 1e-6)
         f0 = model.forward(th, X)
