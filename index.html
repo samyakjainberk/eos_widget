@@ -4489,7 +4489,7 @@ const PRESETS={
   // well separated. A small-init tanh MLP (quasi-linear) learns the r=min(in,out) modes ONE AT A TIME → the loss
   // descends a STAIRCASE (a sequence of saddle escapes). Tuned to show it robustly: init=0.05, lr=0.2, sep=0.4,
   // 4 modes (in=out=4), full-batch GD on N=128 whitened samples. In-browser; watch §1 loss & sharpness.
-  saddle:{dataset:'saddle',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.2,init:0.05,nsamp:128,batch:0,indim:4,outdim:4,saddlesep:0.4,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:2,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'browser'},
+  saddle:{dataset:'saddle',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.2,init:0.05,nsamp:32,batch:0,indim:4,outdim:4,saddlesep:0.4,tgt:1.0,neig:3,kth:1,steps:1500,eigevery:2,cubeevery:4,grid3dcap:150,sec12ncap:150,s28k:30,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:0,en13:0,en28:1,qapprox:25,qmode:1,tset:3,compute:'browser'},
 };
 function setVal(id,v){document.getElementById(id).value=String(v);}
 function applyPreset(name){const P=PRESETS[name];if(!P)return;for(const k in P){const el=document.getElementById(k);if(!el)continue;if(el.type==='checkbox')el.checked=!!P[k];else el.value=String(P[k]);}syncLossPanels();updateParamBadge();syncInitScaleEnabled();}
