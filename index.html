@@ -3385,7 +3385,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   if(RUNNING){ABORT=true;await new Promise(r=>setTimeout(r,40));}
   ABORT=false;PAUSED=false;
   const st=document.getElementById('status');
-  if((val('dataset')!=='synthetic'&&val('dataset')!=='ksparse'&&val('dataset')!=='anglepair')||val('arch')!=='mlp'){   // conv/transformer/CIFAR are GPU-backend only; ksparse-MLP + anglepair-MLP run in-browser
+  if((val('dataset')!=='synthetic'&&val('dataset')!=='ksparse'&&val('dataset')!=='anglepair'&&val('dataset')!=='saddle')||val('arch')!=='mlp'){   // conv/transformer/CIFAR are GPU-backend only; ksparse-MLP + anglepair-MLP + saddle-MLP run in-browser
     st.textContent='CIFAR-10 / sorting / OpenWebText and CNN / VGG11 / mini-GPT runs require the GPU backend — set Compute → "GPU backend (server.py)". (k-sparse parity runs in-browser with the MLP; use the GPU backend for the transformer.)';
     ST=null;RUNNING=false;updateButtons();return;}
   const depth=+val('depth'),width=+val('width'),act=val('act'),useBias=val('bias')==='1';
