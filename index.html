@@ -125,6 +125,7 @@
     <option value="ksparse_mlp">k-sparse parity · MLP (in-browser; ±1 bits → ±1)</option>
     <option value="ksparse_gpt">k-sparse parity · mini-GPT transformer (GPU backend)</option>
     <option value="saddle">saddle-to-saddle · linear regression · tanh MLP (in-browser) — staircase loss</option>
+    <option value="agf">alternating gradient flows · diagonal linear net (GPU backend) — multi-jump staircase</option>
     <option value="custom">— custom (manual) —</option>
   </select>
   <span class="hint">picking a preset auto-runs it · edit any control and press <b>Run</b> · hover any plot for a shared cursor</span>
@@ -134,8 +135,8 @@
   <div class="panel">
     <div class="panel-title">Dataset &amp; architecture <span style="color:#94a3b8;font-weight:400;text-transform:none">· GPU backend only</span></div>
     <div class="grid">
-      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="const">const target (iid x → fixed +y)</option><option value="cifar10">CIFAR-10 (10-class one-hot)</option><option value="cifar2">CIFAR-2 (2-class scalar ±1)</option><option value="mnist">MNIST (10-class one-hot)</option><option value="mnist2">MNIST-2 (2-class scalar ±1)</option><option value="sorting">sorting</option><option value="owt">OpenWebText</option><option value="chebyshev">Chebyshev</option><option value="ksparse">k-sparse parity (±1 bits → ±1)</option><option value="anglepair">angle pair (2 samples · controllable norm/angle · ±1)</option><option value="saddle">saddle-to-saddle (linear regression · diagonal teacher · staircase loss)</option></select></div>
-      <div class="ctl"><label>architecture</label><select id="arch"><option value="mlp" selected>MLP</option><option value="cnn">CNN</option><option value="vgg11">VGG11</option><option value="gpt">mini-GPT</option></select></div>
+      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="const">const target (iid x → fixed +y)</option><option value="cifar10">CIFAR-10 (10-class one-hot)</option><option value="cifar2">CIFAR-2 (2-class scalar ±1)</option><option value="mnist">MNIST (10-class one-hot)</option><option value="mnist2">MNIST-2 (2-class scalar ±1)</option><option value="sorting">sorting</option><option value="owt">OpenWebText</option><option value="chebyshev">Chebyshev</option><option value="ksparse">k-sparse parity (±1 bits → ±1)</option><option value="anglepair">angle pair (2 samples · controllable norm/angle · ±1)</option><option value="saddle">saddle-to-saddle (linear regression · diagonal teacher · staircase loss)</option><option value="agf">alternating gradient flows (scalar y=β*·x · use with diagonal-linear arch)</option></select></div>
+      <div class="ctl"><label>architecture</label><select id="arch"><option value="mlp" selected>MLP</option><option value="cnn">CNN</option><option value="vgg11">VGG11</option><option value="gpt">mini-GPT</option><option value="diaglin">diagonal linear (β=u⊙v · AGF)</option></select></div>
       <div class="ctl"><label>loss</label><select id="loss"><option value="mse" selected>MSE</option><option value="ce">cross-entropy</option></select></div>
       <div class="ctl"><label>CNN/VGG channel mult</label><input id="chmul" type="number" value="0.25" min="0.05" max="2" step="0.05"></div>
       <div class="ctl"><label>GPT d_model</label><input id="dmodel" type="number" value="64" min="8" max="512" step="8"></div>
@@ -166,6 +167,7 @@
       <div class="ctl"><label>in_dim</label><input id="indim" type="number" value="10" min="1" max="40" step="1"></div>
       <div class="ctl"><label>out_dim</label><input id="outdim" type="number" value="1" min="1" max="10" step="1"></div>
       <div class="ctl" title="saddle dataset: teacher singular-value separation σ_j = sep^j (sep<1 ⇒ well-separated modes ⇒ clear staircase)"><label>saddle_sep</label><input id="saddlesep" type="number" value="0.4" min="0.05" max="0.95" step="0.05"></div>
+      <div class="ctl" title="agf dataset (alternating gradient flows): teacher coordinate ratio β*_i = ratio^i (ratio<1 ⇒ separated coordinates ⇒ multi-jump staircase with the diagonal-linear arch)"><label>agf_ratio</label><input id="agfratio" type="number" value="0.6" min="0.1" max="0.95" step="0.05"></div>
     </div>
   </div>
   <div class="panel">
@@ -3191,7 +3193,7 @@ const ADV_SECS={en18:{sec:'sec_g3d',name:'§11 (3D Hessian–NTK grids)'},
   en28:{sec:'sec_s20',name:'§20 (M_r spectral histograms)'}};
 let ADV_GOT={};   // toggle id → true once that section's g-record has arrived this run
 function datasetOutDim(){const d=val('dataset');
-  if(d==='cifar10'||d==='mnist')return 10; if(d==='cifar2'||d==='mnist2'||d==='chebyshev'||d==='ksparse'||d==='anglepair')return 1;
+  if(d==='cifar10'||d==='mnist')return 10; if(d==='cifar2'||d==='mnist2'||d==='chebyshev'||d==='ksparse'||d==='anglepair'||d==='agf')return 1;
   if(d==='sorting')return Math.max(1,+val('seqlen')||16); if(d==='owt')return Math.max(1,+val('vocab')||50257);
   return Math.max(1,+val('outdim')||1);}
 function secNote(secId,msg){const sec=document.getElementById(secId);if(!sec)return;
@@ -4186,7 +4188,7 @@ async function downloadPlots(){
 // QUERY_IDS: plain value controls; SEC_TOGGLE_MAP: query-key ↔ checkbox-id for every section toggle.
 const QUERY_IDS=['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
    'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','cubeevery','s24warm','s24iter','s24grid','s24ares','s24k','s28k',
-   'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg','ksparse','angle','norm1','norm2','lab1','lab2','saddlesep'];
+   'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg','ksparse','angle','norm1','norm2','lab1','lab2','saddlesep','agfratio'];
 const SEC_TOGGLE_MAP=[['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
    ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base'],['s26','en26'],['s27','en27'],['s28','en28']];
 function currentQueryParams(){   // the exact query-style param dict the backend receives (also stored in a browser-saved capture)
@@ -4490,6 +4492,11 @@ const PRESETS={
   // descends a STAIRCASE (a sequence of saddle escapes). Tuned to show it robustly: init=0.05, lr=0.2, sep=0.4,
   // 4 modes (in=out=4), full-batch GD on N=128 whitened samples. In-browser; watch §1 loss & sharpness.
   saddle:{dataset:'saddle',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.2,init:0.05,nsamp:32,batch:0,indim:4,outdim:4,saddlesep:0.4,tgt:1.0,neig:3,kth:1,steps:1500,eigevery:2,cubeevery:4,grid3dcap:150,sec12ncap:150,s28k:30,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:0,en13:0,en28:1,qapprox:25,qmode:1,tset:3,compute:'browser'},
+  // alternating gradient flows (Kunin et al. 2025, arXiv:2506.06489): a DIAGONAL LINEAR NETWORK β=u⊙v from SMALL
+  // init on a scalar linear teacher y=β*·x with geometrically-separated coordinates β*_i=ratio^i. The coordinates
+  // activate ONE AT A TIME (largest first) → a clean MULTI-STEP saddle-to-saddle staircase (the loss steps down to
+  // ~0, fitting the teacher exactly). Tiny (p=2·indim); GPU backend (the diagonal-linear arch is server-side).
+  agf:{dataset:'agf',arch:'diaglin',loss:'mse',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.3,init:0.01,nsamp:64,batch:0,indim:10,outdim:1,agfratio:0.6,depth:1,width:1,act:'tanh',tgt:1.0,neig:3,kth:1,steps:5000,eigevery:2,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:0,en13:0,en14:0,en15:0,en16:0,en17:0,en18:0,en19:0,en20:0,en21:0,en22:0,en23:0,en24:0,en25:0,en26:0,en27:0,en28:0,qapprox:25,qmode:1,tset:3,compute:'gpu'},
 };
 function setVal(id,v){document.getElementById(id).value=String(v);}
 function applyPreset(name){const P=PRESETS[name];if(!P)return;for(const k in P){const el=document.getElementById(k);if(!el)continue;if(el.type==='checkbox')el.checked=!!P[k];else el.value=String(P[k]);}syncLossPanels();updateParamBadge();syncInitScaleEnabled();}
@@ -4508,7 +4515,7 @@ function cmpSyncInitScale(pre){const sc=document.getElementById(pre+'_initscheme
 // Each dataset has a sensible DEFAULT config (a preset): picking the dataset applies it (good lr/init/N
 // + the sections that actually run at that size) so you don't also have to hunt for the matching preset.
 const DATASET_PRESET={cifar10:'cifar_mlp',cifar2:'cifar2_mlp',mnist:'mnist_mlp',mnist2:'mnist2_mlp',
-  sorting:'sort_gpt',owt:'owt_gpt',chebyshev:'chebyshev',ksparse:'ksparse_mlp',anglepair:'anglepair',saddle:'saddle',const:'gpu_const',synthetic:'msample'};
+  sorting:'sort_gpt',owt:'owt_gpt',chebyshev:'chebyshev',ksparse:'ksparse_mlp',anglepair:'anglepair',saddle:'saddle',agf:'agf',const:'gpu_const',synthetic:'msample'};
 document.getElementById('dataset').addEventListener('change',e=>{
   const pn=DATASET_PRESET[e.target.value];
   if(pn&&typeof PRESETS!=='undefined'&&PRESETS[pn]){const pe=document.getElementById('preset');pe.value=pn;applyPreset(pn);syncSectionVis();drawPreview();}

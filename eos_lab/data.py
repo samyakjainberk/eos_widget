@@ -384,6 +384,17 @@ def load_saddle(n, d, m, sep, seed, device, dtype, inStd=1.0):
     return X, Y
 
 
+def load_agf(n, d, ratio, seed, device, dtype, inStd=1.0):
+    """Alternating-Gradient-Flows task (arXiv:2506.06489): scalar y = β*·x, x ~ N(0,I_d), teacher β*_i = ratio^i.
+    With arch=diaglin + small init the coordinates activate one at a time → multi-step staircase. MIRRORS server."""
+    nn = max(1, int(n)); dd = max(1, int(d))
+    rng = mulberry32(u32(int(seed) * 7919 + 1))
+    X = torch.tensor([[float(inStd) * gauss(rng) for _ in range(dd)] for _ in range(nn)], dtype=dtype, device=device)
+    bstar = torch.tensor([float(ratio) ** i for i in range(dd)], dtype=dtype, device=device)
+    Y = (X * bstar).sum(dim=1, keepdim=True)
+    return X, Y
+
+
 _OWT_CACHE = {}
 
 
@@ -463,6 +474,8 @@ def init_data_theta(model, P, dataset, N, in_dim, out_dim, device, dtype, cifar_
                               P.get("lab1", 1.0), P.get("lab2", -1.0), P["seed"], device, dtype)   # 2 samples: norm/angle, ±1 labels
     elif dataset == "saddle":
         X, Y = load_saddle(N, in_dim, out_dim, P.get("saddlesep", 0.4), P["seed"], device, dtype, in_std)   # saddle-to-saddle linear regression
+    elif dataset == "agf":
+        X, Y = load_agf(N, in_dim, P.get("agfratio", 0.6), P["seed"], device, dtype, in_std)   # alternating gradient flows (use arch=diaglin)
     elif dataset == "const":
         # iid Gaussian inputs; target = CONSTANT POSITIVE |tgt| + Gaussian noise of variance cvar (0 ⇒ exact
         # constant ⇒ uniform residuals; cvar>0 decorrelates the residuals). MIRRORS server.

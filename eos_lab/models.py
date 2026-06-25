@@ -346,6 +346,27 @@ class GptLMModel(AutogradModel):
         return z @ p["wte"].t()                                 # tied head → (N,T,vocab) logits
 
 
+class DiagLinModel(Model):
+    """Diagonal linear network (Alternating Gradient Flows, arXiv:2506.06489): β = u⊙v per output channel,
+    f_c(x) = Σ_i u_{c,i} v_{c,i} x_i. From small init the coordinates activate one at a time → multi-step
+    saddle-to-saddle. p = 2·oc·d. MIRRORS server.DiagLinModel (torch.Generator init ⇒ same θ₀ as the server)."""
+    def __init__(self, in_dim, out_dim, P, device, dtype):
+        super().__init__(device, dtype)
+        self.d = max(1, int(in_dim)); self.oc = max(1, int(out_dim)); self.in_shape = (self.d,)
+        self.p = 2 * self.oc * self.d
+
+    def forward(self, theta, X):
+        n = self.oc * self.d
+        u = theta[:n].view(self.oc, self.d); v = theta[n:].view(self.oc, self.d)
+        return X @ (u * v).t()                                  # (N, oc) ; β = u⊙v
+
+    def init_theta(self, seed, init_scale):
+        g = torch.Generator(device="cpu"); g.manual_seed((int(seed) & 0x7FFFFFFF) or 1)
+        kind, sc = init_kind_scale(self.init_scheme, init_scale, self.d, self.oc, False)
+        draw = (torch.randn(self.p, generator=g) if kind == "normal" else (torch.rand(self.p, generator=g) * 2.0 - 1.0))
+        return (draw * sc).to(dtype=self.dtype, device=self.device)
+
+
 def build_model(arch, in_dim, out_dim, P, device, dtype):
     """Factory. MIRRORS server.build_model."""
     if arch == "mlp":
@@ -358,6 +379,8 @@ def build_model(arch, in_dim, out_dim, P, device, dtype):
         # owt → token-LM GPT (CE over vocab); sorting → scalar-regression GPT (MSE).
         m = (GptLMModel(in_dim, out_dim, P, device, dtype) if P.get("dataset") == "owt"
              else GptModel(in_dim, out_dim, P, device, dtype))
+    elif arch == "diaglin":
+        m = DiagLinModel(in_dim, out_dim, P, device, dtype)
     else:
         raise ValueError(f"unknown arch '{arch}'")
     m.init_scheme = P.get("initscheme", "default")     # weight-init scheme (default/mup/xavier_*/custom)

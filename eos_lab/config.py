@@ -30,6 +30,7 @@ class Config:
     lab1: float = 1.0               # anglepair: label of sample 1 (sign ⇒ +1/−1)
     lab2: float = -1.0              # anglepair: label of sample 2 (sign ⇒ +1/−1)
     saddlesep: float = 0.4          # saddle: teacher singular-value separation σ_j=sep^j (sep<1 ⇒ well-separated modes ⇒ staircase loss)
+    agfratio: float = 0.6           # agf (alternating gradient flows): teacher coordinate ratio β*_i=ratio^i (use with arch=diaglin)
     c2a: int = 0                    # cifar2: first CIFAR-10 class index → scalar label +1
     c2b: int = 1                    # cifar2: second CIFAR-10 class index → scalar label −1
     cvar: float = 0.0               # const dataset: variance of Gaussian noise added to the constant target (0 ⇒ exact constant)

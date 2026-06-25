@@ -1625,6 +1625,40 @@ class GptLMModel(AutogradModel):
         return z @ p["wte"].t()                                                      # tied head (N,T,vocab)
 
 
+class DiagLinModel(Model):
+    """Diagonal linear network (Kunin et al., 'Alternating Gradient Flows', arXiv:2506.06489): per output channel
+    β = u ⊙ v (element-wise), so f_c(x) = Σ_i (u_{c,i} v_{c,i}) x_i. From SMALL init the per-coordinate products
+    β_i sit near the origin saddle and activate ONE AT A TIME — largest teacher |β*_i| first — each a sharp loss
+    drop between long plateaus: clean multi-step saddle-to-saddle (≈d jumps for a d-coordinate teacher). Tiny
+    (p = 2·oc·d); HAND-WRITTEN fwd/vjp with exact_hvp=False — finite-difference HVPs are both FAST and EXACT here
+    (f is quadratic in θ). GPU-backend only. MIRRORS eos_lab.models.DiagLinModel."""
+    def __init__(self, in_dim, out_dim, P):
+        self.d = max(1, int(in_dim)); self.oc = max(1, int(out_dim)); self.in_shape = (self.d,)
+        self.p = 2 * self.oc * self.d
+
+    def _uv(self, th):
+        n = self.oc * self.d
+        return th[:n].view(self.oc, self.d), th[n:].view(self.oc, self.d)
+
+    def forward(self, th, X):
+        u, v = self._uv(th)
+        return X @ (u * v).t()                                  # (N, oc) ; β = u⊙v
+
+    def vjp(self, th, X, cot):
+        u, v = self._uv(th)
+        out = X @ (u * v).t()
+        c = cot(out) if callable(cot) else cot                  # (N, oc)
+        A = c.t() @ X                                           # (oc, d) = Σ_n c[n,c] x[n,i]
+        return torch.cat([(v * A).reshape(-1), (u * A).reshape(-1)]), out   # ∇u = v⊙A, ∇v = u⊙A
+
+    def init_theta(self, seed, initScale):
+        g = torch.Generator(device="cpu"); g.manual_seed((int(seed) & 0x7FFFFFFF) or 1)
+        scheme = getattr(self, "init_scheme", "default")
+        kind, sc = init_kind_scale(scheme, initScale, self.d, self.oc, False)   # fan_in = d
+        draw = (torch.randn(self.p, generator=g) if kind == "normal" else (torch.rand(self.p, generator=g) * 2.0 - 1.0))
+        return (draw * sc).to(dtype=DTYPE, device=_dev())
+
+
 def hvpF(th, X, v):
     """Function-Hessian (∇²Σf) · v."""
     if _TL.model.exact_hvp:
@@ -2408,6 +2442,19 @@ def load_saddle(n, d, m, sep, seed, inStd=1.0):
     return X, Y
 
 
+def load_agf(n, d, ratio, seed, inStd=1.0):
+    """Alternating-Gradient-Flows task (arXiv:2506.06489): SCALAR linear regression y = β*·x, x ~ N(0,I_d), with a
+    teacher whose coordinates are geometrically separated, β*_i = ratio^i (ratio<1). Paired with the diagonal
+    linear network (arch=diaglin) and a SMALL init, the net learns the coordinates ONE AT A TIME (largest |β*_i|
+    first) → a clean d-step saddle-to-saddle staircase. All draws from mulberry32(seed*7919+1). MIRRORS eos_lab."""
+    nn = max(1, int(n)); dd = max(1, int(d))
+    rng = mulberry32(u32(int(seed) * 7919 + 1))
+    X = torch.tensor([[float(inStd) * gauss(rng) for _ in range(dd)] for _ in range(nn)], dtype=DTYPE, device=_dev())
+    bstar = torch.tensor([float(ratio) ** i for i in range(dd)], dtype=DTYPE, device=_dev())   # β*_i = ratio^i
+    Y = (X * bstar).sum(dim=1, keepdim=True)                             # (n,1) scalar linear teacher y = β*·x
+    return X, Y
+
+
 _OWT_CACHE = {}
 
 
@@ -2452,6 +2499,8 @@ def build_model(arch, inDim, outDim, P):
         m = Vgg11Model(inDim, outDim, P)
     elif arch == "gpt":
         m = GptLMModel(inDim, outDim, P) if P.get("dataset") == "owt" else GptModel(inDim, outDim, P)
+    elif arch == "diaglin":
+        m = DiagLinModel(inDim, outDim, P)             # diagonal linear network (β=u⊙v) — Alternating Gradient Flows
     else:
         raise ValueError(f"unknown arch '{arch}'")
     m.init_scheme = P.get("initscheme", "default")     # weight-init scheme (default/mup/xavier_*/custom)
@@ -2492,6 +2541,8 @@ def init_data_theta(P, dataset, N, inD, outD):
                               P.get("lab1", 1.0), P.get("lab2", -1.0), P["seed"])   # 2 samples: controllable norm/angle, ±1 labels
     elif dataset == "saddle":
         X, Y = load_saddle(N, inD, outD, P.get("saddlesep", 0.4), P["seed"], inStd)   # saddle-to-saddle linear regression (diagonal teacher, separated σ)
+    elif dataset == "agf":
+        X, Y = load_agf(N, inD, P.get("agfratio", 0.6), P["seed"], inStd)   # alternating gradient flows: scalar y=β*·x, β*_i=ratio^i (use with arch=diaglin)
     elif dataset == "const":
         # iid Gaussian inputs (like synthetic); every target is the CONSTANT POSITIVE |tgt| PLUS optional Gaussian
         # noise of VARIANCE `cvar` (default 0 ⇒ exactly constant). cvar=0 ⇒ all initial residuals r=y−f(x,θ₀) share
@@ -2587,6 +2638,8 @@ def run_stream(P):
         inDimE, outDimE = int(P["indim"]), 1                  # n ±1 bits in → scalar ±1 parity out (gpt: read as a length-n bit sequence, mean-pooled)
     elif dataset == "anglepair":
         inDimE, outDimE = max(2, int(P["indim"])), 1          # two iid-Gaussian samples (norm/angle controlled) → scalar ±1
+    elif dataset == "agf":
+        inDimE, outDimE = int(P["indim"]), 1                  # alternating gradient flows: scalar linear regression y=β*·x
     else:
         inDimE, outDimE = P["indim"], P["outdim"]
     _TL.model = build_model(arch, inDimE, outDimE, P)
@@ -3551,6 +3604,8 @@ def run_surrogate_compare(P):
         inDimE, outDimE = int(P["indim"]), 1             # mirror run_stream (surrogate path must match the dataset's effective dims)
     elif dataset == "anglepair":
         inDimE, outDimE = max(2, int(P["indim"])), 1
+    elif dataset == "agf":
+        inDimE, outDimE = int(P["indim"]), 1
     else:
         inDimE, outDimE = P["indim"], P["outdim"]
     _TL.model = build_model(arch, inDimE, outDimE, P)
@@ -4002,6 +4057,7 @@ def _parse_params(q):
         "norm1": ff("norm1", 1.0),       # anglepair: ‖x₁‖
         "norm2": ff("norm2", 1.0),       # anglepair: ‖x₂‖  (default = norm1 ⇒ equal norms)
         "saddlesep": ff("saddlesep", 0.4),   # saddle: teacher singular-value separation ratio σ_j=sep^j (sep<1 ⇒ well-separated modes ⇒ staircase)
+        "agfratio": ff("agfratio", 0.6),     # agf (alternating gradient flows): teacher coordinate ratio β*_i=ratio^i (use with arch=diaglin)
         "lab1": ff("lab1", 1.0),         # anglepair: label of sample 1 (sign ⇒ +1/−1)
         "lab2": ff("lab2", -1.0),        # anglepair: label of sample 2 (sign ⇒ +1/−1)
         "c2a": fi("c2a", 0), "c2b": fi("c2b", 1),   # cifar2: the two CIFAR-10 class indices → scalar labels +1 / −1
