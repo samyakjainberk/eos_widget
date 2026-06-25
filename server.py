@@ -2391,6 +2391,23 @@ def load_anglepair(n, d, angle_deg, norm1, norm2, lab1, lab2, seed):
     return X, Y
 
 
+def load_saddle(n, d, m, sep, seed, inStd=1.0):
+    """Saddle-to-saddle linear-regression task. Whitened inputs X ~ N(0,I_d) (scaled by inStd), DIAGONAL
+    teacher W* with geometrically-separated singular values σ_j = sep^j (sep<1): Y[:,j] = σ_j·X[:,j] for
+    j < r=min(d,m), else 0. With a SMALL init the tanh MLP is quasi-linear, so it learns the r singular modes
+    ONE AT A TIME — largest σ first — each escape a sharp loss drop between long plateaus: the staircase
+    'saddle-to-saddle' dynamics. All draws come from the shared mulberry32 stream (seed*7919+1) so the data is
+    byte-identical across server / eos_lab / browser. MIRRORS eos_lab.data.load_saddle / index.html runLocal."""
+    nn = max(1, int(n)); dd = max(1, int(d)); mm = max(1, int(m))
+    rng = mulberry32(u32(int(seed) * 7919 + 1))
+    X = torch.tensor([[float(inStd) * gauss(rng) for _ in range(dd)] for _ in range(nn)], dtype=DTYPE, device=_dev())
+    r = min(dd, mm)
+    Y = torch.zeros(nn, mm, dtype=DTYPE, device=_dev())
+    for j in range(r):
+        Y[:, j] = (float(sep) ** j) * X[:, j]                            # σ_j = sep^j ; diagonal teacher in the whitened basis
+    return X, Y
+
+
 _OWT_CACHE = {}
 
 
@@ -2473,6 +2490,8 @@ def init_data_theta(P, dataset, N, inD, outD):
     elif dataset == "anglepair":
         X, Y = load_anglepair(N, inD, P.get("angle", 90.0), P.get("norm1", 1.0), P.get("norm2", 1.0),
                               P.get("lab1", 1.0), P.get("lab2", -1.0), P["seed"])   # 2 samples: controllable norm/angle, ±1 labels
+    elif dataset == "saddle":
+        X, Y = load_saddle(N, inD, outD, P.get("saddlesep", 0.4), P["seed"], inStd)   # saddle-to-saddle linear regression (diagonal teacher, separated σ)
     elif dataset == "const":
         # iid Gaussian inputs (like synthetic); every target is the CONSTANT POSITIVE |tgt| PLUS optional Gaussian
         # noise of VARIANCE `cvar` (default 0 ⇒ exactly constant). cvar=0 ⇒ all initial residuals r=y−f(x,θ₀) share
@@ -2531,7 +2550,7 @@ def init_data_theta(P, dataset, N, inD, outD):
     # Fixed-target datasets (cifar10/sorting/chebyshev) load Y directly and so skip the residual-sign
     # construction above — force the requested initial residual sign here by overriding Y per sample
     # (keep the dataset's inputs X and the residual's natural magnitude; only its sign is pinned).
-    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev", "ksparse", "anglepair") and ssign in ("pos", "neg"):
+    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev", "ksparse", "anglepair", "saddle") and ssign in ("pos", "neg"):
         s = 1.0 if ssign == "pos" else -1.0
         floor = 0.25 * max(abs(tgt), 1e-6)
         F0 = _TL.model.forward(th, X)
@@ -3982,6 +4001,7 @@ def _parse_params(q):
         "angle": ff("angle", 90.0),      # anglepair: angle (deg) between the two samples
         "norm1": ff("norm1", 1.0),       # anglepair: ‖x₁‖
         "norm2": ff("norm2", 1.0),       # anglepair: ‖x₂‖  (default = norm1 ⇒ equal norms)
+        "saddlesep": ff("saddlesep", 0.4),   # saddle: teacher singular-value separation ratio σ_j=sep^j (sep<1 ⇒ well-separated modes ⇒ staircase)
         "lab1": ff("lab1", 1.0),         # anglepair: label of sample 1 (sign ⇒ +1/−1)
         "lab2": ff("lab2", -1.0),        # anglepair: label of sample 2 (sign ⇒ +1/−1)
         "c2a": fi("c2a", 0), "c2b": fi("c2b", 1),   # cifar2: the two CIFAR-10 class indices → scalar labels +1 / −1

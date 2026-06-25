@@ -369,6 +369,21 @@ def load_anglepair(n, d, angle_deg, norm1, norm2, lab1, lab2, seed, device, dtyp
     return X, Y
 
 
+def load_saddle(n, d, m, sep, seed, device, dtype, inStd=1.0):
+    """Saddle-to-saddle linear-regression task. Whitened inputs X ~ N(0,I_d) (scaled by inStd), DIAGONAL teacher
+    W* with σ_j = sep^j: Y[:,j] = σ_j·X[:,j] for j < r=min(d,m), else 0. A small-init tanh MLP (quasi-linear)
+    learns the r modes one at a time (largest σ first) → a staircase loss (saddle-to-saddle). All draws from the
+    shared mulberry32 stream (seed*7919+1). MIRRORS server.load_saddle / index.html runLocal."""
+    nn = max(1, int(n)); dd = max(1, int(d)); mm = max(1, int(m))
+    rng = mulberry32(u32(int(seed) * 7919 + 1))
+    X = torch.tensor([[float(inStd) * gauss(rng) for _ in range(dd)] for _ in range(nn)], dtype=dtype, device=device)
+    r = min(dd, mm)
+    Y = torch.zeros(nn, mm, dtype=dtype, device=device)
+    for j in range(r):
+        Y[:, j] = (float(sep) ** j) * X[:, j]
+    return X, Y
+
+
 _OWT_CACHE = {}
 
 
@@ -446,6 +461,8 @@ def init_data_theta(model, P, dataset, N, in_dim, out_dim, device, dtype, cifar_
     elif dataset == "anglepair":
         X, Y = load_anglepair(N, in_dim, P.get("angle", 90.0), P.get("norm1", 1.0), P.get("norm2", 1.0),
                               P.get("lab1", 1.0), P.get("lab2", -1.0), P["seed"], device, dtype)   # 2 samples: norm/angle, ±1 labels
+    elif dataset == "saddle":
+        X, Y = load_saddle(N, in_dim, out_dim, P.get("saddlesep", 0.4), P["seed"], device, dtype, in_std)   # saddle-to-saddle linear regression
     elif dataset == "const":
         # iid Gaussian inputs; target = CONSTANT POSITIVE |tgt| + Gaussian noise of variance cvar (0 ⇒ exact
         # constant ⇒ uniform residuals; cvar>0 decorrelates the residuals). MIRRORS server.
@@ -503,7 +520,7 @@ def init_data_theta(model, P, dataset, N, in_dim, out_dim, device, dtype, cifar_
     # Fixed-target datasets (cifar10/sorting/chebyshev) load Y directly and so skip the residual-sign
     # construction above — force the requested initial residual sign here by overriding Y per sample
     # (keep the dataset's inputs X and the residual's natural magnitude; only its sign is pinned).
-    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev", "ksparse", "anglepair") and ssign in ("pos", "neg"):
+    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev", "ksparse", "anglepair", "saddle") and ssign in ("pos", "neg"):
         s = 1.0 if ssign == "pos" else -1.0
         floor = 0.25 * max(abs(tgt), 1e-6)
         f0 = model.forward(th, X)
