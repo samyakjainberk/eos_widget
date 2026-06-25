@@ -27,13 +27,13 @@ EVERY="--set s8=0 --set s9=0 --set s10=0 --set cubeevery=8 --set s24base=0 --set
 OPT="--set cubeevery=8 --set s24base=1 --set s25base=1 --set s24k=32 --set s24iter=40 \
  --set s1=0 --set s2=0 --set s3=0 --set s4=0 --set s5=0 --set s6=0 --set s7=0 --set s8=0 --set s9=0 --set s10=0 \
  --set s11=0 --set s12=0 --set s13=0 --set s14=0 --set s15=0 --set s16=0 --set s17=0 \
- --set s18=0 --set s19=0 --set s20=0 --set s21=0 --set s22=0 --set s23=0 --set s26=0 --set s27=0 --set s24=1 --set s25=1"
+ --set s18=0 --set s19=0 --set s20=0 --set s21=0 --set s22=0 --set s23=0 --set s26=0 --set s27=0 --set s28=0 --set s24=1 --set s25=1"
 
-# angle-pair base (2 samples ⇒ tiny N³ cubes; exercises §18 per-sample projections + §19 grad-norm vs D²NTK).
+# angle-pair base (2 samples ⇒ tiny N³ cubes; exercises §18 per-sample projections + §19 grad-norm vs D²NTK + §20 M_r histograms).
 AP="--dataset anglepair --arch mlp --width 64 --depth 2 --set bias=0 --nsamp 2 --indim 8 --steps 2500 $EVERY"
 
 declare -a JOBS=(
-  # ---- EVERYTHING ON (except §8/§4b/§4c) — §1-§15 + cubes + §15 + §16/§17 main + §18 + §19 ----
+  # ---- EVERYTHING ON (except §8/§4b/§4c) — §1-§15 + cubes + §15 + §16/§17 main + §18 + §19 + §20 (M_r histograms) ----
   "synth_all|--dataset synthetic --arch mlp --width 64 --act tanh --set fixedx=0 --nsamp 8 --lr 0.3 --steps 2500 $EVERY"
   "cheby_all|--dataset chebyshev --arch mlp --depth 6 --width 50 --nsamp 8 --lr 0.1 --steps 2500 $EVERY"
   "const_all|--dataset const --arch mlp --width 64 --act tanh --set fixedx=0 --nsamp 8 --lr 0.3 --steps 2000 $EVERY"
