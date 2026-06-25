@@ -1701,13 +1701,13 @@ def _sec20_payload(Jc, rr, th, X, N, outD, K):
     ntol = 1e-9 * max(float(Kc[0]) if int(Kc.numel()) > 0 else 0.0, 1e-30)   # null-direction cutoff: σ_k²≤tol·σ_1² ⇒ no k-th Jacobian dir
     zero = torch.zeros(p, dtype=Jg.dtype, device=_dev())
     us = []
-    for kk in range(3):                                    # top-3 right-singular vectors u_k = normalize(Jᵀ g_k); GATE on the NTK eigenvalue,
+    for kk in range(4):                                    # top-4 right-singular vectors u_k = normalize(Jᵀ g_k); GATE on the NTK eigenvalue,
         if kk < M and float(Kc[kk]) > ntol:                #   not ‖u_k‖ — a zero σ_k² makes Jᵀg_k≈round-off noise (backend-divergent if normalized)
             uk = Jg.t() @ Vc[:, kk]; nu = float(uk.norm())
             us.append(uk / nu if nu > 1e-30 else zero)
         else:
             us.append(zero)
-    lam, q1, q2, q3 = [], [], [], []
+    lam, q1, q2, q3, q4 = [], [], [], [], []
     scN = 1.0 / max(N, 1)                                   # ÷N: report (1/N)Σ_k r_k Q_k — the residual-weighted function
     for pos in positions:                                  #   Hessian on the MEAN-loss / per-sample scale, comparable to
         ix = int(desc[pos]); li = float(mu[ix]) * scN; vi = ritz(ix)   #   §1 sharpness & §2/§3 function-Hessian eigs (also ÷N)
@@ -1715,7 +1715,8 @@ def _sec20_payload(Jc, rr, th, X, N, outD, K):
         q1.append(li * abs(float(vi @ us[0])))
         q2.append(li * abs(float(vi @ us[1])))
         q3.append(li * abs(float(vi @ us[2])))
-    return {"lam": lam, "q1": q1, "q2": q2, "q3": q3, "K": Klan}
+        q4.append(li * abs(float(vi @ us[3])))
+    return {"lam": lam, "q1": q1, "q2": q2, "q3": q3, "q4": q4, "K": Klan}
 
 
 def hvpG(th, X, v):

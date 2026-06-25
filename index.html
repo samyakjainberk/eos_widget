@@ -397,17 +397,17 @@
 
 <div id="sec_s20" style="display:none">
 <h2>20 · spectral histograms of $M_r=\tfrac1N\sum_k r_k Q_k$ — eigenvalues &amp; alignment with the top Jacobian directions</h2>
-<p class="cap">Builds the <b>residual-weighted function Hessian</b> $M_r=\tfrac1N\sum_k r_k\,Q_k$ ($Q_k=\nabla^2 f_k$, $r_k$ the residual) — shown <b>$\div N$</b>, the same mean-loss / per-sample scale as §1's sharpness and §2/§3's function-Hessian eigenvalues (it is exactly the function-Hessian "$S$" term of the mean-loss Hessian $\nabla^2 L=\tfrac1N[J^\top J-\sum_k r_kQ_k]$), so its magnitudes are directly comparable to those sections. Extracts its <b>top-$K$ ⊕ bottom-$K$</b> eigenpairs $(\lambda_i,v_i)$ matrix-free by Lanczos. <b>Three bar plots</b>, one per top Jacobian direction $u_k$ ($k=1,2,3$). In each: the x-axis is the eigenvalues ordered <b>topmost (left) → bottommost (right)</b>, the y-axis is the <b>signed eigenvalue</b>, and two <b>overlaid</b> bar series — the actual $\lambda_i$ (grey) and $\lambda_i\,|\langle v_i,u_k\rangle|$ (colour). $u_k$ = the $k$-th <b>right-singular vector</b> of $J$ (= $\mathrm{normalize}(J^\top g_k)$, $g_k$ the $k$-th NTK $=JJ^\top$ eigenvector) — the "topmost eigenvectors of the Jacobian". So the coloured bar shows how much of each eigenvalue survives projection onto the $k$-th Jacobian direction ($|\langle\cdot\rangle|$ is gauge-free, $\le1$, so the coloured bar is always nested inside the grey one with the same sign). The y-axis is <b>centred on zero</b>. The bars <b>evolve over training</b> — drag the slider to scrub; each title shows the current ⟨running⟩ max/min eigenvalue. Small $N$; $K$ set in the toggle box. <span style="color:#94a3b8">(Plot $k$ is flat when $J$ has fewer than $k$ <b>nonzero</b> singular values — a zero $\sigma_k$ has no $k$-th Jacobian direction. anglepair has NTK rank 2 (plot 3 flat); the default <i>synthetic</i> dataset uses identical inputs, so its NTK is rank-1 (only plot 1 non-trivial). Datasets with distinct samples — e.g. <b>ksparse</b> — fill all three.)</span></p>
+<p class="cap">Builds the <b>residual-weighted function Hessian</b> $M_r=\tfrac1N\sum_k r_k\,Q_k$ ($Q_k=\nabla^2 f_k$, $r_k$ the residual) — shown <b>$\div N$</b>, the same mean-loss / per-sample scale as §1's sharpness and §2/§3's function-Hessian eigenvalues (it is exactly the function-Hessian "$S$" term of the mean-loss Hessian $\nabla^2 L=\tfrac1N[J^\top J-\sum_k r_kQ_k]$), so its magnitudes are directly comparable to those sections. Extracts its <b>top-$K$ ⊕ bottom-$K$</b> eigenpairs $(\lambda_i,v_i)$ matrix-free by Lanczos. <b>Four bar plots</b>, one per top Jacobian direction $u_k$ ($k=1,2,3,4$). In each: the x-axis is the eigenvalues ordered <b>topmost (left) → bottommost (right)</b>, the y-axis is the <b>signed eigenvalue</b>, and two <b>overlaid</b> bar series — the actual $\lambda_i$ (grey) and $\lambda_i\,|\langle v_i,u_k\rangle|$ (colour). $u_k$ = the $k$-th <b>right-singular vector</b> of $J$ (= $\mathrm{normalize}(J^\top g_k)$, $g_k$ the $k$-th NTK $=JJ^\top$ eigenvector) — the "topmost eigenvectors of the Jacobian". So the coloured bar shows how much of each eigenvalue survives projection onto the $k$-th Jacobian direction ($|\langle\cdot\rangle|$ is gauge-free, $\le1$, so the coloured bar is always nested inside the grey one with the same sign). The y-axis is <b>centred on zero</b>. The bars <b>evolve over training</b> — drag the slider to scrub; each title shows the current ⟨running⟩ max/min eigenvalue. Small $N$; $K$ set in the toggle box. <span style="color:#94a3b8">(Plot $k$ is flat when $J$ has fewer than $k$ <b>nonzero</b> singular values — a zero $\sigma_k$ has no $k$-th Jacobian direction. anglepair has NTK rank 2 (plots 3–4 flat); the default <i>synthetic</i> dataset uses identical inputs, so its NTK is rank-1 (only plot 1 non-trivial). Datasets with distinct samples — e.g. <b>ksparse</b> (NTK rank ≥ 4) — fill all four.)</span></p>
 <div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
   <label style="white-space:nowrap">snapshot</label>
   <input id="s20_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
   <span id="s20_step" style="white-space:nowrap;color:#475569;font-size:13px;min-width:140px">—</span>
 </div>
-<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — eigenvalues $\lambda_i$ (grey) vs $\lambda_i\,|\langle v_i,u_k\rangle|$ (colour), ordered topmost → bottommost · $k=1,2,3$</h3>
-<div class="plotrow row3"><div id="p_s20_b1" class="plot" style="height:380px"></div><div id="p_s20_b2" class="plot" style="height:380px"></div><div id="p_s20_b3" class="plot" style="height:380px"></div></div>
-<h3 style="margin:16px 0 2px;font-size:14px;color:#475569">Panel 2 — distribution of the alignment $|\langle v_i,u_k\rangle|$ between each $M_r$ eigenvector $v_i$ and the $k$-th Jacobian eigenvector $u_k$ ($k=1,2,3$)</h3>
-<p class="cap" style="margin:2px 0 4px">Histogram (over the $2K$ eigenvectors) of the bare alignment $|\langle v_i,u_k\rangle|\in[0,1]$ — the same projection used in Panel 1 but <b>without</b> the $\lambda_i$ weighting, so it isolates <i>how aligned</i> the eigenvectors are with the top-3 Jacobian directions (independent of eigenvalue size). $0$ = orthogonal, $1$ = parallel. (Eigenvectors with $\lambda_i\!\approx\!0$ are dropped, since their alignment is not identifiable from the eigenvalue-weighted record.)</p>
-<div class="plotrow row3"><div id="p_s20_a1" class="plot" style="height:300px"></div><div id="p_s20_a2" class="plot" style="height:300px"></div><div id="p_s20_a3" class="plot" style="height:300px"></div></div>
+<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — eigenvalues $\lambda_i$ (grey) vs $\lambda_i\,|\langle v_i,u_k\rangle|$ (colour), ordered topmost → bottommost · $k=1,2,3,4$</h3>
+<div class="plotrow row4"><div id="p_s20_b1" class="plot" style="height:360px"></div><div id="p_s20_b2" class="plot" style="height:360px"></div><div id="p_s20_b3" class="plot" style="height:360px"></div><div id="p_s20_b4" class="plot" style="height:360px"></div></div>
+<h3 style="margin:16px 0 2px;font-size:14px;color:#475569">Panel 2 — alignment $|\langle v_i,u_k\rangle|$ of each $M_r$ eigenvector $v_i$ with the $k$-th Jacobian eigenvector $u_k$, per eigenvalue ($k=1,2,3,4$)</h3>
+<p class="cap" style="margin:2px 0 4px"><b>Bar graph</b> with the <b>same x-axis as Panel 1</b> (eigenvalues ordered topmost → bottommost), where the height is the bare alignment $|\langle v_i,u_k\rangle|\in[0,1]$ — the same projection as Panel 1 but <b>without</b> the $\lambda_i$ weighting, so it isolates <i>how aligned</i> each eigenvector is with the top-4 Jacobian directions, independent of eigenvalue size. $0$ = orthogonal, $1$ = parallel; line up a bar with the one directly above it in Panel 1. (Bars at $\lambda_i\!\approx\!0$ are blank — alignment not identifiable from the eigenvalue-weighted record.)</p>
+<div class="plotrow row4"><div id="p_s20_a1" class="plot" style="height:290px"></div><div id="p_s20_a2" class="plot" style="height:290px"></div><div id="p_s20_a3" class="plot" style="height:290px"></div><div id="p_s20_a4" class="plot" style="height:290px"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -2469,7 +2469,7 @@ function s19Reset(){S19_DATA=null;S19_BUILT=false;for(const id of S19_IDS){try{P
 // ── §20: spectral histograms of M_r=Σ_k r_k Q_k — eigenvalue distribution + λ·|⟨v,u_k⟩| onto the top-3
 //    right-singular vectors of J. Each g20 record {t,lam,q1,q2,q3,K} is ONE snapshot; the slider scrubs them.
 //    Pushing just STORES the arrays (cheap) and redraws only the current snapshot → loading never hangs.
-const S20_IDS=['p_s20_b1','p_s20_b2','p_s20_b3','p_s20_a1','p_s20_a2','p_s20_a3'];
+const S20_IDS=['p_s20_b1','p_s20_b2','p_s20_b3','p_s20_b4','p_s20_a1','p_s20_a2','p_s20_a3','p_s20_a4'];
 let S20_SNAPS=[], S20_RAF=0, S20_PENDING=-1, S20_CURIDX=0; const S20_MAXSNAPS=2000;
 function s20Run(i,key){let mx=-Infinity,mn=Infinity;   // running largest/smallest over snapshots 0..i (the slider position), for the title "running quantity"
   for(let q=0;q<=i&&q<S20_SNAPS.length;q++){const a=S20_SNAPS[q][key];if(!a)continue;for(let z=0;z<a.length;z++){const v=a[z];if(!Number.isFinite(v))continue;if(v>mx)mx=v;if(v<mn)mn=v;}}
@@ -2490,24 +2490,26 @@ function s20BarDraw(id,lam,qk,qLabel,color,runMax,runMin){const div=document.get
     yaxis:{title:{text:'eigenvalue (signed)',font:{size:9}},range:[-A*1.06,A*1.06],zeroline:true,zerolinecolor:'#94a3b8',zerolinewidth:1.5,gridcolor:'#eef0f3'},
     showlegend:true,legend:{font:{size:8},x:0.99,xanchor:'right',y:0.99,yanchor:'top',bgcolor:'rgba(255,255,255,0.65)'}},
     {responsive:true,displaylogo:false});}
-// Panel 2: histogram of the bare alignment |⟨v_i,u_k⟩| ∈ [0,1] over the 2K eigenvectors.
-function s20AlignHist(id,vals,label,color){const div=document.getElementById(id);if(!div)return;
-  const xs=(vals||[]).filter(v=>Number.isFinite(v));
-  const tr={x:xs.slice(),type:'histogram',marker:{color:color,line:{color:'#fff',width:0.4}},xbins:{start:0,end:1.0001,size:1/40}};
+// Panel 2: BAR graph (like Panel 1) — x = eigenvalue rank (topmost → bottommost, same as Panel 1),
+// y = the bare alignment |⟨v_i,u_k⟩| ∈ [0,1]. One bar per eigenvalue, lined up under Panel 1.
+function s20AlignBar(id,vals,label,color){const div=document.getElementById(id);if(!div)return;
+  const n=(vals||[]).length,x=Array.from({length:n},(_,i)=>i);
+  const tr={x:x,y:(vals||[]).slice(),type:'bar',name:label,marker:{color:color}};
   Plotly.react(id,[tr],{title:{text:label,font:{size:10,color:'#475569'},x:0.04,xanchor:'left',y:0.985},
-    margin:{l:42,r:8,t:24,b:32},bargap:0.04,paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{size:9,color:'#374151'},
-    xaxis:{title:{text:'alignment |⟨v_i, u_k⟩|',font:{size:9}},range:[0,1],gridcolor:'#eef0f3'},
-    yaxis:{title:{text:'count',font:{size:9}},gridcolor:'#eef0f3'},
+    bargap:0.12,margin:{l:46,r:8,t:24,b:30},paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{size:9,color:'#374151'},
+    xaxis:{title:{text:'eigenvalue rank: topmost → bottommost',font:{size:9}},showticklabels:false,gridcolor:'#eef0f3',zeroline:false},
+    yaxis:{title:{text:'alignment |⟨v_i,u_k⟩|',font:{size:9}},range:[0,1.05],gridcolor:'#eef0f3',zeroline:true,zerolinecolor:'#94a3b8'},
     showlegend:false},{responsive:true,displaylogo:false});}
 function s20RenderNow(i){const s=S20_SNAPS[i];if(!s)return;S20_CURIDX=i;
-  const ids=['p_s20_b1','p_s20_b2','p_s20_b3'],keys=['q1','q2','q3'],cols=['#2563eb','#7c3aed','#db2777'];
-  const labs=['λ_i·|⟨v_i,u_1⟩|  (top Jacobian dir)','λ_i·|⟨v_i,u_2⟩|  (2nd Jacobian dir)','λ_i·|⟨v_i,u_3⟩|  (3rd Jacobian dir)'];
-  const r=s20Run(i,'lam');   // running spectral range of the eigenvalues (lam is shared across the 3 plots)
-  for(let k=0;k<3;k++)s20BarDraw(ids[k],s.lam,s[keys[k]],labs[k],cols[k],r[0],r[1]);
-  // Panel 2 — alignment |⟨v_i,u_k⟩| = |q_k/λ_i| (the ÷N cancels); drop λ_i≈0 (alignment not recoverable), clamp to [0,1].
-  const align=k=>{const L=s.lam,Q=s['q'+k]||[],a=[];for(let z=0;z<L.length;z++){const li=L[z];if(Number.isFinite(li)&&Math.abs(li)>1e-12){let v=Math.abs(Q[z]/li);if(v>1)v=1;a.push(v);}}return a;};
-  const alabs=['|⟨v_i, u_1⟩|  (top Jacobian dir)','|⟨v_i, u_2⟩|  (2nd Jacobian dir)','|⟨v_i, u_3⟩|  (3rd Jacobian dir)'];
-  for(let k=0;k<3;k++)s20AlignHist('p_s20_a'+(k+1),align(k+1),alabs[k],cols[k]);
+  const ids=['p_s20_b1','p_s20_b2','p_s20_b3','p_s20_b4'],keys=['q1','q2','q3','q4'],cols=['#2563eb','#7c3aed','#db2777','#ea580c'];
+  const labs=['λ_i·|⟨v_i,u_1⟩|  (top Jacobian dir)','λ_i·|⟨v_i,u_2⟩|  (2nd Jacobian dir)','λ_i·|⟨v_i,u_3⟩|  (3rd Jacobian dir)','λ_i·|⟨v_i,u_4⟩|  (4th Jacobian dir)'];
+  const r=s20Run(i,'lam');   // running spectral range of the eigenvalues (lam is shared across the plots)
+  for(let k=0;k<4;k++)s20BarDraw(ids[k],s.lam,s[keys[k]],labs[k],cols[k],r[0],r[1]);
+  // Panel 2 — alignment |⟨v_i,u_k⟩| = |q_k/λ_i| (÷N cancels) per eigenvalue, SAME rank order as Panel 1 (full-length,
+  // null where λ_i≈0 so alignment isn't recoverable; clamped to [0,1]).
+  const align=k=>{const L=s.lam,Q=s['q'+k]||[],a=[];for(let z=0;z<L.length;z++){const li=L[z];if(Number.isFinite(li)&&Math.abs(li)>1e-12){let v=Math.abs(Q[z]/li);if(v>1)v=1;a.push(v);}else a.push(null);}return a;};
+  const alabs=['|⟨v_i, u_1⟩|  (top Jacobian dir)','|⟨v_i, u_2⟩|  (2nd Jacobian dir)','|⟨v_i, u_3⟩|  (3rd Jacobian dir)','|⟨v_i, u_4⟩|  (4th Jacobian dir)'];
+  for(let k=0;k<4;k++)s20AlignBar('p_s20_a'+(k+1),align(k+1),alabs[k],cols[k]);
   const sp=document.getElementById('s20_step');if(sp)sp.textContent=`step ${s.t}  ·  snapshot ${i+1}/${S20_SNAPS.length}  ·  K=${s.K}`;
   const sl=document.getElementById('s20_slider');if(sl&&+sl.value!==i)sl.value=i;}
 function s20RenderIdx(i){S20_PENDING=i;if(S20_RAF)return;S20_RAF=requestAnimationFrame(()=>{S20_RAF=0;const j=S20_PENDING;S20_PENDING=-1;if(j>=0)s20RenderNow(j);});}
@@ -3788,22 +3790,22 @@ async function loop(){                                   // drives ST forward; r
           let trNTK=0; for(let k=0;k<M;k++){const jk=bJc[k];for(let i=0;i<p;i++)trNTK+=jk[i]*jk[i];}         // ‖J‖²_F=tr(NTK)
           s19Push({type:'g19',t:S.t,A:gnn-gn,trNTK:trNTK,gn:gn,gn_next:gnn});
         }
-        if(O.s28&&S.eigTick%S.g3dStride===0&&M<=S.grid3dcap&&bJc&&rrs){   // §20: M_r=Σr_kQ_k spectral histograms — top-K⊕bottom-K eigvals + λ·|⟨v,u_k⟩| for top-3 right-singular u_k. MIRRORS server._sec20_payload
+        if(O.s28&&S.eigTick%S.g3dStride===0&&M<=S.grid3dcap&&bJc&&rrs){   // §20: M_r=Σr_kQ_k spectral histograms — top-K⊕bottom-K eigvals + λ·|⟨v,u_k⟩| for top-4 right-singular u_k. MIRRORS server._sec20_payload
           const K=Math.max(1,Math.min(S.s28k|0,p)),mlan=Math.min(p,Math.max(2*K+16,32));
           const lc=lanczosCore(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,rrs),p,mlan,randVec(p,0x205EE0));   // mulberry32 start (cross-backend); M_r v = Σ_k r_k Q_k v
           const kk=lc.k,eg=jacobiEig(lc.T,kk);                                  // Ritz eigenpairs of M_r
           const desc=Array.from({length:kk},(_,i)=>i).sort((a,b)=>eg.vals[b]-eg.vals[a]);
           const ritz=ti=>{const out=new Float64Array(p);for(let j=0;j<kk;j++){const c=eg.V[j*kk+ti],qj=lc.Q[j];for(let i=0;i<p;i++)out[i]+=c*qj[i];}return out;};
           const ntol=1e-9*Math.max((bEk&&bEk.vals.length)?bEk.vals[0]:0,1e-30);   // null-direction cutoff (σ_k²≤tol·σ_1² ⇒ no k-th Jacobian dir; avoids normalizing round-off noise)
-          const us=[];for(let c=0;c<3;c++){                                     // u_k = normalize(Jᵀ g_k), g_k = k-th NTK eigvec; GATE on the NTK eigenvalue bEk.vals[c]
+          const us=[];for(let c=0;c<4;c++){                                     // u_k = normalize(Jᵀ g_k), g_k = k-th NTK eigvec; GATE on the NTK eigenvalue bEk.vals[c]
             if(c<M&&bEk&&bEk.vecs[c]&&bEk.vals[c]>ntol){const g=bEk.vecs[c],u=new Float64Array(p);for(let a=0;a<M;a++){const ca=g[a],ja=bJc[a];for(let i=0;i<p;i++)u[i]+=ca*ja[i];}
               const nu=norm(u);if(nu>1e-30)for(let i=0;i<p;i++)u[i]/=nu;else u.fill(0);us.push(u);}
             else us.push(new Float64Array(p));}
           const kt=Math.min(K,kk),bs=Math.max(kt,kk-K),pos=[];for(let i=0;i<kt;i++)pos.push(i);for(let i=bs;i<kk;i++)pos.push(i);   // top-K⊕bottom-K DISTINCT
-          const lam=[],q1=[],q2=[],q3=[],scN=1/Math.max(N,1);   // ÷N → (1/N)Σ_k r_k Q_k, per-sample/mean-loss scale (comparable to §1/§2/§3, also ÷N)
+          const lam=[],q1=[],q2=[],q3=[],q4=[],scN=1/Math.max(N,1);   // ÷N → (1/N)Σ_k r_k Q_k, per-sample/mean-loss scale (comparable to §1/§2/§3, also ÷N)
           for(const pp of pos){const ti=desc[pp],li=eg.vals[ti]*scN,v=ritz(ti);lam.push(li);
-            q1.push(li*Math.abs(dot(v,us[0])));q2.push(li*Math.abs(dot(v,us[1])));q3.push(li*Math.abs(dot(v,us[2])));}
-          s20Push({type:'g20',t:S.t,lam,q1,q2,q3,K});
+            q1.push(li*Math.abs(dot(v,us[0])));q2.push(li*Math.abs(dot(v,us[1])));q3.push(li*Math.abs(dot(v,us[2])));q4.push(li*Math.abs(dot(v,us[3])));}
+          s20Push({type:'g20',t:S.t,lam,q1,q2,q3,q4,K});
         }
         // Q[u₁] = Σ_a (u₁)_a ∇²f_a — extreme eigvecs (shared by §4b and §4d), sign-tracked once
         let qe=null;
