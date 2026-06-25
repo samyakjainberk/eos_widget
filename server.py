@@ -1708,8 +1708,9 @@ def _sec20_payload(Jc, rr, th, X, N, outD, K):
         else:
             us.append(zero)
     lam, q1, q2, q3 = [], [], [], []
-    for pos in positions:
-        ix = int(desc[pos]); li = float(mu[ix]); vi = ritz(ix)
+    scN = 1.0 / max(N, 1)                                   # ÷N: report (1/N)Σ_k r_k Q_k — the residual-weighted function
+    for pos in positions:                                  #   Hessian on the MEAN-loss / per-sample scale, comparable to
+        ix = int(desc[pos]); li = float(mu[ix]) * scN; vi = ritz(ix)   #   §1 sharpness & §2/§3 function-Hessian eigs (also ÷N)
         lam.append(li)
         q1.append(li * abs(float(vi @ us[0])))
         q2.append(li * abs(float(vi @ us[1])))

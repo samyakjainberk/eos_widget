@@ -396,8 +396,8 @@
 </div>
 
 <div id="sec_s20" style="display:none">
-<h2>20 · spectral histograms of $M_r=\sum_k r_k Q_k$ — eigenvalues &amp; alignment with the top Jacobian directions</h2>
-<p class="cap">Builds the <b>residual-weighted function Hessian</b> $M_r=\sum_k r_k\,Q_k$ ($Q_k=\nabla^2 f_k$, $r_k$ the residual) and extracts its <b>top-$K$ ⊕ bottom-$K$</b> eigenpairs $(\lambda_i,v_i)$ matrix-free by Lanczos. <b>Plot 1</b>: histogram of the eigenvalues $\{\lambda_i\}$. <b>Plots 2/3/4</b>: histogram of $\{\lambda_i\,|\langle v_i,u_k\rangle|\}$ for $k=1,2,3$, where $u_k$ = the $k$-th <b>right-singular vector</b> of $J$ (= $\mathrm{normalize}(J^\top g_k)$, $g_k$ the $k$-th NTK $=JJ^\top$ eigenvector) — the "topmost eigenvectors of the Jacobian". So each eigenvalue is weighted by how strongly its eigenvector aligns with the top-3 Jacobian directions ($|\langle\cdot\rangle|$ is gauge-free). All four are shown in <b>one row</b>, each <b>centred on zero</b> (symmetric x-axis, a bin edge exactly at 0). The histograms <b>evolve over training</b> — drag the slider to scrub. Each title reads <b>max</b> / <b>min</b> = the current snapshot's largest/smallest value, and <b>⟨run …⟩</b> = the running largest/smallest over all snapshots up to the slider position. Small $N$; $K$ set in the toggle box. <span style="color:#94a3b8">(Plot $k$ is empty when $J$ has fewer than $k$ <b>nonzero</b> singular values — a zero $\sigma_k$ has no $k$-th Jacobian direction. anglepair has NTK rank 2 (plot 4 empty); the default <i>synthetic</i> dataset uses identical inputs, so its NTK is rank-1 (only plots 1–2 non-trivial). Datasets with distinct samples — e.g. <b>ksparse</b> — fill all four.)</span></p>
+<h2>20 · spectral histograms of $M_r=\tfrac1N\sum_k r_k Q_k$ — eigenvalues &amp; alignment with the top Jacobian directions</h2>
+<p class="cap">Builds the <b>residual-weighted function Hessian</b> $M_r=\tfrac1N\sum_k r_k\,Q_k$ ($Q_k=\nabla^2 f_k$, $r_k$ the residual) — shown <b>$\div N$</b>, the same mean-loss / per-sample scale as §1's sharpness and §2/§3's function-Hessian eigenvalues (it is exactly the function-Hessian "$S$" term of the mean-loss Hessian $\nabla^2 L=\tfrac1N[J^\top J-\sum_k r_kQ_k]$), so its magnitudes are directly comparable to those sections. Extracts its <b>top-$K$ ⊕ bottom-$K$</b> eigenpairs $(\lambda_i,v_i)$ matrix-free by Lanczos. <b>Plot 1</b>: histogram of the eigenvalues $\{\lambda_i\}$. <b>Plots 2/3/4</b>: histogram of $\{\lambda_i\,|\langle v_i,u_k\rangle|\}$ for $k=1,2,3$, where $u_k$ = the $k$-th <b>right-singular vector</b> of $J$ (= $\mathrm{normalize}(J^\top g_k)$, $g_k$ the $k$-th NTK $=JJ^\top$ eigenvector) — the "topmost eigenvectors of the Jacobian". So each eigenvalue is weighted by how strongly its eigenvector aligns with the top-3 Jacobian directions ($|\langle\cdot\rangle|$ is gauge-free). All four are shown in <b>one row</b>, each <b>centred on zero</b> (symmetric x-axis, a bin edge exactly at 0). The histograms <b>evolve over training</b> — drag the slider to scrub. Each title reads <b>max</b> / <b>min</b> = the current snapshot's largest/smallest value, and <b>⟨run …⟩</b> = the running largest/smallest over all snapshots up to the slider position. Small $N$; $K$ set in the toggle box. <span style="color:#94a3b8">(Plot $k$ is empty when $J$ has fewer than $k$ <b>nonzero</b> singular values — a zero $\sigma_k$ has no $k$-th Jacobian direction. anglepair has NTK rank 2 (plot 4 empty); the default <i>synthetic</i> dataset uses identical inputs, so its NTK is rank-1 (only plots 1–2 non-trivial). Datasets with distinct samples — e.g. <b>ksparse</b> — fill all four.)</span></p>
 <div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
   <label style="white-space:nowrap">snapshot</label>
   <input id="s20_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
@@ -2486,7 +2486,7 @@ function s20HistDraw(id,vals,base,color,runMax,runMin){const div=document.getEle
     showlegend:false},{responsive:true,displaylogo:false});}
 function s20RenderNow(i){const s=S20_SNAPS[i];if(!s)return;S20_CURIDX=i;
   const ids=['p_s20_lam','p_s20_q1','p_s20_q2','p_s20_q3'],keys=['lam','q1','q2','q3'],cols=['#0f766e','#2563eb','#7c3aed','#db2777'];
-  const bases=['eigenvalues λ_i  (M_r=Σr_kQ_k)','λ_i·|⟨v_i,u_1⟩|  (top Jacobian dir)','λ_i·|⟨v_i,u_2⟩|  (2nd Jacobian dir)','λ_i·|⟨v_i,u_3⟩|  (3rd Jacobian dir)'];
+  const bases=['eigenvalues λ_i  (M_r=(1/N)Σr_kQ_k)','λ_i·|⟨v_i,u_1⟩|  (top Jacobian dir)','λ_i·|⟨v_i,u_2⟩|  (2nd Jacobian dir)','λ_i·|⟨v_i,u_3⟩|  (3rd Jacobian dir)'];
   for(let k=0;k<4;k++){const r=s20Run(i,keys[k]);s20HistDraw(ids[k],s[keys[k]],bases[k],cols[k],r[0],r[1]);}
   const sp=document.getElementById('s20_step');if(sp)sp.textContent=`step ${s.t}  ·  snapshot ${i+1}/${S20_SNAPS.length}  ·  K=${s.K}`;
   const sl=document.getElementById('s20_slider');if(sl&&+sl.value!==i)sl.value=i;}
@@ -3780,8 +3780,8 @@ async function loop(){                                   // drives ST forward; r
               const nu=norm(u);if(nu>1e-30)for(let i=0;i<p;i++)u[i]/=nu;else u.fill(0);us.push(u);}
             else us.push(new Float64Array(p));}
           const kt=Math.min(K,kk),bs=Math.max(kt,kk-K),pos=[];for(let i=0;i<kt;i++)pos.push(i);for(let i=bs;i<kk;i++)pos.push(i);   // top-K⊕bottom-K DISTINCT
-          const lam=[],q1=[],q2=[],q3=[];
-          for(const pp of pos){const ti=desc[pp],li=eg.vals[ti],v=ritz(ti);lam.push(li);
+          const lam=[],q1=[],q2=[],q3=[],scN=1/Math.max(N,1);   // ÷N → (1/N)Σ_k r_k Q_k, per-sample/mean-loss scale (comparable to §1/§2/§3, also ÷N)
+          for(const pp of pos){const ti=desc[pp],li=eg.vals[ti]*scN,v=ritz(ti);lam.push(li);
             q1.push(li*Math.abs(dot(v,us[0])));q2.push(li*Math.abs(dot(v,us[1])));q3.push(li*Math.abs(dot(v,us[2])));}
           s20Push({type:'g20',t:S.t,lam,q1,q2,q3,K});
         }
