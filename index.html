@@ -397,13 +397,13 @@
 
 <div id="sec_s20" style="display:none">
 <h2>20 · spectral histograms of $M_r=\tfrac1N\sum_k r_k Q_k$ — eigenvalues &amp; alignment with the top Jacobian directions</h2>
-<p class="cap">Builds the <b>residual-weighted function Hessian</b> $M_r=\tfrac1N\sum_k r_k\,Q_k$ ($Q_k=\nabla^2 f_k$, $r_k$ the residual) — shown <b>$\div N$</b>, the same mean-loss / per-sample scale as §1's sharpness and §2/§3's function-Hessian eigenvalues (it is exactly the function-Hessian "$S$" term of the mean-loss Hessian $\nabla^2 L=\tfrac1N[J^\top J-\sum_k r_kQ_k]$), so its magnitudes are directly comparable to those sections. Extracts its <b>top-$K$ ⊕ bottom-$K$</b> eigenpairs $(\lambda_i,v_i)$ matrix-free by Lanczos. <b>Plot 1</b>: histogram of the eigenvalues $\{\lambda_i\}$. <b>Plots 2/3/4</b>: histogram of $\{\lambda_i\,|\langle v_i,u_k\rangle|\}$ for $k=1,2,3$, where $u_k$ = the $k$-th <b>right-singular vector</b> of $J$ (= $\mathrm{normalize}(J^\top g_k)$, $g_k$ the $k$-th NTK $=JJ^\top$ eigenvector) — the "topmost eigenvectors of the Jacobian". So each eigenvalue is weighted by how strongly its eigenvector aligns with the top-3 Jacobian directions ($|\langle\cdot\rangle|$ is gauge-free). All four are shown in <b>one row</b>, each <b>centred on zero</b> (symmetric x-axis, a bin edge exactly at 0). The histograms <b>evolve over training</b> — drag the slider to scrub. Each title reads <b>max</b> / <b>min</b> = the current snapshot's largest/smallest value, and <b>⟨run …⟩</b> = the running largest/smallest over all snapshots up to the slider position. Small $N$; $K$ set in the toggle box. <span style="color:#94a3b8">(Plot $k$ is empty when $J$ has fewer than $k$ <b>nonzero</b> singular values — a zero $\sigma_k$ has no $k$-th Jacobian direction. anglepair has NTK rank 2 (plot 4 empty); the default <i>synthetic</i> dataset uses identical inputs, so its NTK is rank-1 (only plots 1–2 non-trivial). Datasets with distinct samples — e.g. <b>ksparse</b> — fill all four.)</span></p>
+<p class="cap">Builds the <b>residual-weighted function Hessian</b> $M_r=\tfrac1N\sum_k r_k\,Q_k$ ($Q_k=\nabla^2 f_k$, $r_k$ the residual) — shown <b>$\div N$</b>, the same mean-loss / per-sample scale as §1's sharpness and §2/§3's function-Hessian eigenvalues (it is exactly the function-Hessian "$S$" term of the mean-loss Hessian $\nabla^2 L=\tfrac1N[J^\top J-\sum_k r_kQ_k]$), so its magnitudes are directly comparable to those sections. Extracts its <b>top-$K$ ⊕ bottom-$K$</b> eigenpairs $(\lambda_i,v_i)$ matrix-free by Lanczos. <b>Three bar plots</b>, one per top Jacobian direction $u_k$ ($k=1,2,3$). In each: the x-axis is the eigenvalues ordered <b>topmost (left) → bottommost (right)</b>, the y-axis is the <b>signed eigenvalue</b>, and two <b>overlaid</b> bar series — the actual $\lambda_i$ (grey) and $\lambda_i\,|\langle v_i,u_k\rangle|$ (colour). $u_k$ = the $k$-th <b>right-singular vector</b> of $J$ (= $\mathrm{normalize}(J^\top g_k)$, $g_k$ the $k$-th NTK $=JJ^\top$ eigenvector) — the "topmost eigenvectors of the Jacobian". So the coloured bar shows how much of each eigenvalue survives projection onto the $k$-th Jacobian direction ($|\langle\cdot\rangle|$ is gauge-free, $\le1$, so the coloured bar is always nested inside the grey one with the same sign). The y-axis is <b>centred on zero</b>. The bars <b>evolve over training</b> — drag the slider to scrub; each title shows the current ⟨running⟩ max/min eigenvalue. Small $N$; $K$ set in the toggle box. <span style="color:#94a3b8">(Plot $k$ is flat when $J$ has fewer than $k$ <b>nonzero</b> singular values — a zero $\sigma_k$ has no $k$-th Jacobian direction. anglepair has NTK rank 2 (plot 3 flat); the default <i>synthetic</i> dataset uses identical inputs, so its NTK is rank-1 (only plot 1 non-trivial). Datasets with distinct samples — e.g. <b>ksparse</b> — fill all three.)</span></p>
 <div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
   <label style="white-space:nowrap">snapshot</label>
   <input id="s20_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
   <span id="s20_step" style="white-space:nowrap;color:#475569;font-size:13px;min-width:140px">—</span>
 </div>
-<div class="plotrow row4"><div id="p_s20_lam" class="plot" style="height:330px"></div><div id="p_s20_q1" class="plot" style="height:330px"></div><div id="p_s20_q2" class="plot" style="height:330px"></div><div id="p_s20_q3" class="plot" style="height:330px"></div></div>
+<div class="plotrow row3"><div id="p_s20_b1" class="plot" style="height:380px"></div><div id="p_s20_b2" class="plot" style="height:380px"></div><div id="p_s20_b3" class="plot" style="height:380px"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -2465,29 +2465,32 @@ function s19Reset(){S19_DATA=null;S19_BUILT=false;for(const id of S19_IDS){try{P
 // ── §20: spectral histograms of M_r=Σ_k r_k Q_k — eigenvalue distribution + λ·|⟨v,u_k⟩| onto the top-3
 //    right-singular vectors of J. Each g20 record {t,lam,q1,q2,q3,K} is ONE snapshot; the slider scrubs them.
 //    Pushing just STORES the arrays (cheap) and redraws only the current snapshot → loading never hangs.
-const S20_IDS=['p_s20_lam','p_s20_q1','p_s20_q2','p_s20_q3'];
-const S20_HISTBINS=44;
+const S20_IDS=['p_s20_b1','p_s20_b2','p_s20_b3'];
 let S20_SNAPS=[], S20_RAF=0, S20_PENDING=-1, S20_CURIDX=0; const S20_MAXSNAPS=2000;
 function s20Run(i,key){let mx=-Infinity,mn=Infinity;   // running largest/smallest over snapshots 0..i (the slider position), for the title "running quantity"
   for(let q=0;q<=i&&q<S20_SNAPS.length;q++){const a=S20_SNAPS[q][key];if(!a)continue;for(let z=0;z<a.length;z++){const v=a[z];if(!Number.isFinite(v))continue;if(v>mx)mx=v;if(v<mn)mn=v;}}
   return [isFinite(mx)?mx:null,isFinite(mn)?mn:null];}
-function s20HistDraw(id,vals,base,color,runMax,runMin){const div=document.getElementById(id);if(!div)return;
-  const xs=(vals||[]).filter(v=>Number.isFinite(v));   // Number.isFinite ⇒ JSON null/strings also dropped (isFinite(null)===true would leak)
-  let lo=Infinity,hi=-Infinity;for(const v of xs){if(v<lo)lo=v;if(v>hi)hi=v;}
-  const curMax=isFinite(hi)?hi:null,curMin=isFinite(lo)?lo:null;   // largest / smallest in THIS snapshot
-  let A=Math.max(Math.abs(curMin==null?0:curMin),Math.abs(curMax==null?0:curMax));if(!(A>0))A=0.5;   // symmetric half-range ⇒ ZERO ALWAYS AT THE CENTRE
-  const sz=2*A/S20_HISTBINS;const xbins={start:-A,end:A,size:sz};   // even bin count ⇒ a bin EDGE sits exactly at 0
-  const tr={x:xs.slice(),type:'histogram',marker:{color:color,line:{color:'#fff',width:0.4}},xbins:xbins};
-  const title=base+'<br>max '+fmtMu(curMax)+' ⟨run '+fmtMu(runMax)+'⟩  ·  min '+fmtMu(curMin)+' ⟨run '+fmtMu(runMin)+'⟩';   // current largest/smallest + ⟨running⟩ over the run so far
-  Plotly.react(id,[tr],{title:{text:title,font:{size:10,color:'#475569'},x:0.04,xanchor:'left',y:0.985},
-    margin:{l:40,r:6,t:34,b:30},bargap:0.04,paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{size:9,color:'#374151'},
-    xaxis:{range:[-A*1.04,A*1.04],gridcolor:'#eef0f3',zeroline:true,zerolinecolor:'#94a3b8',zerolinewidth:1.5},   // symmetric range keeps 0 centred
-    yaxis:{title:{text:'count',font:{size:9}},gridcolor:'#eef0f3'},
-    showlegend:false},{responsive:true,displaylogo:false});}
+// One §20 bar plot: x = eigenvalue RANK (0=topmost … n−1=bottommost, lam is already descending), y = signed value.
+// Two OVERLAID bar series: the actual eigenvalues λ_i (grey) and λ_i·|⟨v_i,u_k⟩| (colour). y centred on 0.
+function s20BarDraw(id,lam,qk,qLabel,color,runMax,runMin){const div=document.getElementById(id);if(!div)return;
+  const L=lam||[],Q=qk||[],n=L.length,x=Array.from({length:n},(_,i)=>i);
+  let A=0,curMax=-Infinity,curMin=Infinity;
+  for(const v of L){if(!Number.isFinite(v))continue;const a=Math.abs(v);if(a>A)A=a;if(v>curMax)curMax=v;if(v<curMin)curMin=v;}
+  if(!(A>0))A=0.5;
+  const tLam={x:x,y:L.slice(),type:'bar',name:'λ_i  (eigenvalue)',marker:{color:'#cbd5e1',line:{color:'#94a3b8',width:0.3}}};
+  const tQk ={x:x,y:Q.slice(),type:'bar',name:qLabel,marker:{color:color}};
+  const title=qLabel+'  vs  λ_i<br>max λ '+fmtMu(isFinite(curMax)?curMax:null)+' ⟨run '+fmtMu(runMax)+'⟩  ·  min λ '+fmtMu(isFinite(curMin)?curMin:null)+' ⟨run '+fmtMu(runMin)+'⟩';
+  Plotly.react(id,[tLam,tQk],{title:{text:title,font:{size:10,color:'#475569'},x:0.04,xanchor:'left',y:0.985},
+    barmode:'overlay',bargap:0.12,margin:{l:46,r:8,t:34,b:30},paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{size:9,color:'#374151'},
+    xaxis:{title:{text:'eigenvalue rank: topmost → bottommost',font:{size:9}},showticklabels:false,gridcolor:'#eef0f3',zeroline:false},
+    yaxis:{title:{text:'eigenvalue (signed)',font:{size:9}},range:[-A*1.06,A*1.06],zeroline:true,zerolinecolor:'#94a3b8',zerolinewidth:1.5,gridcolor:'#eef0f3'},
+    showlegend:true,legend:{font:{size:8},x:0.99,xanchor:'right',y:0.99,yanchor:'top',bgcolor:'rgba(255,255,255,0.65)'}},
+    {responsive:true,displaylogo:false});}
 function s20RenderNow(i){const s=S20_SNAPS[i];if(!s)return;S20_CURIDX=i;
-  const ids=['p_s20_lam','p_s20_q1','p_s20_q2','p_s20_q3'],keys=['lam','q1','q2','q3'],cols=['#0f766e','#2563eb','#7c3aed','#db2777'];
-  const bases=['eigenvalues λ_i  (M_r=(1/N)Σr_kQ_k)','λ_i·|⟨v_i,u_1⟩|  (top Jacobian dir)','λ_i·|⟨v_i,u_2⟩|  (2nd Jacobian dir)','λ_i·|⟨v_i,u_3⟩|  (3rd Jacobian dir)'];
-  for(let k=0;k<4;k++){const r=s20Run(i,keys[k]);s20HistDraw(ids[k],s[keys[k]],bases[k],cols[k],r[0],r[1]);}
+  const ids=['p_s20_b1','p_s20_b2','p_s20_b3'],keys=['q1','q2','q3'],cols=['#2563eb','#7c3aed','#db2777'];
+  const labs=['λ_i·|⟨v_i,u_1⟩|  (top Jacobian dir)','λ_i·|⟨v_i,u_2⟩|  (2nd Jacobian dir)','λ_i·|⟨v_i,u_3⟩|  (3rd Jacobian dir)'];
+  const r=s20Run(i,'lam');   // running spectral range of the eigenvalues (lam is shared across the 3 plots)
+  for(let k=0;k<3;k++)s20BarDraw(ids[k],s.lam,s[keys[k]],labs[k],cols[k],r[0],r[1]);
   const sp=document.getElementById('s20_step');if(sp)sp.textContent=`step ${s.t}  ·  snapshot ${i+1}/${S20_SNAPS.length}  ·  K=${s.K}`;
   const sl=document.getElementById('s20_slider');if(sl&&+sl.value!==i)sl.value=i;}
 function s20RenderIdx(i){S20_PENDING=i;if(S20_RAF)return;S20_RAF=requestAnimationFrame(()=>{S20_RAF=0;const j=S20_PENDING;S20_PENDING=-1;if(j>=0)s20RenderNow(j);});}
