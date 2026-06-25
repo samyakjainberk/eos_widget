@@ -21,7 +21,10 @@
 #SBATCH --output=slurm-%j.out
 
 set -u
-PORT=${PORT:-8756}   # override per-instance:  sbatch --export=ALL,PORT=8757 run_a100_localhost.sh
+PORT=${PORT:-8756}      # override per-instance:  sbatch --export=ALL,PORT=8757 run_serve_localhost.sh
+DEVICES=${DEVICES:-cpu} # cpu (float64, no GPU gres) OR all/cuda (float32, needs --gres=gpu:1):
+                        #   GPU: sbatch --gres=gpu:1 --export=ALL,PORT=8756,DEVICES=all run_serve_localhost.sh
+                        #   CPU: sbatch          --export=ALL,PORT=8758,DEVICES=cpu run_serve_localhost.sh
 LOGIN=rnn.ist.berkeley.edu
 PY=/nas/ucb/samsj/conda_env/envs/samsenv/bin/python
 DIR=/nas/ucb/samsj/TestingPSTheory/eos_widget
@@ -42,7 +45,7 @@ cd "$DIR"
 SERVER_PID=""; SSH_PID=""
 
 start_server() {
-  "$PY" -u server.py --devices cpu --port "$PORT" --host 0.0.0.0 --cifar-dir "$CIFAR" &
+  "$PY" -u server.py --devices "$DEVICES" --port "$PORT" --host 0.0.0.0 --cifar-dir "$CIFAR" &
   SERVER_PID=$!
   echo "[launcher] server started (pid $SERVER_PID)"
 }
