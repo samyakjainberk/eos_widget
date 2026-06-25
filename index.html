@@ -2469,10 +2469,10 @@ const S20_IDS=['p_s20_lam','p_s20_q1','p_s20_q2','p_s20_q3'];
 const S20_HISTBINS=44;
 let S20_SNAPS=[], S20_RAF=0, S20_PENDING=-1, S20_CURIDX=0; const S20_MAXSNAPS=2000;
 function s20Run(i,key){let mx=-Infinity,mn=Infinity;   // running largest/smallest over snapshots 0..i (the slider position), for the title "running quantity"
-  for(let q=0;q<=i&&q<S20_SNAPS.length;q++){const a=S20_SNAPS[q][key];if(!a)continue;for(let z=0;z<a.length;z++){const v=a[z];if(!isFinite(v))continue;if(v>mx)mx=v;if(v<mn)mn=v;}}
+  for(let q=0;q<=i&&q<S20_SNAPS.length;q++){const a=S20_SNAPS[q][key];if(!a)continue;for(let z=0;z<a.length;z++){const v=a[z];if(!Number.isFinite(v))continue;if(v>mx)mx=v;if(v<mn)mn=v;}}
   return [isFinite(mx)?mx:null,isFinite(mn)?mn:null];}
 function s20HistDraw(id,vals,base,color,runMax,runMin){const div=document.getElementById(id);if(!div)return;
-  const xs=(vals||[]).filter(v=>isFinite(v));
+  const xs=(vals||[]).filter(v=>Number.isFinite(v));   // Number.isFinite ⇒ JSON null/strings also dropped (isFinite(null)===true would leak)
   let lo=Infinity,hi=-Infinity;for(const v of xs){if(v<lo)lo=v;if(v>hi)hi=v;}
   const curMax=isFinite(hi)?hi:null,curMin=isFinite(lo)?lo:null;   // largest / smallest in THIS snapshot
   let A=Math.max(Math.abs(curMin==null?0:curMin),Math.abs(curMax==null?0:curMax));if(!(A>0))A=0.5;   // symmetric half-range ⇒ ZERO ALWAYS AT THE CENTRE
@@ -4447,7 +4447,7 @@ const PRESETS={
   chebyshev:{dataset:'chebyshev',arch:'mlp',loss:'mse',depth:6,width:50,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.1,init:0.5,nsamp:20,batch:0,indim:1,outdim:1,degree:3,tgt:1.0,neig:3,kth:1,steps:5000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // k-sparse parity: 10 ±1 input bits, label = product (parity) of a fixed random k=3-subset → ±1; tanh MLP, MSE.
   // Runs in-browser; switch arch→gpt + Compute→GPU backend for the transformer version (same dataset).
-  ksparse_mlp:{dataset:'ksparse',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:24,batch:0,indim:10,outdim:1,ksparse:3,tgt:1.0,neig:3,kth:1,steps:600,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en24:1,en25:1,qapprox:25,qmode:1,tset:3,compute:'browser'},
+  ksparse_mlp:{dataset:'ksparse',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:24,batch:0,indim:10,outdim:1,ksparse:3,tgt:1.0,neig:3,kth:1,steps:600,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en24:1,en25:1,en28:1,s28k:40,qapprox:25,qmode:1,tset:3,compute:'browser'},
   // k-sparse parity with the mini-GPT transformer (GPU backend): the in_dim ±1 bits are read as a length-in_dim
   // sequence of bit-tokens and the per-position head is mean-pooled to the one scalar ±1 parity. MSE.
   ksparse_gpt:{dataset:'ksparse',arch:'gpt',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.005,init:0.5,nsamp:24,batch:0,indim:10,outdim:1,ksparse:3,tgt:1.0,neig:3,kth:1,steps:1000,eigevery:1,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:48,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en24:1,en25:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
@@ -4504,6 +4504,7 @@ syncInitScaleEnabled();   // grey out init_scale on load if the current scheme i
 {const sl=document.getElementById('s12_slider');if(sl)sl.addEventListener('input',function(){s12RenderIdx(+this.value);});}   // §12 scrub past snapshots
 {const sl=document.getElementById('s13_slider');if(sl)sl.addEventListener('input',function(){s12RenderIdx(+this.value);});}   // §13 scrub (shares §12 snapshots; s12RenderNow re-syncs both sliders)
 {const sl=document.getElementById('s14_slider');if(sl)sl.addEventListener('input',function(){s14RenderNow(+this.value);});}   // §14 scrub past snapshots (own S14_SNAPS)
+{const sl=document.getElementById('s20_slider');if(sl)sl.addEventListener('input',function(){s20RenderIdx(+this.value);});}   // §20 scrub past M_r-histogram snapshots (own S20_SNAPS)
 document.getElementById('run').addEventListener('click',run);
 document.getElementById('stop').addEventListener('click',stopRun);
 document.getElementById('resume').addEventListener('click',resumeRun);
