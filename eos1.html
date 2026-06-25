@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EoS · §1 — loss / sharpness / residual</title>
+<script src="https://cdn.plot.ly/plotly-2.30.0.min.js" charset="utf-8"></script>
+<style>
+  :root{--bg:#f8fafc;--card:#fff;--ink:#0f172a;--mut:#475569;--line:#e2e8f0;--accent:#2563eb;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{padding:14px 20px;border-bottom:1px solid var(--line);background:var(--card)}
+  h1{margin:0;font-size:17px;font-weight:650}
+  h1 small{font-weight:400;color:var(--mut);font-size:13px;margin-left:8px}
+  .wrap{padding:16px 20px;max-width:1500px;margin:0 auto}
+  .ctl{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:flex-end;background:var(--card);border:1px solid var(--line);
+       border-radius:10px;padding:14px 16px;margin-bottom:14px}
+  .f{display:flex;flex-direction:column;gap:3px}
+  .f label{font-size:11px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.02em}
+  .f input,.f select{font:13px inherit;padding:5px 7px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;min-width:64px}
+  .f input[type=number]{width:82px}
+  .btns{display:flex;gap:8px;margin-left:auto;align-items:flex-end}
+  button{font:600 13px inherit;padding:7px 16px;border-radius:7px;border:1px solid transparent;cursor:pointer}
+  #run{background:var(--accent);color:#fff}
+  #run:hover{background:#1d4ed8}
+  #stop{background:#fff;color:#b91c1c;border-color:#fecaca}
+  #stop:disabled{opacity:.4;cursor:default}
+  .status{font-size:13px;color:var(--mut);padding:2px 2px 12px;font-variant-numeric:tabular-nums}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .plot{background:var(--card);border:1px solid var(--line);border-radius:10px;height:420px}
+  @media(max-width:980px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Edge of Stability · §1 <small>loss, sharpness, residual, and the spectral edges of the function-Hessian H</small></h1>
+</header>
+<div class="wrap">
+
+  <div class="ctl">
+    <div class="f"><label>dataset</label>
+      <select id="dataset">
+        <option value="synthetic">synthetic</option>
+        <option value="const">const</option>
+        <option value="chebyshev">chebyshev</option>
+        <option value="ksparse">ksparse</option>
+        <option value="anglepair">anglepair</option>
+        <option value="cifar2">cifar2</option>
+        <option value="mnist2">mnist2</option>
+        <option value="cifar10">cifar10</option>
+        <option value="mnist">mnist</option>
+      </select></div>
+    <div class="f"><label>arch</label>
+      <select id="arch"><option value="mlp">mlp</option><option value="cnn">cnn</option></select></div>
+    <div class="f"><label>loss</label>
+      <select id="loss"><option value="mse">mse</option><option value="ce">ce</option></select></div>
+    <div class="f"><label>optimizer</label>
+      <select id="optimizer"><option value="gd">gd</option><option value="adam">adam</option></select></div>
+    <div class="f"><label>width</label><input id="width" type="number" value="64" min="1" step="1"></div>
+    <div class="f"><label>depth</label><input id="depth" type="number" value="2" min="1" step="1"></div>
+    <div class="f"><label>act</label>
+      <select id="act"><option value="tanh">tanh</option><option value="relu">relu</option><option value="linear">linear</option><option value="gelu">gelu</option></select></div>
+    <div class="f"><label>bias</label>
+      <select id="bias"><option value="0">off</option><option value="1">on</option></select></div>
+    <div class="f"><label>lr</label><input id="lr" type="number" value="0.3" step="0.01"></div>
+    <div class="f"><label>init scale</label><input id="init" type="number" value="0.5" step="0.05"></div>
+    <div class="f"><label>n samples</label><input id="nsamp" type="number" value="8" min="1" step="1"></div>
+    <div class="f"><label>in dim</label><input id="indim" type="number" value="10" min="1" step="1"></div>
+    <div class="f"><label>out dim</label><input id="outdim" type="number" value="1" min="1" step="1"></div>
+    <div class="f"><label>target</label><input id="tgt" type="number" value="1.0" step="0.1"></div>
+    <div class="f"><label>input std</label><input id="inputstd" type="number" value="1.0" step="0.1"></div>
+    <div class="f"><label>steps</label><input id="steps" type="number" value="2000" min="1" step="1"></div>
+    <div class="f"><label>eig every</label><input id="eigevery" type="number" value="1" min="1" step="1"></div>
+    <div class="f"><label># eigs</label><input id="neig" type="number" value="3" min="1" step="1"></div>
+    <div class="f"><label>seed</label><input id="seed" type="number" value="0" step="1"></div>
+    <div class="btns">
+      <button id="run">▶ Run</button>
+      <button id="stop" disabled>■ Stop</button>
+    </div>
+  </div>
+
+  <div class="status" id="status">ready — press Run. (served by this page's backend; open via localhost:8756/8757 for GPU·float32 or :8758 for CPU·float64)</div>
+
+  <div class="grid">
+    <div id="p_loss" class="plot"></div>
+    <div id="p_sharp" class="plot"></div>
+    <div id="p_resid" class="plot"></div>
+    <div id="p_eHfX" class="plot"></div>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const val=id=>{const e=$(id);return e?e.value:'';};
+const PALETTE=['#2563eb','#d35400','#16a34a','#9333ea','#dc2626','#0891b2','#ea580c','#475569'];
+const CFG={responsive:true,displaylogo:false,doubleClick:'reset+autosize',modeBarButtonsToRemove:['lasso2d','select2d','toggleSpikelines']};
+
+let ES=null, META=null, STRIDE=1;
+
+function baseLayout(title,ytitle,logY){
+  return {title:{text:title,font:{size:13,color:'#334155'},x:0.02,xanchor:'left'},
+    margin:{l:54,r:14,t:34,b:38},paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{size:11,color:'#374151'},
+    xaxis:{title:{text:'GD step',font:{size:11}},gridcolor:'#eef0f3',zeroline:false},
+    yaxis:{title:{text:ytitle,font:{size:11}},type:logY?'log':'linear',gridcolor:'#eef0f3',zeroline:false},
+    showlegend:false};
+}
+function withZero(L){(L.shapes=L.shapes||[]).push({type:'line',xref:'paper',x0:0,x1:1,yref:'y',y0:0,y1:0,line:{color:'#d1d5db',width:1}});return L;}
+function withThr(L,thr){
+  if(thr!=null&&isFinite(thr)){
+    (L.shapes=L.shapes||[]).push({type:'line',xref:'paper',x0:0,x1:1,yref:'y',y0:thr,y1:thr,line:{color:'#6b7280',width:1.3,dash:'dash'}});
+    (L.annotations=L.annotations||[]).push({xref:'paper',x:0.015,yref:'y',y:thr,text:'2/lr',showarrow:false,
+      font:{size:10,color:'#6b7280'},xanchor:'left',yanchor:'bottom'});
+  }
+  return L;
+}
+const line=(name,color)=>({x:[],y:[],mode:'lines',name,line:{color,width:1.9}});
+
+function buildPlots(thr,nResid){
+  Plotly.newPlot('p_loss',[line('loss','#2563eb')],baseLayout('loss (log scale)','loss',true),CFG);
+  Plotly.newPlot('p_sharp',[line('sharpness','#dc2626')],withThr(baseLayout('sharpness  λmax(∇²loss)','sharpness',false),thr),CFG);
+  const nr=Math.max(1,nResid||1);
+  const rtr=[];for(let i=0;i<nr;i++)rtr.push({x:[],y:[],mode:'lines',name:nr===1?'y − f':('r'+i),line:{width:1.4,color:PALETTE[i%PALETTE.length]}});
+  const rL=withZero(baseLayout('residual  y − f(x)','y − f',false));rL.showlegend=nr<=6;
+  Plotly.newPlot('p_resid',rtr,rL,CFG);
+  Plotly.newPlot('p_eHfX',[{x:[],y:[],mode:'lines',name:'λmax',line:{color:'#2563eb',width:1.9}},
+    {x:[],y:[],mode:'lines',name:'λmin',line:{color:'#dc2626',width:1.9}}],
+    (function(){const L=withZero(baseLayout('function Hessian H — largest & smallest eigenvalue','eigenvalue',false));L.showlegend=true;L.legend={font:{size:10},x:0.99,xanchor:'right',y:0.99};return L;})(),CFG);
+}
+
+function onStep(m){
+  if(m.t%STRIDE!==0 && m.t!==META.steps) return;      // light decimation for long runs
+  Plotly.extendTraces('p_loss',{x:[[m.t]],y:[[m.loss]]},[0]);
+  Plotly.extendTraces('p_sharp',{x:[[m.t]],y:[[m.sharp]]},[0]);
+  if(m.r&&m.r.length){const nr=m.r.length,x=[],y=[],idx=[];for(let i=0;i<nr;i++){x.push([m.t]);y.push([m.r[i]]);idx.push(i);}Plotly.extendTraces('p_resid',{x,y},idx);}
+  if(m.hfMax!=null||m.hfMin!=null)Plotly.extendTraces('p_eHfX',{x:[[m.t],[m.t]],y:[[m.hfMax],[m.hfMin]]},[0,1]);
+}
+
+function setBusy(busy){$('run').disabled=busy;$('stop').disabled=!busy;}
+
+function buildParams(){
+  // §1 ONLY (s1=1); everything else off. Extras carry safe defaults so any dataset/arch the server supports works.
+  const p={
+    dataset:val('dataset'),arch:val('arch'),loss:val('loss'),optimizer:val('optimizer'),
+    width:val('width'),depth:val('depth'),act:val('act'),bias:val('bias'),
+    lr:val('lr'),init:val('init'),nsamp:val('nsamp'),indim:val('indim'),outdim:val('outdim'),
+    tgt:val('tgt'),inputstd:val('inputstd'),steps:val('steps'),eigevery:val('eigevery'),
+    neig:val('neig'),seed:val('seed'),
+    // safe defaults (the server fills the rest; these keep cnn/other datasets from breaking)
+    chmul:'0.25',dmodel:'64',nhead:'4',nlayer:'2',seqlen:'16',vocab:'50257',batch:'0',
+    ssign:'off',fixedx:'0',initscheme:'default',ksparse:'3',gson:'1',
+    angle:'90',norm1:'1',norm2:'1',lab1:'1',lab2:'-1',
+    start:'0',
+  };
+  // §1 ONLY: s1 on, every other section explicitly OFF (the server defaults several to ON when unsent).
+  p['s1']='1';
+  for(let k=2;k<=28;k++)p['s'+k]='0';
+  return p;
+}
+
+function run(){
+  stop();
+  const ps=new URLSearchParams(buildParams());
+  setBusy(true);
+  $('status').textContent='connecting to backend…';
+  // clear any old plots immediately
+  for(const id of ['p_loss','p_sharp','p_resid','p_eHfX']){try{Plotly.purge(id);}catch(e){}}
+  let es;try{es=new EventSource('run?'+ps.toString());}catch(e){$('status').textContent='cannot reach backend: '+e.message;setBusy(false);return;}
+  ES=es;
+  const finish=()=>{if(ES){ES.close();ES=null;}setBusy(false);};
+  es.onmessage=ev=>{let m;try{m=JSON.parse(ev.data);}catch(e){return;}
+    if(m.type==='meta'){
+      if(m.error){$('status').textContent='backend: '+m.error;finish();return;}
+      META=m;STRIDE=Math.max(1,Math.floor((+val('steps'))/3000));   // ≤~3000 plotted points/trace
+      buildPlots(m.thr,m.nResid);
+      $('status').textContent=`running on ${m.device} · p=${m.p} · 2/lr=${(m.thr||0).toFixed(3)}`;
+    }else if(m.type==='step'){if(!META)return;onStep(m);
+      if(m.t%20===0)$('status').textContent=`running on ${META.device} · step ${m.t}/${m.steps} · p=${m.p} · 2/lr=${(META.thr||0).toFixed(3)}`;
+    }else if(m.type==='done'){
+      $('status').textContent=`done — through step ${m.t!=null?m.t:''} · p=${m.p} · 2/lr=${(META?META.thr:0).toFixed(3)}`;finish();
+    }else if(m.type==='error'){$('status').textContent='backend error: '+m.error;finish();}
+  };
+  es.onerror=()=>{if(ES&&ES.readyState!==2)$('status').textContent='backend connection lost — is the server up on this port?';finish();};
+}
+function stop(){if(ES){ES.close();ES=null;}setBusy(false);}
+
+$('run').addEventListener('click',run);
+$('stop').addEventListener('click',()=>{stop();$('status').textContent='stopped.';});
+</script>
+</body>
+</html>
