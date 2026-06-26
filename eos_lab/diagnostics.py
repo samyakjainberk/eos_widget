@@ -295,18 +295,19 @@ class Diagnostics:
                 feTV[i] = sign_to(feTV[i], self._prev_top[i]); self._prev_top[i] = feTV[i]
                 feBV[i] = sign_to(feBV[i], self._prev_bot[i]); self._prev_bot[i] = feBV[i]
 
-        # ---- §4 J onto top-/bottom-n eigvecs of H (3 phases: alignment / power iteration / residual dominance) ----
+        # ---- §4 |⟨J,u⟩| onto top-/bottom-n eigvecs u of H=Σ_aQ_a (3 phases); σ = the H eigenvalue (feTop/feBot, signed) ----
         if self.s4 and feTV is not None:
             jn = max(float(J.norm()), 1e-30)
-            jt = [float(J @ feTV[i]) for i in range(n)]
-            jb = [float(J @ feBV[i]) for i in range(n)]
-            rec["jt"], rec["jb"] = jt, jb                          # phase 2 (power iteration): raw ⟨J,w⟩
-            rec["jtN"] = [x / jn for x in jt]                      # phase 1 (alignment): ⟨J/‖J‖,w⟩
-            rec["jbN"] = [x / jn for x in jb]
-            if self.loss.name != "ce" and self.dataset != "owt":  # phase 3 (residual dominance): ⟨J·r,w⟩, J·r=Σ_a r_a∇f_a (cf §4b). Skipped for CE/owt.
+            aT = [abs(float(J @ feTV[i])) for i in range(n)]       # |⟨J,u⟩| onto top-i eigvec
+            aB = [abs(float(J @ feBV[i])) for i in range(n)]
+            rec["jtN"] = [x / jn for x in aT]                      # phase 1 (alignment): |⟨J,u⟩|/‖J‖
+            rec["jbN"] = [x / jn for x in aB]
+            rec["jt"] = [aT[i] * float(feTop[i]) for i in range(n)]  # phase 2 (power iteration): |⟨J,u⟩|·σ
+            rec["jb"] = [aB[i] * float(feBot[i]) for i in range(n)]
+            if self.loss.name != "ce" and self.dataset != "owt":  # phase 3 (residual dominance): |⟨J·r,u⟩|·σ, J·r=Σ_a r_a∇f_a (cf §4b). Skipped for CE/owt.
                 Jr = grad_weighted(self.model, th, X, Y - out)
-                rec["jrt"] = [float(Jr @ feTV[i]) for i in range(n)]
-                rec["jrb"] = [float(Jr @ feBV[i]) for i in range(n)]
+                rec["jrt"] = [abs(float(Jr @ feTV[i])) * float(feTop[i]) for i in range(n)]
+                rec["jrb"] = [abs(float(Jr @ feBV[i])) * float(feBot[i]) for i in range(n)]
 
         # ---- §6 eigenspace rotation ----
         if self.s6 and feTV is not None:

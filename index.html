@@ -386,6 +386,12 @@
 <div id="sec_s18" style="display:none">
 <h2>18 · per-sample projections — sample 1 vs sample 2 (exactly 2 samples)</h2>
 <p class="cap">Three phases of the per-sample projection onto the top-2 / bottom-2 eigenvectors $u$ of each per-sample Hessian $Q_i=\nabla^2 f_i$, plotted for <b>sample 1</b> and <b>sample 2</b> separately over training. <b>Phase 1 · alignment</b>: $|\langle J_i,u\rangle|/\lVert J_i\rVert=|\cos\angle(J_i,u)|$. <b>Phase 2 · power iteration</b>: $|\langle J_i,u\rangle|\,\sigma$ (eigenvalue-scaled). <b>Phase 3 · residual dominance</b>: $|\langle J_i,u\rangle|\,\sigma\,r_i$ (the §12b product). Each plot overlays the <b style="color:#2563eb">top</b> (blue) and <b style="color:#dc2626">bottom</b> (red) eigenvectors; <b>rank-1 solid, rank-2 dotted.</b> Reuses §12's matrix-free Lanczos eigenpairs (turn on §12a/§12b/§13); <b>only renders when nsamp = 2</b>.</p>
+<div id="s18_legend" style="display:flex;justify-content:center;gap:26px;flex-wrap:wrap;margin:2px 0 8px;font-size:12px;color:#475569">
+  <span style="display:inline-flex;align-items:center;gap:6px"><svg width="30" height="12"><line x1="1" y1="6" x2="29" y2="6" stroke="#2563eb" stroke-width="2.4"></line><circle cx="15" cy="6" r="2.6" fill="#2563eb"></circle></svg>top rank-1</span>
+  <span style="display:inline-flex;align-items:center;gap:6px"><svg width="30" height="12"><line x1="1" y1="6" x2="29" y2="6" stroke="#93c5fd" stroke-width="2.4" stroke-dasharray="5 3"></line><circle cx="15" cy="6" r="2.6" fill="#93c5fd"></circle></svg>top rank-2</span>
+  <span style="display:inline-flex;align-items:center;gap:6px"><svg width="30" height="12"><line x1="1" y1="6" x2="29" y2="6" stroke="#dc2626" stroke-width="2.4"></line><circle cx="15" cy="6" r="2.6" fill="#dc2626"></circle></svg>bot rank-1</span>
+  <span style="display:inline-flex;align-items:center;gap:6px"><svg width="30" height="12"><line x1="1" y1="6" x2="29" y2="6" stroke="#fca5a5" stroke-width="2.4" stroke-dasharray="5 3"></line><circle cx="15" cy="6" r="2.6" fill="#fca5a5"></circle></svg>bot rank-2</span>
+</div>
 <div class="plotrow row6"><div id="p_s18_0" class="plot" style="height:290px"></div><div id="p_s18_1" class="plot" style="height:290px"></div><div id="p_s18_2" class="plot" style="height:290px"></div><div id="p_s18_3" class="plot" style="height:290px"></div><div id="p_s18_4" class="plot" style="height:290px"></div><div id="p_s18_5" class="plot" style="height:290px"></div></div>
 </div>
 
@@ -578,8 +584,8 @@
 
 <div id="sec_4">
 <h2>4 · $J$ projected onto eigenvectors of $H$</h2>
-<p class="cap">Three phases of the same projection onto the top-$n$ (1st of each pair) and bottom-$n$ (2nd) eigenvectors $w$ of $H$. <b>Phase 1 · alignment</b>: the cosine $\langle J/\lVert J\rVert, w\rangle$. <b>Phase 2 · power iteration</b>: the raw projection $\langle J, w\rangle$ with $J=\sum_a\nabla f_a$ (the simple-average / summed function gradient). <b>Phase 3 · residual dominance</b>: the same raw projection but with $J$ <i>contracted with the residual</i> instead of averaged — $\langle J\!\cdot\!r, w\rangle$, $J\!\cdot\!r=\sum_a r_a\nabla f_a$ (cf. §4b, $r=y-f$).</p>
-<div class="plotrow row6"><div id="p_Jtopn" class="plot" style="height:300px"></div><div id="p_Jbotn" class="plot" style="height:300px"></div><div id="p_Jtop" class="plot" style="height:300px"></div><div id="p_Jbot" class="plot" style="height:300px"></div><div id="p_Jrt" class="plot" style="height:300px"></div><div id="p_Jrb" class="plot" style="height:300px"></div></div>
+<p class="cap">Three phases of the projection onto the top-$n$ (1st of each pair) and bottom-$n$ (2nd) eigenvectors $u$ of $H=\sum_a Q_a=\sum_a\nabla^2 f_a$ (the summed function Hessian); $\sigma$ is the corresponding eigenvalue. <b>Phase 1 · alignment</b>: $|\langle J,u\rangle|/\lVert J\rVert=|\cos\angle(J,u)|$. <b>Phase 2 · power iteration</b>: $|\langle J,u\rangle|\,\sigma$ (eigenvalue-scaled), with $J=\sum_a\nabla f_a$ (summed gradient). <b>Phase 3 · residual dominance</b>: $|\langle J\!\cdot\!r,u\rangle|\,\sigma$ — the same but with $J$ <i>contracted with the residual</i>, $J\!\cdot\!r=\sum_a r_a\nabla f_a$ (cf. §4b, $r=y-f$).</p>
+<div class="plotrow row6"><div id="p_Jtopn" class="plot" style="height:290px"></div><div id="p_Jbotn" class="plot" style="height:290px"></div><div id="p_Jtop" class="plot" style="height:290px"></div><div id="p_Jbot" class="plot" style="height:290px"></div><div id="p_Jrt" class="plot" style="height:290px"></div><div id="p_Jrb" class="plot" style="height:290px"></div></div>
 </div>
 
 <div id="sec_9">
@@ -1665,7 +1671,7 @@ function s18Build(){
       for(let rk=0;rk<2;rk++)traces.push({x:[],y:[],mode:'lines+markers',name:grp+' rank-'+(rk+1),line:{color:cols[rk],width:1.8,dash:dash[rk]},marker:{size:4,color:cols[rk]}});}
     const ttl=S18_PHASES[ph][2]+' — sample '+(si+1);
     const lay=withZero(baseLayout(ttl,S18_PHASES[ph][3],false));
-    lay.showlegend=true;lay.legend={font:{size:8},x:0.99,xanchor:'right',y:0.99,yanchor:'top',bgcolor:'rgba(255,255,255,0.6)'};
+    lay.showlegend=false;   // shared legend rendered once above the row (#s18_legend), not per-plot
     Plotly.newPlot(id,traces,lay,{responsive:true,displaylogo:false});}
   S18_BUILT=true;
 }
@@ -2968,12 +2974,14 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_eGNB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout(dis('Gauss–Newton G — bottom-n eigenvalues'),'eigenvalue',false)));
   newP('p_eSRB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout(dis('residual term S — bottom-n eigenvalues'),'eigenvalue',false)));
   // §4 projections
-  newP('p_Jtopn',emptyN(n,i=>`top-${i+1}`),baseLayout(`phase 1: alignment — top-${n} eigvecs of H`,'⟨J/‖J‖, w⟩',false));
-  newP('p_Jbotn',emptyN(n,i=>`bot-${i+1}`),baseLayout(`phase 1: alignment — bottom-${n} eigvecs of H`,'⟨J/‖J‖, w⟩',false));
-  newP('p_Jtop',emptyN(n,i=>`top-${i+1}`),baseLayout(`phase 2: power iteration — top-${n} eigvecs of H`,'⟨J, w⟩',false));
-  newP('p_Jbot',emptyN(n,i=>`bot-${i+1}`),baseLayout(`phase 2: power iteration — bottom-${n} eigvecs of H`,'⟨J, w⟩',false));
-  newP('p_Jrt',emptyN(n,i=>`top-${i+1}`),baseLayout(`phase 3: residual dominance — top-${n} eigvecs of H`,'⟨J·r, w⟩',false));
-  newP('p_Jrb',emptyN(n,i=>`bot-${i+1}`),baseLayout(`phase 3: residual dominance — bottom-${n} eigvecs of H`,'⟨J·r, w⟩',false));
+  {const s4tr=namer=>Array.from({length:n},(_,i)=>({x:[],y:[],mode:'lines+markers',name:namer(i),line:{width:1.8,color:PALETTE[i%PALETTE.length]},marker:{size:4,color:PALETTE[i%PALETTE.length]}}));   // §12-style ambience: lines+markers
+   const s4lay=(t,yl)=>{const L=withZero(baseLayout(t,yl,false));L.showlegend=true;L.legend={font:{size:8},x:0.99,xanchor:'right',y:0.99,yanchor:'top',bgcolor:'rgba(255,255,255,0.6)'};return L;};   // §12-style: zero line + small legend box
+   newP('p_Jtopn',s4tr(i=>`top-${i+1}`),s4lay(`phase 1: alignment — top-${n} eigvecs of H`,'|⟨J,u⟩|/‖J‖'));
+   newP('p_Jbotn',s4tr(i=>`bot-${i+1}`),s4lay(`phase 1: alignment — bottom-${n} eigvecs of H`,'|⟨J,u⟩|/‖J‖'));
+   newP('p_Jtop',s4tr(i=>`top-${i+1}`),s4lay(`phase 2: power iteration — top-${n} eigvecs of H`,'|⟨J,u⟩|·σ'));
+   newP('p_Jbot',s4tr(i=>`bot-${i+1}`),s4lay(`phase 2: power iteration — bottom-${n} eigvecs of H`,'|⟨J,u⟩|·σ'));
+   newP('p_Jrt',s4tr(i=>`top-${i+1}`),s4lay(`phase 3: residual dominance — top-${n} eigvecs of H`,'|⟨J·r,u⟩|·σ'));
+   newP('p_Jrb',s4tr(i=>`bot-${i+1}`),s4lay(`phase 3: residual dominance — bottom-${n} eigvecs of H`,'|⟨J·r,u⟩|·σ'));}
   // §5 SLQ
   const slqT=c=>[{x:[],y:[],mode:'lines',fill:'tozeroy',line:{color:c,width:1.6},fillcolor:c+'22',name:'density'}];
   newP('p_sH',slqT('#2563eb'),slqLayout('SLQ density — function Hessian H'));
@@ -3548,8 +3556,13 @@ async function loop(){                                   // drives ST forward; r
         if(S.needVecs&&feTV){for(let i=0;i<S.nSub;i++){feTV[i]=signTo(feTV[i],S.prevTop[i]);S.prevTop[i]=feTV[i];feBV[i]=signTo(feBV[i],S.prevBot[i]);S.prevBot[i]=feBV[i];}} // sign-track H eigvecs once (shared by §4 and §4d)
         const J=fr.grad;const jt=[],jb=[],jtN=[],jbN=[],jrt=[],jrb=[];
         if(O.s4){const jn=Math.max(norm(J),1e-30);
-          const Jr=gradWeighted(S.th,spec,X,N,inDim,p,r).grad;   // §4 phase 3: J·r = Σ_a r_a ∇f_a (residual-contracted; cf §4b), r=Y−f
-          for(let i=0;i<S.nSub;i++){const pt=dot(J,feTV[i]);jt.push(pt);jtN.push(pt/jn);const pb=dot(J,feBV[i]);jb.push(pb);jbN.push(pb/jn);jrt.push(dot(Jr,feTV[i]));jrb.push(dot(Jr,feBV[i]));}}
+          const Jr=gradWeighted(S.th,spec,X,N,inDim,p,r).grad;   // J·r = Σ_a r_a ∇f_a (residual-contracted; cf §4b), r=Y−f
+          // u = eigvec of H=Σ_aQ_a (summed function Hessian), σ = its eigenvalue (feTop/feBot, signed). J=Σ∇f.
+          for(let i=0;i<S.nSub;i++){
+            const aT=Math.abs(dot(J,feTV[i])),sT=feTop[i];
+            jtN.push(aT/jn);jt.push(aT*sT);jrt.push(Math.abs(dot(Jr,feTV[i]))*sT);   // phase1 |⟨J,u⟩|/‖J‖ · phase2 |⟨J,u⟩|σ · phase3 |⟨J·r,u⟩|σ
+            const aB=Math.abs(dot(J,feBV[i])),sB=feBot[i];
+            jbN.push(aB/jn);jb.push(aB*sB);jrb.push(Math.abs(dot(Jr,feBV[i]))*sB);}}
         let paPos=null,paNeg=null;
         if(O.s6){
           const posS=posSubspace(feTop,feTV,S.efrac), negS=negSubspace(feBot,feBV,S.efrac);

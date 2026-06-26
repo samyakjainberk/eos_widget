@@ -159,10 +159,10 @@ def _tracks_panel(series, groups, suptitle):
 
 
 def plot_section4(series):
-    return _tracks_panel(series, [("jtN", "phase1 align: ⟨J/‖J‖,w⟩ top"), ("jbN", "phase1 align: ⟨J/‖J‖,w⟩ bot"),
-                                  ("jt", "phase2 power: ⟨J,w⟩ top"), ("jb", "phase2 power: ⟨J,w⟩ bot"),
-                                  ("jrt", "phase3 resid: ⟨J·r,w⟩ top"), ("jrb", "phase3 resid: ⟨J·r,w⟩ bot")],
-                         "§4 — J / J·r onto eigenvectors of H (alignment · power iteration · residual dominance)")
+    return _tracks_panel(series, [("jtN", "phase1 align: |⟨J,u⟩|/‖J‖ top"), ("jbN", "phase1 align: |⟨J,u⟩|/‖J‖ bot"),
+                                  ("jt", "phase2 power: |⟨J,u⟩|·σ top"), ("jb", "phase2 power: |⟨J,u⟩|·σ bot"),
+                                  ("jrt", "phase3 resid: |⟨J·r,u⟩|·σ top"), ("jrb", "phase3 resid: |⟨J·r,u⟩|·σ bot")],
+                         "§4 — |⟨J,u⟩| onto eigenvectors u of H=ΣQ_a (alignment · power iteration · residual dominance)")
 
 
 def plot_section7a(series):
