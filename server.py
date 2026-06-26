@@ -164,12 +164,13 @@ def _sec12_payload(TV, TW, BV, BW, r, Jg, grid3dcap, kfull=SEC12_KFULL, gTV=None
             q = jdot[nz & real].abs() / jnorm[nz & real]       # ALIGNMENT |⟨J_i,u⟩|/‖J_i‖ = |cos∠(J_i,u)| ∈ [0,1]
             # §18 needs POSITIONAL per-sample series (sample 1 vs sample 2), NOT the histogram-masked pvals/vals above
             # (those drop spurious/‖J‖=0 samples and shift indices). Build length-N arrays indexed by TRUE sample, null where dropped.
-            prod_all = (jdot.abs() * sig) * r; realL = real.tolist(); nzL = nz.tolist()
+            proj_all = jdot.abs() * sig; prod_all = proj_all * r; realL = real.tolist(); nzL = nz.tolist()
             pbysamp = [float(prod_all[i]) if realL[i] else None for i in range(N)]
+            jbysamp = [float(proj_all[i]) if realL[i] else None for i in range(N)]   # §18 proj = |⟨J_i,u⟩|·σ (eigenvalue-scaled projection)
             vbysamp = [float(jdot[i].abs() / jnorm[i]) if (realL[i] and nzL[i]) else None for i in range(N)]
             out.append({"prod": ms(prod), "pvals": prod.detach().cpu().tolist(),   # product (+ per-sample masked list for histogram)
                         "cos": ms(q), "vals": q.detach().cpu().tolist(),           # alignment (+ per-sample masked list for histogram)
-                        "pbysamp": pbysamp, "vbysamp": vbysamp})                   # §18: true positional per-sample (null = spurious/zero)
+                        "pbysamp": pbysamp, "jbysamp": jbysamp, "vbysamp": vbysamp})   # §18: true positional per-sample (proj·r / proj / alignment; null = spurious/zero)
         return out
 
     # ---- panels 3/4 (AVERAGED view): project each per-sample ∇f_i onto the TOP-2 / BOTTOM-2 eigenvectors w of the
@@ -2861,14 +2862,18 @@ def run_stream(P):
                     feTV[i] = sign_to(feTV[i], prevTop[i]); prevTop[i] = feTV[i]
                     feBV[i] = sign_to(feBV[i], prevBot[i]); prevBot[i] = feBV[i]
 
-            # §4 J onto top-/bottom-n eigvecs of H (raw + Frobenius-normalized)
-            jt = jb = jtN = jbN = None
+            # §4 J onto top-/bottom-n eigvecs of H (3 phases: alignment / power iteration / residual dominance)
+            jt = jb = jtN = jbN = jrt = jrb = None
             if s4 and feTV is not None:
                 jn = max(float(J.norm()), 1e-30)
-                jt = [float(J @ feTV[i]) for i in range(n)]
+                jt = [float(J @ feTV[i]) for i in range(n)]       # phase 2 (power iteration): raw ⟨J,w⟩
                 jb = [float(J @ feBV[i]) for i in range(n)]
-                jtN = [x / jn for x in jt]
+                jtN = [x / jn for x in jt]                        # phase 1 (alignment): ⟨J/‖J‖,w⟩
                 jbN = [x / jn for x in jb]
+                if r is not None:                                 # phase 3 (residual dominance): ⟨J·r,w⟩, J·r=Σ_a r_a∇f_a (cf §4b). Skipped for CE/owt.
+                    Jr = gradW(th, X, Y - out)
+                    jrt = [float(Jr @ feTV[i]) for i in range(n)]
+                    jrb = [float(Jr @ feBV[i]) for i in range(n)]
 
             # §6 eigenspace rotation
             paPos = paNeg = None
@@ -3488,7 +3493,7 @@ def run_stream(P):
                 "hfTop": [v / N for v in feTop[:n]], "hfBot": [v / N for v in feBot[:n]],   # Hessian (G+S) scale (mirrors eos_lab)
                 "hlTop": hlt, "hlBot": hlb,
                 "gnTop": gnt, "gnBot": gnb, "srTop": srt, "srBot": srb,
-                "jt": jt, "jb": jb, "jtN": jtN, "jbN": jbN,
+                "jt": jt, "jb": jb, "jtN": jtN, "jbN": jbN, "jrt": jrt, "jrb": jrb,
                 "paPos": paPos, "paNeg": paNeg, "dimPos": dimPos, "dimNeg": dimNeg,
                 "ntkR": ntkR, "ntkH": ntkH, "ntkGs": ntkGs, "ntkGsA": ntkGsA, "ntkGl": ntkGl, "ntkGlA": ntkGlA,
                 "fhEvT": fhEvT, "fhEvB": fhEvB,

@@ -24,7 +24,7 @@ import math
 import torch
 
 from .models import (grad_sum_f, hvp_F, hvp_L, hvp_S, hvp_G, hvp_G2,
-                     jac_cols, jac_hvp, grad_out, mlp_forward, grad_loss, FD_EPS)
+                     jac_cols, jac_hvp, grad_out, mlp_forward, grad_loss, grad_weighted, FD_EPS)
 from .linalg import (lanczos_extreme, lanczos_extreme_vals, slq_density, hutch_trace, sym_eig_desc,
                      sign_to, pin_sign, pos_subspace, neg_subspace, principal_angles, randn_vec,
                      sec12_payload, sec13_stats, SEC13_KS, SEC13_DOMS, sec14_payload, SEC12_KFULL,
@@ -295,14 +295,18 @@ class Diagnostics:
                 feTV[i] = sign_to(feTV[i], self._prev_top[i]); self._prev_top[i] = feTV[i]
                 feBV[i] = sign_to(feBV[i], self._prev_bot[i]); self._prev_bot[i] = feBV[i]
 
-        # ---- §4 J onto top-/bottom-n eigvecs of H (raw + Frobenius-normalized) ----
+        # ---- §4 J onto top-/bottom-n eigvecs of H (3 phases: alignment / power iteration / residual dominance) ----
         if self.s4 and feTV is not None:
             jn = max(float(J.norm()), 1e-30)
             jt = [float(J @ feTV[i]) for i in range(n)]
             jb = [float(J @ feBV[i]) for i in range(n)]
-            rec["jt"], rec["jb"] = jt, jb
-            rec["jtN"] = [x / jn for x in jt]
+            rec["jt"], rec["jb"] = jt, jb                          # phase 2 (power iteration): raw ⟨J,w⟩
+            rec["jtN"] = [x / jn for x in jt]                      # phase 1 (alignment): ⟨J/‖J‖,w⟩
             rec["jbN"] = [x / jn for x in jb]
+            if self.loss.name != "ce" and self.dataset != "owt":  # phase 3 (residual dominance): ⟨J·r,w⟩, J·r=Σ_a r_a∇f_a (cf §4b). Skipped for CE/owt.
+                Jr = grad_weighted(self.model, th, X, Y - out)
+                rec["jrt"] = [float(Jr @ feTV[i]) for i in range(n)]
+                rec["jrb"] = [float(Jr @ feBV[i]) for i in range(n)]
 
         # ---- §6 eigenspace rotation ----
         if self.s6 and feTV is not None:

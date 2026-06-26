@@ -475,6 +475,15 @@ def grad_loss(model, loss, theta, X, Y):
     return g.detach(), out.detach()
 
 
+def grad_weighted(model, theta, X, c):
+    """(∇_θ Σ(c⊙f)).  Backward with an arbitrary output cotangent c (N,oc). MIRRORS server.gradW."""
+    with torch.enable_grad():
+        th = theta.detach().requires_grad_(True)
+        out = model.forward(th, X)
+        g, = torch.autograd.grad((out * c).sum(), th)
+    return g.detach()
+
+
 def opt_dir(model, g, opt):
     """Update DIRECTION from the raw gradient g (NO momentum); actual θ step is θ ← θ − lr·dir. MIRRORS
     server._opt_dir.  gd→g · sign→sign(g) · spectral→Muon-style per weight-matrix UVᵀ (svd(∇W)=UΣVᵀ),

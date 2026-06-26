@@ -385,11 +385,8 @@
 
 <div id="sec_s18" style="display:none">
 <h2>18 · per-sample projections — sample 1 vs sample 2 (exactly 2 samples)</h2>
-<p class="cap">The SAME two quantities as <b>§12b panels 1 &amp; 2</b> — the product $\text{proj}_i\cdot r_i=|\langle J_i,u\rangle|\,\sigma\,r_i$ and the alignment $|\langle J_i,u\rangle|/\lVert J_i\rVert=|\cos\angle(J_i,u)|$ onto the top-2 / bottom-2 eigenvectors $u$ of each per-sample Hessian $Q_i=\nabla^2 f_i$ — but plotted for <b>sample 1</b> and <b>sample 2</b> SEPARATELY over training (instead of the mean/std across samples). <b>rank-1 solid, rank-2 dotted.</b> Reuses §12's matrix-free Lanczos eigenpairs (turn on §12a/§12b/§13 so the per-sample projections are computed); <b>only renders when nsamp = 2</b>.</p>
-<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — TOP-2 eigenvectors $u_{i,1},u_{i,2}$ (largest eigenvalues): proj·r and alignment, per sample</h3>
-<div class="plotrow row4"><div id="p_s18_top0" class="plot" style="height:290px"></div><div id="p_s18_top1" class="plot" style="height:290px"></div><div id="p_s18_top2" class="plot" style="height:290px"></div><div id="p_s18_top3" class="plot" style="height:290px"></div></div>
-<h3 style="margin:14px 0 2px;font-size:14px;color:#475569">Panel 2 — BOTTOM-2 eigenvectors $u_{i,-1},u_{i,-2}$ (most-negative eigenvalues): proj·r and alignment, per sample</h3>
-<div class="plotrow row4"><div id="p_s18_bot0" class="plot" style="height:290px"></div><div id="p_s18_bot1" class="plot" style="height:290px"></div><div id="p_s18_bot2" class="plot" style="height:290px"></div><div id="p_s18_bot3" class="plot" style="height:290px"></div></div>
+<p class="cap">Three phases of the per-sample projection onto the top-2 / bottom-2 eigenvectors $u$ of each per-sample Hessian $Q_i=\nabla^2 f_i$, plotted for <b>sample 1</b> and <b>sample 2</b> separately over training. <b>Phase 1 · alignment</b>: $|\langle J_i,u\rangle|/\lVert J_i\rVert=|\cos\angle(J_i,u)|$. <b>Phase 2 · power iteration</b>: $|\langle J_i,u\rangle|\,\sigma$ (eigenvalue-scaled). <b>Phase 3 · residual dominance</b>: $|\langle J_i,u\rangle|\,\sigma\,r_i$ (the §12b product). Each plot overlays the <b style="color:#2563eb">top</b> (blue) and <b style="color:#dc2626">bottom</b> (red) eigenvectors; <b>rank-1 solid, rank-2 dotted.</b> Reuses §12's matrix-free Lanczos eigenpairs (turn on §12a/§12b/§13); <b>only renders when nsamp = 2</b>.</p>
+<div class="plotrow row6"><div id="p_s18_0" class="plot" style="height:290px"></div><div id="p_s18_1" class="plot" style="height:290px"></div><div id="p_s18_2" class="plot" style="height:290px"></div><div id="p_s18_3" class="plot" style="height:290px"></div><div id="p_s18_4" class="plot" style="height:290px"></div><div id="p_s18_5" class="plot" style="height:290px"></div></div>
 </div>
 
 <div id="sec_s19" style="display:none">
@@ -581,8 +578,8 @@
 
 <div id="sec_4">
 <h2>4 · $J$ projected onto eigenvectors of $H$</h2>
-<p class="cap">$\langle J, w\rangle$ onto the top-$n$ (1st) and bottom-$n$ (2nd) eigenvectors of $H$; then the same with $J$ normalized by its Frobenius norm, $\langle J/\lVert J\rVert, w\rangle$, onto the top-$n$ (3rd) and bottom-$n$ (4th) — the cosine alignment.</p>
-<div class="plotrow row4"><div id="p_Jtop" class="plot"></div><div id="p_Jbot" class="plot"></div><div id="p_Jtopn" class="plot"></div><div id="p_Jbotn" class="plot"></div></div>
+<p class="cap">Three phases of the same projection onto the top-$n$ (1st of each pair) and bottom-$n$ (2nd) eigenvectors $w$ of $H$. <b>Phase 1 · alignment</b>: the cosine $\langle J/\lVert J\rVert, w\rangle$. <b>Phase 2 · power iteration</b>: the raw projection $\langle J, w\rangle$ with $J=\sum_a\nabla f_a$ (the simple-average / summed function gradient). <b>Phase 3 · residual dominance</b>: the same raw projection but with $J$ <i>contracted with the residual</i> instead of averaged — $\langle J\!\cdot\!r, w\rangle$, $J\!\cdot\!r=\sum_a r_a\nabla f_a$ (cf. §4b, $r=y-f$).</p>
+<div class="plotrow row6"><div id="p_Jtopn" class="plot" style="height:300px"></div><div id="p_Jbotn" class="plot" style="height:300px"></div><div id="p_Jtop" class="plot" style="height:300px"></div><div id="p_Jbot" class="plot" style="height:300px"></div><div id="p_Jrt" class="plot" style="height:300px"></div><div id="p_Jrb" class="plot" style="height:300px"></div></div>
 </div>
 
 <div id="sec_9">
@@ -971,7 +968,7 @@ function withThr(L,thr){
 }
 const emptyN=(cnt,namer,dash)=>Array.from({length:cnt},(_,i)=>({x:[],y:[],mode:'lines',name:namer(i),line:{width:1.6,color:PALETTE[i%PALETTE.length],dash:dash||'solid'}}));
 const SLQ_PLOTS=['p_sH','p_sG','p_sS','p_sHL'];
-const TIME_PLOTS=['p_loss','p_sharp','p_resid','p_eHfX','p_eHfT','p_eHLT','p_eGNT','p_eSRT','p_eHfB','p_eHLB','p_eGNB','p_eSRB','p_Jtop','p_Jbot','p_Jtopn','p_Jbotn','p_paPos','p_paNeg','p_ntkR','p_ntkGs','p_ntkGl','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb','p_pred1','p_pred2','p_pred3','p_pred4','p_pred5','p_predp1','p_predp2','p_predp3','p_predp4','p_predp5','p_predh1','p_predh2','p_predh3','p_predh4','p_predh5','p_predd1','p_predd2','p_predd3','p_predd4','p_predd5','p_preddh1','p_preddh2','p_preddh3','p_preddh4','p_preddh5','p_c10_47','p_c10_51','p_c10_51n','p_c10_dQ','p_c10h_47','p_c10h_51','p_c10h_51n','p_c10h_dJ'];
+const TIME_PLOTS=['p_loss','p_sharp','p_resid','p_eHfX','p_eHfT','p_eHLT','p_eGNT','p_eSRT','p_eHfB','p_eHLB','p_eGNB','p_eSRB','p_Jtop','p_Jbot','p_Jtopn','p_Jbotn','p_Jrt','p_Jrb','p_paPos','p_paNeg','p_ntkR','p_ntkGs','p_ntkGl','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb','p_pred1','p_pred2','p_pred3','p_pred4','p_pred5','p_predp1','p_predp2','p_predp3','p_predp4','p_predp5','p_predh1','p_predh2','p_predh3','p_predh4','p_predh5','p_predd1','p_predd2','p_predd3','p_predd4','p_predd5','p_preddh1','p_preddh2','p_preddh3','p_preddh4','p_preddh5','p_c10_47','p_c10_51','p_c10_51n','p_c10_dQ','p_c10h_47','p_c10h_51','p_c10h_51n','p_c10h_dJ'];
 const PLOT_IDS=TIME_PLOTS.concat(SLQ_PLOTS);
 function newP(id,traces,layout){Plotly.newPlot(id,traces,layout,CFG);const gd=document.getElementById(id);gd._baseShapes=layout.shapes?JSON.parse(JSON.stringify(layout.shapes)):[];}
 // Live-plot DECIMATION — fixes the progressive hang. Without it, every diagnostic tick re-renders the full,
@@ -1651,36 +1648,41 @@ function s12ProjRender(){
 }
 // ── §18: §12b panels 1&2, but plotted PER SAMPLE (sample 1 vs sample 2) instead of mean/std. N=2 only.
 //    Reuses the §12 per-sample projection payload (m.proj.top/bot[rank].pvals[i]=product, .vals[i]=alignment). ──
-const S18_GRP=[['top','p_s18_top','#2563eb','#93c5fd'],['bot','p_s18_bot','#dc2626','#fca5a5']];   // top (blue) / bottom (red); 2nd shade = rank-2
-const S18_SPEC=[['pbysamp','pvals',0],['pbysamp','pvals',1],['vbysamp','vals',0],['vbysamp','vals',1]];   // 4 plots: [proj·r s1, proj·r s2, align s1, align s2]; pbysamp/vbysamp = TRUE positional per-sample (fallback to the masked pvals/vals for old captures)
-const S18_TITLE=['proj·r — sample 1','proj·r — sample 2','|⟨J,u⟩|/‖J‖ — sample 1','|⟨J,u⟩|/‖J‖ — sample 2'];
-const S18_NRANK=2, S18_RLAB=['rank-1','rank-2'];
+// §18 = §12b per-sample projections, restructured into 6 single-row plots (3 phases × 2 samples).
+// Each plot overlays top (blue) + bottom (red) eigenvectors, rank-1 solid / rank-2 dotted (4 traces).
+const S18_PHASES=[
+  ['vbysamp','vals','phase 1: alignment','|⟨J,u⟩|/‖J‖'],            // cosine alignment (normalized); old captures fall back to masked vals
+  ['jbysamp',null,'phase 2: power iteration','|⟨J,u⟩|·σ'],         // eigenvalue-scaled projection (new field — no fallback)
+  ['pbysamp','pvals','phase 3: residual dominance','|⟨J,u⟩|·σ·r']]; // §12b product; old captures fall back to masked pvals
+const S18_GRP2=[['top','#2563eb','#93c5fd'],['bot','#dc2626','#fca5a5']];   // grp → (rank-1 colour, rank-2 colour): top blue / bottom red, retained from the old 2-panel view
 let S18_DATA=null, S18_BUILT=false;
-function s18Ids(){const a=[];for(const [grp,pre] of S18_GRP)for(let n=0;n<4;n++)a.push(pre+n);return a;}
+function s18Ids(){const a=[];for(let n=0;n<6;n++)a.push('p_s18_'+n);return a;}
 function s18Reset(){S18_DATA=null;S18_BUILT=false;for(const id of s18Ids()){try{Plotly.purge(id);}catch(e){}}}
 function s18Build(){
-  for(const [grp,pre,col,col2] of S18_GRP)for(let n=0;n<4;n++){
-    const cols=[col,col2],dash=['solid','dot'],traces=[];
-    for(let rk=0;rk<S18_NRANK;rk++)traces.push({x:[],y:[],mode:'lines+markers',name:S18_RLAB[rk],line:{color:cols[rk],width:1.8,dash:dash[rk]},marker:{size:4,color:cols[rk]}});
-    const lay=withZero(baseLayout(S18_TITLE[n],S18_TITLE[n],false));
+  for(let ph=0;ph<3;ph++)for(let si=0;si<2;si++){
+    const id='p_s18_'+(ph*2+si),traces=[];
+    for(const[grp,c1,c2] of S18_GRP2){const cols=[c1,c2],dash=['solid','dot'];
+      for(let rk=0;rk<2;rk++)traces.push({x:[],y:[],mode:'lines+markers',name:grp+' rank-'+(rk+1),line:{color:cols[rk],width:1.8,dash:dash[rk]},marker:{size:4,color:cols[rk]}});}
+    const ttl=S18_PHASES[ph][2]+' — sample '+(si+1);
+    const lay=withZero(baseLayout(ttl,S18_PHASES[ph][3],false));
     lay.showlegend=true;lay.legend={font:{size:8},x:0.99,xanchor:'right',y:0.99,yanchor:'top',bgcolor:'rgba(255,255,255,0.6)'};
-    Plotly.newPlot(pre+n,traces,lay,{responsive:true,displaylogo:false});}
+    Plotly.newPlot(id,traces,lay,{responsive:true,displaylogo:false});}
   S18_BUILT=true;
 }
 function s18Append(m){
   if(!m.proj||!m.proj.top||m.M!==2)return;
-  if(!S18_DATA){S18_DATA={steps:[]};for(const [grp] of S18_GRP){S18_DATA[grp]=[];for(let n=0;n<4;n++){S18_DATA[grp][n]=[];for(let rk=0;rk<S18_NRANK;rk++)S18_DATA[grp][n][rk]=[];}}}
+  if(!S18_DATA){S18_DATA={steps:[],y:[]};for(let pl=0;pl<6;pl++)S18_DATA.y[pl]=[[],[],[],[]];}   // 6 plots × 4 traces (top-r1, top-r2, bot-r1, bot-r2)
   S18_DATA.steps.push(m.t);
-  for(const [grp] of S18_GRP){const ranks=m.proj[grp]||[];
-    for(let n=0;n<4;n++){const[key,fb,si]=S18_SPEC[n];
-      for(let rk=0;rk<S18_NRANK;rk++){const e=ranks[rk],arr=e?(e[key]||e[fb]):null;   // prefer positional pbysamp/vbysamp; fall back to the masked list for old captures
-        S18_DATA[grp][n][rk].push((arr&&arr.length>si&&arr[si]!=null&&isFinite(arr[si]))?arr[si]:null);}}}   // null → gap (rank-2 absent / spurious eigvec / ‖J‖=0)
+  for(let ph=0;ph<3;ph++){const key=S18_PHASES[ph][0],fb=S18_PHASES[ph][1];
+    for(let si=0;si<2;si++){const pl=ph*2+si;let tr=0;
+      for(const[grp] of S18_GRP2){const ranks=m.proj[grp]||[];
+        for(let rk=0;rk<2;rk++){const e=ranks[rk],arr=e?(e[key]||(fb?e[fb]:null)):null;   // prefer positional jbysamp/vbysamp/pbysamp; fall back to masked vals/pvals (alignment/product only)
+          S18_DATA.y[pl][tr].push((arr&&arr.length>si&&arr[si]!=null&&isFinite(arr[si]))?arr[si]:null);tr++;}}}}   // null → gap (rank-2 absent / spurious eigvec / ‖J‖=0 / pre-jbysamp capture)
 }
 function s18Render(){
   if(!S18_DATA||!S18_DATA.steps.length)return;const t=S18_DATA.steps;
-  for(const [grp,pre] of S18_GRP)for(let n=0;n<4;n++){
-    const xs=[],ys=[];for(let rk=0;rk<S18_NRANK;rk++){xs.push(t.slice());ys.push(S18_DATA[grp][n][rk].slice());}
-    Plotly.restyle(pre+n,{x:xs,y:ys});}
+  for(let pl=0;pl<6;pl++){const xs=[],ys=[];for(let tr=0;tr<4;tr++){xs.push(t.slice());ys.push(S18_DATA.y[pl][tr].slice());}
+    Plotly.restyle('p_s18_'+pl,{x:xs,y:ys});}
 }
 function s18Maybe(m){   // hook from s12Push: §18 = §12b panels 1&2 per-sample, only for exactly 2 samples + toggle on
   if(!chk('en26')||!m||m.M!==2||!m.proj||!m.proj.top)return;
@@ -1947,13 +1949,13 @@ function sec1213Payload(TV,TW,BV,BW,r,Jg,N,p,grid3dcap,gTV,gTW,gBV,gBW,wbases){ 
   const rankStats=(V,W,largest)=>{
     const orders=[];for(let i=0;i<N;i++){const ord=Array.from(W[i],(_,j)=>j);ord.sort((a,b)=>largest?W[i][b]-W[i][a]:W[i][a]-W[i][b]);orders.push(ord);}   // per-sample eigval ranking (rank 0 = largest/most-negative)
     const out=[];
-    for(let rk=0;rk<nrank;rk++){const pv=[],vv=[],pbysamp=[],vbysamp=[];
+    for(let rk=0;rk<nrank;rk++){const pv=[],vv=[],pbysamp=[],jbysamp=[],vbysamp=[];
       for(let i=0;i<N;i++){const ir=orders[i][rk],u=V[i][ir];
-        if(s12Dot(u,u,p)<=0.25){pbysamp.push(null);vbysamp.push(null);continue;}   // spurious eigvec → exclude sample (null in the positional arrays)
-        const sig=W[i][ir],jd=s12Dot(Jg[i],u,p),pr=Math.abs(jd)*sig*r[i];
-        pv.push(pr); pbysamp.push(pr);                           // PRODUCT |⟨J,u⟩|·σ·r_i  (masked list + positional)
+        if(s12Dot(u,u,p)<=0.25){pbysamp.push(null);jbysamp.push(null);vbysamp.push(null);continue;}   // spurious eigvec → exclude sample (null in the positional arrays)
+        const sig=W[i][ir],jd=s12Dot(Jg[i],u,p),proj=Math.abs(jd)*sig,pr=proj*r[i];
+        pv.push(pr); pbysamp.push(pr); jbysamp.push(proj);       // PRODUCT |⟨J,u⟩|·σ·r_i ; PROJ |⟨J,u⟩|·σ (§18 power-iteration)
         if(jnorm[i]>0){vv.push(Math.abs(jd)/jnorm[i]);vbysamp.push(Math.abs(jd)/jnorm[i]);}else vbysamp.push(null);}   // ALIGNMENT |⟨J,u⟩|/‖J‖ (‖J‖=0 dropped → null in positional)
-      out.push({prod:ms(pv),pvals:pv,cos:ms(vv),vals:vv,pbysamp:pbysamp,vbysamp:vbysamp});}   // §18 reads pbysamp/vbysamp (true per-sample, null=spurious/zero)
+      out.push({prod:ms(pv),pvals:pv,cos:ms(vv),vals:vv,pbysamp:pbysamp,jbysamp:jbysamp,vbysamp:vbysamp});}   // §18 reads pbysamp/jbysamp/vbysamp (true per-sample, null=spurious/zero)
     return out;};
   // panels 3/4 (AVERAGED view): each per-sample ∇f_i onto the top-2/bottom-2 eigvecs w of the AVERAGED Hessian (1/N)Σ_i Q_i
   // (shared basis gTV/gBV with eigenvalues gTW/gBW). Same two quantities as panels 1/2. MIRRORS server gproj_stats.
@@ -2965,10 +2967,12 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_eGNB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout(dis('Gauss–Newton G — bottom-n eigenvalues'),'eigenvalue',false)));
   newP('p_eSRB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout(dis('residual term S — bottom-n eigenvalues'),'eigenvalue',false)));
   // §4 projections
-  newP('p_Jtop',emptyN(n,i=>`top-${i+1}`),baseLayout(`J onto top-${n} eigvecs of H`,'⟨J, w⟩',false));
-  newP('p_Jbot',emptyN(n,i=>`bot-${i+1}`),baseLayout(`J onto bottom-${n} eigvecs of H`,'⟨J, w⟩',false));
-  newP('p_Jtopn',emptyN(n,i=>`top-${i+1}`),baseLayout(`J/‖J‖ onto top-${n} eigvecs of H`,'⟨J/‖J‖, w⟩',false));
-  newP('p_Jbotn',emptyN(n,i=>`bot-${i+1}`),baseLayout(`J/‖J‖ onto bottom-${n} eigvecs of H`,'⟨J/‖J‖, w⟩',false));
+  newP('p_Jtopn',emptyN(n,i=>`top-${i+1}`),baseLayout(`phase 1: alignment — top-${n} eigvecs of H`,'⟨J/‖J‖, w⟩',false));
+  newP('p_Jbotn',emptyN(n,i=>`bot-${i+1}`),baseLayout(`phase 1: alignment — bottom-${n} eigvecs of H`,'⟨J/‖J‖, w⟩',false));
+  newP('p_Jtop',emptyN(n,i=>`top-${i+1}`),baseLayout(`phase 2: power iteration — top-${n} eigvecs of H`,'⟨J, w⟩',false));
+  newP('p_Jbot',emptyN(n,i=>`bot-${i+1}`),baseLayout(`phase 2: power iteration — bottom-${n} eigvecs of H`,'⟨J, w⟩',false));
+  newP('p_Jrt',emptyN(n,i=>`top-${i+1}`),baseLayout(`phase 3: residual dominance — top-${n} eigvecs of H`,'⟨J·r, w⟩',false));
+  newP('p_Jrb',emptyN(n,i=>`bot-${i+1}`),baseLayout(`phase 3: residual dominance — bottom-${n} eigvecs of H`,'⟨J·r, w⟩',false));
   // §5 SLQ
   const slqT=c=>[{x:[],y:[],mode:'lines',fill:'tozeroy',line:{color:c,width:1.6},fillcolor:c+'22',name:'density'}];
   newP('p_sH',slqT('#2563eb'),slqLayout('SLQ density — function Hessian H'));
@@ -3240,10 +3244,12 @@ function pushPoint(t,D,n,kth,nResid){
     if(OPT.gs){extP('p_eGNB',{x:reps(n,t),y:colsOf(n,D.gnBot)},ids(n));extP('p_eSRB',{x:reps(n,t),y:colsOf(n,D.srBot)},ids(n));}
   }
   if(OPT.s4&&D.jt){   // D.jt is null on cross-entropy runs (server disables §4); guard like §7–§12
-    extP('p_Jtop',{x:reps(n,t),y:colsOf(n,D.jt)},ids(n));
-    extP('p_Jbot',{x:reps(n,t),y:colsOf(n,D.jb)},ids(n));
-    extP('p_Jtopn',{x:reps(n,t),y:colsOf(n,D.jtN)},ids(n));
+    extP('p_Jtopn',{x:reps(n,t),y:colsOf(n,D.jtN)},ids(n));     // phase 1: alignment
     extP('p_Jbotn',{x:reps(n,t),y:colsOf(n,D.jbN)},ids(n));
+    extP('p_Jtop',{x:reps(n,t),y:colsOf(n,D.jt)},ids(n));       // phase 2: power iteration
+    extP('p_Jbot',{x:reps(n,t),y:colsOf(n,D.jb)},ids(n));
+    if(D.jrt)extP('p_Jrt',{x:reps(n,t),y:colsOf(n,D.jrt)},ids(n));   // phase 3: residual dominance (null on CE/owt + old captures)
+    if(D.jrb)extP('p_Jrb',{x:reps(n,t),y:colsOf(n,D.jrb)},ids(n));
   }
   if(OPT.s6){
     extP('p_paPos',{x:[[t],[t]],y:[[D.paPos?D.paPos.mx:null],[D.paPos?D.paPos.mn:null]]},[0,1]);
@@ -3539,8 +3545,10 @@ async function loop(){                                   // drives ST forward; r
         let gn=null,sr=null;
         if((O.s2||O.s3)&&O.gs){gn=lanczosExtremeVals(v=>hvpG(S.th,spec,X,N,inDim,p,v,eps),p,S.n,S.mV,0x6A17C);sr=lanczosExtremeVals(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,cS),p,S.n,S.mV,0x7B23D);}
         if(S.needVecs&&feTV){for(let i=0;i<S.nSub;i++){feTV[i]=signTo(feTV[i],S.prevTop[i]);S.prevTop[i]=feTV[i];feBV[i]=signTo(feBV[i],S.prevBot[i]);S.prevBot[i]=feBV[i];}} // sign-track H eigvecs once (shared by §4 and §4d)
-        const J=fr.grad;const jt=[],jb=[],jtN=[],jbN=[];
-        if(O.s4){const jn=Math.max(norm(J),1e-30);for(let i=0;i<S.nSub;i++){const pt=dot(J,feTV[i]);jt.push(pt);jtN.push(pt/jn);const pb=dot(J,feBV[i]);jb.push(pb);jbN.push(pb/jn);}}
+        const J=fr.grad;const jt=[],jb=[],jtN=[],jbN=[],jrt=[],jrb=[];
+        if(O.s4){const jn=Math.max(norm(J),1e-30);
+          const Jr=gradWeighted(S.th,spec,X,N,inDim,p,r).grad;   // §4 phase 3: J·r = Σ_a r_a ∇f_a (residual-contracted; cf §4b), r=Y−f
+          for(let i=0;i<S.nSub;i++){const pt=dot(J,feTV[i]);jt.push(pt);jtN.push(pt/jn);const pb=dot(J,feBV[i]);jb.push(pb);jbN.push(pb/jn);jrt.push(dot(Jr,feTV[i]));jrb.push(dot(Jr,feBV[i]));}}
         let paPos=null,paNeg=null;
         if(O.s6){
           const posS=posSubspace(feTop,feTV,S.efrac), negS=negSubspace(feBot,feBV,S.efrac);
@@ -3975,7 +3983,7 @@ async function loop(){                                   // drives ST forward; r
             for(let s=0;s<reps_;s++){const QJ=hvpF(S.thTh0,spec,X,N,inDim,p,S.thJp_d,eps);S.thAcc1_d+=2*S.lr*r_qs*dot(S.thJp_d,QJ);S.thAccPSD1_d+=(S.lr*r_qs)*(S.lr*r_qs)*dot(QJ,QJ);for(let q=0;q<p;q++)S.thJp_d[q]+=S.lr*r_qs*QJ[q];for(let q=0;q<p;q++)S.thDth_s[q]+=S.lr*r_qs*S.thJp_d[q];}
           }
         }
-        pushPoint(t,{loss,sharp,r,jt,jb,jtN,jbN,hfMax:feTop[0]/N,hfMin:feBot[0]/N,hfTop:feTop.map(v=>v/N),hfBot:feBot.map(v=>v/N),d4Ht,d4Hb,d4Qt,d4Qb,thP,thA,thPpsd,thP_d,thPpsd_d,thAH,   // H eigs ÷N (∇²Σf summed over N samples → per-sample, matches G/S)
+        pushPoint(t,{loss,sharp,r,jt,jb,jtN,jbN,jrt,jrb,hfMax:feTop[0]/N,hfMin:feBot[0]/N,hfTop:feTop.map(v=>v/N),hfBot:feBot.map(v=>v/N),d4Ht,d4Hb,d4Qt,d4Qb,thP,thA,thPpsd,thP_d,thPpsd_d,thAH,   // H eigs ÷N (∇²Σf summed over N samples → per-sample, matches G/S)
           hlTop:hl?hl.top:null,hlBot:hl?hl.bot:null,gnTop:gn?gn.top:null,gnBot:gn?gn.bot:null,srTop:sr?sr.top:null,srBot:sr?sr.bot:null,
           paPos,paNeg,ntkR,ntkH,ntkGs,ntkGsA,ntkGl,ntkGlA,fhEvT,fhEvB,jhe1,jhe2,jhe1b,jhe2b,jh2e1,jh2e2,jh2e1b,jh2e2b,g2J,g2Jn,
           q9t,q9b,q9tN,q9bN,q9tR,q9bR,q9gt,q9gb,q10,q10N},S.n,S.kth,S.nResid);
