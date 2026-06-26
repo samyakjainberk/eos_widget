@@ -2868,14 +2868,21 @@ def run_stream(P):
                 jn = max(float(J.norm()), 1e-30)
                 aT = [abs(float(J @ feTV[i])) for i in range(n)]   # |⟨J,u⟩| onto top-i eigvec
                 aB = [abs(float(J @ feBV[i])) for i in range(n)]
+                sigT = [float(feTop[i]) / N for i in range(n)]     # σ ÷ N (per-sample scale, like §2)
+                sigB = [float(feBot[i]) / N for i in range(n)]
                 jtN = [x / jn for x in aT]                         # phase 1 (alignment): |⟨J,u⟩|/‖J‖
                 jbN = [x / jn for x in aB]
-                jt = [aT[i] * float(feTop[i]) for i in range(n)]   # phase 2 (power iteration): |⟨J,u⟩|·σ
-                jb = [aB[i] * float(feBot[i]) for i in range(n)]
-                if r is not None:                                 # phase 3 (residual dominance): |⟨J·r,u⟩|·σ, J·r=Σ_a r_a∇f_a (cf §4b). Skipped for CE/owt.
-                    Jr = gradW(th, X, Y - out)
-                    jrt = [abs(float(Jr @ feTV[i])) * float(feTop[i]) for i in range(n)]
-                    jrb = [abs(float(Jr @ feBV[i])) * float(feBot[i]) for i in range(n)]
+                jt = [aT[i] * sigT[i] for i in range(n)]           # phase 2 (power iteration): |⟨J,u⟩|·σ
+                jb = [aB[i] * sigB[i] for i in range(n)]
+                if r is not None:                                 # phase 3 (residual dominance): J·r=Σ_a r_a∇f_a (cf §4b). Skipped for CE/owt.
+                    if r.numel() == 1:                            # single scalar residual ⇒ J·r=r·J: pull r OUTSIDE |·| (signed)
+                        r0 = float(r.reshape(-1)[0])
+                        jrt = [r0 * aT[i] * sigT[i] for i in range(n)]
+                        jrb = [r0 * aB[i] * sigB[i] for i in range(n)]
+                    else:                                         # multi: contract inside the |·| — |⟨J·r,u⟩|·σ
+                        Jr = gradW(th, X, Y - out)
+                        jrt = [abs(float(Jr @ feTV[i])) * sigT[i] for i in range(n)]
+                        jrb = [abs(float(Jr @ feBV[i])) * sigB[i] for i in range(n)]
 
             # §6 eigenspace rotation
             paPos = paNeg = None
