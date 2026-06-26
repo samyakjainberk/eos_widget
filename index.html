@@ -4393,7 +4393,8 @@ async function loadCapture(obj){
     if(recs.some(r=>r&&r.type==='g4d'&&r.M===2)){
       const e18=document.getElementById('en26'); if(e18&&!e18.checked)e18.checked=true;
       if(typeof syncSectionVis==='function')syncSectionVis();
-      if(typeof s18Render==='function')s18Render();
+      const sec18=document.getElementById('sec_s18'); if(sec18)sec18.style.display='';   // force-show (2-sample capture) even if the nsamp control didn't restore to 2
+      if(typeof s18Render==='function')requestAnimationFrame(()=>{try{s18Render();}catch(e){}});   // draw once the section has layout
     }
   }catch(err){console.warn('post-load §18 redraw failed',err);}
   // ensure the end-of-run bookkeeping ran even if the capture lacks a trailing done record
