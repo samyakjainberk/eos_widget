@@ -2975,7 +2975,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_eGNB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout(dis('Gauss–Newton G — bottom-n eigenvalues'),'eigenvalue',false)));
   newP('p_eSRB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout(dis('residual term S — bottom-n eigenvalues'),'eigenvalue',false)));
   // §4 projections — one shared horizontal legend bar above the row (#s4_legend); per-plot legends off
-  {const s4tr=namer=>Array.from({length:n},(_,i)=>({x:[],y:[],mode:'lines+markers',name:namer(i),line:{width:1.8,color:PALETTE[i%PALETTE.length]},marker:{size:4,color:PALETTE[i%PALETTE.length]}}));   // §12-style ambience: lines+markers
+  {const s4tr=namer=>Array.from({length:n},(_,i)=>({x:[],y:[],mode:'lines',name:namer(i),line:{width:1.8,color:PALETTE[i%PALETTE.length]}}));   // lines only (markers on up to PLOT_DECIM pts × 18 traces tanked render perf); zero-line + shared legend keep the §12 look
    const s4lay=(t,yl)=>{const L=withZero(baseLayout(t,yl,false));L.showlegend=false;return L;};   // per-plot legend off → shared bar above the row
    newP('p_Jtopn',s4tr(i=>`top-${i+1}`),s4lay(`phase 1: alignment — top-${n}`,'|⟨J,u⟩|/‖J‖'));
    newP('p_Jbotn',s4tr(i=>`bot-${i+1}`),s4lay(`phase 1: alignment — bottom-${n}`,'|⟨J,u⟩|/‖J‖'));
@@ -4387,6 +4387,15 @@ async function loadCapture(obj){
   }finally{ Plotly.restyle=_oRestyle; Plotly.react=_oReact; PLOT_DECIM=_savedDecim; }
   st.textContent=`rendering …`; await _yield();
   await _spreadFlush();   // final render, frame-budgeted
+  // §18 (per-sample, 2 samples) is lazily built + restyle-rendered; the deferred replay can leave it un-drawn or
+  // its section hidden — force the toggle on, re-show, and redraw from the accumulated S18_DATA (real Plotly now).
+  try{
+    if(recs.some(r=>r&&r.type==='g4d'&&r.M===2)){
+      const e18=document.getElementById('en26'); if(e18&&!e18.checked)e18.checked=true;
+      if(typeof syncSectionVis==='function')syncSectionVis();
+      if(typeof s18Render==='function')s18Render();
+    }
+  }catch(err){console.warn('post-load §18 redraw failed',err);}
   // ensure the end-of-run bookkeeping ran even if the capture lacks a trailing done record
   if(!recs.some(r=>r&&(r.type==='done'||r.type==='error')))markSkippedAdv();
   RUNNING=false;updateButtons();
