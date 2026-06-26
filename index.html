@@ -126,6 +126,7 @@
     <option value="ksparse_gpt">k-sparse parity · mini-GPT transformer (GPU backend)</option>
     <option value="saddle">saddle-to-saddle · linear regression · tanh MLP (in-browser) — staircase loss</option>
     <option value="agf">alternating gradient flows · diagonal linear net (GPU backend) — multi-jump staircase</option>
+    <option value="anglepair_gpu">angle pair · 100-wide 4-layer tanh MLP (GPU backend) — §1-4 + §18 + §20</option>
     <option value="custom">— custom (manual) —</option>
   </select>
   <span class="hint">picking a preset auto-runs it · edit any control and press <b>Run</b> · hover any plot for a shared cursor</span>
@@ -4522,6 +4523,7 @@ const PRESETS={
   // angle-pair: 2 iid-Gaussian samples with controllable ‖x₁‖,‖x₂‖ and the angle between them; ±1 labels (default +1/−1).
   // tanh MLP, MSE, runs in-browser. N=2 is the point, so the per-sample structure sections (§11/§12/§13 + §18) are on.
   anglepair:{dataset:'anglepair',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:2,batch:0,indim:8,outdim:1,angle:90,norm1:1,norm2:1,lab1:1,lab2:-1,tgt:1.0,neig:3,kth:1,steps:600,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:1,en12:1,en13:1,en18:1,en19:1,en22:1,en26:1,en27:1,en28:1,s28k:40,en24:0,en25:0,qapprox:25,qmode:1,tset:3,compute:'browser'},
+  anglepair_gpu:{dataset:'anglepair',arch:'mlp',loss:'mse',depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.1,init:0.3,nsamp:2,batch:0,indim:100,outdim:1,angle:90,norm1:1,norm2:1,lab1:1,lab2:-1,tgt:1.0,neig:3,kth:1,steps:1000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:0,en13:0,en14:0,en15:0,en16:0,en17:0,en18:0,en19:0,en20:0,en21:0,en22:0,en23:0,en24:0,en25:0,en26:1,en27:0,en28:1,s28k:40,qapprox:25,qmode:1,tset:3,compute:'gpu'},   // §1-4 + §18 + §20 on GPU backend; en26/en28 self-produce their data
   // saddle-to-saddle: multi-output LINEAR regression with a diagonal teacher whose singular values σ_j=sep^j are
   // well separated. A small-init tanh MLP (quasi-linear) learns the r=min(in,out) modes ONE AT A TIME → the loss
   // descends a STAIRCASE (a sequence of saddle escapes). Tuned to show it robustly: init=0.05, lr=0.2, sep=0.4,
