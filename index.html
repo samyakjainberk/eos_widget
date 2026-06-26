@@ -585,6 +585,7 @@
 <div id="sec_4">
 <h2>4 · $J$ projected onto eigenvectors of $H$</h2>
 <p class="cap">Three phases of the projection onto the top-$n$ (1st of each pair) and bottom-$n$ (2nd) eigenvectors $u$ of $H=\sum_a Q_a=\sum_a\nabla^2 f_a$ (the summed function Hessian); $\sigma$ is the corresponding eigenvalue, <b>divided by $N$</b> (per-sample scale, as in §2). <b>Phase 1 · alignment</b>: $|\langle J,u\rangle|/\lVert J\rVert=|\cos\angle(J,u)|$. <b>Phase 2 · power iteration</b>: $|\langle J,u\rangle|\,\sigma$ (eigenvalue-scaled), with $J=\sum_a\nabla f_a$ (summed gradient). <b>Phase 3 · residual dominance</b>: $|\langle J\!\cdot\!r,u\rangle|\,\sigma$ with $J$ <i>contracted with the residual</i>, $J\!\cdot\!r=\sum_a r_a\nabla f_a$ (cf. §4b, $r=y-f$); for a <b>single sample</b> the residual factors out and is kept <i>signed</i> — $r\,|\langle J,u\rangle|\,\sigma$.</p>
+<div id="s4_legend" style="display:flex;justify-content:center;gap:26px;flex-wrap:wrap;margin:2px 0 8px;font-size:12px;color:#475569"></div>
 <div class="plotrow row6"><div id="p_Jtopn" class="plot" style="height:290px"></div><div id="p_Jbotn" class="plot" style="height:290px"></div><div id="p_Jtop" class="plot" style="height:290px"></div><div id="p_Jbot" class="plot" style="height:290px"></div><div id="p_Jrt" class="plot" style="height:290px"></div><div id="p_Jrb" class="plot" style="height:290px"></div></div>
 </div>
 
@@ -2973,15 +2974,17 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_eHLB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout('loss Hessian — bottom-n eigenvalues','eigenvalue',false)));
   newP('p_eGNB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout(dis('Gauss–Newton G — bottom-n eigenvalues'),'eigenvalue',false)));
   newP('p_eSRB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout(dis('residual term S — bottom-n eigenvalues'),'eigenvalue',false)));
-  // §4 projections
+  // §4 projections — one shared horizontal legend bar above the row (#s4_legend); per-plot legends off
   {const s4tr=namer=>Array.from({length:n},(_,i)=>({x:[],y:[],mode:'lines+markers',name:namer(i),line:{width:1.8,color:PALETTE[i%PALETTE.length]},marker:{size:4,color:PALETTE[i%PALETTE.length]}}));   // §12-style ambience: lines+markers
-   const s4lay=(t,yl)=>{const L=withZero(baseLayout(t,yl,false));L.margin={l:54,r:14,t:56,b:36};L.title.y=0.985;L.showlegend=true;L.legend={orientation:'h',font:{size:8},x:0,xanchor:'left',y:1.03,yanchor:'bottom',bgcolor:'rgba(255,255,255,0)'};return L;};   // zero line + HORIZONTAL legend on top of the panel (out of the data → easier to read)
+   const s4lay=(t,yl)=>{const L=withZero(baseLayout(t,yl,false));L.showlegend=false;return L;};   // per-plot legend off → shared bar above the row
    newP('p_Jtopn',s4tr(i=>`top-${i+1}`),s4lay(`phase 1: alignment — top-${n} eigvecs of H`,'|⟨J,u⟩|/‖J‖'));
    newP('p_Jbotn',s4tr(i=>`bot-${i+1}`),s4lay(`phase 1: alignment — bottom-${n} eigvecs of H`,'|⟨J,u⟩|/‖J‖'));
    newP('p_Jtop',s4tr(i=>`top-${i+1}`),s4lay(`phase 2: power iteration — top-${n} eigvecs of H`,'|⟨J,u⟩|·σ'));
    newP('p_Jbot',s4tr(i=>`bot-${i+1}`),s4lay(`phase 2: power iteration — bottom-${n} eigvecs of H`,'|⟨J,u⟩|·σ'));
    newP('p_Jrt',s4tr(i=>`top-${i+1}`),s4lay(`phase 3: residual dominance — top-${n} eigvecs of H`,'|⟨J·r,u⟩|·σ'));
-   newP('p_Jrb',s4tr(i=>`bot-${i+1}`),s4lay(`phase 3: residual dominance — bottom-${n} eigvecs of H`,'|⟨J·r,u⟩|·σ'));}
+   newP('p_Jrb',s4tr(i=>`bot-${i+1}`),s4lay(`phase 3: residual dominance — bottom-${n} eigvecs of H`,'|⟨J·r,u⟩|·σ'));
+   {const lb=document.getElementById('s4_legend');   // shared legend: rank-i colour (PALETTE); top vs bottom is conveyed by each plot's title
+    if(lb)lb.innerHTML=Array.from({length:n},(_,i)=>{const c=PALETTE[i%PALETTE.length];return `<span style="display:inline-flex;align-items:center;gap:6px"><svg width="30" height="12"><line x1="1" y1="6" x2="29" y2="6" stroke="${c}" stroke-width="2.4"></line><circle cx="15" cy="6" r="2.6" fill="${c}"></circle></svg>rank-${i+1}</span>`;}).join('');}}
   // §5 SLQ
   const slqT=c=>[{x:[],y:[],mode:'lines',fill:'tozeroy',line:{color:c,width:1.6},fillcolor:c+'22',name:'density'}];
   newP('p_sH',slqT('#2563eb'),slqLayout('SLQ density — function Hessian H'));
