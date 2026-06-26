@@ -2977,12 +2977,12 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   // §4 projections — one shared horizontal legend bar above the row (#s4_legend); per-plot legends off
   {const s4tr=namer=>Array.from({length:n},(_,i)=>({x:[],y:[],mode:'lines+markers',name:namer(i),line:{width:1.8,color:PALETTE[i%PALETTE.length]},marker:{size:4,color:PALETTE[i%PALETTE.length]}}));   // §12-style ambience: lines+markers
    const s4lay=(t,yl)=>{const L=withZero(baseLayout(t,yl,false));L.showlegend=false;return L;};   // per-plot legend off → shared bar above the row
-   newP('p_Jtopn',s4tr(i=>`top-${i+1}`),s4lay(`phase 1: alignment — top-${n} eigvecs of H`,'|⟨J,u⟩|/‖J‖'));
-   newP('p_Jbotn',s4tr(i=>`bot-${i+1}`),s4lay(`phase 1: alignment — bottom-${n} eigvecs of H`,'|⟨J,u⟩|/‖J‖'));
-   newP('p_Jtop',s4tr(i=>`top-${i+1}`),s4lay(`phase 2: power iteration — top-${n} eigvecs of H`,'|⟨J,u⟩|·σ'));
-   newP('p_Jbot',s4tr(i=>`bot-${i+1}`),s4lay(`phase 2: power iteration — bottom-${n} eigvecs of H`,'|⟨J,u⟩|·σ'));
-   newP('p_Jrt',s4tr(i=>`top-${i+1}`),s4lay(`phase 3: residual dominance — top-${n} eigvecs of H`,'|⟨J·r,u⟩|·σ'));
-   newP('p_Jrb',s4tr(i=>`bot-${i+1}`),s4lay(`phase 3: residual dominance — bottom-${n} eigvecs of H`,'|⟨J·r,u⟩|·σ'));
+   newP('p_Jtopn',s4tr(i=>`top-${i+1}`),s4lay(`phase 1: alignment — top-${n}`,'|⟨J,u⟩|/‖J‖'));
+   newP('p_Jbotn',s4tr(i=>`bot-${i+1}`),s4lay(`phase 1: alignment — bottom-${n}`,'|⟨J,u⟩|/‖J‖'));
+   newP('p_Jtop',s4tr(i=>`top-${i+1}`),s4lay(`phase 2: power iteration — top-${n}`,'|⟨J,u⟩|·σ'));
+   newP('p_Jbot',s4tr(i=>`bot-${i+1}`),s4lay(`phase 2: power iteration — bottom-${n}`,'|⟨J,u⟩|·σ'));
+   newP('p_Jrt',s4tr(i=>`top-${i+1}`),s4lay(`phase 3: residual dominance — top-${n}`,'|⟨J·r,u⟩|·σ'));
+   newP('p_Jrb',s4tr(i=>`bot-${i+1}`),s4lay(`phase 3: residual dominance — bottom-${n}`,'|⟨J·r,u⟩|·σ'));
    {const lb=document.getElementById('s4_legend');   // shared legend: rank-i colour (PALETTE); top vs bottom is conveyed by each plot's title
     if(lb)lb.innerHTML=Array.from({length:n},(_,i)=>{const c=PALETTE[i%PALETTE.length];return `<span style="display:inline-flex;align-items:center;gap:6px"><svg width="30" height="12"><line x1="1" y1="6" x2="29" y2="6" stroke="${c}" stroke-width="2.4"></line><circle cx="15" cy="6" r="2.6" fill="${c}"></circle></svg>rank-${i+1}</span>`;}).join('');}}
   // §5 SLQ
