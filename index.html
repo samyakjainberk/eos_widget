@@ -2923,7 +2923,8 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_g3d');if(el)el.style.display=(chk('en18')&&multi)?'':'none';}   // §11 3D Hessian–NTK grids (s18, multi-only)
   {const el=document.getElementById('sec_s12a');if(el)el.style.display=(chk('en19')&&multi)?'':'none';}   // §12a principal angles + diagonal alignment (s19, multi-only)
   {const el=document.getElementById('sec_s12b');if(el)el.style.display=chk('en22')?'':'none';}   // §12b per-sample projections (s22) — works for N≥1 (single-sample too); its cross-projection panels just stay empty without sample pairs
-  {const el=document.getElementById('sec_s18');if(el)el.style.display=(chk('en26')&&(+val('nsamp'))===2)?'':'none';}   // §18 per-sample (sample1 vs sample2) projections — exactly 2 samples
+  {const el=document.getElementById('sec_s18');if(el){const vis=(chk('en26')&&(+val('nsamp'))===2);el.style.display=vis?'':'none';   // §18 per-sample (sample1 vs sample2) projections — exactly 2 samples
+    if(vis)requestAnimationFrame(()=>{for(const id of s18Ids()){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}   // re-size §18 plots when the section becomes visible (built lazily; not in PLOT_IDS)
   {const el=document.getElementById('sec_s19');if(el)el.style.display=chk('en27')?'':'none';}   // §19 grad-norm change vs D²(NTK) correlation
   {const el=document.getElementById('sec_s20');if(el)el.style.display=chk('en28')?'':'none';}   // §20 M_r=Σr_kQ_k spectral histograms (slider)
   {const el=document.getElementById('sec_s13');if(el)el.style.display=(chk('en21')&&multi)?'':'none';}   // §13 residual-weighted curvature alignment (own toggle en21; reuses the §12 Lanczos)
