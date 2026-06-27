@@ -149,6 +149,16 @@ class Config:
     s25base: int = 0      # §17: compute the five dotted baselines (per-sample analog of §16's). OFF (≈6× cost).
     s26: int = 0          # §18 — per-sample (sample1 vs sample2) projections; browser-rendered from the §12 proj. Here only so Config accepts capture params.
     s27: int = 0          # §19 — one-step grad-norm change vs D²(trNTK); browser-rendered. Here only so Config accepts capture params.
+    # §20-§23 are SERVER+BROWSER only (eos_lab implements §1-§15); these fields exist only so Config(**capture_params) doesn't crash.
+    s28: int = 0          # §20 — M_r=Σr_kQ_k spectral histograms (server/browser only)
+    s28k: int = 40        # §20: # eigenpairs per side (top-K ⊕ bottom-K) of M_r
+    s29: int = 0          # §21 — residual↔spectrum alignment (server/browser only)
+    s29k: int = 40        # §21: # NTK eigvecs (top) & M_r eigenpairs per side
+    s30: int = 0          # §22 — §20 on frozen-Q quadratic surrogate (server/browser only)
+    s30t: int = 0         # §22: freeze iteration t
+    s31: int = 0          # §23 — §20 on random-Hessian quadratic surrogate (server/browser only)
+    s31r: int = 200       # §23: rank R of the random function Hessian
+    s31scale: float = 1.0 # §23: random-Hessian spectral-norm scale
 
     # ---- test set (held-out) ----
     n_test: int = 0                # held-out test points (0 ⇒ default: max(nsamp, 256), capped per dataset)

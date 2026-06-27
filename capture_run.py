@@ -58,11 +58,16 @@ def default_params():
         "s24warm": "5", "s24iter": "120", "s24grid": "0.1", "s24ares": "0.01", "s24k": "32",
         "gson": "1", "mode": "run", "surrogate": "quad",
     }
-    # main-run section toggles s1..s23 + s24(§16) + s25(§17) + s26(§18) + s27(§19) + s28(§20), ALL ON
-    # (s26/§18 only renders at nsamp=2; s27/§19 is small-N MSE+GD; s28/§20 is small-N — all gated, harmless when not applicable)
-    for i in list(range(1, 24)) + [24, 25, 26, 27, 28]:
+    # main-run section toggles s1..s23 + s24(§16) + s25(§17) + s26(§18) + s27(§19) + s28(§20) + s29(§21), ALL ON
+    # (s26/§18 only renders at nsamp=2; s27/§19 is small-N MSE+GD; s28/§20 + s29/§21 are small-N — all gated, harmless when not applicable)
+    for i in list(range(1, 24)) + [24, 25, 26, 27, 28, 29]:
         p["s%d" % i] = "1"
     p["s28k"] = "40"   # §20: # eigenpairs per side (top-K ⊕ bottom-K) of M_r=Σr_kQ_k in the histograms
+    p["s29k"] = "40"   # §21: # NTK eigvecs (top) & M_r eigenpairs per side
+    # §22/§23 (M_r on a quadratic surrogate) default OFF: each runs a FULL extra GD trajectory UPFRONT (+ per-step
+    # Lanczos) that can eat the whole job (like the §16/§17 baselines). Enable per-run with --set s30=1 / --set s31=1.
+    p["s30"] = "0"; p["s30t"] = "0"                          # §22: freeze iteration t
+    p["s31"] = "0"; p["s31r"] = "200"; p["s31scale"] = "1.0" # §23: random-Hessian rank R / scale
     # §16/§17 baselines OFF by default: they run UPFRONT (before the main §1–§15 loop) and add 5 extra
     # trajectories (≈6× cost), which at kdir=32 can eat the whole job before §1–§15 stream. Enable per-run
     # with --set s24base=1 --set s25base=1 when you specifically want the dotted baselines.
