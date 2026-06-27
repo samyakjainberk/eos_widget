@@ -4422,6 +4422,31 @@ def pick_device(pref):
     return torch.device(f"cuda:{best}")
 
 
+def _warm_torch_func():
+    """Force the torch.func + torch._dynamo lazy imports to complete in the MAIN thread at startup.
+
+    ThreadingHTTPServer runs each /run in a worker thread, and the request handler does the first
+    `import torch.func` + transform (vmap/jvp/vjp/jacrev) there. That first call lazily imports
+    torch._dynamo, which under thread contention can half-initialize and raise
+    "partially initialized module 'torch._dynamo' has no attribute 'guards' (circular import)".
+    Doing it once here, single-threaded, means every later worker-thread call hits a fully-loaded
+    module. Best-effort: a failure just falls back to the old lazy path."""
+    try:
+        import torch.func as _tf
+        import torch._dynamo  # noqa: F401  — complete the lazy submodule init up-front
+        dev = _dev()
+        w = torch.randn(3, 3, device=dev, dtype=DTYPE)
+        x = torch.randn(3, device=dev, dtype=DTYPE)
+        f = lambda p: (p @ x).sum()
+        _tf.jvp(f, (w,), (torch.ones_like(w),))                                  # forward-mode
+        _tf.vjp(f, w)                                                            # reverse-mode
+        _tf.jacrev(f)(w); _tf.jacfwd(f)(w)                                       # jacobians
+        _tf.vmap(lambda v: w @ v)(torch.randn(4, 3, device=dev, dtype=DTYPE))    # batched (vmap → dynamo)
+        print("  warmup: torch.func + torch._dynamo initialised in main thread")
+    except Exception as e:
+        print(f"  warmup: torch.func warmup skipped ({e})")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -4451,6 +4476,8 @@ def main():
         # the heavy compute is on the GPU; the per-step Lanczos loop is Python-orchestrated, so on a
         # busy login node spawning many CPU threads only thrashes — pin to 1 to keep the GPU fed.
         torch.set_num_threads(1)
+
+    _warm_torch_func()   # complete torch.func/_dynamo lazy imports in the main thread (see fn docstring)
 
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     print("EoS / Progressive-Sharpening — GPU backend")

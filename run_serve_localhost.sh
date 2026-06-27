@@ -42,6 +42,19 @@ echo "================================================================"
 
 cd "$DIR"
 
+# Compute nodes have a small, quota'd node-local /tmp & /home; torch/triton/CUDA/matplotlib scratch
+# files can blow that quota mid-run and crash the backend ([Errno 122] Disk quota exceeded). Redirect
+# ALL scratch/caches to a per-port dir on the shared NAS (77T free) so a run never depends on the node's
+# local quota.
+SCRATCH="/nas/ucb/samsj/.eos_tmp/$PORT"
+mkdir -p "$SCRATCH"
+export TMPDIR="$SCRATCH"                       # tempfile.mkstemp / NamedTemporaryFile default
+export CUDA_CACHE_PATH="$SCRATCH/nv"           # CUDA JIT (nvrtc) kernel cache
+export TORCHINDUCTOR_CACHE_DIR="$SCRATCH/inductor"
+export TRITON_CACHE_DIR="$SCRATCH/triton"
+export MPLCONFIGDIR="$SCRATCH/mpl"             # matplotlib font cache
+echo "[launcher] scratch/caches -> $SCRATCH"
+
 SERVER_PID=""; SSH_PID=""
 
 start_server() {
