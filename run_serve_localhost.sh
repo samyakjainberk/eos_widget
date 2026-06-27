@@ -46,7 +46,7 @@ cd "$DIR"
 # files can blow that quota mid-run and crash the backend ([Errno 122] Disk quota exceeded). Redirect
 # ALL scratch/caches to a per-port dir on the shared NAS (77T free) so a run never depends on the node's
 # local quota.
-SCRATCH="/nas/ucb/samsj/.eos_tmp/$PORT"
+SCRATCH="/nas/ucb/samsj/tmp/$PORT"
 mkdir -p "$SCRATCH"
 export TMPDIR="$SCRATCH"                       # tempfile.mkstemp / NamedTemporaryFile default
 export CUDA_CACHE_PATH="$SCRATCH/nv"           # CUDA JIT (nvrtc) kernel cache
