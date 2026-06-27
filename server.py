@@ -1722,7 +1722,7 @@ def _sec20_payload(Jc, rr, th, X, N, outD, K, mr_hvp=None):
     p = Jg.shape[1]
     rc = r.reshape(N, outD)
     Klan = max(1, min(int(K), p))
-    mlan = min(p, max(2 * Klan + 16, 32))
+    mlan = min(p, max(5 * Klan, 64))   # 5K: converge the top-K⊕bottom-K eigenpairs (2K+16 under-converged the K-th for large p)
     q0 = _randvec16(p, SEC20_SEED)                          # mulberry32+gauss start (cross-backend identical)
     mhvp = mr_hvp if mr_hvp is not None else (lambda v: hvpS(th, X, v, rc))   # §22/§23 pass a surrogate M_r operator; §20 default = Σ_k r_k ∇²f_k at θ
     Q, T, k = _lanczos_core(mhvp, p, mlan, 0, dt=Jg.dtype, q0=q0)
@@ -1780,7 +1780,7 @@ def _sec21_payload(Jc, rr, th, X, N, outD, K):
         sig.append(si); n1.append(ap / rn); n2.append(ap); n3.append(si * ap / rn); n4.append(si * ap)
     # ---- Panel 2: M_r=Σ_k r_kQ_k (÷N) top-K⊕bottom-K, J·r=Jgᵀr projected onto eigenvectors ----
     Klan = max(1, min(int(K), p))
-    mlan = min(p, max(2 * Klan + 16, 32))
+    mlan = min(p, max(5 * Klan, 64))   # 5K: converge the top-K⊕bottom-K eigenpairs (2K+16 under-converged the K-th for large p)
     q0 = _randvec16(p, SEC21_SEED)
     Q, T, k = _lanczos_core(lambda v: hvpS(th, X, v, rc), p, mlan, 0, dt=Jg.dtype, q0=q0)
     mu, Sv = _safe_eigh(T)

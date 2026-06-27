@@ -3954,7 +3954,7 @@ async function loop(){                                   // drives ST forward; r
           s19Push({type:'g19',t:S.t,A:gnn-gn,trNTK:trNTK,gn:gn,gn_next:gnn});
         }
         if(O.s28&&S.eigTick%S.g3dStride===0&&M<=S.grid3dcap&&bJc&&rrs){   // §20: M_r=Σr_kQ_k spectral histograms — top-K⊕bottom-K eigvals + λ·|⟨v,u_k⟩| for top-4 right-singular u_k. MIRRORS server._sec20_payload
-          const K=Math.max(1,Math.min(S.s28k|0,p)),mlan=Math.min(p,Math.max(2*K+16,32));
+          const K=Math.max(1,Math.min(S.s28k|0,p)),mlan=Math.min(p,Math.max(5*K,64));
           const lc=lanczosCore(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,rrs),p,mlan,randVec(p,0x205EE0));   // mulberry32 start (cross-backend); M_r v = Σ_k r_k Q_k v
           const kk=lc.k,eg=jacobiEig(lc.T,kk);                                  // Ritz eigenpairs of M_r
           const desc=Array.from({length:kk},(_,i)=>i).sort((a,b)=>eg.vals[b]-eg.vals[a]);
@@ -3978,7 +3978,7 @@ async function loop(){                                   // drives ST forward; r
           for(let i=0;i<nt;i++){const si=bEk.vals[i],vi=bEk.vecs[i];let d=0;for(let a=0;a<M;a++)d+=vi[a]*rrs[a];const ap=Math.abs(d);
             sig.push(si);n1.push(ap/rn);n2.push(ap);n3.push(si*ap/rn);n4.push(si*ap);}
           // Panel 2 — J·r onto top-K⊕bottom-K eigenvectors u_i of M_r=Σr_kQ_k (same Lanczos as §20), λ_i signed (÷N)
-          const mlan=Math.min(p,Math.max(2*K+16,32));
+          const mlan=Math.min(p,Math.max(5*K,64));
           const lc=lanczosCore(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,rrs),p,mlan,randVec(p,0x205EE0));   // identical M_r Lanczos start as §20 ⇒ same eigenpairs
           const kk=lc.k,eg=jacobiEig(lc.T,kk),desc=Array.from({length:kk},(_,i)=>i).sort((a,b)=>eg.vals[b]-eg.vals[a]);
           const ritz=ti=>{const out=new Float64Array(p);for(let j=0;j<kk;j++){const c=eg.V[j*kk+ti],qj=lc.Q[j];for(let i=0;i<p;i++)out[i]+=c*qj[i];}return out;};
