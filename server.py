@@ -1706,7 +1706,7 @@ def _sec19_payload(Jc, rr, th, X, lr, N, outD):
 
 SEC20_SEED = 0x205EE0   # fixed cross-backend Lanczos start seed for §20 (mulberry32+gauss, matches index.html/eos_lab)
 
-def _sec20_payload(Jc, rr, th, X, N, outD, K):
+def _sec20_payload(Jc, rr, th, X, N, outD, K, mr_hvp=None):
     """§20: spectral histograms of the RESIDUAL-WEIGHTED function Hessian M_r = Σ_k r_k Q_k (Q_k=∇²f_k), and of its
     eigenvalues weighted by alignment with the top Jacobian directions. From the top-K ⊕ bottom-K eigenpairs
     (λ_i, v_i) of M_r — matrix-free Lanczos on hvpS(·, r) started from the cross-backend mulberry32 vector:
@@ -1724,7 +1724,8 @@ def _sec20_payload(Jc, rr, th, X, N, outD, K):
     Klan = max(1, min(int(K), p))
     mlan = min(p, max(2 * Klan + 16, 32))
     q0 = _randvec16(p, SEC20_SEED)                          # mulberry32+gauss start (cross-backend identical)
-    Q, T, k = _lanczos_core(lambda v: hvpS(th, X, v, rc), p, mlan, 0, dt=Jg.dtype, q0=q0)
+    mhvp = mr_hvp if mr_hvp is not None else (lambda v: hvpS(th, X, v, rc))   # §22/§23 pass a surrogate M_r operator; §20 default = Σ_k r_k ∇²f_k at θ
+    Q, T, k = _lanczos_core(mhvp, p, mlan, 0, dt=Jg.dtype, q0=q0)
     mu, Sv = _safe_eigh(T)                                  # k Ritz pairs of M_r, ascending
     desc = torch.argsort(mu, descending=True)              # indices, descending eigenvalue
     Qmat = torch.stack(Q)                                   # (k, p)
@@ -1799,6 +1800,64 @@ def _sec21_payload(Jc, rr, th, X, N, outD, K):
         lam.append(li); p1.append(ap / Jrn); p2.append(ap); p3.append(li * ap / Jrn); p4.append(li * ap)
     return {"sig": sig, "n1": n1, "n2": n2, "n3": n3, "n4": n4,
             "lam": lam, "p1": p1, "p2": p2, "p3": p3, "p4": p4, "K": Klan, "ntk": nt}
+
+
+def _qrandom_hvp(p, R, seed, dt, dev):
+    """§23's fixed RANDOM function Hessian: a low-rank symmetric operator Q[v]=Σ_{j=1}^R s_j (ĝ_jᵀv) ĝ_j
+    (ĝ_j unit-norm Gaussian, s_j=±1), UNSCALED. Seeded ⇒ deterministic. Returns the hvp closure."""
+    gen = torch.Generator(device=dev); gen.manual_seed(int(seed) & 0x7FFFFFFF)
+    g = torch.randn(R, p, generator=gen, dtype=dt, device=dev)
+    g = g / g.norm(dim=1, keepdim=True).clamp_min(1e-30)
+    s = torch.randint(0, 2, (R,), generator=gen, device=dev).to(dt) * 2 - 1
+    def hvp(v):
+        return g.t() @ ((g @ v) * s)                       # Σ_j s_j (ĝ_jᵀv) ĝ_j
+    return hvp
+
+
+def _power_absmax(hvp, p, dt, dev, iters=24, seed=0xB17):
+    """Top |eigenvalue| of a symmetric operator via power iteration (for scaling §23's random Q)."""
+    gen = torch.Generator(device=dev); gen.manual_seed(seed)
+    v = torch.randn(p, generator=gen, dtype=dt, device=dev); v = v / v.norm().clamp_min(1e-30)
+    lam = 0.0
+    for _ in range(iters):
+        w = hvp(v); nw = float(w.norm())
+        if nw < 1e-30:
+            break
+        v = w / nw; lam = nw
+    return lam
+
+
+def _quad_surrogate_sec20(th_freeze, X, Y, N, outD, lr, steps, ee, K, kind, qhvp=None):
+    """Closed-loop quadratic-Taylor surrogate from th_freeze, with the §20 M_r payload computed along it.
+    f̃_k(θ)=f_k(θ_f)+J_{f,k}·Δθ+½Δθᵀ Q̃_k Δθ ; GD on the MSE of f̃ (η = lr/N). Q̃ frozen:
+      kind='frozen' (§22): Q̃_k=∇²f_k(θ_f) via jac_hvp(θ_f,·); M_r=Σ_k r̃_k∇²f_k(θ_f)=hvpS(θ_f,·,r̃).
+      kind='random' (§23): Q̃_k=qhvp (one shared random operator); M_r=(Σ_k r̃_k)·qhvp.
+    Yields (surrogate_step, sec20_payload) every ee steps. MIRRORS server.run_surrogate_compare's quad step."""
+    J0, f0flat = jac_cols(th_freeze, X)                    # (M,p), (M,) frozen at the expansion point
+    Yf = Y.reshape(-1)
+    th_sur = th_freeze.clone()
+    for st in range(int(steps) + 1):
+        dth = th_sur - th_freeze
+        if kind == "frozen":
+            QD = jac_hvp(th_freeze, X, dth)                # (M,p): ∇²f_k(θ_f)·Δθ per output
+            fss = f0flat + (J0 @ dth) + 0.5 * (QD @ dth)
+            Jqs = J0 + QD
+        else:                                              # random: single shared Q
+            qd = qhvp(dth)                                 # (p,)
+            fss = f0flat + (J0 @ dth) + 0.5 * float(dth @ qd)
+            Jqs = J0 + qd.unsqueeze(0)                     # broadcast J0_k + qd
+        rt = Yf - fss                                      # surrogate residual r̃
+        if not torch.isfinite(fss).all() or float(rt @ rt) > 1e14:
+            break                                          # diverged → keep the snapshots so far
+        if st % ee == 0:
+            if kind == "frozen":
+                sec = _sec20_payload(Jqs, rt, th_freeze, X, N, outD, K)
+            else:
+                rsum = float(rt.sum())
+                sec = _sec20_payload(Jqs, rt, th_freeze, X, N, outD, K, mr_hvp=(lambda v, rs=rsum: rs * qhvp(v)))
+            yield (st, sec)
+        gss = _TL.loss.resid_cotangent(fss.reshape(N, outD), Y, N).reshape(-1)   # MSE: (f̃−Y)/N = −r̃/N
+        th_sur = th_sur - lr * (Jqs.t() @ gss)
 
 
 def hvpG(th, X, v):
@@ -2716,6 +2775,11 @@ def run_stream(P):
     sec20k = max(1, int(P.get("s28k", 40)))   # §20: # eigenpairs per side (top-K ⊕ bottom-K) of M_r
     s29 = P.get("s29", 0)                # §21: residual↔spectrum alignment (NTK panel + M_r panel); needs the M×p Jacobian + hvpS
     sec21k = max(1, int(P.get("s29k", 40)))   # §21: # NTK eigvecs (top) & M_r eigenpairs per side (top-K ⊕ bottom-K)
+    s30 = P.get("s30", 0)                # §22: §20's M_r histograms on a frozen-Q QUADRATIC surrogate trajectory (freeze at iteration s30t)
+    s31 = P.get("s31", 0)                # §23: §20's M_r histograms on a RANDOM-Hessian quadratic surrogate (low-rank R, frozen at θ₀)
+    s30t = max(0, int(P.get("s30t", 0)))      # §22: iteration t at which to freeze the 2nd-order Taylor (θ_t, J_t, Q_t)
+    s31r = max(1, int(P.get("s31r", 200)))    # §23: rank R of the random symmetric function Hessian
+    s31scale = float(P.get("s31scale", 1.0))  # §23: random-Hessian spectral norm = (real function-Hessian λmax at θ₀)·s31scale
     grid3dcap = max(1, P.get("grid3dcap", 30))
     sec12ncap = max(1, P.get("sec12ncap", 500))    # §12 sample cap (gates N). NOTE: §12 builds dense p×p Hessians
                                                     # (p HVPs + O(p³) eig per sample) → large p is SLOW; keep models small.
@@ -2857,6 +2921,30 @@ def run_stream(P):
             if mytok != RUN_TOKEN.get(_devkey, mytok):
                 return
             yield {"type": "g17", **rec17}
+
+    # ===== §22/§23: §20's M_r=Σr_kQ_k histograms computed along a QUADRATIC-Taylor surrogate trajectory =====
+    # §22 freezes the 2nd-order Taylor at iteration s30t (real full-batch GD 0→t, then GD on the quadratic loss);
+    # §23 uses a fixed low-rank RANDOM function Hessian from θ₀. Both stream g22/g23 snapshots (browser slider). MSE only.
+    if (s30 or s31) and start == 0 and _TL.loss.name == "mse" and dataset != "owt" and M16 <= grid3dcap:
+        Xq, Yq = Xpool, Ypool
+        if s30:
+            thf = th.detach().clone()
+            for _ in range(s30t):                                            # advance the REAL model to iteration t (θ_t)
+                thf = thf - lr * _opt_dir(_TL.model, gradL(thf, Xq, Yq)[0], opt)
+            for (st, sec) in _quad_surrogate_sec20(thf, Xq, Yq, Nfull, outD, lr, steps, ee, sec20k, "frozen"):
+                if mytok != RUN_TOKEN.get(_devkey, mytok):
+                    return
+                yield {"type": "g22", "t": st, **sec}
+        if s31:
+            qh = _qrandom_hvp(p, s31r, (P.get("seed", 0) * 2654435761 + 0x235EE0) & 0x7FFFFFFF, th.dtype, _dev())
+            tgt = _power_absmax(lambda v: hvpF(th, Xq, v), p, th.dtype, _dev()) * s31scale   # scale random Q to the real fn-Hessian λmax at θ₀
+            traw = _power_absmax(qh, p, th.dtype, _dev())
+            sc = (tgt / traw) if traw > 1e-30 else 1.0
+            for (st, sec) in _quad_surrogate_sec20(th.detach().clone(), Xq, Yq, Nfull, outD, lr, steps, ee, sec20k,
+                                                   "random", qhvp=(lambda v, c=sc: c * qh(v))):
+                if mytok != RUN_TOKEN.get(_devkey, mytok):
+                    return
+                yield {"type": "g23", "t": st, **sec}
 
     for t in range(steps + 1):
         if mytok != RUN_TOKEN.get(_devkey, mytok):
@@ -4163,6 +4251,11 @@ def _parse_params(q):
         "s28k": max(1, fi("s28k", 40)),  # §20: # eigenpairs per side (top-K ⊕ bottom-K) of M_r in the histogram
         "s29": g("s29", "0") == "1",     # §21: residual↔spectrum alignment — NTK panel (residual onto JJᵀ eigvecs) + M_r panel (J·r onto Σr_kQ_k eigvecs)
         "s29k": max(1, fi("s29k", 40)),  # §21: # NTK eigvecs (top) & M_r eigenpairs per side (top-K ⊕ bottom-K)
+        "s30": g("s30", "0") == "1",     # §22: §20 M_r histograms on a frozen-Q quadratic surrogate (freeze at iteration s30t)
+        "s31": g("s31", "0") == "1",     # §23: §20 M_r histograms on a random-Hessian quadratic surrogate (rank s31r)
+        "s30t": max(0, fi("s30t", 0)),   # §22: freeze iteration t
+        "s31r": max(1, fi("s31r", 200)), # §23: rank R of the random function Hessian
+        "s31scale": ff("s31scale", 1.0), # §23: random-Hessian spectral-norm scale (× real fn-Hessian λmax)
         "grid3dcap": max(1, fi("grid3dcap", 500)),
         "sec12ncap": max(1, fi("sec12ncap", 500)),
         "cubeevery": max(1, fi("cubeevery", 1)),   # §11-§14 (3D-grid/cube + per-sample) snapshot cadence: emit every k-th eig-tick.

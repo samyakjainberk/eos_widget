@@ -266,6 +266,8 @@
   <label title="§19 — correlation between (A) the one-step-ahead change in gradient norm ‖J_{t+1}r_{t+1}‖−‖J_t r_t‖ (first-order GD prediction with the run's actual η/N step) and (B) D²(tr NTK), the centered 2nd difference of tr(NTK)=‖J‖²_F. Plot 1: A and B over time; Plot 2: raw A−B and normalized Â−B̂. Asks whether the steps where A and B first turn negative coincide. Small N; best with eigevery=1."><input type="checkbox" id="en27"> 19 · grad-norm change vs D²(NTK) correlation</label>
   <label title="§20 — spectral histograms of the residual-weighted function Hessian M_r=Σ_k r_k Q_k (Q_k=∇²f_k), evolving over training (slider). Plot 1: histogram of its top-K⊕bottom-K eigenvalues λ_i (matrix-free Lanczos). Plots 2/3/4: histogram of λ_i·|⟨v_i,u_k⟩| where u_k is the k-th RIGHT-singular vector of J (k=1,2,3) — the eigenvalues weighted by how strongly each eigenvector v_i aligns with the top-3 Jacobian directions. Small N; K set below."><input type="checkbox" id="en28"> 20 · M_r=Σr_kQ_k spectral histograms <input type="number" id="s28k" value="40" min="1" max="400" step="1" title="§20: number of eigenpairs per side (top-K ⊕ bottom-K) of M_r" style="width:52px;margin-left:4px"></label>
   <label title="§21 — alignment of the residual with the spectrum, two panels (slider). Panel 1: residual r projected onto the top-K NTK (K=JJᵀ) eigenvectors v_i — bars |⟨v_i,r⟩|/‖r‖, |⟨v_i,r⟩|, σ_i·|⟨v_i,r⟩|/‖r‖, σ_i·|⟨v_i,r⟩| (grey σ_i on the two σ-weighted plots). Panel 2: J·r=Σ_k r_k∇f_k projected onto the top-K⊕bottom-K eigenvectors u_i of M_r=Σ_k r_kQ_k — bars |⟨u_i,Jr⟩|/‖Jr‖, |⟨u_i,Jr⟩|, λ_i·|⟨u_i,Jr⟩|/‖Jr‖, λ_i·|⟨u_i,Jr⟩| (grey signed λ_i on the two λ-weighted plots). Small N; K set right."><input type="checkbox" id="en29"> 21 · residual ↔ spectrum alignment <input type="number" id="s29k" value="40" min="1" max="400" step="1" title="§21: NTK top-K & M_r top-K⊕bottom-K" style="width:52px;margin-left:4px"></label>
+  <label title="§22 — §20's M_r=Σr_kQ_k spectral histograms, but computed along a QUADRATIC-Taylor surrogate trajectory whose function Hessian Q is frozen at the iteration t you set (right). Real full-batch GD reaches θ_t, then GD runs on the quadratic loss; slider scrubs the surrogate's own iterations. MSE only; small N (M ≤ grid3dcap)."><input type="checkbox" id="en30"> 22 · §20 on frozen-Q quadratic surrogate · freeze t= <input type="number" id="s30t" value="0" min="0" max="100000" step="1" title="§22: iteration t at which to freeze the 2nd-order Taylor (θ_t, J_t, Q_t)" style="width:62px;margin-left:4px"></label>
+  <label title="§23 — §20's M_r spectral histograms on a quadratic surrogate whose function Hessian is a FIXED low-rank RANDOM symmetric operator (rank R, scaled to the real Hessian's λmax × scale). Trains from θ₀ under this random quadratic — a null model for the §20 alignment. MSE only."><input type="checkbox" id="en31"> 23 · §20 on random-Hessian surrogate · R= <input type="number" id="s31r" value="200" min="1" max="2000" step="1" title="§23: rank R of the random function Hessian" style="width:58px;margin-left:4px"> scale <input type="number" id="s31scale" value="1.0" min="0" max="100" step="0.1" title="§23: random-Hessian spectral norm = real fn-Hessian λmax × this" style="width:50px;margin-left:2px"></label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -431,6 +433,34 @@
 <div class="plotrow row4"><div id="p_s21_b1" class="plot" style="height:330px"></div><div id="p_s21_b2" class="plot" style="height:330px"></div><div id="p_s21_b3" class="plot" style="height:330px"></div><div id="p_s21_b4" class="plot" style="height:330px"></div></div>
 <h3 style="margin:16px 0 2px;font-size:14px;color:#475569">Panel 2 — $J\!\cdot\!r$ onto the top-$K$ ⊕ bottom-$K$ eigenvectors $u_i$ of $M_r=\sum_k r_kQ_k$ ($\lambda_i$ = signed eigenvalue; grey on the λ-weighted plots)</h3>
 <div class="plotrow row4"><div id="p_s21_c1" class="plot" style="height:330px"></div><div id="p_s21_c2" class="plot" style="height:330px"></div><div id="p_s21_c3" class="plot" style="height:330px"></div><div id="p_s21_c4" class="plot" style="height:330px"></div></div>
+</div>
+
+<div id="sec_s22" style="display:none">
+<h2>22 · §20 spectral histograms on a <b>frozen-Q quadratic surrogate</b> (Taylor expansion frozen at iteration <span id="s22_tlabel">t</span>)</h2>
+<p class="cap">The <b>same content as §20</b> — the residual-weighted function Hessian $M_r=\tfrac1N\sum_k r_k Q_k$ and its alignment with the top Jacobian directions — but computed along a <b>quadratic-Taylor surrogate</b> instead of the real run. We freeze $f$ at the iteration $t$ you pick (control <b>§22</b>): $\tilde f_k(\theta)=f_k(\theta_t)+J_{t,k}\!\cdot\!\Delta\theta+\tfrac12\Delta\theta^\top Q_{t,k}\Delta\theta$ ($\Delta\theta=\theta-\theta_t$, $Q_{t,k}=\nabla^2 f_k(\theta_t)$), then run GD on the quadratic MSE loss. The function Hessian is <b>constant = $Q_t$</b>, so $M_r=\tfrac1N\sum_k\tilde r_k Q_{t,k}$ uses the frozen $Q_t$ weighted by the <b>evolving surrogate residual</b> $\tilde r$; the Jacobian directions $u_k$ come from the surrogate's evolving $\tilde J=J_t+Q_t\Delta\theta$. <b>Drag the slider</b> over the surrogate's own iterations to see whether the §20 patterns reappear. (Real full-batch GD reaches $\theta_t$; MSE only.)</p>
+<div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
+  <label style="white-space:nowrap">surrogate snapshot</label>
+  <input id="s22_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
+  <span id="s22_step" style="white-space:nowrap;color:#475569;font-size:13px;min-width:200px">—</span>
+</div>
+<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — eigenvalues $\lambda_i$ (grey) vs $\lambda_i\,|\langle v_i,u_k\rangle|$ (colour), topmost → bottommost · $k=1,2,3,4$</h3>
+<div class="plotrow row4"><div id="p_s22_b1" class="plot" style="height:360px"></div><div id="p_s22_b2" class="plot" style="height:360px"></div><div id="p_s22_b3" class="plot" style="height:360px"></div><div id="p_s22_b4" class="plot" style="height:360px"></div></div>
+<h3 style="margin:16px 0 2px;font-size:14px;color:#475569">Panel 2 — alignment $|\langle v_i,u_k\rangle|$ per eigenvalue ($k=1,2,3,4$)</h3>
+<div class="plotrow row4"><div id="p_s22_a1" class="plot" style="height:290px"></div><div id="p_s22_a2" class="plot" style="height:290px"></div><div id="p_s22_a3" class="plot" style="height:290px"></div><div id="p_s22_a4" class="plot" style="height:290px"></div></div>
+</div>
+
+<div id="sec_s23" style="display:none">
+<h2>23 · §20 spectral histograms on a <b>random-Hessian quadratic surrogate</b> (fixed low-rank random $Q$)</h2>
+<p class="cap">The <b>same content as §20</b>, but the function Hessian is a <b>fixed, randomly-initialized</b> low-rank symmetric operator $Q[v]=\sum_{j=1}^{R} s_j\,(\hat g_j^\top v)\,\hat g_j$ ($\hat g_j$ unit Gaussian, $s_j=\pm1$, rank $R$ from control <b>§23</b>, scaled so $\lVert Q\rVert\approx$ the real function-Hessian's $\lambda_{\max}$ at $\theta_0\times$scale). The model is trained from $\theta_0$ under the quadratic Taylor $\tilde f_k(\theta)=f_k(\theta_0)+J_{0,k}\!\cdot\!\Delta\theta+\tfrac12\Delta\theta^\top Q\,\Delta\theta$ (shared $Q$), so $M_r=(\tfrac1N\sum_k\tilde r_k)\,Q$ — the random spectrum scaled by the residual sum, with the Jacobian directions $u_k$ from $\tilde J=J_0+Q\Delta\theta$. A <b>null model</b>: do the §20 alignment patterns appear when the curvature is random? Drag the slider over the surrogate iterations. (MSE only.)</p>
+<div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
+  <label style="white-space:nowrap">surrogate snapshot</label>
+  <input id="s23_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
+  <span id="s23_step" style="white-space:nowrap;color:#475569;font-size:13px;min-width:200px">—</span>
+</div>
+<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — eigenvalues $\lambda_i$ (grey) vs $\lambda_i\,|\langle v_i,u_k\rangle|$ (colour), topmost → bottommost · $k=1,2,3,4$</h3>
+<div class="plotrow row4"><div id="p_s23_b1" class="plot" style="height:360px"></div><div id="p_s23_b2" class="plot" style="height:360px"></div><div id="p_s23_b3" class="plot" style="height:360px"></div><div id="p_s23_b4" class="plot" style="height:360px"></div></div>
+<h3 style="margin:16px 0 2px;font-size:14px;color:#475569">Panel 2 — alignment $|\langle v_i,u_k\rangle|$ per eigenvalue ($k=1,2,3,4$)</h3>
+<div class="plotrow row4"><div id="p_s23_a1" class="plot" style="height:290px"></div><div id="p_s23_a2" class="plot" style="height:290px"></div><div id="p_s23_a3" class="plot" style="height:290px"></div><div id="p_s23_a4" class="plot" style="height:290px"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -2551,6 +2581,29 @@ function s20Reset(){S20_SNAPS=[];S20_CURIDX=0;if(S20_RAF){cancelAnimationFrame(S
   for(const id of S20_IDS){try{Plotly.purge(id);}catch(e){}}
   const sl=document.getElementById('s20_slider');if(sl){sl.max=0;sl.value=0;}
   const sp=document.getElementById('s20_step');if(sp)sp.textContent='—';}
+// §22/§23 render the SAME §20 M_r content (reusing s20BarDraw/s20AlignBar) on a surrogate trajectory — one channel each.
+function makeS20Channel(barIds,alignIds,sliderId,stepId){
+  let SNAPS=[],RAF=0,PENDING=-1,CURIDX=0;const MAX=2000,allIds=barIds.concat(alignIds);
+  const cols=['#2563eb','#7c3aed','#db2777','#ea580c'];
+  const labs=['λ_i·|⟨v_i,u_1⟩|  (top Jacobian dir)','λ_i·|⟨v_i,u_2⟩|  (2nd Jacobian dir)','λ_i·|⟨v_i,u_3⟩|  (3rd Jacobian dir)','λ_i·|⟨v_i,u_4⟩|  (4th Jacobian dir)'];
+  const alabs=['|⟨v_i, u_1⟩|  (top Jacobian dir)','|⟨v_i, u_2⟩|  (2nd Jacobian dir)','|⟨v_i, u_3⟩|  (3rd Jacobian dir)','|⟨v_i, u_4⟩|  (4th Jacobian dir)'];
+  function run(i,key){let mx=-Infinity,mn=Infinity;for(let q=0;q<=i&&q<SNAPS.length;q++){const a=SNAPS[q][key];if(!a)continue;for(let z=0;z<a.length;z++){const v=a[z];if(!Number.isFinite(v))continue;if(v>mx)mx=v;if(v<mn)mn=v;}}return [isFinite(mx)?mx:null,isFinite(mn)?mn:null];}
+  function renderNow(i){const s=SNAPS[i];if(!s)return;CURIDX=i;const r=run(i,'lam');
+    for(let k=0;k<4;k++)s20BarDraw(barIds[k],s.lam,s['q'+(k+1)],labs[k],cols[k],r[0],r[1]);
+    const align=k=>{const L=s.lam,Q=s['q'+k]||[],a=[];for(let z=0;z<L.length;z++){const li=L[z];if(Number.isFinite(li)&&Math.abs(li)>1e-12){let v=Math.abs(Q[z]/li);if(v>1)v=1;a.push(v);}else a.push(null);}return a;};
+    for(let k=0;k<4;k++)s20AlignBar(alignIds[k],align(k+1),alabs[k],cols[k]);
+    const sp=document.getElementById(stepId);if(sp)sp.textContent=`surrogate step ${s.t}  ·  snapshot ${i+1}/${SNAPS.length}  ·  K=${s.K}`;
+    const sl=document.getElementById(sliderId);if(sl&&+sl.value!==i)sl.value=i;}
+  function renderIdx(i){PENDING=i;if(RAF)return;RAF=requestAnimationFrame(()=>{RAF=0;const j=PENDING;PENDING=-1;if(j>=0)renderNow(j);});}
+  function push(m){if(!m||!m.lam)return;const sl=document.getElementById(sliderId),wasLive=!sl||(+sl.value>=+sl.max);SNAPS.push(m);
+    if(SNAPS.length>MAX){SNAPS=SNAPS.filter((_,ix)=>ix%2===0);if(CURIDX>=SNAPS.length)CURIDX=SNAPS.length-1;}
+    if(sl){sl.max=SNAPS.length-1;if(wasLive)sl.value=sl.max;}renderIdx(wasLive?SNAPS.length-1:(sl?+sl.value:0));}
+  function reset(){SNAPS=[];CURIDX=0;if(RAF){cancelAnimationFrame(RAF);RAF=0;}PENDING=-1;for(const id of allIds){try{Plotly.purge(id);}catch(e){}}
+    const sl=document.getElementById(sliderId);if(sl){sl.max=0;sl.value=0;}const sp=document.getElementById(stepId);if(sp)sp.textContent='—';}
+  return {push,reset,renderIdx,ids:allIds};
+}
+const S22CH=makeS20Channel(['p_s22_b1','p_s22_b2','p_s22_b3','p_s22_b4'],['p_s22_a1','p_s22_a2','p_s22_a3','p_s22_a4'],'s22_slider','s22_step');
+const S23CH=makeS20Channel(['p_s23_b1','p_s23_b2','p_s23_b3','p_s23_b4'],['p_s23_a1','p_s23_a2','p_s23_a3','p_s23_a4'],'s23_slider','s23_step');
 // ── §21 — residual↔spectrum alignment. Panel 1 (NTK eigvecs v_i, residual r): n1..n4. Panel 2 (M_r eigvecs u_i, J·r): p1..p4.
 //    Each plot: blue quantity bars; on the eigenvalue-weighted plots (#3,#4) a grey eigenvalue bar (σ_i / signed λ_i) behind it.
 const S21_IDS=['p_s21_b1','p_s21_b2','p_s21_b3','p_s21_b4','p_s21_c1','p_s21_c2','p_s21_c3','p_s21_c4'];
@@ -2999,6 +3052,11 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_s20');if(el)el.style.display=chk('en28')?'':'none';}   // §20 M_r=Σr_kQ_k spectral histograms (slider)
   {const el=document.getElementById('sec_s21');if(el){const vis=chk('en29');el.style.display=vis?'':'none';   // §21 residual↔spectrum alignment (slider)
     if(vis)requestAnimationFrame(()=>{for(const id of S21_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
+  {const el=document.getElementById('sec_s22');if(el){const vis=chk('en30');el.style.display=vis?'':'none';   // §22 §20-on-frozen-Q-surrogate (slider)
+    const tl=document.getElementById('s22_tlabel');if(tl)tl.textContent=val('s30t');
+    if(vis)requestAnimationFrame(()=>{for(const id of S22CH.ids){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
+  {const el=document.getElementById('sec_s23');if(el){const vis=chk('en31');el.style.display=vis?'':'none';   // §23 §20-on-random-Hessian-surrogate (slider)
+    if(vis)requestAnimationFrame(()=>{for(const id of S23CH.ids){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
   {const el=document.getElementById('sec_s13');if(el)el.style.display=(chk('en21')&&multi)?'':'none';}   // §13 residual-weighted curvature alignment (own toggle en21; reuses the §12 Lanczos)
   {const el=document.getElementById('sec_s14');if(el){const vis=(chk('en20')&&multi);el.style.display=vis?'':'none';   // §14 Tr(ΔNTK) per-triplet decomposition (s20, multi-only)
     if(vis&&typeof S14_SNAPS!=='undefined'&&S14_SNAPS.length)requestAnimationFrame(()=>s14RenderNow(S14_CURIDX));}}   // redraw canvases now that the divs have size
@@ -3017,7 +3075,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   s12Reset();   // §12: drop snapshots from the previous run
   s13Reset();   // §13: drop the approximation-comparison time-series from the previous run
   s14Reset();   // §14: drop snapshots from the previous run
-  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s21Reset();s16Reset();s17Reset();   // §15+§16+§19+§20: drop the 2nd-difference + optimizer + grad-norm + M_r-histogram series
+  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s21Reset();S22CH.reset();S23CH.reset();s16Reset();s17Reset();   // §15+§16+§19+§20: drop the 2nd-difference + optimizer + grad-norm + M_r-histogram series
   trReset();    // §5: clear the trace-over-iterations curves
   syncSectionVis(multi);   // gate sections by the panel toggles (multi from the actual run)
   const dis=s=>OPT.gs?s:s+'  (off)';
@@ -3272,7 +3330,9 @@ const ADV_SECS={en18:{sec:'sec_g3d',name:'§11 (3D Hessian–NTK grids)'},
   en25:{sec:'sec_s17',name:'§17 (per-sample optimizer)'},
   en26:{sec:'sec_s18',name:'§18 (per-sample projections, N=2)'}, en27:{sec:'sec_s19',name:'§19 (grad-norm vs D²NTK)'},
   en28:{sec:'sec_s20',name:'§20 (M_r spectral histograms)'},
-  en29:{sec:'sec_s21',name:'§21 (residual↔spectrum alignment)'}};
+  en29:{sec:'sec_s21',name:'§21 (residual↔spectrum alignment)'},
+  en30:{sec:'sec_s22',name:'§22 (§20 on frozen-Q surrogate)'},
+  en31:{sec:'sec_s23',name:'§23 (§20 on random-Hessian surrogate)'}};
 let ADV_GOT={};   // toggle id → true once that section's g-record has arrived this run
 function datasetOutDim(){const d=val('dataset');
   if(d==='cifar10'||d==='mnist')return 10; if(d==='cifar2'||d==='mnist2'||d==='chebyshev'||d==='ksparse'||d==='anglepair'||d==='agf')return 1;
@@ -3481,7 +3541,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
   const qmode=Math.max(1,+val('qmode')||1), tset=Math.max(1,+val('tset')||1);   // qmode (legacy, unused by Eq-22); Eq-29 set-T size
   const nProbe=Math.max(1,+val('slqprobes')), efrac=Math.min(1,Math.max(0.5,(+val('energyp'))/100));
-  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),gs:val('gson')==='1'};
+  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),s30:chk('en30'),s31:chk('en31'),gs:val('gson')==='1'};
   OPT=opt;
   const {spec,p}=buildSpec(inDim,width,depth,act,useBias,outDim);
   if(p>100000){st.textContent=`p=${p} parameters exceeds the cap (100000). Reduce width/depth.`;ST=null;updateButtons();return;}
@@ -4125,7 +4185,7 @@ function resetSim(){
   s12Reset();   // §12: clear the eigvec-similarity grids/cuboids + snapshots/slider too
   s13Reset();   // §13: clear the approximation-comparison time-series too
   s14Reset();   // §14: clear the triplet-decomposition cubes + snapshots/slider too
-  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s21Reset();s16Reset();s17Reset();   // §15+§16+§19+§20: clear the time-series too
+  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s21Reset();S22CH.reset();S23CH.reset();s16Reset();s17Reset();   // §15+§16+§19+§20: clear the time-series too
   updateButtons();
 }
 
@@ -4297,10 +4357,10 @@ async function downloadPlots(){
 // shared by backendURL (live stream) and the capture save/load (Compute → "Load saved run").
 // QUERY_IDS: plain value controls; SEC_TOGGLE_MAP: query-key ↔ checkbox-id for every section toggle.
 const QUERY_IDS=['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
-   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','cubeevery','s24warm','s24iter','s24grid','s24ares','s24k','s28k','s29k',
+   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','cubeevery','s24warm','s24iter','s24grid','s24ares','s24k','s28k','s29k','s30t','s31r','s31scale',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg','ksparse','angle','norm1','norm2','lab1','lab2','saddlesep','agfratio'];
 const SEC_TOGGLE_MAP=[['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
-   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base'],['s26','en26'],['s27','en27'],['s28','en28'],['s29','en29']];
+   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base'],['s26','en26'],['s27','en27'],['s28','en28'],['s29','en29'],['s30','en30'],['s31','en31']];
 function currentQueryParams(){   // the exact query-style param dict the backend receives (also stored in a browser-saved capture)
   const o={};
   for(const id of QUERY_IDS){const el=document.getElementById(id);if(el)o[id]=val(id);}
@@ -4351,6 +4411,8 @@ function gpuHandle(m,st,sp,finish,resuming){
     }else if(m.type==='g15b'){ADV_GOT.en23=1;s15bPush(m);
     }else if(m.type==='g15p34'){ADV_GOT.en23=1;s15p34Push(m);
     }else if(m.type==='g19'){ADV_GOT.en27=1;s19Push(m);
+    }else if(m.type==='g22'){ADV_GOT.en30=1;S22CH.push(m);
+    }else if(m.type==='g23'){ADV_GOT.en31=1;S23CH.push(m);
     }else if(m.type==='g21'){ADV_GOT.en29=1;s21Push(m);
     }else if(m.type==='g20'){ADV_GOT.en28=1;s20Push(m);
     }else if(m.type==='g15corr'){ADV_GOT.en23=1;S15_TERMS_GOT=true;s15corrPush(m);
@@ -4433,7 +4495,7 @@ async function loadCapture(obj){
   if(ES){ES.close();ES=null;} RUNNING=false;PAUSED=false;ABORT=false;ST=null;   // stop any live run
   if(typeof resetScrub==='function')resetScrub();
   applyCaptureParams(obj.params);
-  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),gs:val('gson')==='1'};   // for markSkippedAdv
+  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),s30:chk('en30'),s31:chk('en31'),gs:val('gson')==='1'};   // for markSkippedAdv
   lastT=-1;META=null;cursorX=null;GPU_CAPTURE=obj.records.slice();   // keep loaded records re-savable
   const finish=()=>{RUNNING=false;updateButtons();};
   const recs=obj.records;
@@ -4550,7 +4612,7 @@ async function loadFromServer(){
   }catch(e){if(st)st.textContent='failed to load from server: '+e.message;console.error(e);}
 }
 function runGPU(){
-  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),gs:val('gson')==='1'};
+  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),s30:chk('en30'),s31:chk('en31'),gs:val('gson')==='1'};
   lastT=-1;META=null;cursorX=null;openStream(0,false);
 }
 function stopGPU(){ if(RUNNING){PAUSED=true;if(ES){ES.close();ES=null;}RUNNING=false;
@@ -4661,7 +4723,7 @@ function syncLossPanels(){
 function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic' && val('arch')==='mlp'){ runLocal(true); } }
 document.getElementById('loss').addEventListener('change',syncLossPanels);
 document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
-['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','en24','en25','en26','en27','en28','en29','gson'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();});});
+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','en24','en25','en26','en27','en28','en29','en30','en31','gson'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();});});
 ['s14f_y1','s14f_y2','s14f_y5','s14f_agg','s14f_max','s14f_min','s14f_ratio'].forEach(id=>{const e=document.getElementById(id);if(e)e.addEventListener('change',s14ApplyPanelFilter);});
 if(typeof s14ApplyPanelFilter==='function')s14ApplyPanelFilter();   // apply the default §14 panel selection on load
 syncInitScaleEnabled();   // grey out init_scale on load if the current scheme ignores it (mup/xavier_*)
@@ -4671,6 +4733,8 @@ syncInitScaleEnabled();   // grey out init_scale on load if the current scheme i
 {const sl=document.getElementById('s14_slider');if(sl)sl.addEventListener('input',function(){s14RenderNow(+this.value);});}   // §14 scrub past snapshots (own S14_SNAPS)
 {const sl=document.getElementById('s20_slider');if(sl)sl.addEventListener('input',function(){s20RenderIdx(+this.value);});}   // §20 scrub past M_r-histogram snapshots (own S20_SNAPS)
 {const sl=document.getElementById('s21_slider');if(sl)sl.addEventListener('input',function(){s21RenderIdx(+this.value);});}   // §21 scrub past residual↔spectrum snapshots (own S21_SNAPS)
+{const sl=document.getElementById('s22_slider');if(sl)sl.addEventListener('input',function(){S22CH.renderIdx(+this.value);});}   // §22 surrogate scrub
+{const sl=document.getElementById('s23_slider');if(sl)sl.addEventListener('input',function(){S23CH.renderIdx(+this.value);});}   // §23 surrogate scrub
 document.getElementById('run').addEventListener('click',run);
 document.getElementById('stop').addEventListener('click',stopRun);
 document.getElementById('resume').addEventListener('click',resumeRun);
