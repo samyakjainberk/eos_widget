@@ -265,6 +265,7 @@
   <label title="§18 — per-sample projection TIME-SERIES for EXACTLY 2 samples. Same two quantities as §12b panels 1 & 2 (the product |⟨J_i,u⟩|·σ·r_i and the alignment |⟨J_i,u⟩|/‖J_i‖ onto the top-2 / bottom-2 eigenvectors of each Q_i) but plotted for sample 1 and sample 2 SEPARATELY over training, instead of the mean/std across samples. Reuses §12's matrix-free Lanczos — enabling this alone computes the projections. Only renders when nsamp = 2."><input type="checkbox" id="en26"> 18 · per-sample projections · sample-1 vs sample-2 (N=2)</label>
   <label title="§19 — correlation between (A) the one-step-ahead change in gradient norm ‖J_{t+1}r_{t+1}‖−‖J_t r_t‖ (first-order GD prediction with the run's actual η/N step) and (B) D²(tr NTK), the centered 2nd difference of tr(NTK)=‖J‖²_F. Plot 1: A and B over time; Plot 2: raw A−B and normalized Â−B̂. Asks whether the steps where A and B first turn negative coincide. Small N; best with eigevery=1."><input type="checkbox" id="en27"> 19 · grad-norm change vs D²(NTK) correlation</label>
   <label title="§20 — spectral histograms of the residual-weighted function Hessian M_r=Σ_k r_k Q_k (Q_k=∇²f_k), evolving over training (slider). Plot 1: histogram of its top-K⊕bottom-K eigenvalues λ_i (matrix-free Lanczos). Plots 2/3/4: histogram of λ_i·|⟨v_i,u_k⟩| where u_k is the k-th RIGHT-singular vector of J (k=1,2,3) — the eigenvalues weighted by how strongly each eigenvector v_i aligns with the top-3 Jacobian directions. Small N; K set below."><input type="checkbox" id="en28"> 20 · M_r=Σr_kQ_k spectral histograms <input type="number" id="s28k" value="40" min="1" max="400" step="1" title="§20: number of eigenpairs per side (top-K ⊕ bottom-K) of M_r" style="width:52px;margin-left:4px"></label>
+  <label title="§21 — alignment of the residual with the spectrum, two panels (slider). Panel 1: residual r projected onto the top-K NTK (K=JJᵀ) eigenvectors v_i — bars |⟨v_i,r⟩|/‖r‖, |⟨v_i,r⟩|, σ_i·|⟨v_i,r⟩|/‖r‖, σ_i·|⟨v_i,r⟩| (grey σ_i on the two σ-weighted plots). Panel 2: J·r=Σ_k r_k∇f_k projected onto the top-K⊕bottom-K eigenvectors u_i of M_r=Σ_k r_kQ_k — bars |⟨u_i,Jr⟩|/‖Jr‖, |⟨u_i,Jr⟩|, λ_i·|⟨u_i,Jr⟩|/‖Jr‖, λ_i·|⟨u_i,Jr⟩| (grey signed λ_i on the two λ-weighted plots). Small N; K set right."><input type="checkbox" id="en29"> 21 · residual ↔ spectrum alignment <input type="number" id="s29k" value="40" min="1" max="400" step="1" title="§21: NTK top-K & M_r top-K⊕bottom-K" style="width:52px;margin-left:4px"></label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -416,6 +417,20 @@
 <h3 style="margin:16px 0 2px;font-size:14px;color:#475569">Panel 2 — alignment $|\langle v_i,u_k\rangle|$ of each $M_r$ eigenvector $v_i$ with the $k$-th Jacobian eigenvector $u_k$, per eigenvalue ($k=1,2,3,4$)</h3>
 <p class="cap" style="margin:2px 0 4px"><b>Bar graph</b> with the <b>same x-axis as Panel 1</b> (eigenvalues ordered topmost → bottommost), where the height is the bare alignment $|\langle v_i,u_k\rangle|\in[0,1]$ — the same projection as Panel 1 but <b>without</b> the $\lambda_i$ weighting, so it isolates <i>how aligned</i> each eigenvector is with the top-4 Jacobian directions, independent of eigenvalue size. $0$ = orthogonal, $1$ = parallel; line up a bar with the one directly above it in Panel 1. (Bars at $\lambda_i\!\approx\!0$ are blank — alignment not identifiable from the eigenvalue-weighted record.)</p>
 <div class="plotrow row4"><div id="p_s20_a1" class="plot" style="height:290px"></div><div id="p_s20_a2" class="plot" style="height:290px"></div><div id="p_s20_a3" class="plot" style="height:290px"></div><div id="p_s20_a4" class="plot" style="height:290px"></div></div>
+</div>
+
+<div id="sec_s21" style="display:none">
+<h2>21 · residual ↔ spectrum alignment — NTK eigenvectors &amp; $M_r=\sum_k r_kQ_k$ eigenvectors</h2>
+<p class="cap">How the <b>residual</b> and the <b>residual-contracted Jacobian</b> align with the leading spectral directions, evolving over training (drag the slider). <b>Panel 1</b> — eigendecompose the <b>NTK</b> $K=JJ^\top$ (M×M); for its top-$K$ eigenvectors $v_i$ (eigenvalue $\sigma_i$, descending) plot the residual projection four ways: $|\langle v_i,r\rangle|/\lVert r\rVert$, $|\langle v_i,r\rangle|$, $\sigma_i|\langle v_i,r\rangle|/\lVert r\rVert$, $\sigma_i|\langle v_i,r\rangle|$. <b>Panel 2</b> — eigendecompose $M_r=\tfrac1N\sum_k r_kQ_k$ (the residual-weighted function Hessian, $\div N$ as §20); for its top-$K$ ⊕ bottom-$K$ eigenvectors $u_i$ (signed eigenvalue $\lambda_i$) plot the <b>$J\!\cdot\!r=\sum_k r_k\nabla f_k$</b> projection four ways: $|\langle u_i,J\!\cdot\!r\rangle|/\lVert J\!\cdot\!r\rVert$, $|\langle u_i,J\!\cdot\!r\rangle|$, $\lambda_i|\langle u_i,J\!\cdot\!r\rangle|/\lVert J\!\cdot\!r\rVert$, $\lambda_i|\langle u_i,J\!\cdot\!r\rangle|$. In each panel the <b>blue/colour bars</b> are the four quantities; on the two <b>eigenvalue-weighted</b> plots (3rd, 4th) a <b>grey bar</b> shows the bare eigenvalue ($\sigma_i$ / signed $\lambda_i$) behind it. x-axis = eigenvalue rank (topmost → bottommost). Small $N$; $K$ in the toggle box. <span style="color:#94a3b8">(Panel 1 needs $\ge K$ samples for a full top-$K$ NTK — use a multi-sample preset.)</span></p>
+<div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
+  <label style="white-space:nowrap">snapshot</label>
+  <input id="s21_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
+  <span id="s21_step" style="white-space:nowrap;color:#475569;font-size:13px;min-width:140px">—</span>
+</div>
+<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — residual $r$ onto the top-$K$ NTK eigenvectors $v_i$ ($\sigma_i$ = NTK eigenvalue; grey on the σ-weighted plots)</h3>
+<div class="plotrow row4"><div id="p_s21_b1" class="plot" style="height:330px"></div><div id="p_s21_b2" class="plot" style="height:330px"></div><div id="p_s21_b3" class="plot" style="height:330px"></div><div id="p_s21_b4" class="plot" style="height:330px"></div></div>
+<h3 style="margin:16px 0 2px;font-size:14px;color:#475569">Panel 2 — $J\!\cdot\!r$ onto the top-$K$ ⊕ bottom-$K$ eigenvectors $u_i$ of $M_r=\sum_k r_kQ_k$ ($\lambda_i$ = signed eigenvalue; grey on the λ-weighted plots)</h3>
+<div class="plotrow row4"><div id="p_s21_c1" class="plot" style="height:330px"></div><div id="p_s21_c2" class="plot" style="height:330px"></div><div id="p_s21_c3" class="plot" style="height:330px"></div><div id="p_s21_c4" class="plot" style="height:330px"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -2536,6 +2551,53 @@ function s20Reset(){S20_SNAPS=[];S20_CURIDX=0;if(S20_RAF){cancelAnimationFrame(S
   for(const id of S20_IDS){try{Plotly.purge(id);}catch(e){}}
   const sl=document.getElementById('s20_slider');if(sl){sl.max=0;sl.value=0;}
   const sp=document.getElementById('s20_step');if(sp)sp.textContent='—';}
+// ── §21 — residual↔spectrum alignment. Panel 1 (NTK eigvecs v_i, residual r): n1..n4. Panel 2 (M_r eigvecs u_i, J·r): p1..p4.
+//    Each plot: blue quantity bars; on the eigenvalue-weighted plots (#3,#4) a grey eigenvalue bar (σ_i / signed λ_i) behind it.
+const S21_IDS=['p_s21_b1','p_s21_b2','p_s21_b3','p_s21_b4','p_s21_c1','p_s21_c2','p_s21_c3','p_s21_c4'];
+let S21_SNAPS=[], S21_RAF=0, S21_PENDING=-1, S21_CURIDX=0; const S21_MAXSNAPS=2000;
+function s21Run(i,key){let mx=-Infinity,mn=Infinity;
+  for(let q=0;q<=i&&q<S21_SNAPS.length;q++){const a=S21_SNAPS[q][key];if(!a)continue;for(let z=0;z<a.length;z++){const v=a[z];if(!Number.isFinite(v))continue;if(v>mx)mx=v;if(v<mn)mn=v;}}
+  return [isFinite(mx)?mx:null,isFinite(mn)?mn:null];}
+// One §21 bar plot. eig = grey eigenvalue array (or null → blue-only). q = blue quantity. signed ⇒ y centred on 0.
+function s21BarDraw(id,eig,q,qLabel,color,signed,runMax,runMin){const div=document.getElementById(id);if(!div)return;
+  const E=eig||null,Q=q||[],n=Q.length,x=Array.from({length:n},(_,i)=>i);
+  let A=0,curMax=-Infinity,curMin=Infinity;
+  const scan=arr=>{for(const v of arr){if(!Number.isFinite(v))continue;const a=Math.abs(v);if(a>A)A=a;if(v>curMax)curMax=v;if(v<curMin)curMin=v;}};
+  if(E)scan(E);scan(Q);
+  if(!(A>0))A=0.5;
+  const traces=[];
+  if(E)traces.push({x:x,y:E.slice(),type:'bar',name:'eigenvalue',marker:{color:'#cbd5e1',line:{color:'#94a3b8',width:0.3}}});
+  traces.push({x:x,y:Q.slice(),type:'bar',name:qLabel,marker:{color:color}});
+  const yr=signed?[-A*1.06,A*1.06]:[0,A*1.06];
+  const title=qLabel+(E?'  vs  eigenvalue':'')+'<br>max '+fmtMu(isFinite(curMax)?curMax:null)+' ⟨run '+fmtMu(runMax)+'⟩'+(signed?('  ·  min '+fmtMu(isFinite(curMin)?curMin:null)+' ⟨run '+fmtMu(runMin)+'⟩'):'');
+  Plotly.react(id,traces,{title:{text:title,font:{size:10,color:'#475569'},x:0.04,xanchor:'left',y:0.985},
+    barmode:'overlay',bargap:0.12,margin:{l:46,r:8,t:34,b:30},paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{size:9,color:'#374151'},
+    xaxis:{title:{text:'eigenvalue rank: topmost → bottommost',font:{size:9}},showticklabels:false,gridcolor:'#eef0f3',zeroline:false},
+    yaxis:{title:{text:'value',font:{size:9}},range:yr,zeroline:true,zerolinecolor:'#94a3b8',zerolinewidth:1.5,gridcolor:'#eef0f3'},
+    showlegend:true,legend:{font:{size:8},x:0.99,xanchor:'right',y:0.99,yanchor:'top',bgcolor:'rgba(255,255,255,0.65)'}},
+    {responsive:true,displaylogo:false});}
+const S21_COLS=['#2563eb','#7c3aed','#db2777','#ea580c'];
+function s21RenderNow(i){const s=S21_SNAPS[i];if(!s)return;S21_CURIDX=i;
+  // Panel 1 (NTK): quantities n1..n4 (all ≥0, not signed); grey σ_i on #3,#4 only.
+  const p1ids=['p_s21_b1','p_s21_b2','p_s21_b3','p_s21_b4'],p1keys=['n1','n2','n3','n4'],p1eig=[null,null,s.sig,s.sig];
+  const p1labs=['|⟨v_i,r⟩|/‖r‖','|⟨v_i,r⟩|','σ_i·|⟨v_i,r⟩|/‖r‖','σ_i·|⟨v_i,r⟩|'];
+  for(let k=0;k<4;k++){const r=s21Run(i,p1keys[k]);s21BarDraw(p1ids[k],p1eig[k],s[p1keys[k]],p1labs[k],S21_COLS[k],false,r[0],r[1]);}
+  // Panel 2 (M_r): quantities p1..p4; #1,#2 are |·|≥0 (not signed); #3,#4 carry sign of λ_i (signed) with grey λ_i.
+  const p2ids=['p_s21_c1','p_s21_c2','p_s21_c3','p_s21_c4'],p2keys=['p1','p2','p3','p4'],p2eig=[null,null,s.lam,s.lam],p2sg=[false,false,true,true];
+  const p2labs=['|⟨u_i,J·r⟩|/‖J·r‖','|⟨u_i,J·r⟩|','λ_i·|⟨u_i,J·r⟩|/‖J·r‖','λ_i·|⟨u_i,J·r⟩|'];
+  for(let k=0;k<4;k++){const r=s21Run(i,p2keys[k]);s21BarDraw(p2ids[k],p2eig[k],s[p2keys[k]],p2labs[k],S21_COLS[k],p2sg[k],r[0],r[1]);}
+  const sp=document.getElementById('s21_step');if(sp)sp.textContent=`step ${s.t}  ·  snapshot ${i+1}/${S21_SNAPS.length}  ·  K=${s.K}`;
+  const sl=document.getElementById('s21_slider');if(sl&&+sl.value!==i)sl.value=i;}
+function s21RenderIdx(i){S21_PENDING=i;if(S21_RAF)return;S21_RAF=requestAnimationFrame(()=>{S21_RAF=0;const j=S21_PENDING;S21_PENDING=-1;if(j>=0)s21RenderNow(j);});}
+function s21Push(m){if(!m||!m.sig)return;const sl=document.getElementById('s21_slider'),wasLive=!sl||(+sl.value>=+sl.max);
+  S21_SNAPS.push(m);
+  if(S21_SNAPS.length>S21_MAXSNAPS){S21_SNAPS=S21_SNAPS.filter((_,ix)=>ix%2===0);if(S21_CURIDX>=S21_SNAPS.length)S21_CURIDX=S21_SNAPS.length-1;}
+  if(sl){sl.max=S21_SNAPS.length-1;if(wasLive)sl.value=sl.max;}
+  s21RenderIdx(wasLive?S21_SNAPS.length-1:(sl?+sl.value:0));}
+function s21Reset(){S21_SNAPS=[];S21_CURIDX=0;if(S21_RAF){cancelAnimationFrame(S21_RAF);S21_RAF=0;}S21_PENDING=-1;
+  for(const id of S21_IDS){try{Plotly.purge(id);}catch(e){}}
+  const sl=document.getElementById('s21_slider');if(sl){sl.max=0;sl.value=0;}
+  const sp=document.getElementById('s21_step');if(sp)sp.textContent='—';}
 
 // ═══════════════ §16: curvature-aligned per-residual-sign optimizer (standalone) ═══════════════
 // MIRRORS eos_lab.sec16.sec16_run / server._sec16_run (float64). Computes the whole standalone trajectory
@@ -2935,6 +2997,8 @@ function syncSectionVis(multi){
     if(vis)requestAnimationFrame(()=>{for(const id of s18Ids()){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}   // re-size §18 plots when the section becomes visible (built lazily; not in PLOT_IDS)
   {const el=document.getElementById('sec_s19');if(el)el.style.display=chk('en27')?'':'none';}   // §19 grad-norm change vs D²(NTK) correlation
   {const el=document.getElementById('sec_s20');if(el)el.style.display=chk('en28')?'':'none';}   // §20 M_r=Σr_kQ_k spectral histograms (slider)
+  {const el=document.getElementById('sec_s21');if(el){const vis=chk('en29');el.style.display=vis?'':'none';   // §21 residual↔spectrum alignment (slider)
+    if(vis)requestAnimationFrame(()=>{for(const id of S21_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
   {const el=document.getElementById('sec_s13');if(el)el.style.display=(chk('en21')&&multi)?'':'none';}   // §13 residual-weighted curvature alignment (own toggle en21; reuses the §12 Lanczos)
   {const el=document.getElementById('sec_s14');if(el){const vis=(chk('en20')&&multi);el.style.display=vis?'':'none';   // §14 Tr(ΔNTK) per-triplet decomposition (s20, multi-only)
     if(vis&&typeof S14_SNAPS!=='undefined'&&S14_SNAPS.length)requestAnimationFrame(()=>s14RenderNow(S14_CURIDX));}}   // redraw canvases now that the divs have size
@@ -2953,7 +3017,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   s12Reset();   // §12: drop snapshots from the previous run
   s13Reset();   // §13: drop the approximation-comparison time-series from the previous run
   s14Reset();   // §14: drop snapshots from the previous run
-  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s16Reset();s17Reset();   // §15+§16+§19+§20: drop the 2nd-difference + optimizer + grad-norm + M_r-histogram series
+  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s21Reset();s16Reset();s17Reset();   // §15+§16+§19+§20: drop the 2nd-difference + optimizer + grad-norm + M_r-histogram series
   trReset();    // §5: clear the trace-over-iterations curves
   syncSectionVis(multi);   // gate sections by the panel toggles (multi from the actual run)
   const dis=s=>OPT.gs?s:s+'  (off)';
@@ -3207,7 +3271,8 @@ const ADV_SECS={en18:{sec:'sec_g3d',name:'§11 (3D Hessian–NTK grids)'},
   en23:{sec:'sec_s15',name:'§15 (2nd-difference decomposition)'}, en24:{sec:'sec_s16',name:'§16 (curvature optimizer)'},
   en25:{sec:'sec_s17',name:'§17 (per-sample optimizer)'},
   en26:{sec:'sec_s18',name:'§18 (per-sample projections, N=2)'}, en27:{sec:'sec_s19',name:'§19 (grad-norm vs D²NTK)'},
-  en28:{sec:'sec_s20',name:'§20 (M_r spectral histograms)'}};
+  en28:{sec:'sec_s20',name:'§20 (M_r spectral histograms)'},
+  en29:{sec:'sec_s21',name:'§21 (residual↔spectrum alignment)'}};
 let ADV_GOT={};   // toggle id → true once that section's g-record has arrived this run
 function datasetOutDim(){const d=val('dataset');
   if(d==='cifar10'||d==='mnist')return 10; if(d==='cifar2'||d==='mnist2'||d==='chebyshev'||d==='ksparse'||d==='anglepair'||d==='agf')return 1;
@@ -3416,7 +3481,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
   const qmode=Math.max(1,+val('qmode')||1), tset=Math.max(1,+val('tset')||1);   // qmode (legacy, unused by Eq-22); Eq-29 set-T size
   const nProbe=Math.max(1,+val('slqprobes')), efrac=Math.min(1,Math.max(0.5,(+val('energyp'))/100));
-  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),gs:val('gson')==='1'};
+  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),gs:val('gson')==='1'};
   OPT=opt;
   const {spec,p}=buildSpec(inDim,width,depth,act,useBias,outDim);
   if(p>100000){st.textContent=`p=${p} parameters exceeds the cap (100000). Reduce width/depth.`;ST=null;updateButtons();return;}
@@ -3497,7 +3562,8 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const grid3dcap=Math.max(1,+val('grid3dcap')||30);    // §11 3D-grid cap (skip when M>this)
   const g3dStride=Math.max(1,+val('cubeevery')||1);   // §11-§14 cube cadence: emit every k-th tick (mirror server cubeevery/g3dstride); §15/§1-9/§16-17 stay per-tick
   const s28k=Math.max(1,Math.floor(+val('s28k')||40));   // §20: # eigenpairs per side (top-K ⊕ bottom-K) of M_r
-  ST={opt,optim:val('optimizer'),spec,p,X,Y,N,inDim,outDim,M,nResid,th,lr,eps,thr,n,kth,nSub,mF,mV,mSLQ,nProbe,efrac,eigEvery,slqStride,heavyEvery,grid3dcap,divreg:Math.max(0,+val('divreg')||0.3),sec12ncap:Math.max(1,+val('sec12ncap')||500),g3dStride,s28k,steps,posIdx,negIdx,
+  const s29k=Math.max(1,Math.floor(+val('s29k')||40));   // §21: NTK top-K & M_r top-K⊕bottom-K
+  ST={opt,optim:val('optimizer'),spec,p,X,Y,N,inDim,outDim,M,nResid,th,lr,eps,thr,n,kth,nSub,mF,mV,mSLQ,nProbe,efrac,eigEvery,slqStride,heavyEvery,grid3dcap,divreg:Math.max(0,+val('divreg')||0.3),sec12ncap:Math.max(1,+val('sec12ncap')||500),g3dStride,s28k,s29k,steps,posIdx,negIdx,
       needVecs,needVals,prevTop:Array(nSub).fill(null),prevBot:Array(nSub).fill(null),prevPos:null,prevNeg:null,
       pNtk:Array(n).fill(null),pVH:Array(n).fill(null),pUJ:Array(n).fill(null),pM1:[null,null,null,null],pM2:[null,null,null,null],pG2:Array(n).fill(null),
       prevSharp7a:null,prevNtkR7a:null,prevPrevNtkR7a:null,sumGsync:null,sumGlag:null,cntGs:0,cntGl:0,   // §7a Δλ·Δr running products
@@ -3637,7 +3703,7 @@ async function loop(){                                   // drives ST forward; r
         }
         // §4b/§4c shared base: top-n NTK eigenvectors v_k (sign-tracked) and J·r = Σ_a r_a ∇f_a, r=y−f
         let u1s=null,Jrs=null,Jrns=0,Rn=0,bJc=null,bEk=null,rrs=null;
-        if((O.s9||O.s10||O.s11||O.s12||O.s15||O.s16||O.s18||O.s19||O.s20||O.s21||O.s22||O.s23||O.s26||O.s27||O.s28)&&(M>1||O.s19||O.s22||O.s23||O.s26||O.s27||O.s28)){   // §12a/§12b/§15/§18/§19/§20 also run for a single sample (M=1)
+        if((O.s9||O.s10||O.s11||O.s12||O.s15||O.s16||O.s18||O.s19||O.s20||O.s21||O.s22||O.s23||O.s26||O.s27||O.s28||O.s29)&&(M>1||O.s19||O.s22||O.s23||O.s26||O.s27||O.s28||O.s29)){   // §12a/§12b/§15/§18/§19/§20/§21 also run for a single sample (M=1)
           const dn=M;const jc=jacCols(S.th,spec,X,N,inDim,p);bJc=jc.cols;
           const Km=new Float64Array(dn*dn);for(let a=0;a<dn;a++)for(let b=a;b<dn;b++){const v=dot(bJc[a],bJc[b]);Km[a*dn+b]=v;Km[b*dn+a]=v;}
           bEk=symEigDesc(Km,dn);
@@ -3844,6 +3910,24 @@ async function loop(){                                   // drives ST forward; r
             q1.push(li*Math.abs(dot(v,us[0])));q2.push(li*Math.abs(dot(v,us[1])));q3.push(li*Math.abs(dot(v,us[2])));q4.push(li*Math.abs(dot(v,us[3])));}
           s20Push({type:'g20',t:S.t,lam,q1,q2,q3,q4,K});
         }
+        if(O.s29&&S.eigTick%S.g3dStride===0&&M<=S.grid3dcap&&bJc&&rrs&&bEk){   // §21: residual↔spectrum alignment. Panel1 = NTK eigvecs · residual; Panel2 = M_r eigvecs · J·r. MIRRORS server._sec21_payload
+          const K=Math.max(1,Math.min(S.s29k|0,p));
+          // Panel 1 — residual r onto top-K NTK (bEk) eigenvectors v_i (M-dim), σ_i = NTK eigenvalue
+          let rn2=0;for(let a=0;a<M;a++)rn2+=rrs[a]*rrs[a];const rn=Math.max(Math.sqrt(rn2),1e-30);
+          const nt=Math.min(K,M),sig=[],n1=[],n2=[],n3=[],n4=[];
+          for(let i=0;i<nt;i++){const si=bEk.vals[i],vi=bEk.vecs[i];let d=0;for(let a=0;a<M;a++)d+=vi[a]*rrs[a];const ap=Math.abs(d);
+            sig.push(si);n1.push(ap/rn);n2.push(ap);n3.push(si*ap/rn);n4.push(si*ap);}
+          // Panel 2 — J·r onto top-K⊕bottom-K eigenvectors u_i of M_r=Σr_kQ_k (same Lanczos as §20), λ_i signed (÷N)
+          const mlan=Math.min(p,Math.max(2*K+16,32));
+          const lc=lanczosCore(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,rrs),p,mlan,randVec(p,0x205EE0));   // identical M_r Lanczos start as §20 ⇒ same eigenpairs
+          const kk=lc.k,eg=jacobiEig(lc.T,kk),desc=Array.from({length:kk},(_,i)=>i).sort((a,b)=>eg.vals[b]-eg.vals[a]);
+          const ritz=ti=>{const out=new Float64Array(p);for(let j=0;j<kk;j++){const c=eg.V[j*kk+ti],qj=lc.Q[j];for(let i=0;i<p;i++)out[i]+=c*qj[i];}return out;};
+          const kt=Math.min(K,kk),bs=Math.max(kt,kk-K),pos=[];for(let i=0;i<kt;i++)pos.push(i);for(let i=bs;i<kk;i++)pos.push(i);
+          const Jrn=Math.max(Jrns,1e-30),scN=1/Math.max(N,1),lam=[],pp1=[],pp2=[],pp3=[],pp4=[];
+          for(const pp of pos){const ti=desc[pp],li=eg.vals[ti]*scN,v=ritz(ti),ap=Math.abs(dot(v,Jrs));
+            lam.push(li);pp1.push(ap/Jrn);pp2.push(ap);pp3.push(li*ap/Jrn);pp4.push(li*ap);}
+          s21Push({type:'g21',t:S.t,sig,n1,n2,n3,n4,lam,p1:pp1,p2:pp2,p3:pp3,p4:pp4,K,ntk:nt});
+        }
         // Q[u₁] = Σ_a (u₁)_a ∇²f_a — extreme eigvecs (shared by §4b and §4d), sign-tracked once
         let qe=null;
         if((O.s9||O.s11)&&M>1){
@@ -4041,7 +4125,7 @@ function resetSim(){
   s12Reset();   // §12: clear the eigvec-similarity grids/cuboids + snapshots/slider too
   s13Reset();   // §13: clear the approximation-comparison time-series too
   s14Reset();   // §14: clear the triplet-decomposition cubes + snapshots/slider too
-  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s16Reset();s17Reset();   // §15+§16+§19+§20: clear the time-series too
+  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s21Reset();s16Reset();s17Reset();   // §15+§16+§19+§20: clear the time-series too
   updateButtons();
 }
 
@@ -4213,10 +4297,10 @@ async function downloadPlots(){
 // shared by backendURL (live stream) and the capture save/load (Compute → "Load saved run").
 // QUERY_IDS: plain value controls; SEC_TOGGLE_MAP: query-key ↔ checkbox-id for every section toggle.
 const QUERY_IDS=['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
-   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','cubeevery','s24warm','s24iter','s24grid','s24ares','s24k','s28k',
+   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','cubeevery','s24warm','s24iter','s24grid','s24ares','s24k','s28k','s29k',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg','ksparse','angle','norm1','norm2','lab1','lab2','saddlesep','agfratio'];
 const SEC_TOGGLE_MAP=[['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
-   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base'],['s26','en26'],['s27','en27'],['s28','en28']];
+   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base'],['s26','en26'],['s27','en27'],['s28','en28'],['s29','en29']];
 function currentQueryParams(){   // the exact query-style param dict the backend receives (also stored in a browser-saved capture)
   const o={};
   for(const id of QUERY_IDS){const el=document.getElementById(id);if(el)o[id]=val(id);}
@@ -4267,6 +4351,7 @@ function gpuHandle(m,st,sp,finish,resuming){
     }else if(m.type==='g15b'){ADV_GOT.en23=1;s15bPush(m);
     }else if(m.type==='g15p34'){ADV_GOT.en23=1;s15p34Push(m);
     }else if(m.type==='g19'){ADV_GOT.en27=1;s19Push(m);
+    }else if(m.type==='g21'){ADV_GOT.en29=1;s21Push(m);
     }else if(m.type==='g20'){ADV_GOT.en28=1;s20Push(m);
     }else if(m.type==='g15corr'){ADV_GOT.en23=1;S15_TERMS_GOT=true;s15corrPush(m);
     }else if(m.type==='g16'){ADV_GOT.en24=1;s16Push(m);
@@ -4576,7 +4661,7 @@ function syncLossPanels(){
 function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic' && val('arch')==='mlp'){ runLocal(true); } }
 document.getElementById('loss').addEventListener('change',syncLossPanels);
 document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
-['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','en24','en25','en26','en27','en28','gson'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();});});
+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','en24','en25','en26','en27','en28','en29','gson'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();});});
 ['s14f_y1','s14f_y2','s14f_y5','s14f_agg','s14f_max','s14f_min','s14f_ratio'].forEach(id=>{const e=document.getElementById(id);if(e)e.addEventListener('change',s14ApplyPanelFilter);});
 if(typeof s14ApplyPanelFilter==='function')s14ApplyPanelFilter();   // apply the default §14 panel selection on load
 syncInitScaleEnabled();   // grey out init_scale on load if the current scheme ignores it (mup/xavier_*)
@@ -4585,6 +4670,7 @@ syncInitScaleEnabled();   // grey out init_scale on load if the current scheme i
 {const sl=document.getElementById('s13_slider');if(sl)sl.addEventListener('input',function(){s12RenderIdx(+this.value);});}   // §13 scrub (shares §12 snapshots; s12RenderNow re-syncs both sliders)
 {const sl=document.getElementById('s14_slider');if(sl)sl.addEventListener('input',function(){s14RenderNow(+this.value);});}   // §14 scrub past snapshots (own S14_SNAPS)
 {const sl=document.getElementById('s20_slider');if(sl)sl.addEventListener('input',function(){s20RenderIdx(+this.value);});}   // §20 scrub past M_r-histogram snapshots (own S20_SNAPS)
+{const sl=document.getElementById('s21_slider');if(sl)sl.addEventListener('input',function(){s21RenderIdx(+this.value);});}   // §21 scrub past residual↔spectrum snapshots (own S21_SNAPS)
 document.getElementById('run').addEventListener('click',run);
 document.getElementById('stop').addEventListener('click',stopRun);
 document.getElementById('resume').addEventListener('click',resumeRun);
