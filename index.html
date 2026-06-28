@@ -269,7 +269,7 @@
   <label title="§21 — alignment of the residual with the spectrum, three panels (slider). Panel 1: residual r projected onto the top-K NTK (K=JJᵀ/N, eigvals σ_i divided by #samples N to match G=(1/N)JᵀJ) eigenvectors v_i — bars |⟨v_i,r⟩|/‖r‖, |⟨v_i,r⟩|, σ_i·|⟨v_i,r⟩|/‖r‖, σ_i·|⟨v_i,r⟩| (grey σ_i on the two σ-weighted plots). Panel 2: J·r=Σ_k r_k∇f_k projected onto the top-K⊕bottom-K eigenvectors u_i of M_r=Σ_k r_kQ_k — bars |⟨u_i,Jr⟩|/‖Jr‖, |⟨u_i,Jr⟩|, λ_i·|⟨u_i,Jr⟩|/‖Jr‖, λ_i·|⟨u_i,Jr⟩| (grey signed λ_i on the two λ-weighted plots). Panel 3: J·r projected onto the top-K Gauss-Newton G=(1/N)JᵀJ eigenvectors z_i (eigenvalue c_i=σ_i) — bars |⟨z_i,Jr⟩|/‖Jr‖, |⟨z_i,Jr⟩|, c_i·|⟨z_i,Jr⟩|/‖Jr‖, c_i·|⟨z_i,Jr⟩| (grey c_i; min(K,M) nonzero modes). Small N; K set right."><input type="checkbox" id="en29"> 21 · residual ↔ spectrum alignment <input type="number" id="s29k" value="40" min="1" max="400" step="1" title="§21: NTK top-K & M_r top-K⊕bottom-K" style="width:52px;margin-left:4px"></label>
   <label title="§22 REPLACE mode — selecting this makes the WHOLE run a FROZEN-Q quadratic-Taylor surrogate: §1 (loss/sharpness/residual), §2/§3 (function-Hessian / loss-Hessian / Gauss-Newton=NTK / residual-weighted spectra) and §20 (M_r) all show the surrogate trajectory instead of the real model (§4–§21 are off). Q is frozen at the iteration t you set (right): real full-batch GD reaches θ_t, then GD runs on the quadratic loss; slider scrubs the surrogate's own iterations. §22/§23 are mutually exclusive. MSE only; small N (M ≤ grid3dcap)."><input type="checkbox" id="en30"> 22 · run on frozen-Q quadratic surrogate · freeze t= <input type="number" id="s30t" value="0" min="0" max="100000" step="1" title="§22: iteration t at which to freeze the 2nd-order Taylor (θ_t, J_t, Q_t)" style="width:62px;margin-left:4px"></label>
   <label title="§23 REPLACE mode — like §22 but the function Hessian is a FIXED low-rank RANDOM symmetric operator (rank R, scaled to the real Hessian's λmax × scale): selecting this makes §1/§2/§3/§20 show the random-Q quadratic surrogate trajectory from θ₀ — a null model (§4–§21 off, §22/§23 mutually exclusive). MSE only."><input type="checkbox" id="en31"> 23 · run on random-Hessian surrogate · R= <input type="number" id="s31r" value="200" min="1" max="2000" step="1" title="§23: rank R of the random function Hessian" style="width:58px;margin-left:4px"> scale <input type="number" id="s31scale" value="1.0" min="0" max="100" step="0.1" title="§23: random-Hessian spectral norm = real fn-Hessian λmax × this" style="width:50px;margin-left:2px"></label>
-  <label title="§24 — decompose the 1-GD-step change in each output f_k into its FIRST-order term A=JJᵀr (NTK·r) and SECOND-order term B_k=(η/2N)(J·r)ᵀQ_k(J·r); plot ‖·‖, |cos|, and eigenvalue-weighted projections of A,B onto the residual r and the top-4 NTK eigenvectors u₁–u₄, as time-series over training. Needs the M×p Jacobian + a per-output Hessian-vp (GPU backend; small N). u₃,u₄ need M≥4."><input type="checkbox" id="en32"> 24 · 1st/2nd-order Δf alignment (A=JJᵀr, B=η/2N·JrᵀQ_kJr)</label>
+  <label title="§24 — decompose the 1-GD-step change in each output f_k into its FIRST-order term A=JJᵀr (NTK·r) and SECOND-order term B_k=(η/2N)(J·r)ᵀQ_k(J·r); plot ‖·‖, |cos|, and eigenvalue-weighted projections of A,B onto the residual r and the top-4 NTK eigenvectors u₁–u₄, as time-series over training. Needs the M×p Jacobian + a per-output Hessian-vp (GPU backend; small N). uᵢ is shown when M≥i (so u₃ needs M≥3, u₄ needs M≥4)."><input type="checkbox" id="en32"> 24 · 1st/2nd-order Δf alignment (A=JJᵀr, B=η/2N·JrᵀQ_kJr)</label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -469,7 +469,7 @@
 
 <div id="sec_s24" style="display:none">
 <h2>24 · first- vs second-order $\Delta f$ alignment — $A=JJ^\top r$ and $B=\tfrac{\eta}{2N}(J\!\cdot\!r)^\top Q_k(J\!\cdot\!r)$ vs residual &amp; NTK eigenvectors</h2>
-<p class="cap">Decompose the change in each per-sample output $f_k$ under one GD step $\Delta\theta=-\tfrac{\eta}{N}J\!\cdot\!r$ (with $J\!\cdot\!r=\sum_k r_k\nabla f_k$) into its <b>first-order</b> term <b>$A=JJ^\top r$</b> (the NTK applied to the residual) and its <b>second-order</b> term <b>$B_k=\tfrac{\eta}{2N}\,(J\!\cdot\!r)^\top Q_k\,(J\!\cdot\!r)$</b> ($Q_k=\nabla^2 f_k$, $\eta=$lr) — both $M$-dim per-sample vectors (<b style="color:#2563eb">blue = $A$</b>, <b style="color:#db2777">pink dashed = $B$</b>), evolving over training. <b>Panel 1</b> projects $A,B$ onto the residual $r$; <b>Panels 2/3</b> onto the top-4 NTK ($JJ^\top$) eigenvectors $u_1\!-\!u_4$ (eigenvalues $\sigma_i\!\div\!N$). $u_3,u_4$ need $M\ge4$ samples.</p>
+<p class="cap">Decompose the change in each per-sample output $f_k$ under one GD step $\Delta\theta=-\tfrac{\eta}{N}J\!\cdot\!r$ (with $J\!\cdot\!r=\sum_k r_k\nabla f_k$) into its <b>first-order</b> term <b>$A=JJ^\top r$</b> (the NTK applied to the residual) and its <b>second-order</b> term <b>$B_k=\tfrac{\eta}{2N}\,(J\!\cdot\!r)^\top Q_k\,(J\!\cdot\!r)$</b> ($Q_k=\nabla^2 f_k$, $\eta=$lr) — both $M$-dim per-sample vectors (<b style="color:#2563eb">blue = $A$</b>, <b style="color:#db2777">pink dashed = $B$</b>), evolving over training. <b>Panel 1</b> projects $A,B$ onto the residual $r$; <b>Panels 2/3</b> onto the top-4 NTK ($JJ^\top$) eigenvectors $u_1\!-\!u_4$ (eigenvalues $\sigma_i\!\div\!N$). $u_i$ is shown when $M\ge i$ (so $u_3$ needs $M\ge3$, $u_4$ needs $M\ge4$).</p>
 <h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — onto the residual $r$:&nbsp; $\lVert\cdot\rVert$ &nbsp;·&nbsp; $|\cos(\cdot,r)|$ &nbsp;·&nbsp; $|\cos|\,\lVert r\rVert$ &nbsp;·&nbsp; $|\cos|\,\lVert\cdot\rVert$ &nbsp;·&nbsp; $|\cos|\,\lVert\cdot\rVert\,\lVert r\rVert$</h3>
 <div class="plotrow row5"><div id="p_s24_r1" class="plot" style="height:300px"></div><div id="p_s24_r2" class="plot" style="height:300px"></div><div id="p_s24_r3" class="plot" style="height:300px"></div><div id="p_s24_r4" class="plot" style="height:300px"></div><div id="p_s24_r5" class="plot" style="height:300px"></div></div>
 <h3 style="margin:16px 0 2px;font-size:14px;color:#475569">Panel 2 — onto NTK eigenvectors $u_1,u_2$:&nbsp; $|\cos(\cdot,u_i)|$ &nbsp;and&nbsp; $|\cos(\cdot,u_i)|\,\sigma_i\,\lVert\cdot\rVert$</h3>
@@ -3364,7 +3364,8 @@ const ADV_SECS={en18:{sec:'sec_g3d',name:'§11 (3D Hessian–NTK grids)'},
   en28:{sec:'sec_s20',name:'§20 (M_r spectral histograms)'},
   en29:{sec:'sec_s21',name:'§21 (residual↔spectrum alignment)'},
   en30:{sec:'sec_s22',name:'§22 (§20 on frozen-Q surrogate)'},
-  en31:{sec:'sec_s23',name:'§23 (§20 on random-Hessian surrogate)'}};
+  en31:{sec:'sec_s23',name:'§23 (§20 on random-Hessian surrogate)'},
+  en32:{sec:'sec_s24',name:'§24 (1st/2nd-order Δf alignment) — GPU backend only; off in surrogate mode'}};
 let ADV_GOT={};   // toggle id → true once that section's g-record has arrived this run
 function datasetOutDim(){const d=val('dataset');
   if(d==='cifar10'||d==='mnist')return 10; if(d==='cifar2'||d==='mnist2'||d==='chebyshev'||d==='ksparse'||d==='anglepair'||d==='agf')return 1;
@@ -3566,7 +3567,7 @@ function updateParamBadge(){
 function updateButtons(){
   document.getElementById('run').disabled=RUNNING;
   document.getElementById('stop').disabled=!RUNNING;
-  const canResume=(curMode()==='gpu')?(META&&!RUNNING&&(lastT<0||lastT<(+val('steps'))))   // lastT<0 ⇒ paused during the §16 pre-GD phase (Resume restarts)
+  const canResume=(curMode()==='gpu')?(META&&!RUNNING&&(lastT<0||lastT<(+val('steps')))&&!(chk('en30')||chk('en31')))   // lastT<0 ⇒ paused during the §16 pre-GD phase (Resume restarts). NOT resumable in §22/§23 surrogate REPLACE mode (resume start>0 falls through to the REAL loop, splicing real points onto the surrogate curves).
                                      :(ST&&!RUNNING&&ST.t<=ST.steps);
   document.getElementById('resume').disabled=!canResume;
 }
@@ -4030,11 +4031,11 @@ async function loop(){                                   // drives ST forward; r
           for(const pp of pos){const ti=desc[pp],li=eg.vals[ti]*scN,v=ritz(ti),ap=Math.abs(dot(v,Jrs));
             lam.push(li);pp1.push(ap/Jrn);pp2.push(ap);pp3.push(li*ap/Jrn);pp4.push(li*ap);}
           // Panel 3 — J·r onto top-min(K,M) Gauss-Newton G=(1/N)JᵀJ eigenvectors z_i = Jgᵀv_i/‖·‖ (right singular vecs); c_i = σ_i ÷N
-          const ng=Math.min(K,M),cg=[],gp1=[],gp2=[],gp3=[],gp4=[];
+          const ng=Math.min(K,M),cg=[],gp1=[],gp2=[],gp3=[],gp4=[],ntol24=1e-9*(bEk.vals[0]||0);   // gate null modes on the NTK eigenvalue (like §20), not ‖z‖
           for(let i=0;i<ng;i++){const vi=bEk.vecs[i],zi=new Float64Array(p);
             for(let a=0;a<M;a++){const c=vi[a],ja=bJc[a];for(let j=0;j<p;j++)zi[j]+=c*ja[j];}
             let zn2=0;for(let j=0;j<p;j++)zn2+=zi[j]*zi[j];const zn=Math.sqrt(zn2);
-            if(zn<1e-30){cg.push(0);gp1.push(0);gp2.push(0);gp3.push(0);gp4.push(0);continue;}
+            if(bEk.vals[i]<=ntol24||zn<1e-30){cg.push(0);gp1.push(0);gp2.push(0);gp3.push(0);gp4.push(0);continue;}
             for(let j=0;j<p;j++)zi[j]/=zn;
             const ci=bEk.vals[i]*scN29,ap=Math.abs(dot(zi,Jrs));
             cg.push(ci);gp1.push(ap/Jrn);gp2.push(ap);gp3.push(ci*ap/Jrn);gp4.push(ci*ap);}
@@ -4451,7 +4452,8 @@ function gpuHandle(m,st,sp,finish,resuming){
       clearAdvNotes();   // reset the §11–§17 "not produced" notes for this run
       st.textContent=`running on ${m.device} … p=${m.p}, 2/lr=${m.thr.toFixed(2)}`;
     }else if(m.type==='step'){if(!META)return;
-      if(m.surrogate){const b=document.getElementById('sur_banner');if(b){b.style.display='';b.textContent='⚠ §1–§3 & §20 show the '+(m.surrogate==='g22'?'§22 FROZEN-Q':'§23 RANDOM-Q')+' quadratic-surrogate trajectory — NOT the real model. (§4–§21 are off in surrogate mode.)';}}
+      if(m.surrogate){const b=document.getElementById('sur_banner');if(b){b.style.display='';b.textContent='⚠ §1–§3 & §20 show the '+(m.surrogate==='g22'?'§22 FROZEN-Q':'§23 RANDOM-Q')+' quadratic-surrogate trajectory — NOT the real model. (§4–§21 & §24 are off in surrogate mode.)';}}
+      if(m.g24)ADV_GOT.en32=1;   // §24 lives in the step record → mark it produced so markSkippedAdv only notes a truly-empty §24
       pushPoint(m.t,m,META.n,META.kth,META.nResid);lastT=m.t;
       if(m.sps!=null)sp.textContent=`steps/sec: ${m.sps.toFixed(1)}`;
       st.textContent=`running on ${META.device} … step ${m.t}/${m.steps}  ·  p=${m.p}, 2/lr=${META.thr.toFixed(2)}`;
@@ -4482,6 +4484,7 @@ function applyCaptureParams(params){
   if(!params)return;
   for(const id of QUERY_IDS){if(id in params){const el=document.getElementById(id);if(el)el.value=String(params[id]);}}
   for(const [k,id] of SEC_TOGGLE_MAP){const el=document.getElementById(id);if(el&&k in params)el.checked=(String(params[k])==='1');}
+  {const e30=document.getElementById('en30'),e31=document.getElementById('en31');if(e30&&e31&&e30.checked&&e31.checked)e31.checked=false;}   // .checked= doesn't fire the en30/en31 mux; enforce it here (frozen-Q wins, matching the server) so a both-set capture doesn't force-show an empty sec_s23
   const pe=document.getElementById('preset');if(pe)pe.value='custom';
   if(typeof syncLossPanels==='function')syncLossPanels();
   if(typeof syncSectionVis==='function')syncSectionVis();

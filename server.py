@@ -1807,10 +1807,11 @@ def _sec21_payload(Jc, rr, th, X, N, outD, K):
     # c_i·|z_iᵀJr|/‖Jr‖, c_i·|z_iᵀJr| ; grey bar = c_i (all ≥0). J·r = Jr (reused from Panel 2).
     ng = min(int(K), M)
     cg, gp1, gp2, gp3, gp4 = [], [], [], [], []
+    ntol = 1e-9 * float(Kc[0]) if Kc.numel() else 0.0        # a ~0 NTK eigval ⇒ z_i=Jgᵀv_i is round-off (backend-divergent if normalized); gate on the EIGENVALUE like §20, not ‖z‖
     for i in range(ng):
         zi = Jg.t() @ Vc[:, i]                                # z_i ∝ Jgᵀ v_i (p,)
         zn = float(zi.norm())
-        if zn < 1e-30:                                        # null-space mode (J rank-deficient): J·r ⟂ it ⇒ 0
+        if float(Kc[i]) <= ntol or zn < 1e-30:                # null-space / rank-deficient mode (J·r ⟂ it ⇒ true projection 0)
             cg.append(0.0); gp1.append(0.0); gp2.append(0.0); gp3.append(0.0); gp4.append(0.0); continue
         zi = zi / zn
         ci = float(Kc[i]) * scN                               # Gauss-Newton eigenvalue c_i = s_i²/N
@@ -3109,16 +3110,17 @@ def run_stream(P):
             # §24: A = J Jᵀr (NTK·r, the 1st-order Δf under a GD step) and B = (η/2N)·[(J·r)ᵀQ_k(J·r)]_k (2nd-order Δf).
             # Report ‖·‖, |cos|, and eigval-weighted projections of A,B onto the residual r and the top-4 NTK eigvecs u_i.
             g24 = None
-            if s32 and Jc is not None and rr is not None:
-                Jr24 = Jc.t() @ rr                                  # J·r = Σ_k r_k ∇f_k (p,)
-                A24 = Jc @ Jr24                                     # A = J Jᵀ r = NTK·r (M,)
-                B24 = (lr / (2.0 * N)) * (jac_hvp(th, X, Jr24) @ Jr24)   # B = (η/2N)·[(J·r)ᵀ Q_k (J·r)]_k (M,)
-                sg24v, U24 = sym_eig_desc(Jc @ Jc.t())              # NTK Gram eigvals (desc) + eigvecs u_i (cols)
+            if s32 and dataset != "owt" and Jc is not None and rr is not None:
+                Jg24 = Jc[:M]; r24 = rr[:M]                         # M=N·outD effective-sample rows + residual (slice like §20/§21; guards GPT-LM)
+                Jr24 = Jg24.t() @ r24                               # J·r = Σ_k r_k ∇f_k (p,)
+                A24 = Jg24 @ Jr24                                   # A = J Jᵀ r = NTK·r (M,)
+                B24 = (lr / (2.0 * N)) * (jac_hvp(th, X, Jr24)[:M] @ Jr24)   # B = (η/2N)·[(J·r)ᵀ Q_k (J·r)]_k (M,)
+                sg24v, U24 = sym_eig_desc(Jg24 @ Jg24.t())          # NTK Gram eigvals (desc) + eigvecs u_i (cols)
                 nA24 = max(float(A24.norm()), 1e-30); nB24 = max(float(B24.norm()), 1e-30)
-                rn24 = max(float(rr.norm()), 1e-30)
+                rn24 = max(float(r24.norm()), 1e-30)
                 nu24 = min(4, M)
                 g24 = {"nA": nA24, "nB": nB24, "rn": rn24,
-                       "cAr": abs(float(A24 @ rr)) / (nA24 * rn24), "cBr": abs(float(B24 @ rr)) / (nB24 * rn24),
+                       "cAr": abs(float(A24 @ r24)) / (nA24 * rn24), "cBr": abs(float(B24 @ r24)) / (nB24 * rn24),
                        "cAu": [abs(float(A24 @ U24[:, i])) / nA24 for i in range(nu24)] + [None] * (4 - nu24),
                        "cBu": [abs(float(B24 @ U24[:, i])) / nB24 for i in range(nu24)] + [None] * (4 - nu24),
                        "sig": [float(sg24v[i]) / N for i in range(nu24)] + [None] * (4 - nu24)}   # NTK eigval ÷N (as §21)
