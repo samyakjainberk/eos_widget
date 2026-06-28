@@ -1760,8 +1760,8 @@ SEC21_SEED = SEC20_SEED   # §21 panel 2 reuses §20's M_r Lanczos start ⇒ ide
 
 def _sec21_payload(Jc, rr, th, X, N, outD, K):
     """§21: residual ↔ spectrum alignment, two panels (each: 4 bar plots; grey eigenvalue bar only on the σ/λ-weighted #3/#4).
-    Panel 1 (NTK): K=JJᵀ (M×M) eigenpairs (σ_i, v_i, descending); project the residual r —
-        n1=|⟨v_i,r⟩|/‖r‖, n2=|⟨v_i,r⟩|, n3=σ_i·n1, n4=σ_i·n2 ; grey bar = σ_i (top-min(K,M)).
+    Panel 1 (NTK): K=JJᵀ (M×M) eigenpairs (σ_i, v_i, descending), σ_i ÷N (#samples, as G=(1/N)JᵀJ);
+        project the residual r — n1=|⟨v_i,r⟩|/‖r‖, n2=|⟨v_i,r⟩|, n3=σ_i·n1, n4=σ_i·n2 ; grey bar = σ_i (top-min(K,M)).
     Panel 2 (M_r): top-K⊕bottom-K eigenpairs (λ_i, u_i) of M_r=Σ_k r_kQ_k (÷N, as §20); project J·r=Σ_k r_k∇f_k —
         p1=|⟨u_i,Jr⟩|/‖Jr‖, p2=|⟨u_i,Jr⟩|, p3=λ_i·p1, p4=λ_i·p2 ; grey bar = signed λ_i.
     MIRRORS index.html s21Compute / eos_lab.linalg.sec21_payload."""
@@ -1774,9 +1774,10 @@ def _sec21_payload(Jc, rr, th, X, N, outD, K):
     Kc, Vc = sym_eig_desc(Jg @ Jg.t())                    # M×M NTK, eigvals desc (σ_i), eigvecs in columns (v_i, M-dim)
     rn = max(float(r.norm()), 1e-30)
     nt = min(int(K), M)
+    scN = 1.0 / max(N, 1)                                  # NTK eigvals ÷ #samples (matches G=(1/N)JᵀJ and Panel-2 M_r ÷N)
     sig, n1, n2, n3, n4 = [], [], [], [], []
     for i in range(nt):
-        si = float(Kc[i]); ap = abs(float(Vc[:, i] @ r))
+        si = float(Kc[i]) * scN; ap = abs(float(Vc[:, i] @ r))
         sig.append(si); n1.append(ap / rn); n2.append(ap); n3.append(si * ap / rn); n4.append(si * ap)
     # ---- Panel 2: M_r=Σ_k r_kQ_k (÷N) top-K⊕bottom-K, J·r=Jgᵀr projected onto eigenvectors ----
     Klan = max(1, min(int(K), p))
@@ -1790,8 +1791,7 @@ def _sec21_payload(Jc, rr, th, X, N, outD, K):
         return Sv[:, ix].to(device=_dev(), dtype=Jg.dtype) @ Qmat
     kt = min(Klan, k); bs = max(kt, k - Klan)
     positions = list(range(kt)) + list(range(bs, k))      # top-K ⊕ bottom-K DISTINCT
-    scN = 1.0 / max(N, 1)
-    Jr = Jg.t() @ r                                       # J·r = Σ_k r_k ∇f_k (p,)
+    Jr = Jg.t() @ r                                       # J·r = Σ_k r_k ∇f_k (p,)  (scN ÷N defined above, reused here)
     Jrn = max(float(Jr.norm()), 1e-30)
     lam, p1, p2, p3, p4 = [], [], [], [], []
     for pos in positions:
