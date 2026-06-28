@@ -1759,12 +1759,14 @@ SEC21_SEED = SEC20_SEED   # §21 panel 2 reuses §20's M_r Lanczos start ⇒ ide
 
 
 def _sec21_payload(Jc, rr, th, X, N, outD, K):
-    """§21: residual ↔ spectrum alignment, two panels (each: 4 bar plots; grey eigenvalue bar only on the σ/λ-weighted #3/#4).
+    """§21: residual ↔ spectrum alignment, THREE panels (each: 4 bar plots; grey eigenvalue bar only on the eigval-weighted #3/#4).
     Panel 1 (NTK): K=JJᵀ (M×M) eigenpairs (σ_i, v_i, descending), σ_i ÷N (#samples, as G=(1/N)JᵀJ);
         project the residual r — n1=|⟨v_i,r⟩|/‖r‖, n2=|⟨v_i,r⟩|, n3=σ_i·n1, n4=σ_i·n2 ; grey bar = σ_i (top-min(K,M)).
     Panel 2 (M_r): top-K⊕bottom-K eigenpairs (λ_i, u_i) of M_r=Σ_k r_kQ_k (÷N, as §20); project J·r=Σ_k r_k∇f_k —
         p1=|⟨u_i,Jr⟩|/‖Jr‖, p2=|⟨u_i,Jr⟩|, p3=λ_i·p1, p4=λ_i·p2 ; grey bar = signed λ_i.
-    MIRRORS index.html s21Compute / eos_lab.linalg.sec21_payload."""
+    Panel 3 (Gauss-Newton): top-min(K,M) eigenpairs (c_i, z_i) of G=(1/N)JᵀJ (z_i=Jgᵀv_i/‖·‖, c_i=σ_i); project J·r —
+        gp1=|⟨z_i,Jr⟩|/‖Jr‖, gp2=|⟨z_i,Jr⟩|, gp3=c_i·gp1, gp4=c_i·gp2 ; grey bar = c_i (≥0).
+    MIRRORS index.html s21Compute (browser); eos_lab has no §21."""
     M = N * outD
     Jg = Jc[:M]                                            # M×p effective-sample Jacobian (rows ∇f_k)
     r = rr[:M]                                             # M residual
@@ -1798,8 +1800,26 @@ def _sec21_payload(Jc, rr, th, X, N, outD, K):
         ix = int(desc[pos]); li = float(mu[ix]) * scN; ui = ritz(ix)
         ap = abs(float(ui @ Jr))
         lam.append(li); p1.append(ap / Jrn); p2.append(ap); p3.append(li * ap / Jrn); p4.append(li * ap)
+    # ---- Panel 3: Gauss-Newton G=(1/N)JᵀJ eigenpairs (z_i, c_i), J·r projected onto its TOP eigenvectors ----
+    # G shares its NONZERO spectrum with the NTK K=JJᵀ: for the i-th NTK mode (v_i, s_i²=Kc[i]) the Gauss-Newton
+    # eigenvector is the right singular vector z_i = Jgᵀv_i/‖Jgᵀv_i‖ (p-dim), eigenvalue c_i = s_i²/N = the ÷N
+    # NTK σ_i. rank(G)≤M ⇒ min(K,M) nonzero modes (same count as Panel 1). Bars: |z_iᵀJr|/‖Jr‖, |z_iᵀJr|,
+    # c_i·|z_iᵀJr|/‖Jr‖, c_i·|z_iᵀJr| ; grey bar = c_i (all ≥0). J·r = Jr (reused from Panel 2).
+    ng = min(int(K), M)
+    cg, gp1, gp2, gp3, gp4 = [], [], [], [], []
+    for i in range(ng):
+        zi = Jg.t() @ Vc[:, i]                                # z_i ∝ Jgᵀ v_i (p,)
+        zn = float(zi.norm())
+        if zn < 1e-30:                                        # null-space mode (J rank-deficient): J·r ⟂ it ⇒ 0
+            cg.append(0.0); gp1.append(0.0); gp2.append(0.0); gp3.append(0.0); gp4.append(0.0); continue
+        zi = zi / zn
+        ci = float(Kc[i]) * scN                               # Gauss-Newton eigenvalue c_i = s_i²/N
+        ap = abs(float(zi @ Jr))
+        cg.append(ci); gp1.append(ap / Jrn); gp2.append(ap); gp3.append(ci * ap / Jrn); gp4.append(ci * ap)
     return {"sig": sig, "n1": n1, "n2": n2, "n3": n3, "n4": n4,
-            "lam": lam, "p1": p1, "p2": p2, "p3": p3, "p4": p4, "K": Klan, "ntk": nt}
+            "lam": lam, "p1": p1, "p2": p2, "p3": p3, "p4": p4,
+            "cg": cg, "gp1": gp1, "gp2": gp2, "gp3": gp3, "gp4": gp4,
+            "K": Klan, "ntk": nt, "gn": ng}
 
 
 def _qrandom_hvp(p, R, seed, dt, dev):
@@ -2922,15 +2942,29 @@ def run_stream(P):
                 return
             yield {"type": "g17", **rec17}
 
-    # ===== §22/§23: §20's M_r=Σr_kQ_k histograms along a QUADRATIC-Taylor surrogate trajectory =====
-    # These walk a SEPARATE surrogate trajectory for `steps` iterations. Running them HERE (before the main
-    # loop) would block every live section until the whole surrogate finished — for large step budgets the
-    # real-trajectory sections (§1-§21) would then show NOTHING until §22/§23 completed. So we only SNAPSHOT
-    # θ₀ now and stream g22/g23 AFTER the main loop (see end of run_stream), letting the live sections plot
-    # first. Same θ₀ + same (Xpool,Ypool) ⇒ the deferred g22/g23 values are byte-identical to running up front.
+    # ===== §22/§23: §20's M_r=Σr_kQ_k histograms along a QUADRATIC-Taylor surrogate trajectory, INTERLEAVED
+    # with the main loop. Running the whole surrogate UP FRONT blanks the live sections (§1-§21 wait for it);
+    # running it ALL AFTER the loop hides §22/§23 until the very end. So we build the surrogate generators here
+    # (each yields one §20 payload per ee, the same cadence as the main loop) and pull ONE snapshot per main-
+    # loop tick — both advance together. θ₀ & (Xpool,Ypool) are captured now, before GD mutates th, so the
+    # g22/g23 values are byte-identical to the up-front placement; only their arrival is interleaved.
     do_quad_sur = ((s30 or s31) and start == 0 and _TL.loss.name == "mse"
                    and dataset != "owt" and M16 <= grid3dcap)
-    th0_q = th.detach().clone() if do_quad_sur else None
+    gen22 = gen23 = None
+    if do_quad_sur:
+        Xq, Yq = Xpool, Ypool
+        if s30:
+            thf = th.detach().clone()
+            for _ in range(s30t):                                            # advance the REAL model to iteration t (θ_t)
+                thf = thf - lr * _opt_dir(_TL.model, gradL(thf, Xq, Yq)[0], opt)
+            gen22 = _quad_surrogate_sec20(thf, Xq, Yq, Nfull, outD, lr, steps, ee, sec20k, "frozen")
+        if s31:
+            qh = _qrandom_hvp(p, s31r, (P.get("seed", 0) * 2654435761 + 0x235EE0) & 0x7FFFFFFF, th.dtype, _dev())
+            tgt = _power_absmax(lambda v: hvpF(th, Xq, v), p, th.dtype, _dev()) * s31scale  # scale random Q to real fn-Hessian λmax at θ₀
+            traw = _power_absmax(qh, p, th.dtype, _dev())
+            sc = (tgt / traw) if traw > 1e-30 else 1.0
+            gen23 = _quad_surrogate_sec20(th.detach().clone(), Xq, Yq, Nfull, outD, lr, steps, ee, sec20k,
+                                          "random", qhvp=(lambda v, c=sc: c * qh(v)))
 
     for t in range(steps + 1):
         if mytok != RUN_TOKEN.get(_devkey, mytok):
@@ -3680,34 +3714,29 @@ def run_stream(P):
                 yield {"type": "g20", "t": t, **sec20}          # §20 — M_r=Σr_kQ_k eigenvalue histograms + λ·|⟨v,u_k⟩| (slider snapshot)
             if sec21 is not None:
                 yield {"type": "g21", "t": t, **sec21}          # §21 — residual↔NTK-spectrum + J·r↔M_r-spectrum alignment (slider snapshot)
+            if gen22 is not None:                               # §22 — one frozen-Q surrogate snapshot per tick (interleaved with the live sections)
+                try:
+                    st22, sec22 = next(gen22); yield {"type": "g22", "t": st22, **sec22}
+                except StopIteration:
+                    gen22 = None
+            if gen23 is not None:                               # §23 — one random-Hessian surrogate snapshot per tick
+                try:
+                    st23, sec23 = next(gen23); yield {"type": "g23", "t": st23, **sec23}
+                except StopIteration:
+                    gen23 = None
             eigTick += 1
             done += 1
 
         th = th - lr * _opt_dir(_TL.model, gradL(th, X, Y)[0], opt)
 
-    # ===== §22/§23 (DEFERRED): surrogate-trajectory M_r histograms, streamed AFTER the live sections so
-    #       enabling §22/§23 never blanks §1-§21. Uses the θ₀ snapshot taken before the main loop, so the
-    #       g22/g23 records are identical to the old up-front placement — only their arrival order changed. =====
-    if do_quad_sur:
-        Xq, Yq = Xpool, Ypool
-        if s30:
-            thf = th0_q.detach().clone()
-            for _ in range(s30t):                                            # advance the REAL model to iteration t (θ_t)
-                thf = thf - lr * _opt_dir(_TL.model, gradL(thf, Xq, Yq)[0], opt)
-            for (st, sec) in _quad_surrogate_sec20(thf, Xq, Yq, Nfull, outD, lr, steps, ee, sec20k, "frozen"):
+    # drain any surrogate snapshots the main loop didn't reach (cadences match for start==0, so normally
+    # nothing is left — this just guarantees §22/§23 always receive their full snapshot set).
+    for gen, typ in ((gen22, "g22"), (gen23, "g23")):
+        if gen is not None:
+            for (st, sec) in gen:
                 if mytok != RUN_TOKEN.get(_devkey, mytok):
                     return
-                yield {"type": "g22", "t": st, **sec}
-        if s31:
-            qh = _qrandom_hvp(p, s31r, (P.get("seed", 0) * 2654435761 + 0x235EE0) & 0x7FFFFFFF, th0_q.dtype, _dev())
-            tgt = _power_absmax(lambda v: hvpF(th0_q, Xq, v), p, th0_q.dtype, _dev()) * s31scale  # scale random Q to real fn-Hessian λmax at θ₀
-            traw = _power_absmax(qh, p, th0_q.dtype, _dev())
-            sc = (tgt / traw) if traw > 1e-30 else 1.0
-            for (st, sec) in _quad_surrogate_sec20(th0_q.detach().clone(), Xq, Yq, Nfull, outD, lr, steps, ee, sec20k,
-                                                   "random", qhvp=(lambda v, c=sc: c * qh(v))):
-                if mytok != RUN_TOKEN.get(_devkey, mytok):
-                    return
-                yield {"type": "g23", "t": st, **sec}
+                yield {"type": typ, "t": st, **sec}
 
     yield {"type": "done", "p": p}
 
