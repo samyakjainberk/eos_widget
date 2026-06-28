@@ -2829,6 +2829,7 @@ def run_stream(P):
     sec21k = max(1, int(P.get("s29k", 40)))   # §21: # NTK eigvecs (top) & M_r eigenpairs per side (top-K ⊕ bottom-K)
     s30 = P.get("s30", 0)                # §22: §20's M_r histograms on a frozen-Q QUADRATIC surrogate trajectory (freeze at iteration s30t)
     s31 = P.get("s31", 0)                # §23: §20's M_r histograms on a RANDOM-Hessian quadratic surrogate (low-rank R, frozen at θ₀)
+    s32 = P.get("s32", 0)                # §24: A=JJᵀr & B=(η/2N)JrᵀQ_kJr alignment with residual + top-4 NTK eigvecs (time-series)
     s30t = max(0, int(P.get("s30t", 0)))      # §22: iteration t at which to freeze the 2nd-order Taylor (θ_t, J_t, Q_t)
     s31r = max(1, int(P.get("s31r", 200)))    # §23: rank R of the random symmetric function Hessian
     s31scale = float(P.get("s31scale", 1.0))  # §23: random-Hessian spectral norm = (real function-Hessian λmax at θ₀)·s31scale
@@ -3101,9 +3102,26 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29)) or ((s23 or s27 or s28 or s29) and N <= grid3dcap):   # §15/§19/§20/§21 also run for a single sample
+            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29 or s32)) or ((s23 or s27 or s28 or s29 or s32) and N <= grid3dcap):   # §15/§19/§20/§21/§24 also run for a single sample
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
+
+            # §24: A = J Jᵀr (NTK·r, the 1st-order Δf under a GD step) and B = (η/2N)·[(J·r)ᵀQ_k(J·r)]_k (2nd-order Δf).
+            # Report ‖·‖, |cos|, and eigval-weighted projections of A,B onto the residual r and the top-4 NTK eigvecs u_i.
+            g24 = None
+            if s32 and Jc is not None and rr is not None:
+                Jr24 = Jc.t() @ rr                                  # J·r = Σ_k r_k ∇f_k (p,)
+                A24 = Jc @ Jr24                                     # A = J Jᵀ r = NTK·r (M,)
+                B24 = (lr / (2.0 * N)) * (jac_hvp(th, X, Jr24) @ Jr24)   # B = (η/2N)·[(J·r)ᵀ Q_k (J·r)]_k (M,)
+                sg24v, U24 = sym_eig_desc(Jc @ Jc.t())              # NTK Gram eigvals (desc) + eigvecs u_i (cols)
+                nA24 = max(float(A24.norm()), 1e-30); nB24 = max(float(B24.norm()), 1e-30)
+                rn24 = max(float(rr.norm()), 1e-30)
+                nu24 = min(4, M)
+                g24 = {"nA": nA24, "nB": nB24, "rn": rn24,
+                       "cAr": abs(float(A24 @ rr)) / (nA24 * rn24), "cBr": abs(float(B24 @ rr)) / (nB24 * rn24),
+                       "cAu": [abs(float(A24 @ U24[:, i])) / nA24 for i in range(nu24)] + [None] * (4 - nu24),
+                       "cBu": [abs(float(B24 @ U24[:, i])) / nB24 for i in range(nu24)] + [None] * (4 - nu24),
+                       "sig": [float(sg24v[i]) / N for i in range(nu24)] + [None] * (4 - nu24)}   # NTK eigval ÷N (as §21)
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None
@@ -3720,6 +3738,7 @@ def run_stream(P):
                 "q9tR": q9tR, "q9bR": q9bR, "q9gt": q9gt, "q9gb": q9gb,
                 "q10": q10, "q10N": q10N,
                 "d4Ht": d4Ht, "d4Hb": d4Hb, "d4Qt": d4Qt, "d4Qb": d4Qb,
+                "g24": g24,                                    # §24: A=JJᵀr & B=(η/2N)JrᵀQ_kJr alignment vs r and top-4 NTK eigvecs
                 "sps": (t - start + 1) / max(time.time() - t0, 1e-9),
             }
 
@@ -4320,6 +4339,7 @@ def _parse_params(q):
         "s29k": max(1, fi("s29k", 40)),  # §21: # NTK eigvecs (top) & M_r eigenpairs per side (top-K ⊕ bottom-K)
         "s30": g("s30", "0") == "1",     # §22: §20 M_r histograms on a frozen-Q quadratic surrogate (freeze at iteration s30t)
         "s31": g("s31", "0") == "1",     # §23: §20 M_r histograms on a random-Hessian quadratic surrogate (rank s31r)
+        "s32": g("s32", "0") == "1",     # §24: A=JJᵀr & B=(η/2N)JrᵀQ_kJr alignment with residual + top-4 NTK eigvecs (time-series)
         "s30t": max(0, fi("s30t", 0)),   # §22: freeze iteration t
         "s31r": max(1, fi("s31r", 200)), # §23: rank R of the random function Hessian
         "s31scale": ff("s31scale", 1.0), # §23: random-Hessian spectral-norm scale (× real fn-Hessian λmax)

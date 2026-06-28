@@ -68,6 +68,7 @@ def default_params():
     # Lanczos) that can eat the whole job (like the §16/§17 baselines). Enable per-run with --set s30=1 / --set s31=1.
     p["s30"] = "0"; p["s30t"] = "0"                          # §22: freeze iteration t
     p["s31"] = "0"; p["s31r"] = "200"; p["s31scale"] = "1.0" # §23: random-Hessian rank R / scale
+    p["s32"] = "0"                                          # §24: 1st/2nd-order Δf alignment (opt-in; per-output Hessian-vp)
     # §16/§17 baselines OFF by default: they run UPFRONT (before the main §1–§15 loop) and add 5 extra
     # trajectories (≈6× cost), which at kdir=32 can eat the whole job before §1–§15 stream. Enable per-run
     # with --set s24base=1 --set s25base=1 when you specifically want the dotted baselines.

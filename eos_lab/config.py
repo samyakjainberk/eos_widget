@@ -159,6 +159,7 @@ class Config:
     s31: int = 0          # §23 — §20 on random-Hessian quadratic surrogate (server/browser only)
     s31r: int = 200       # §23: rank R of the random function Hessian
     s31scale: float = 1.0 # §23: random-Hessian spectral-norm scale
+    s32: int = 0          # §24 — 1st/2nd-order Δf alignment A=JJᵀr & B=(η/2N)JrᵀQ_kJr (server/browser only)
 
     # ---- test set (held-out) ----
     n_test: int = 0                # held-out test points (0 ⇒ default: max(nsamp, 256), capped per dataset)

@@ -269,6 +269,7 @@
   <label title="§21 — alignment of the residual with the spectrum, three panels (slider). Panel 1: residual r projected onto the top-K NTK (K=JJᵀ/N, eigvals σ_i divided by #samples N to match G=(1/N)JᵀJ) eigenvectors v_i — bars |⟨v_i,r⟩|/‖r‖, |⟨v_i,r⟩|, σ_i·|⟨v_i,r⟩|/‖r‖, σ_i·|⟨v_i,r⟩| (grey σ_i on the two σ-weighted plots). Panel 2: J·r=Σ_k r_k∇f_k projected onto the top-K⊕bottom-K eigenvectors u_i of M_r=Σ_k r_kQ_k — bars |⟨u_i,Jr⟩|/‖Jr‖, |⟨u_i,Jr⟩|, λ_i·|⟨u_i,Jr⟩|/‖Jr‖, λ_i·|⟨u_i,Jr⟩| (grey signed λ_i on the two λ-weighted plots). Panel 3: J·r projected onto the top-K Gauss-Newton G=(1/N)JᵀJ eigenvectors z_i (eigenvalue c_i=σ_i) — bars |⟨z_i,Jr⟩|/‖Jr‖, |⟨z_i,Jr⟩|, c_i·|⟨z_i,Jr⟩|/‖Jr‖, c_i·|⟨z_i,Jr⟩| (grey c_i; min(K,M) nonzero modes). Small N; K set right."><input type="checkbox" id="en29"> 21 · residual ↔ spectrum alignment <input type="number" id="s29k" value="40" min="1" max="400" step="1" title="§21: NTK top-K & M_r top-K⊕bottom-K" style="width:52px;margin-left:4px"></label>
   <label title="§22 REPLACE mode — selecting this makes the WHOLE run a FROZEN-Q quadratic-Taylor surrogate: §1 (loss/sharpness/residual), §2/§3 (function-Hessian / loss-Hessian / Gauss-Newton=NTK / residual-weighted spectra) and §20 (M_r) all show the surrogate trajectory instead of the real model (§4–§21 are off). Q is frozen at the iteration t you set (right): real full-batch GD reaches θ_t, then GD runs on the quadratic loss; slider scrubs the surrogate's own iterations. §22/§23 are mutually exclusive. MSE only; small N (M ≤ grid3dcap)."><input type="checkbox" id="en30"> 22 · run on frozen-Q quadratic surrogate · freeze t= <input type="number" id="s30t" value="0" min="0" max="100000" step="1" title="§22: iteration t at which to freeze the 2nd-order Taylor (θ_t, J_t, Q_t)" style="width:62px;margin-left:4px"></label>
   <label title="§23 REPLACE mode — like §22 but the function Hessian is a FIXED low-rank RANDOM symmetric operator (rank R, scaled to the real Hessian's λmax × scale): selecting this makes §1/§2/§3/§20 show the random-Q quadratic surrogate trajectory from θ₀ — a null model (§4–§21 off, §22/§23 mutually exclusive). MSE only."><input type="checkbox" id="en31"> 23 · run on random-Hessian surrogate · R= <input type="number" id="s31r" value="200" min="1" max="2000" step="1" title="§23: rank R of the random function Hessian" style="width:58px;margin-left:4px"> scale <input type="number" id="s31scale" value="1.0" min="0" max="100" step="0.1" title="§23: random-Hessian spectral norm = real fn-Hessian λmax × this" style="width:50px;margin-left:2px"></label>
+  <label title="§24 — decompose the 1-GD-step change in each output f_k into its FIRST-order term A=JJᵀr (NTK·r) and SECOND-order term B_k=(η/2N)(J·r)ᵀQ_k(J·r); plot ‖·‖, |cos|, and eigenvalue-weighted projections of A,B onto the residual r and the top-4 NTK eigenvectors u₁–u₄, as time-series over training. Needs the M×p Jacobian + a per-output Hessian-vp (GPU backend; small N). u₃,u₄ need M≥4."><input type="checkbox" id="en32"> 24 · 1st/2nd-order Δf alignment (A=JJᵀr, B=η/2N·JrᵀQ_kJr)</label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -464,6 +465,17 @@
 <div class="plotrow row4"><div id="p_s23_b1" class="plot" style="height:360px"></div><div id="p_s23_b2" class="plot" style="height:360px"></div><div id="p_s23_b3" class="plot" style="height:360px"></div><div id="p_s23_b4" class="plot" style="height:360px"></div></div>
 <h3 style="margin:16px 0 2px;font-size:14px;color:#475569">Panel 2 — alignment $|\langle v_i,u_k\rangle|$ per eigenvalue ($k=1,2,3,4$)</h3>
 <div class="plotrow row4"><div id="p_s23_a1" class="plot" style="height:290px"></div><div id="p_s23_a2" class="plot" style="height:290px"></div><div id="p_s23_a3" class="plot" style="height:290px"></div><div id="p_s23_a4" class="plot" style="height:290px"></div></div>
+</div>
+
+<div id="sec_s24" style="display:none">
+<h2>24 · first- vs second-order $\Delta f$ alignment — $A=JJ^\top r$ and $B=\tfrac{\eta}{2N}(J\!\cdot\!r)^\top Q_k(J\!\cdot\!r)$ vs residual &amp; NTK eigenvectors</h2>
+<p class="cap">Decompose the change in each per-sample output $f_k$ under one GD step $\Delta\theta=-\tfrac{\eta}{N}J\!\cdot\!r$ (with $J\!\cdot\!r=\sum_k r_k\nabla f_k$) into its <b>first-order</b> term <b>$A=JJ^\top r$</b> (the NTK applied to the residual) and its <b>second-order</b> term <b>$B_k=\tfrac{\eta}{2N}\,(J\!\cdot\!r)^\top Q_k\,(J\!\cdot\!r)$</b> ($Q_k=\nabla^2 f_k$, $\eta=$lr) — both $M$-dim per-sample vectors (<b style="color:#2563eb">blue = $A$</b>, <b style="color:#db2777">pink dashed = $B$</b>), evolving over training. <b>Panel 1</b> projects $A,B$ onto the residual $r$; <b>Panels 2/3</b> onto the top-4 NTK ($JJ^\top$) eigenvectors $u_1\!-\!u_4$ (eigenvalues $\sigma_i\!\div\!N$). $u_3,u_4$ need $M\ge4$ samples.</p>
+<h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — onto the residual $r$:&nbsp; $\lVert\cdot\rVert$ &nbsp;·&nbsp; $|\cos(\cdot,r)|$ &nbsp;·&nbsp; $|\cos|\,\lVert r\rVert$ &nbsp;·&nbsp; $|\cos|\,\lVert\cdot\rVert$ &nbsp;·&nbsp; $|\cos|\,\lVert\cdot\rVert\,\lVert r\rVert$</h3>
+<div class="plotrow row5"><div id="p_s24_r1" class="plot" style="height:300px"></div><div id="p_s24_r2" class="plot" style="height:300px"></div><div id="p_s24_r3" class="plot" style="height:300px"></div><div id="p_s24_r4" class="plot" style="height:300px"></div><div id="p_s24_r5" class="plot" style="height:300px"></div></div>
+<h3 style="margin:16px 0 2px;font-size:14px;color:#475569">Panel 2 — onto NTK eigenvectors $u_1,u_2$:&nbsp; $|\cos(\cdot,u_i)|$ &nbsp;and&nbsp; $|\cos(\cdot,u_i)|\,\sigma_i\,\lVert\cdot\rVert$</h3>
+<div class="plotrow row4"><div id="p_s24_u1a" class="plot" style="height:300px"></div><div id="p_s24_u1b" class="plot" style="height:300px"></div><div id="p_s24_u2a" class="plot" style="height:300px"></div><div id="p_s24_u2b" class="plot" style="height:300px"></div></div>
+<h3 style="margin:16px 0 2px;font-size:14px;color:#475569">Panel 3 — onto NTK eigenvectors $u_3,u_4$:&nbsp; $|\cos(\cdot,u_i)|$ &nbsp;and&nbsp; $|\cos(\cdot,u_i)|\,\sigma_i\,\lVert\cdot\rVert$</h3>
+<div class="plotrow row4"><div id="p_s24_u3a" class="plot" style="height:300px"></div><div id="p_s24_u3b" class="plot" style="height:300px"></div><div id="p_s24_u4a" class="plot" style="height:300px"></div><div id="p_s24_u4b" class="plot" style="height:300px"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -3064,6 +3076,8 @@ function syncSectionVis(multi){
     if(vis)requestAnimationFrame(()=>{for(const id of S22CH.ids){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
   {const el=document.getElementById('sec_s23');if(el){const vis=chk('en31');el.style.display=vis?'':'none';   // §23 §20-on-random-Hessian-surrogate (slider)
     if(vis)requestAnimationFrame(()=>{for(const id of S23CH.ids){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
+  {const el=document.getElementById('sec_s24');if(el){const vis=chk('en32');el.style.display=vis?'':'none';   // §24 1st/2nd-order Δf alignment (time-series)
+    if(vis)requestAnimationFrame(()=>{for(const id of ['p_s24_r1','p_s24_r2','p_s24_r3','p_s24_r4','p_s24_r5','p_s24_u1a','p_s24_u1b','p_s24_u2a','p_s24_u2b','p_s24_u3a','p_s24_u3b','p_s24_u4a','p_s24_u4b']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
   {const el=document.getElementById('sec_s13');if(el)el.style.display=(chk('en21')&&multi)?'':'none';}   // §13 residual-weighted curvature alignment (own toggle en21; reuses the §12 Lanczos)
   {const el=document.getElementById('sec_s14');if(el){const vis=(chk('en20')&&multi);el.style.display=vis?'':'none';   // §14 Tr(ΔNTK) per-triplet decomposition (s20, multi-only)
     if(vis&&typeof S14_SNAPS!=='undefined'&&S14_SNAPS.length)requestAnimationFrame(()=>s14RenderNow(S14_CURIDX));}}   // redraw canvases now that the divs have size
@@ -3115,6 +3129,17 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
    newP('p_Jrb',s4tr(i=>`bot-${i+1}`),s4lay(`phase 3: residual dominance — bottom-${n}`,'|⟨J·r,u⟩|·σ'));
    {const lb=document.getElementById('s4_legend');   // shared legend: rank-i colour (PALETTE); top vs bottom is conveyed by each plot's title
     if(lb)lb.innerHTML=Array.from({length:n},(_,i)=>{const c=PALETTE[i%PALETTE.length];return `<span style="display:inline-flex;align-items:center;gap:6px"><svg width="30" height="12"><line x1="1" y1="6" x2="29" y2="6" stroke="${c}" stroke-width="2.4"></line><circle cx="15" cy="6" r="2.6" fill="${c}"></circle></svg>rank-${i+1}</span>`;}).join('');}}
+  // §24 — 1st/2nd-order Δf alignment: A=JJᵀr (blue) vs B=(η/2N)JrᵀQ_kJr (pink dashed), onto residual r and top-4 NTK eigvecs u_i
+  {const ab=()=>[{x:[],y:[],mode:'lines',name:'A = JJᵀr',line:{color:'#2563eb',width:1.8}},{x:[],y:[],mode:'lines',name:'B = (η/2N)JrᵀQ_kJr',line:{color:'#db2777',width:1.8,dash:'dash'}}];
+   const s24L=(t,yl)=>{const L=baseLayout(t,yl,false);L.showlegend=true;L.legend={font:{size:8},x:0.99,xanchor:'right',y:0.99,yanchor:'top',bgcolor:'rgba(255,255,255,0.65)'};return L;};
+   newP('p_s24_r1',ab(),s24L('‖·‖','norm'));
+   newP('p_s24_r2',ab(),s24L('|cos(·,r)|','|cos|'));
+   newP('p_s24_r3',ab(),s24L('|cos(·,r)|·‖r‖',''));
+   newP('p_s24_r4',ab(),s24L('|cos(·,r)|·‖·‖',''));
+   newP('p_s24_r5',ab(),s24L('|cos(·,r)|·‖·‖·‖r‖  (=|⟨·,r⟩|)',''));
+   for(const i of [1,2,3,4]){
+     newP('p_s24_u'+i+'a',ab(),s24L('|cos(·,u'+i+')|','|cos|'));
+     newP('p_s24_u'+i+'b',ab(),s24L('|cos(·,u'+i+')|·σ'+i+'·‖·‖',''));}}
   // §5 SLQ
   const slqT=c=>[{x:[],y:[],mode:'lines',fill:'tozeroy',line:{color:c,width:1.6},fillcolor:c+'22',name:'density'}];
   newP('p_sH',slqT('#2563eb'),slqLayout('SLQ density — function Hessian H'));
@@ -3388,6 +3413,17 @@ function pushPoint(t,D,n,kth,nResid){
     extP('p_eHLB',{x:reps(n,t),y:colsOf(n,D.hlBot)},ids(n));
     if(OPT.gs){extP('p_eGNB',{x:reps(n,t),y:colsOf(n,D.gnBot)},ids(n));extP('p_eSRB',{x:reps(n,t),y:colsOf(n,D.srBot)},ids(n));}
   }
+  if(OPT.s32&&D.g24){const g=D.g24;   // §24 — 1st/2nd-order Δf alignment (A,B) vs residual r and top-4 NTK eigvecs. Each plot: [A, B].
+    const T2=(a,b)=>({x:[[t],[t]],y:[[a],[b]]});
+    extP('p_s24_r1',T2(g.nA,g.nB),[0,1]);
+    extP('p_s24_r2',T2(g.cAr,g.cBr),[0,1]);
+    extP('p_s24_r3',T2(g.cAr*g.rn,g.cBr*g.rn),[0,1]);
+    extP('p_s24_r4',T2(g.cAr*g.nA,g.cBr*g.nB),[0,1]);
+    extP('p_s24_r5',T2(g.cAr*g.nA*g.rn,g.cBr*g.nB*g.rn),[0,1]);
+    for(let i=0;i<4;i++){const ca=g.cAu[i],cb=g.cBu[i],si=g.sig[i];   // null past M-1 eigvecs → plot gap
+      extP('p_s24_u'+(i+1)+'a',T2(ca,cb),[0,1]);
+      extP('p_s24_u'+(i+1)+'b',T2(ca==null?null:ca*si*g.nA, cb==null?null:cb*si*g.nB),[0,1]);}
+  }
   if(OPT.s4&&D.jt){   // D.jt is null on cross-entropy runs (server disables §4); guard like §7–§12
     extP('p_Jtopn',{x:reps(n,t),y:colsOf(n,D.jtN)},ids(n));     // phase 1: alignment
     extP('p_Jbotn',{x:reps(n,t),y:colsOf(n,D.jbN)},ids(n));
@@ -3548,7 +3584,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
   const qmode=Math.max(1,+val('qmode')||1), tset=Math.max(1,+val('tset')||1);   // qmode (legacy, unused by Eq-22); Eq-29 set-T size
   const nProbe=Math.max(1,+val('slqprobes')), efrac=Math.min(1,Math.max(0.5,(+val('energyp'))/100));
-  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),s30:chk('en30'),s31:chk('en31'),gs:val('gson')==='1'};
+  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),s30:chk('en30'),s31:chk('en31'),s32:chk('en32'),gs:val('gson')==='1'};
   OPT=opt;
   const {spec,p}=buildSpec(inDim,width,depth,act,useBias,outDim);
   if(p>100000){st.textContent=`p=${p} parameters exceeds the cap (100000). Reduce width/depth.`;ST=null;updateButtons();return;}
@@ -4376,7 +4412,7 @@ const QUERY_IDS=['depth','width','act','bias','fixedx','inputstd','ssign','optim
    'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','cubeevery','s24warm','s24iter','s24grid','s24ares','s24k','s28k','s29k','s30t','s31r','s31scale',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg','ksparse','angle','norm1','norm2','lab1','lab2','saddlesep','agfratio'];
 const SEC_TOGGLE_MAP=[['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
-   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base'],['s26','en26'],['s27','en27'],['s28','en28'],['s29','en29'],['s30','en30'],['s31','en31']];
+   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base'],['s26','en26'],['s27','en27'],['s28','en28'],['s29','en29'],['s30','en30'],['s31','en31'],['s32','en32']];
 function currentQueryParams(){   // the exact query-style param dict the backend receives (also stored in a browser-saved capture)
   const o={};
   for(const id of QUERY_IDS){const el=document.getElementById(id);if(el)o[id]=val(id);}
@@ -4513,7 +4549,7 @@ async function loadCapture(obj){
   if(ES){ES.close();ES=null;} RUNNING=false;PAUSED=false;ABORT=false;ST=null;   // stop any live run
   if(typeof resetScrub==='function')resetScrub();
   applyCaptureParams(obj.params);
-  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),s30:chk('en30'),s31:chk('en31'),gs:val('gson')==='1'};   // for markSkippedAdv
+  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),s30:chk('en30'),s31:chk('en31'),s32:chk('en32'),gs:val('gson')==='1'};   // for markSkippedAdv
   lastT=-1;META=null;cursorX=null;GPU_CAPTURE=obj.records.slice();   // keep loaded records re-savable
   const finish=()=>{RUNNING=false;updateButtons();};
   const recs=obj.records;
@@ -4630,7 +4666,7 @@ async function loadFromServer(){
   }catch(e){if(st)st.textContent='failed to load from server: '+e.message;console.error(e);}
 }
 function runGPU(){
-  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),s30:chk('en30'),s31:chk('en31'),gs:val('gson')==='1'};
+  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),s30:chk('en30'),s31:chk('en31'),s32:chk('en32'),gs:val('gson')==='1'};
   lastT=-1;META=null;cursorX=null;openStream(0,false);
 }
 function stopGPU(){ if(RUNNING){PAUSED=true;if(ES){ES.close();ES=null;}RUNNING=false;
@@ -4741,7 +4777,7 @@ function syncLossPanels(){
 function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic' && val('arch')==='mlp'){ runLocal(true); } }
 document.getElementById('loss').addEventListener('change',syncLossPanels);
 document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
-['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','en24','en25','en26','en27','en28','en29','en30','en31','gson'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();});});
+['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','en24','en25','en26','en27','en28','en29','en30','en31','en32','gson'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();});});
 // §22 (en30) & §23 (en31) are MUTUALLY EXCLUSIVE — selecting one quadratic surrogate deselects the other (the surrogate REPLACES §1–§21, so only one trajectory can drive the plots).
 {const e30=document.getElementById('en30'),e31=document.getElementById('en31');const mux=(a,b)=>{if(a.checked&&b.checked){b.checked=false;syncSectionVis();}};
  if(e30&&e31){e30.addEventListener('change',()=>mux(e30,e31));e31.addEventListener('change',()=>mux(e31,e30));}}
