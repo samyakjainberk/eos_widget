@@ -2922,29 +2922,15 @@ def run_stream(P):
                 return
             yield {"type": "g17", **rec17}
 
-    # ===== §22/§23: §20's M_r=Σr_kQ_k histograms computed along a QUADRATIC-Taylor surrogate trajectory =====
-    # §22 freezes the 2nd-order Taylor at iteration s30t (real full-batch GD 0→t, then GD on the quadratic loss);
-    # §23 uses a fixed low-rank RANDOM function Hessian from θ₀. Both stream g22/g23 snapshots (browser slider). MSE only.
-    if (s30 or s31) and start == 0 and _TL.loss.name == "mse" and dataset != "owt" and M16 <= grid3dcap:
-        Xq, Yq = Xpool, Ypool
-        if s30:
-            thf = th.detach().clone()
-            for _ in range(s30t):                                            # advance the REAL model to iteration t (θ_t)
-                thf = thf - lr * _opt_dir(_TL.model, gradL(thf, Xq, Yq)[0], opt)
-            for (st, sec) in _quad_surrogate_sec20(thf, Xq, Yq, Nfull, outD, lr, steps, ee, sec20k, "frozen"):
-                if mytok != RUN_TOKEN.get(_devkey, mytok):
-                    return
-                yield {"type": "g22", "t": st, **sec}
-        if s31:
-            qh = _qrandom_hvp(p, s31r, (P.get("seed", 0) * 2654435761 + 0x235EE0) & 0x7FFFFFFF, th.dtype, _dev())
-            tgt = _power_absmax(lambda v: hvpF(th, Xq, v), p, th.dtype, _dev()) * s31scale   # scale random Q to the real fn-Hessian λmax at θ₀
-            traw = _power_absmax(qh, p, th.dtype, _dev())
-            sc = (tgt / traw) if traw > 1e-30 else 1.0
-            for (st, sec) in _quad_surrogate_sec20(th.detach().clone(), Xq, Yq, Nfull, outD, lr, steps, ee, sec20k,
-                                                   "random", qhvp=(lambda v, c=sc: c * qh(v))):
-                if mytok != RUN_TOKEN.get(_devkey, mytok):
-                    return
-                yield {"type": "g23", "t": st, **sec}
+    # ===== §22/§23: §20's M_r=Σr_kQ_k histograms along a QUADRATIC-Taylor surrogate trajectory =====
+    # These walk a SEPARATE surrogate trajectory for `steps` iterations. Running them HERE (before the main
+    # loop) would block every live section until the whole surrogate finished — for large step budgets the
+    # real-trajectory sections (§1-§21) would then show NOTHING until §22/§23 completed. So we only SNAPSHOT
+    # θ₀ now and stream g22/g23 AFTER the main loop (see end of run_stream), letting the live sections plot
+    # first. Same θ₀ + same (Xpool,Ypool) ⇒ the deferred g22/g23 values are byte-identical to running up front.
+    do_quad_sur = ((s30 or s31) and start == 0 and _TL.loss.name == "mse"
+                   and dataset != "owt" and M16 <= grid3dcap)
+    th0_q = th.detach().clone() if do_quad_sur else None
 
     for t in range(steps + 1):
         if mytok != RUN_TOKEN.get(_devkey, mytok):
@@ -3698,6 +3684,30 @@ def run_stream(P):
             done += 1
 
         th = th - lr * _opt_dir(_TL.model, gradL(th, X, Y)[0], opt)
+
+    # ===== §22/§23 (DEFERRED): surrogate-trajectory M_r histograms, streamed AFTER the live sections so
+    #       enabling §22/§23 never blanks §1-§21. Uses the θ₀ snapshot taken before the main loop, so the
+    #       g22/g23 records are identical to the old up-front placement — only their arrival order changed. =====
+    if do_quad_sur:
+        Xq, Yq = Xpool, Ypool
+        if s30:
+            thf = th0_q.detach().clone()
+            for _ in range(s30t):                                            # advance the REAL model to iteration t (θ_t)
+                thf = thf - lr * _opt_dir(_TL.model, gradL(thf, Xq, Yq)[0], opt)
+            for (st, sec) in _quad_surrogate_sec20(thf, Xq, Yq, Nfull, outD, lr, steps, ee, sec20k, "frozen"):
+                if mytok != RUN_TOKEN.get(_devkey, mytok):
+                    return
+                yield {"type": "g22", "t": st, **sec}
+        if s31:
+            qh = _qrandom_hvp(p, s31r, (P.get("seed", 0) * 2654435761 + 0x235EE0) & 0x7FFFFFFF, th0_q.dtype, _dev())
+            tgt = _power_absmax(lambda v: hvpF(th0_q, Xq, v), p, th0_q.dtype, _dev()) * s31scale  # scale random Q to real fn-Hessian λmax at θ₀
+            traw = _power_absmax(qh, p, th0_q.dtype, _dev())
+            sc = (tgt / traw) if traw > 1e-30 else 1.0
+            for (st, sec) in _quad_surrogate_sec20(th0_q.detach().clone(), Xq, Yq, Nfull, outD, lr, steps, ee, sec20k,
+                                                   "random", qhvp=(lambda v, c=sc: c * qh(v))):
+                if mytok != RUN_TOKEN.get(_devkey, mytok):
+                    return
+                yield {"type": "g23", "t": st, **sec}
 
     yield {"type": "done", "p": p}
 
