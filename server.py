@@ -1847,14 +1847,26 @@ def _power_absmax(hvp, p, dt, dev, iters=24, seed=0xB17):
     return lam
 
 
-def _quad_surrogate_sec20(th_freeze, X, Y, N, outD, lr, steps, ee, K, kind, qhvp=None):
-    """Closed-loop quadratic-Taylor surrogate from th_freeze, with the §20 M_r payload computed along it.
-    f̃_k(θ)=f_k(θ_f)+J_{f,k}·Δθ+½Δθᵀ Q̃_k Δθ ; GD on the MSE of f̃ (η = lr/N). Q̃ frozen:
-      kind='frozen' (§22): Q̃_k=∇²f_k(θ_f) via jac_hvp(θ_f,·); M_r=Σ_k r̃_k∇²f_k(θ_f)=hvpS(θ_f,·,r̃).
-      kind='random' (§23): Q̃_k=qhvp (one shared random operator); M_r=(Σ_k r̃_k)·qhvp.
-    Yields (surrogate_step, sec20_payload) every ee steps. MIRRORS server.run_surrogate_compare's quad step."""
+def _quad_surrogate_main(th_freeze, X, Y, N, outD, lr, steps, ee, K, n, mV, nResid,
+                         s1, s2, s3, gs, kind, qhvp=None):
+    """§22/§23 REPLACE mode: iterate the closed-loop quadratic-Taylor surrogate from th_freeze and compute the
+    CORE Edge-of-Stability metrics ALONG it — loss L̃, residual r̃, the loss-Hessian sharpness λmax(∇²L̃), and the
+    function-Hessian / Gauss-Newton(=NTK) / residual-weighted extreme spectra — plus the §20 M_r payload, so the
+    §1-§3 and §20 plots render the SURROGATE trajectory. GD on the MSE of f̃ (η = lr/N); Q̃ frozen at θ_f:
+      f̃_k=f_k(θ_f)+J0_k·Δθ+½ΔθᵀQ̃_kΔθ ; J̃_k=J0_k+Q̃_k·Δθ ; ∇²f̃_k=Q̃_k. ∇²L̃ = (1/N)J̃ᵀJ̃ + Σ_a(∂L/∂f_a)Q̃_a.
+      kind='frozen' (§22): Q̃_k=∇²f_k(θ_f) (hvpF/hvpS at θ_f); kind='random' (§23): Q̃_k=qhvp (one shared op).
+    Because the 2nd-order Taylor is EXACT at θ_f, at st=0 every spectrum equals the real model's at θ_f. Mirrors
+    the real §1-§3 block (same Lanczos seeds 0xA53F9/0x5EED1/0x6A17C/0x7B23D and params n,mV). MSE only.
+    Yields (surrogate_step, step_fields, sec20_payload) every ee steps."""
     J0, f0flat = jac_cols(th_freeze, X)                    # (M,p), (M,) frozen at the expansion point
     Yf = Y.reshape(-1)
+    p = J0.shape[1]; M = N * outD
+    needVals = s1 or s2 or s3
+    # the summed function Hessian Σ_a Q̃_a is FROZEN at θ_f, so its extreme eigenvalues are computed ONCE.
+    feTop = feBot = None
+    if needVals:
+        hvpF_sur = (lambda v: hvpF(th_freeze, X, v)) if kind == "frozen" else (lambda v: M * qhvp(v))
+        feTop, feBot = lanczos_extreme_vals(hvpF_sur, p, n, mV, 0xA53F9)
     th_sur = th_freeze.clone()
     for st in range(int(steps) + 1):
         dth = th_sur - th_freeze
@@ -1866,16 +1878,36 @@ def _quad_surrogate_sec20(th_freeze, X, Y, N, outD, lr, steps, ee, K, kind, qhvp
             qd = qhvp(dth)                                 # (p,)
             fss = f0flat + (J0 @ dth) + 0.5 * float(dth @ qd)
             Jqs = J0 + qd.unsqueeze(0)                     # broadcast J0_k + qd
-        rt = Yf - fss                                      # surrogate residual r̃
+        rt = Yf - fss                                      # surrogate residual r̃ = Y − f̃
         if not torch.isfinite(fss).all() or float(rt @ rt) > 1e14:
             break                                          # diverged → keep the snapshots so far
         if st % ee == 0:
+            rtc = rt.reshape(N, outD)
+            cS = _TL.loss.resid_cotangent(fss.reshape(N, outD), Y, N)        # (N,outD) loss cotangent ∂L/∂f̃
+            loss = float(_TL.loss.value(fss.reshape(N, outD), Y, N))
             if kind == "frozen":
-                sec = _sec20_payload(Jqs, rt, th_freeze, X, N, outD, K)
+                s_hvp = lambda v: hvpS(th_freeze, X, v, cS)                  # S-term = Σ_a (∂L/∂f̃_a) Q̃_a v
+                sec = _sec20_payload(Jqs, rt, th_freeze, X, N, outD, K)      # M_r·v defaults to hvpS(θ_f,·,r̃) inside
             else:
-                rsum = float(rt.sum())
-                sec = _sec20_payload(Jqs, rt, th_freeze, X, N, outD, K, mr_hvp=(lambda v, rs=rsum: rs * qhvp(v)))
-            yield (st, sec)
+                mr_hvp = (lambda v, rs=float(rt.sum()): rs * qhvp(v))
+                s_hvp = (lambda v, cs=float(cS.sum()): cs * qhvp(v))
+                sec = _sec20_payload(Jqs, rt, th_freeze, X, N, outD, K, mr_hvp=mr_hvp)
+            g_hvp = lambda v: (Jqs.t() @ (Jqs @ v)) / N                      # Gauss-Newton (1/N)J̃ᵀJ̃ v (= NTK)
+            l_hvp = lambda v: g_hvp(v) + s_hvp(v)                            # loss-Hessian ∇²L̃ = G + S
+            hlt, hlb = (lanczos_extreme_vals(l_hvp, p, n, mV, 0x5EED1) if needVals else (None, None))
+            gnt = gnb = srt = srb = None
+            if (s2 or s3) and gs:
+                gnt, gnb = lanczos_extreme_vals(g_hvp, p, n, mV, 0x6A17C)
+                srt, srb = lanczos_extreme_vals(s_hvp, p, n, mV, 0x7B23D)
+            step_fields = {
+                "loss": loss, "sharp": (hlt[0] if hlt else None),
+                "r": rt[:nResid].detach().cpu().tolist(),
+                "hfMax": (feTop[0] / N if feTop else None), "hfMin": (feBot[0] / N if feBot else None),
+                "hfTop": ([v / N for v in feTop[:n]] if feTop else None),
+                "hfBot": ([v / N for v in feBot[:n]] if feBot else None),
+                "hlTop": hlt, "hlBot": hlb, "gnTop": gnt, "gnBot": gnb, "srTop": srt, "srBot": srb,
+            }
+            yield (st, step_fields, sec)
         gss = _TL.loss.resid_cotangent(fss.reshape(N, outD), Y, N).reshape(-1)   # MSE: (f̃−Y)/N = −r̃/N
         th_sur = th_sur - lr * (Jqs.t() @ gss)
 
@@ -2942,29 +2974,44 @@ def run_stream(P):
                 return
             yield {"type": "g17", **rec17}
 
-    # ===== §22/§23: §20's M_r=Σr_kQ_k histograms along a QUADRATIC-Taylor surrogate trajectory, INTERLEAVED
-    # with the main loop. Running the whole surrogate UP FRONT blanks the live sections (§1-§21 wait for it);
-    # running it ALL AFTER the loop hides §22/§23 until the very end. So we build the surrogate generators here
-    # (each yields one §20 payload per ee, the same cadence as the main loop) and pull ONE snapshot per main-
-    # loop tick — both advance together. θ₀ & (Xpool,Ypool) are captured now, before GD mutates th, so the
-    # g22/g23 values are byte-identical to the up-front placement; only their arrival is interleaved.
+    # ===== §22/§23 REPLACE mode: when a quadratic surrogate is selected, the SURROGATE trajectory (not real GD)
+    # drives the core EoS plots — §1 (loss/sharpness/residual), §2/§3 (function-Hessian / loss-Hessian /
+    # Gauss-Newton(NTK) / residual-weighted spectra) and §20 (M_r) all render the surrogate via the normal
+    # step/g20 records, plus the g22/g23 section's own M_r slider. §22 (frozen-Q) and §23 (random-Q) are
+    # MUTUALLY EXCLUSIVE — frozen-Q wins if both are on. The real §1-§21 main loop is then SKIPPED. MSE only. =====
     do_quad_sur = ((s30 or s31) and start == 0 and _TL.loss.name == "mse"
                    and dataset != "owt" and M16 <= grid3dcap)
-    gen22 = gen23 = None
     if do_quad_sur:
         Xq, Yq = Xpool, Ypool
-        if s30:
+        if s30:                                                              # §22 frozen-Q (priority if both on)
             thf = th.detach().clone()
             for _ in range(s30t):                                            # advance the REAL model to iteration t (θ_t)
+                if mytok != RUN_TOKEN.get(_devkey, mytok):                   # stay interruptible during a long freeze-advance
+                    return
                 thf = thf - lr * _opt_dir(_TL.model, gradL(thf, Xq, Yq)[0], opt)
-            gen22 = _quad_surrogate_sec20(thf, Xq, Yq, Nfull, outD, lr, steps, ee, sec20k, "frozen")
-        if s31:
+            driver = _quad_surrogate_main(thf, Xq, Yq, Nfull, outD, lr, steps, ee, sec20k, n, mV, nResid,
+                                          s1, s2, s3, gs, "frozen")
+            rectype = "g22"
+        else:                                                                # §23 random-Q (from θ₀)
             qh = _qrandom_hvp(p, s31r, (P.get("seed", 0) * 2654435761 + 0x235EE0) & 0x7FFFFFFF, th.dtype, _dev())
             tgt = _power_absmax(lambda v: hvpF(th, Xq, v), p, th.dtype, _dev()) * s31scale  # scale random Q to real fn-Hessian λmax at θ₀
             traw = _power_absmax(qh, p, th.dtype, _dev())
             sc = (tgt / traw) if traw > 1e-30 else 1.0
-            gen23 = _quad_surrogate_sec20(th.detach().clone(), Xq, Yq, Nfull, outD, lr, steps, ee, sec20k,
-                                          "random", qhvp=(lambda v, c=sc: c * qh(v)))
+            driver = _quad_surrogate_main(th.detach().clone(), Xq, Yq, Nfull, outD, lr, steps, ee, sec20k, n, mV, nResid,
+                                          s1, s2, s3, gs, "random", qhvp=(lambda v, c=sc: c * qh(v)))
+            rectype = "g23"
+        t0 = time.time()
+        for (st, step_fields, sec20) in driver:
+            if mytok != RUN_TOKEN.get(_devkey, mytok):
+                return
+            yield {"type": "step", "t": st, "steps": steps, "p": p,
+                   "surrogate": rectype, **step_fields,                      # 'surrogate' tells the browser §1-§3 ARE the surrogate
+                   "sps": (st + 1) / max(time.time() - t0, 1e-9)}
+            if s28:
+                yield {"type": "g20", "t": st, **sec20}                      # §20 section → surrogate M_r
+            yield {"type": rectype, "t": st, **sec20}                        # §22/§23 section → its own M_r slider
+        yield {"type": "done", "p": p}
+        return
 
     for t in range(steps + 1):
         if mytok != RUN_TOKEN.get(_devkey, mytok):
@@ -3714,29 +3761,10 @@ def run_stream(P):
                 yield {"type": "g20", "t": t, **sec20}          # §20 — M_r=Σr_kQ_k eigenvalue histograms + λ·|⟨v,u_k⟩| (slider snapshot)
             if sec21 is not None:
                 yield {"type": "g21", "t": t, **sec21}          # §21 — residual↔NTK-spectrum + J·r↔M_r-spectrum alignment (slider snapshot)
-            if gen22 is not None:                               # §22 — one frozen-Q surrogate snapshot per tick (interleaved with the live sections)
-                try:
-                    st22, sec22 = next(gen22); yield {"type": "g22", "t": st22, **sec22}
-                except StopIteration:
-                    gen22 = None
-            if gen23 is not None:                               # §23 — one random-Hessian surrogate snapshot per tick
-                try:
-                    st23, sec23 = next(gen23); yield {"type": "g23", "t": st23, **sec23}
-                except StopIteration:
-                    gen23 = None
             eigTick += 1
             done += 1
 
         th = th - lr * _opt_dir(_TL.model, gradL(th, X, Y)[0], opt)
-
-    # drain any surrogate snapshots the main loop didn't reach (cadences match for start==0, so normally
-    # nothing is left — this just guarantees §22/§23 always receive their full snapshot set).
-    for gen, typ in ((gen22, "g22"), (gen23, "g23")):
-        if gen is not None:
-            for (st, sec) in gen:
-                if mytok != RUN_TOKEN.get(_devkey, mytok):
-                    return
-                yield {"type": typ, "t": st, **sec}
 
     yield {"type": "done", "p": p}
 

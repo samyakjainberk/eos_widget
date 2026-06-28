@@ -232,6 +232,7 @@
       <span class="steps" id="sps">steps/sec: —</span>
     </div>
     <div id="status"></div>
+    <div id="sur_banner" style="display:none;margin:6px 0;padding:7px 11px;background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;color:#92400e;font-size:13px;font-weight:500"></div>
   </div>
 </div>
 
@@ -266,8 +267,8 @@
   <label title="§19 — correlation between (A) the one-step-ahead change in gradient norm ‖J_{t+1}r_{t+1}‖−‖J_t r_t‖ (first-order GD prediction with the run's actual η/N step) and (B) D²(tr NTK), the centered 2nd difference of tr(NTK)=‖J‖²_F. Plot 1: A and B over time; Plot 2: raw A−B and normalized Â−B̂. Asks whether the steps where A and B first turn negative coincide. Small N; best with eigevery=1."><input type="checkbox" id="en27"> 19 · grad-norm change vs D²(NTK) correlation</label>
   <label title="§20 — spectral histograms of the residual-weighted function Hessian M_r=Σ_k r_k Q_k (Q_k=∇²f_k), evolving over training (slider). Plot 1: histogram of its top-K⊕bottom-K eigenvalues λ_i (matrix-free Lanczos). Plots 2/3/4: histogram of λ_i·|⟨v_i,u_k⟩| where u_k is the k-th RIGHT-singular vector of J (k=1,2,3) — the eigenvalues weighted by how strongly each eigenvector v_i aligns with the top-3 Jacobian directions. Small N; K set below."><input type="checkbox" id="en28"> 20 · M_r=Σr_kQ_k spectral histograms <input type="number" id="s28k" value="40" min="1" max="400" step="1" title="§20: number of eigenpairs per side (top-K ⊕ bottom-K) of M_r" style="width:52px;margin-left:4px"></label>
   <label title="§21 — alignment of the residual with the spectrum, three panels (slider). Panel 1: residual r projected onto the top-K NTK (K=JJᵀ/N, eigvals σ_i divided by #samples N to match G=(1/N)JᵀJ) eigenvectors v_i — bars |⟨v_i,r⟩|/‖r‖, |⟨v_i,r⟩|, σ_i·|⟨v_i,r⟩|/‖r‖, σ_i·|⟨v_i,r⟩| (grey σ_i on the two σ-weighted plots). Panel 2: J·r=Σ_k r_k∇f_k projected onto the top-K⊕bottom-K eigenvectors u_i of M_r=Σ_k r_kQ_k — bars |⟨u_i,Jr⟩|/‖Jr‖, |⟨u_i,Jr⟩|, λ_i·|⟨u_i,Jr⟩|/‖Jr‖, λ_i·|⟨u_i,Jr⟩| (grey signed λ_i on the two λ-weighted plots). Panel 3: J·r projected onto the top-K Gauss-Newton G=(1/N)JᵀJ eigenvectors z_i (eigenvalue c_i=σ_i) — bars |⟨z_i,Jr⟩|/‖Jr‖, |⟨z_i,Jr⟩|, c_i·|⟨z_i,Jr⟩|/‖Jr‖, c_i·|⟨z_i,Jr⟩| (grey c_i; min(K,M) nonzero modes). Small N; K set right."><input type="checkbox" id="en29"> 21 · residual ↔ spectrum alignment <input type="number" id="s29k" value="40" min="1" max="400" step="1" title="§21: NTK top-K & M_r top-K⊕bottom-K" style="width:52px;margin-left:4px"></label>
-  <label title="§22 — §20's M_r=Σr_kQ_k spectral histograms, but computed along a QUADRATIC-Taylor surrogate trajectory whose function Hessian Q is frozen at the iteration t you set (right). Real full-batch GD reaches θ_t, then GD runs on the quadratic loss; slider scrubs the surrogate's own iterations. MSE only; small N (M ≤ grid3dcap)."><input type="checkbox" id="en30"> 22 · §20 on frozen-Q quadratic surrogate · freeze t= <input type="number" id="s30t" value="0" min="0" max="100000" step="1" title="§22: iteration t at which to freeze the 2nd-order Taylor (θ_t, J_t, Q_t)" style="width:62px;margin-left:4px"></label>
-  <label title="§23 — §20's M_r spectral histograms on a quadratic surrogate whose function Hessian is a FIXED low-rank RANDOM symmetric operator (rank R, scaled to the real Hessian's λmax × scale). Trains from θ₀ under this random quadratic — a null model for the §20 alignment. MSE only."><input type="checkbox" id="en31"> 23 · §20 on random-Hessian surrogate · R= <input type="number" id="s31r" value="200" min="1" max="2000" step="1" title="§23: rank R of the random function Hessian" style="width:58px;margin-left:4px"> scale <input type="number" id="s31scale" value="1.0" min="0" max="100" step="0.1" title="§23: random-Hessian spectral norm = real fn-Hessian λmax × this" style="width:50px;margin-left:2px"></label>
+  <label title="§22 REPLACE mode — selecting this makes the WHOLE run a FROZEN-Q quadratic-Taylor surrogate: §1 (loss/sharpness/residual), §2/§3 (function-Hessian / loss-Hessian / Gauss-Newton=NTK / residual-weighted spectra) and §20 (M_r) all show the surrogate trajectory instead of the real model (§4–§21 are off). Q is frozen at the iteration t you set (right): real full-batch GD reaches θ_t, then GD runs on the quadratic loss; slider scrubs the surrogate's own iterations. §22/§23 are mutually exclusive. MSE only; small N (M ≤ grid3dcap)."><input type="checkbox" id="en30"> 22 · run on frozen-Q quadratic surrogate · freeze t= <input type="number" id="s30t" value="0" min="0" max="100000" step="1" title="§22: iteration t at which to freeze the 2nd-order Taylor (θ_t, J_t, Q_t)" style="width:62px;margin-left:4px"></label>
+  <label title="§23 REPLACE mode — like §22 but the function Hessian is a FIXED low-rank RANDOM symmetric operator (rank R, scaled to the real Hessian's λmax × scale): selecting this makes §1/§2/§3/§20 show the random-Q quadratic surrogate trajectory from θ₀ — a null model (§4–§21 off, §22/§23 mutually exclusive). MSE only."><input type="checkbox" id="en31"> 23 · run on random-Hessian surrogate · R= <input type="number" id="s31r" value="200" min="1" max="2000" step="1" title="§23: rank R of the random function Hessian" style="width:58px;margin-left:4px"> scale <input type="number" id="s31scale" value="1.0" min="0" max="100" step="0.1" title="§23: random-Hessian spectral norm = real fn-Hessian λmax × this" style="width:50px;margin-left:2px"></label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -3351,7 +3352,7 @@ function secNote(secId,msg){const sec=document.getElementById(secId);if(!sec)ret
     n.style.cssText='margin:8px 0;padding:8px 12px;background:#fef3c7;border:1px solid #fbbf24;border-radius:6px;color:#92400e;font-size:13px;line-height:1.4';
     const h=sec.querySelector('h2');if(h&&h.nextSibling)sec.insertBefore(n,h.nextSibling);else sec.insertBefore(n,sec.firstChild);}
   n.innerHTML=msg;n.style.display='';}
-function clearAdvNotes(){ADV_GOT={};S15_TERMS_GOT=false;for(const tg in ADV_SECS)secNote(ADV_SECS[tg].sec,null);}   // run start
+function clearAdvNotes(){ADV_GOT={};S15_TERMS_GOT=false;{const b=document.getElementById('sur_banner');if(b)b.style.display='none';}for(const tg in ADV_SECS)secNote(ADV_SECS[tg].sec,null);}   // run start
 function markSkippedAdv(){   // run end (done OR error): note every enabled section that produced nothing
   const N=Math.max(1,+val('nsamp')||1),M=N*datasetOutDim();
   for(const tg in ADV_SECS){const a=ADV_SECS[tg],sec=document.getElementById(a.sec);
@@ -4413,7 +4414,9 @@ function gpuHandle(m,st,sp,finish,resuming){
       markUnavailable(m.multi,m.multi_ok,m.loss==='ce');   // stamp panels this run can't fill (single-sample / too-large / CE)
       clearAdvNotes();   // reset the §11–§17 "not produced" notes for this run
       st.textContent=`running on ${m.device} … p=${m.p}, 2/lr=${m.thr.toFixed(2)}`;
-    }else if(m.type==='step'){if(!META)return;pushPoint(m.t,m,META.n,META.kth,META.nResid);lastT=m.t;
+    }else if(m.type==='step'){if(!META)return;
+      if(m.surrogate){const b=document.getElementById('sur_banner');if(b){b.style.display='';b.textContent='⚠ §1–§3 & §20 show the '+(m.surrogate==='g22'?'§22 FROZEN-Q':'§23 RANDOM-Q')+' quadratic-surrogate trajectory — NOT the real model. (§4–§21 are off in surrogate mode.)';}}
+      pushPoint(m.t,m,META.n,META.kth,META.nResid);lastT=m.t;
       if(m.sps!=null)sp.textContent=`steps/sec: ${m.sps.toFixed(1)}`;
       st.textContent=`running on ${META.device} … step ${m.t}/${m.steps}  ·  p=${m.p}, 2/lr=${META.thr.toFixed(2)}`;
     }else if(m.type==='slq'){if(m.sH)refreshSLQ('p_sH',m.sH);if(m.sG)refreshSLQ('p_sG',m.sG);if(m.sS)refreshSLQ('p_sS',m.sS);if(m.sHL)refreshSLQ('p_sHL',m.sHL);trPush(m);
@@ -4739,6 +4742,9 @@ function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic'
 document.getElementById('loss').addEventListener('change',syncLossPanels);
 document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
 ['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','en24','en25','en26','en27','en28','en29','en30','en31','gson'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();});});
+// §22 (en30) & §23 (en31) are MUTUALLY EXCLUSIVE — selecting one quadratic surrogate deselects the other (the surrogate REPLACES §1–§21, so only one trajectory can drive the plots).
+{const e30=document.getElementById('en30'),e31=document.getElementById('en31');const mux=(a,b)=>{if(a.checked&&b.checked){b.checked=false;syncSectionVis();}};
+ if(e30&&e31){e30.addEventListener('change',()=>mux(e30,e31));e31.addEventListener('change',()=>mux(e31,e30));}}
 ['s14f_y1','s14f_y2','s14f_y5','s14f_agg','s14f_max','s14f_min','s14f_ratio'].forEach(id=>{const e=document.getElementById(id);if(e)e.addEventListener('change',s14ApplyPanelFilter);});
 if(typeof s14ApplyPanelFilter==='function')s14ApplyPanelFilter();   // apply the default §14 panel selection on load
 syncInitScaleEnabled();   // grey out init_scale on load if the current scheme ignores it (mup/xavier_*)
