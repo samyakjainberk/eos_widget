@@ -2831,6 +2831,7 @@ def run_stream(P):
     s30 = P.get("s30", 0)                # §22: §20's M_r histograms on a frozen-Q QUADRATIC surrogate trajectory (freeze at iteration s30t)
     s31 = P.get("s31", 0)                # §23: §20's M_r histograms on a RANDOM-Hessian quadratic surrogate (low-rank R, frozen at θ₀)
     s32 = P.get("s32", 0)                # §24: A=JJᵀr & B=(η/2N)JrᵀQ_kJr alignment with residual + top-4 NTK eigvecs (time-series)
+    s33 = P.get("s33", 0)                # §25: ‖∇L‖, ‖M_r∇L‖, ‖JᵀJ∇L‖, |⟨∇‖J‖²,Q∇L⟩|, |⟨∇‖J‖²,G∇L⟩| evolution (single plot)
     s30t = max(0, int(P.get("s30t", 0)))      # §22: iteration t at which to freeze the 2nd-order Taylor (θ_t, J_t, Q_t)
     s31r = max(1, int(P.get("s31r", 200)))    # §23: rank R of the random symmetric function Hessian
     s31scale = float(P.get("s31scale", 1.0))  # §23: random-Hessian spectral norm = (real function-Hessian λmax at θ₀)·s31scale
@@ -3103,7 +3104,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29 or s32)) or ((s23 or s27 or s28 or s29 or s32) and N <= grid3dcap):   # §15/§19/§20/§21/§24 also run for a single sample
+            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29 or s32 or s33)) or ((s23 or s27 or s28 or s29 or s32 or s33) and N <= grid3dcap):   # §15/§19/§20/§21/§24/§25 also run for a single sample
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -3124,6 +3125,25 @@ def run_stream(P):
                        "cAu": [abs(float(A24 @ U24[:, i])) / nA24 for i in range(nu24)] + [None] * (4 - nu24),
                        "cBu": [abs(float(B24 @ U24[:, i])) / nB24 for i in range(nu24)] + [None] * (4 - nu24),
                        "sig": [float(sg24v[i]) / N for i in range(nu24)] + [None] * (4 - nu24)}   # NTK eigval ÷N (as §21)
+
+            # §25: gradient-norm evolution + the product-rule split of d/dt(J·r), single time-series plot. With the
+            # gradient-flow velocity θ̇=−∇L (no lr): J̇=Q·θ̇ ⇒ J̇·r=−M_r∇L (M_r=Σ_k r_k Q_k); ṙ=−J·θ̇ ⇒ J·ṙ=(JᵀJ)∇L.
+            # Curves: ‖∇L‖ ; ‖J̇·r‖=‖M_r∇L‖ ; ‖J·ṙ‖=‖JᵀJ∇L‖ ; |⟨∇‖J‖²_F,−Q∇L⟩| ; |⟨∇‖J‖²_F,G∇L⟩| where
+            # ∇_θ‖J‖²_F = 2Σ_k Q_k J_k (=∇ tr NTK), Q∇L=Σ_k Q_k∇L (func Hessian), G∇L=Gauss-Newton·∇L. (abs ⇒ −Q sign irrelevant.)
+            g25 = None
+            if s33 and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+                Jg25 = Jc[:M]; rc25 = rr[:M].reshape(N, outD)
+                gL25 = gradL(th, X, Y)[0]                                # ∇L (p,)
+                JJg25 = Jg25.t() @ (Jg25 @ gL25)                        # (JᵀJ)·∇L (p,)  [= J·ṙ for MSE: ṙ=−J·θ̇, θ̇=−∇L]
+                A25 = torch.zeros(p, dtype=Jg25.dtype, device=_dev())   # A = ∇_θ‖J‖²_F = 2 Σ_k Q_k J_k (per-sample func-Hessian × its own gradient)
+                for kk in range(M):
+                    A25 = A25 + jac_hvp(th, X, Jg25[kk])[kk]
+                A25 = 2.0 * A25
+                g25 = {"gn":  float(gL25.norm()),                        # 1. ‖∇L‖
+                       "jdr": float(hvpS(th, X, gL25, rc25).norm()),     # 2. ‖J̇·r‖ = ‖M_r ∇L‖
+                       "jrd": float(JJg25.norm()),                       # 3. ‖J·ṙ‖ = ‖JᵀJ ∇L‖
+                       "aq":  abs(float(A25 @ hvpF(th, X, gL25))),       # 4. |⟨∇‖J‖²_F, −Q∇L⟩|
+                       "ag":  abs(float(A25 @ hvpG(th, X, gL25)))}       # 5. |⟨∇‖J‖²_F, G∇L⟩|  (G = loss-aware Gauss-Newton)
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None
@@ -3741,6 +3761,7 @@ def run_stream(P):
                 "q10": q10, "q10N": q10N,
                 "d4Ht": d4Ht, "d4Hb": d4Hb, "d4Qt": d4Qt, "d4Qb": d4Qb,
                 "g24": g24,                                    # §24: A=JJᵀr & B=(η/2N)JrᵀQ_kJr alignment vs r and top-4 NTK eigvecs
+                "g25": g25,                                    # §25: ‖∇L‖ + d/dt(J·r) split + ∇‖J‖²·{Q∇L,G∇L} alignments
                 "sps": (t - start + 1) / max(time.time() - t0, 1e-9),
             }
 
@@ -4342,6 +4363,7 @@ def _parse_params(q):
         "s30": g("s30", "0") == "1",     # §22: §20 M_r histograms on a frozen-Q quadratic surrogate (freeze at iteration s30t)
         "s31": g("s31", "0") == "1",     # §23: §20 M_r histograms on a random-Hessian quadratic surrogate (rank s31r)
         "s32": g("s32", "0") == "1",     # §24: A=JJᵀr & B=(η/2N)JrᵀQ_kJr alignment with residual + top-4 NTK eigvecs (time-series)
+        "s33": g("s33", "0") == "1",     # §25: gradient-norm + d/dt(J·r) split + ∇‖J‖²·{Q∇L,G∇L} alignment evolution (single plot)
         "s30t": max(0, fi("s30t", 0)),   # §22: freeze iteration t
         "s31r": max(1, fi("s31r", 200)), # §23: rank R of the random function Hessian
         "s31scale": ff("s31scale", 1.0), # §23: random-Hessian spectral-norm scale (× real fn-Hessian λmax)
