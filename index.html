@@ -480,8 +480,16 @@
 </div>
 
 <div id="sec_s25" style="display:none">
-<h2>25 · gradient-norm evolution &amp; the $\tfrac{d}{dt}(J\!\cdot\!r)$ product-rule split</h2>
-<p class="cap">A single time-series (over training) of five quantities tied to the dynamics of the residual-contracted gradient $J\!\cdot\!r=\sum_k r_k\nabla f_k$, under the gradient-flow velocity $\dot\theta=-\nabla L$. <b style="color:#2563eb">‖∇L‖</b> — the loss-gradient norm. <b style="color:#16a34a">‖$\dot J\!\cdot\!r$‖ = ‖$M_r\nabla L$‖</b> ($M_r=\sum_k r_kQ_k$) and <b style="color:#db2777">‖$J\!\cdot\!\dot r$‖ = ‖$J^\top J\,\nabla L$‖</b> ($\dot r=-J\dot\theta$) — the two product-rule terms of $\tfrac{d}{dt}(J\!\cdot\!r)=\dot J\!\cdot\!r+J\!\cdot\!\dot r$. <b style="color:#ea580c">|⟨∇‖J‖²_F, −Q∇L⟩|</b> and <b style="color:#7c3aed">|⟨∇‖J‖²_F, G∇L⟩|</b> — the alignment of the trace-NTK gradient $\nabla_\theta\lVert J\rVert_F^2=2\sum_k Q_kJ_k$ with the function-Hessian ($Q=\sum_kQ_k$) and the Gauss-Newton ($G$) applied to $\nabla L$. Log scale (absolute values). Small $N$; GPU backend.</p>
+<h2>25 · gradient-norm &amp; $\tfrac{d}{dt}(J\!\cdot\!r)$ dynamics, and cosine alignment of θ-gradient directions</h2>
+<p class="cap"><b>Three plots in this row.</b>
+<br><b>Plot 1 (left) — five time-series</b> tied to the residual-contracted gradient $J\!\cdot\!r=\sum_k r_k\nabla f_k$ under gradient flow $\dot\theta=-\nabla L$: <b style="color:#2563eb">‖∇L‖</b> (loss-gradient norm); <b style="color:#16a34a">‖$\dot J\!\cdot\!r$‖ = ‖$M_r\nabla L$‖</b> ($M_r=\sum_k r_kQ_k$) and <b style="color:#db2777">‖$J\!\cdot\!\dot r$‖ = ‖$J^\top J\,\nabla L$‖</b> — the two product-rule terms of $\tfrac{d}{dt}(J\!\cdot\!r)=\dot J\!\cdot\!r+J\!\cdot\!\dot r$; and <b style="color:#ea580c">II</b>, <b style="color:#7c3aed">III</b> — two cross-terms of the second-difference decomposition of $\lVert J\rVert_F^2$ (= tr NTK), i.e. the §15 panel-1 terms (these need <b>eig-every = 1</b>, so they start a couple of ticks in). Linear y-axis.
+<br><b>Plots 2 &amp; 3 — pairwise cosine similarity</b> (over training) between the <b>$\theta$-gradients of five scalar quantities</b> (MLP only; exact autograd). The five gradient vectors are numbered:
+<b>1</b> $=\nabla_\theta\lVert r\rVert^2$ &nbsp;·&nbsp;
+<b>2</b> $=\nabla_\theta\lVert J\rVert_F^2=\nabla_\theta\,\mathrm{tr}(\text{NTK})=2\sum_k Q_kJ_k$ &nbsp;·&nbsp;
+<b>3</b> $=\nabla_\theta\lVert\nabla L\rVert^2$ &nbsp;·&nbsp;
+<b>4</b> $=\nabla_\theta\lVert Q\,(J^\top r)\rVert^2$ (with $Q=\sum_k Q_k$ the function Hessian and $J^\top r=\sum_k r_k\nabla f_k$) &nbsp;·&nbsp;
+<b>5</b> $=\nabla_\theta\lVert (J^\top J)(J^\top r)\rVert^2$.
+Each line “$i\!\cdot\!j$” is $\cos\angle(\text{vector }i,\ \text{vector }j)\in[-1,1]$. All 10 pairs are split across the two plots for legibility: <b>Plot 2</b> = the 5 pairs <b>1·2, 1·3, 1·4, 1·5, 2·3</b> (every pair that involves vector 1, plus 2·3); <b>Plot 3</b> = the other 5: <b>2·4, 2·5, 3·4, 3·5, 4·5</b>. Small $N$; GPU backend.</p>
 <div class="plotrow row3"><div id="p_s25" class="plot" style="height:400px"></div><div id="p_s25_cosA" class="plot" style="height:400px"></div><div id="p_s25_cosB" class="plot" style="height:400px"></div></div>
 </div>
 
@@ -3151,14 +3159,14 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
      newP('p_s24_u'+i+'b',ab(),s24L('|cos(·,u'+i+')|·σ'+i+'·‖·‖',''));}}
   // §25 — gradient-norm evolution & d/dt(J·r) product-rule split (single linear-scale plot, 5 curves)
   {const tr25=(nm,c)=>({x:[],y:[],mode:'lines',name:nm,line:{color:c,width:1.8}});
-   const L25=baseLayout('§25 — ‖∇L‖, d/dt(J·r) terms, ‖J‖²_F 2nd-diff II/III','value',false);
+   const L25=baseLayout('Plot 1 — ‖∇L‖, d/dt(J·r) terms (M_r∇L, JᵀJ∇L), and II & III','value',false);
    L25.showlegend=true;L25.legend={font:{size:9},x:0.99,xanchor:'right',y:0.99,yanchor:'top',bgcolor:'rgba(255,255,255,0.7)'};
    newP('p_s25',[tr25('‖∇L‖','#2563eb'),tr25('‖J̇·r‖ = ‖M_r∇L‖','#16a34a'),tr25('‖J·ṙ‖ = ‖JᵀJ∇L‖','#db2777'),tr25('II  (∂²‖J‖²_F term)','#ea580c'),tr25('III  (∂²‖J‖²_F term)','#7c3aed')],L25);
    // §25 cosine panels — pairwise cos∠ of ∇θ of: 1=∇‖r‖²  2=∇‖J‖²_F(∇trNTK)  3=∇‖∇L‖²  4=∇‖Q·Jᵀr‖  5=∇‖JᵀJ·Jᵀr‖
    {const cosCol=['#2563eb','#16a34a','#db2777','#ea580c','#7c3aed'];
     const cosLay=(t)=>{const L=baseLayout(t,'cosine',false);L.yaxis.range=[-1.05,1.05];L.showlegend=true;L.legend={font:{size:9},orientation:'h',x:0,y:1.1};return L;};
-    newP('p_s25_cosA',['1·2','1·3','1·4','1·5','2·3'].map((nm,i)=>tr25(nm,cosCol[i])),cosLay('cos∠(∇θ) — 1=∇‖r‖² 2=∇trNTK 3=∇‖∇L‖² 4=∇‖QJᵀr‖ 5=∇‖JᵀJJᵀr‖'));
-    newP('p_s25_cosB',['2·4','2·5','3·4','3·5','4·5'].map((nm,i)=>tr25(nm,cosCol[i])),cosLay('cos∠(∇θ) — pairs among {2,3,4,5}'));}}
+    newP('p_s25_cosA',['1·2','1·3','1·4','1·5','2·3'].map((nm,i)=>tr25(nm,cosCol[i])),cosLay('Plot 2 — cos∠ of θ-gradients · pairs 1·2 1·3 1·4 1·5 2·3  (see 1–5 in caption)'));
+    newP('p_s25_cosB',['2·4','2·5','3·4','3·5','4·5'].map((nm,i)=>tr25(nm,cosCol[i])),cosLay('Plot 3 — cos∠ of θ-gradients · pairs 2·4 2·5 3·4 3·5 4·5  (see 1–5 in caption)'));}}
   // §5 SLQ
   const slqT=c=>[{x:[],y:[],mode:'lines',fill:'tozeroy',line:{color:c,width:1.6},fillcolor:c+'22',name:'density'}];
   newP('p_sH',slqT('#2563eb'),slqLayout('SLQ density — function Hessian H'));
