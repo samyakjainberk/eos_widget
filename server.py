@@ -3248,11 +3248,13 @@ def run_stream(P):
                     II25 = c225 * float((Jg25 * jac_hvp(h1["th"], X, a25)[:M]).sum())     # II = c²Σ_k ∇f_{t,k}ᵀ Q_{t-1,k}(Q̃ g₂)
                     z25 = h1["J"].t() @ (h2["J"] @ g2_25)               # z = J_{t-1}ᵀ J_{t-2} g₂  (p,)
                     III25 = c225 * float((Jg25 * jac_hvp(h1["th"], X, z25)[:M]).sum())    # III = c²Σ_k ∇f_{t,k}ᵀ Q_{t-1,k} z
+                Mr25 = hvpS(th, X, gL25, rc25)                          # M_r∇L (p,);  J̇·r = −M_r∇L,  J·ṙ = JᵀJ∇L = JJg25
                 g25 = {"gn":  float(gL25.norm()),                        # 1. ‖∇L‖
-                       "jdr": float(hvpS(th, X, gL25, rc25).norm()),     # 2. ‖J̇·r‖ = ‖M_r ∇L‖
+                       "jdr": float(Mr25.norm()),                        # 2. ‖J̇·r‖ = ‖M_r ∇L‖
                        "jrd": float(JJg25.norm()),                       # 3. ‖J·ṙ‖ = ‖JᵀJ ∇L‖
                        "II":  II25,                                      # 4. §15 panel-1 term II  (∂²‖J‖²_F cross-term; None until 3 consecutive steps)
-                       "III": III25}                                     # 5. §15 panel-1 term III
+                       "III": III25,                                     # 5. §15 panel-1 term III
+                       "ddJr": float((JJg25 - Mr25).abs().sum())}        # plot 4: Σ_i|（J·ṙ + J̇·r)_i| = ‖J·ṙ + J̇·r‖₁ = ‖d/dt(J·r)‖₁
                 if isinstance(_TL.model, MlpModel):                      # §25 panels 2/3 — pairwise cosine sim of ∇θ of 5 scalars (MLP, exact autograd)
                     g25["cosA"], g25["cosB"] = _sec25_cosines(th, X, Y, N, outD)
                 sec25_hist.append({"th": th.detach().clone(), "J": Jg25.detach(), "r": r25.detach(), "t": t})
