@@ -3129,7 +3129,7 @@ def run_stream(P):
             # §25: gradient-norm evolution + the product-rule split of d/dt(J·r), single time-series plot. With the
             # gradient-flow velocity θ̇=−∇L (no lr): J̇=Q·θ̇ ⇒ J̇·r=−M_r∇L (M_r=Σ_k r_k Q_k); ṙ=−J·θ̇ ⇒ J·ṙ=(JᵀJ)∇L.
             # Curves: ‖∇L‖ ; ‖J̇·r‖=‖M_r∇L‖ ; ‖J·ṙ‖=‖JᵀJ∇L‖ ; |⟨∇‖J‖²_F,−Q∇L⟩| ; |⟨∇‖J‖²_F,G∇L⟩| where
-            # ∇_θ‖J‖²_F = 2Σ_k Q_k J_k (=∇ tr NTK), Q∇L=Σ_k Q_k∇L (func Hessian), G∇L=Gauss-Newton·∇L. (abs ⇒ −Q sign irrelevant.)
+            # ∇_θ‖J‖²_F = 2Σ_k Q_k J_k (=∇ tr NTK), Q∇L=(1/N)Σ_k Q_k∇L (func Hessian, ÷N to match G), G∇L=Gauss-Newton·∇L=(1/N)JᵀJ∇L. (abs ⇒ −Q sign irrelevant.)
             g25 = None
             if s33 and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 Jg25 = Jc[:M]; rc25 = rr[:M].reshape(N, outD)
@@ -3142,8 +3142,8 @@ def run_stream(P):
                 g25 = {"gn":  float(gL25.norm()),                        # 1. ‖∇L‖
                        "jdr": float(hvpS(th, X, gL25, rc25).norm()),     # 2. ‖J̇·r‖ = ‖M_r ∇L‖
                        "jrd": float(JJg25.norm()),                       # 3. ‖J·ṙ‖ = ‖JᵀJ ∇L‖
-                       "aq":  abs(float(A25 @ hvpF(th, X, gL25))),       # 4. |⟨∇‖J‖²_F, −Q∇L⟩|
-                       "ag":  abs(float(A25 @ hvpG(th, X, gL25)))}       # 5. |⟨∇‖J‖²_F, G∇L⟩|  (G = loss-aware Gauss-Newton)
+                       "aq":  abs(float(A25 @ hvpF(th, X, gL25))) / N,   # 4. |⟨∇‖J‖²_F, −Q∇L⟩|, Q=(1/N)Σ_k Q_k (÷N to match G's normalization)
+                       "ag":  abs(float(A25 @ hvpG(th, X, gL25)))}       # 5. |⟨∇‖J‖²_F, G∇L⟩|  (G = loss-aware Gauss-Newton = (1/N)JᵀJ)
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None
