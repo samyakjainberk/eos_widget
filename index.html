@@ -490,9 +490,9 @@
 <b>4</b> $=\nabla_\theta\lVert Q\,(J^\top r)\rVert^2$ (with $Q=\sum_k Q_k$ the function Hessian and $J^\top r=\sum_k r_k\nabla f_k$) &nbsp;·&nbsp;
 <b>5</b> $=\nabla_\theta\lVert (J^\top J)(J^\top r)\rVert^2$.
 Each line “$i\!\cdot\!j$” is $\cos\angle(\text{vector }i,\ \text{vector }j)\in[-1,1]$. All 10 pairs are split across the two plots for legibility: <b>Plot 2</b> = the 5 pairs <b>1·2, 1·3, 1·4, 1·5, 2·3</b> (every pair that involves vector 1, plus 2·3); <b>Plot 3</b> = the other 5: <b>2·4, 2·5, 3·4, 3·5, 4·5</b>. <b>Both</b> cosine plots also carry a <b>bold black reference line</b> $=\cos\angle(J\!\cdot\!\dot r,\ \dot J\!\cdot\!r)$ — the cosine between the two product-rule terms $J\!\cdot\!\dot r=J^\top J\nabla L$ and $\dot J\!\cdot\!r=-M_r\nabla L$ (the same quantity in both plots, for reference).
-<br><b>Plot 4 (right) — $\sum_i\bigl|(J\!\cdot\!\dot r + \dot J\!\cdot\!r)_i\bigr|$</b>: the elementwise sum of the absolute values of the vector $J\!\cdot\!\dot r + \dot J\!\cdot\!r$ (i.e. the $\ell_1$ norm of $\tfrac{d}{dt}(J\!\cdot\!r)$). The two summands are the same Plot-1 product-rule terms, $J\!\cdot\!\dot r=J^\top J\,\nabla L$ and $\dot J\!\cdot\!r=-M_r\nabla L$, so this is $\lVert J^\top J\,\nabla L-M_r\nabla L\rVert_1$.
-<br><b>Plot 5 (far right) — $\sum_i\bigl|(J\!\cdot\!\dot r-\dot J\!\cdot\!r)_i\bigr|$</b>: the same elementwise-$\ell_1$ quantity but with the <b>difference</b> of the two product-rule terms, $\lVert J\!\cdot\!\dot r-\dot J\!\cdot\!r\rVert_1=\lVert J^\top J\,\nabla L+M_r\nabla L\rVert_1$ (subtracting $\dot J\!\cdot\!r=-M_r\nabla L$ flips its sign, so the two terms add). Small $N$; GPU backend.</p>
-<div class="plotrow row5"><div id="p_s25" class="plot" style="height:400px"></div><div id="p_s25_cosA" class="plot" style="height:400px"></div><div id="p_s25_cosB" class="plot" style="height:400px"></div><div id="p_s25_sum" class="plot" style="height:400px"></div><div id="p_s25_diff" class="plot" style="height:400px"></div></div>
+<br><b>Plot 4 — $\lVert\nabla_\theta\varphi_i\rVert$ for the five quantities</b> (log scale): the <b>norms (magnitudes)</b> of the same five gradient vectors 1–5 whose pairwise cosines are shown in plots 2 &amp; 3 (legend 1–5 as above).
+<br><b>Plot 5 (right) — $\sum_i\bigl|(J\!\cdot\!\dot r + \dot J\!\cdot\!r)_i\bigr|$</b>: the elementwise sum of the absolute values of the vector $J\!\cdot\!\dot r + \dot J\!\cdot\!r$ (i.e. the $\ell_1$ norm of $\tfrac{d}{dt}(J\!\cdot\!r)$). The two summands are the same Plot-1 product-rule terms, $J\!\cdot\!\dot r=J^\top J\,\nabla L$ and $\dot J\!\cdot\!r=-M_r\nabla L$, so this is $\lVert J^\top J\,\nabla L-M_r\nabla L\rVert_1$. Small $N$; GPU backend.</p>
+<div class="plotrow row5"><div id="p_s25" class="plot" style="height:400px"></div><div id="p_s25_cosA" class="plot" style="height:400px"></div><div id="p_s25_cosB" class="plot" style="height:400px"></div><div id="p_s25_norms" class="plot" style="height:400px"></div><div id="p_s25_sum" class="plot" style="height:400px"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -3096,7 +3096,7 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_s24');if(el){const vis=chk('en32');el.style.display=vis?'':'none';   // §24 1st/2nd-order Δf alignment (time-series)
     if(vis)requestAnimationFrame(()=>{for(const id of ['p_s24_r1','p_s24_r2','p_s24_r3','p_s24_r4','p_s24_r5','p_s24_u1a','p_s24_u1b','p_s24_u2a','p_s24_u2b','p_s24_u3a','p_s24_u3b','p_s24_u4a','p_s24_u4b']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
   {const el=document.getElementById('sec_s25');if(el){const vis=chk('en33');el.style.display=vis?'':'none';   // §25 gradient-norm & d/dt(J·r) evolution (time-series)
-    if(vis)requestAnimationFrame(()=>{for(const id of ['p_s25','p_s25_cosA','p_s25_cosB','p_s25_sum','p_s25_diff']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
+    if(vis)requestAnimationFrame(()=>{for(const id of ['p_s25','p_s25_cosA','p_s25_cosB','p_s25_norms','p_s25_sum']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
   {const el=document.getElementById('sec_s13');if(el)el.style.display=(chk('en21')&&multi)?'':'none';}   // §13 residual-weighted curvature alignment (own toggle en21; reuses the §12 Lanczos)
   {const el=document.getElementById('sec_s14');if(el){const vis=(chk('en20')&&multi);el.style.display=vis?'':'none';   // §14 Tr(ΔNTK) per-triplet decomposition (s20, multi-only)
     if(vis&&typeof S14_SNAPS!=='undefined'&&S14_SNAPS.length)requestAnimationFrame(()=>s14RenderNow(S14_CURIDX));}}   // redraw canvases now that the divs have size
@@ -3170,8 +3170,10 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
     const cosJrTr=()=>({x:[],y:[],mode:'lines',name:'cos(J·ṙ, J̇·r)',line:{color:'#111827',width:3.6}});   // bold reference line (both plots)
     newP('p_s25_cosA',['1·2','1·3','1·4','1·5','2·3'].map((nm,i)=>tr25(nm,cosCol[i])).concat([cosJrTr()]),cosLay('Plot 2 — cos∠ of θ-gradients · 1·2 1·3 1·4 1·5 2·3  + cos(J·ṙ,J̇·r) [bold]'));
     newP('p_s25_cosB',['2·4','2·5','3·4','3·5','4·5'].map((nm,i)=>tr25(nm,cosCol[i])).concat([cosJrTr()]),cosLay('Plot 3 — cos∠ of θ-gradients · 2·4 2·5 3·4 3·5 4·5  + cos(J·ṙ,J̇·r) [bold]'));}
-   newP('p_s25_sum',[tr25('‖J·ṙ + J̇·r‖₁','#0891b2')],baseLayout('Plot 4 — Σ_i |（J·ṙ + J̇·r)_i|  =  ‖d/dt(J·r)‖₁','value',false));
-   newP('p_s25_diff',[tr25('‖J·ṙ − J̇·r‖₁','#be185d')],baseLayout('Plot 5 — Σ_i |（J·ṙ − J̇·r)_i|  =  ‖JᵀJ∇L + M_r∇L‖₁','value',false));}
+   {const nmCol=['#2563eb','#16a34a','#db2777','#ea580c','#7c3aed'];
+    const Lnrm=baseLayout('Plot 4 — ‖∇θ-vector‖ of the 5 quantities (1–5 as in plots 2/3)','‖∇θφ‖ (log)',false);Lnrm.yaxis.type='log';Lnrm.showlegend=true;Lnrm.legend={font:{size:9},orientation:'h',x:0,y:1.1};
+    newP('p_s25_norms',['1','2','3','4','5'].map((nm,i)=>tr25(nm,nmCol[i])),Lnrm);}
+   newP('p_s25_sum',[tr25('‖J·ṙ + J̇·r‖₁','#0891b2')],baseLayout('Plot 5 — Σ_i |（J·ṙ + J̇·r)_i|  =  ‖d/dt(J·r)‖₁','value',false));}
   // §5 SLQ
   const slqT=c=>[{x:[],y:[],mode:'lines',fill:'tozeroy',line:{color:c,width:1.6},fillcolor:c+'22',name:'density'}];
   newP('p_sH',slqT('#2563eb'),slqLayout('SLQ density — function Hessian H'));
@@ -3462,8 +3464,8 @@ function pushPoint(t,D,n,kth,nResid){
     extP('p_s25',{x:[[t],[t],[t],[t],[t]],y:[[g.gn],[g.jdr],[g.jrd],[g.II],[g.III]]},[0,1,2,3,4]);   // II/III null until 3 consecutive steps (eigevery=1)
     if(g.cosA)extP('p_s25_cosA',{x:[[t],[t],[t],[t],[t],[t]],y:[...g.cosA.map(v=>[v]),[g.cosJr]]},[0,1,2,3,4,5]);   // 5 ∇θ-pairs + bold cos(J·ṙ,J̇·r)
     if(g.cosB)extP('p_s25_cosB',{x:[[t],[t],[t],[t],[t],[t]],y:[...g.cosB.map(v=>[v]),[g.cosJr]]},[0,1,2,3,4,5]);
-    if(g.ddJr!=null)extP('p_s25_sum',{x:[[t]],y:[[g.ddJr]]},[0]);   // plot 4: ‖J·ṙ + J̇·r‖₁
-    if(g.dmJr!=null)extP('p_s25_diff',{x:[[t]],y:[[g.dmJr]]},[0]);  // plot 5: ‖J·ṙ − J̇·r‖₁
+    if(g.gnorms)extP('p_s25_norms',{x:[[t],[t],[t],[t],[t]],y:g.gnorms.map(v=>[v])},[0,1,2,3,4]);   // plot 4: ‖∇θ-vector‖ of the 5 quantities
+    if(g.ddJr!=null)extP('p_s25_sum',{x:[[t]],y:[[g.ddJr]]},[0]);   // plot 5: ‖J·ṙ + J̇·r‖₁
   }
   if(OPT.s4&&D.jt){   // D.jt is null on cross-entropy runs (server disables §4); guard like §7–§12
     extP('p_Jtopn',{x:reps(n,t),y:colsOf(n,D.jtN)},ids(n));     // phase 1: alignment

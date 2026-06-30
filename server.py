@@ -1936,7 +1936,8 @@ def _sec25_cosines(th, X, Y, N, outD):
         return float(G[i] @ G[j]) / (ni * nj) if (ni > 1e-30 and nj > 1e-30) else 0.0
     cosA = [cs(0, 1), cs(0, 2), cs(0, 3), cs(0, 4), cs(1, 2)]            # (1,2)(1,3)(1,4)(1,5)(2,3)
     cosB = [cs(1, 3), cs(1, 4), cs(2, 3), cs(2, 4), cs(3, 4)]            # (2,4)(2,5)(3,4)(3,5)(4,5)
-    return cosA, cosB
+    norms = [float(g.norm()) for g in G]                                # ‖∇θ-vector‖ for the 5 quantities (plotted in §25 plot 4)
+    return cosA, cosB, norms
 
 
 def _quad_surrogate_main(th_freeze, X, Y, N, outD, lr, steps, ee, K, n, mV, nResid,
@@ -3255,11 +3256,10 @@ def run_stream(P):
                        "jrd": nJJ25,                                     # 3. ‖J·ṙ‖ = ‖JᵀJ ∇L‖
                        "II":  II25,                                      # 4. §15 panel-1 term II  (∂²‖J‖²_F cross-term; None until 3 consecutive steps)
                        "III": III25,                                     # 5. §15 panel-1 term III
-                       "ddJr": float((JJg25 - Mr25).abs().sum()),        # plot 4: Σ_i|（J·ṙ + J̇·r)_i| = ‖J·ṙ + J̇·r‖₁ = ‖d/dt(J·r)‖₁
-                       "dmJr": float((JJg25 + Mr25).abs().sum()),        # plot 5: Σ_i|（J·ṙ − J̇·r)_i| = ‖J·ṙ − J̇·r‖₁ = ‖JᵀJ∇L + M_r∇L‖₁
+                       "ddJr": float((JJg25 - Mr25).abs().sum()),        # plot 5: Σ_i|（J·ṙ + J̇·r)_i| = ‖J·ṙ + J̇·r‖₁ = ‖d/dt(J·r)‖₁
                        "cosJr": ((-float(JJg25 @ Mr25)) / (nJJ25 * nMr25)) if (nJJ25 > 1e-30 and nMr25 > 1e-30) else 0.0}   # cos(J·ṙ, J̇·r)=cos(JᵀJ∇L,−M_r∇L) — bold line in plots 2&3
-                if isinstance(_TL.model, MlpModel):                      # §25 panels 2/3 — pairwise cosine sim of ∇θ of 5 scalars (MLP, exact autograd)
-                    g25["cosA"], g25["cosB"] = _sec25_cosines(th, X, Y, N, outD)
+                if isinstance(_TL.model, MlpModel):                      # §25 plots 2/3 (cosines) + plot 4 (the 5 ∇θ-vector norms) — MLP, exact autograd
+                    g25["cosA"], g25["cosB"], g25["gnorms"] = _sec25_cosines(th, X, Y, N, outD)
                 sec25_hist.append({"th": th.detach().clone(), "J": Jg25.detach(), "r": r25.detach(), "t": t})
                 if len(sec25_hist) > 2:
                     sec25_hist.pop(0)
