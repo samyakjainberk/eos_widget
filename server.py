@@ -1913,7 +1913,7 @@ def _sec15_surrogate(st, Jt, rt, hist, l_hvp, gss, th_freeze, X, N, outD, lr, p,
 def _sec25_cosines(th, X, Y, N, outD):
     """§25 extra panels: pairwise cosine similarity of ∇θ of 5 scalars (MLP only — exact autograd via torch.func;
     all ‖·‖² so the gradient DIRECTION matches the user's ‖·‖/‖·‖² forms):
-      1: ∇‖r‖²       2: ∇‖J‖²_F (=∇ tr NTK)      3: ∇‖∇L‖²       4: ∇‖Q·Jᵀr‖²        5: g = ∇L (the raw loss gradient)
+      1: ∇‖r‖²       2: ∇‖J‖²_F (=∇ tr NTK)      3: ∇‖∇L‖²       4: ∇‖Q·Jᵀr‖²        5: ∇‖JJᵀr‖² (=∇‖NTK·r‖², two J's)
     where r=Y−f, Q=Σ_k Q_k (function Hessian), Jᵀr=Σ_k r_k ∇f_k. Returns (cosA[5], cosB[5]) for the pair sets
     A=[(1,2),(1,3),(1,4),(1,5),(2,3)], B=[(2,4),(2,5),(3,4),(3,5),(4,5)]. Verified vs full finite-difference (cos=1)."""
     import torch.func as _tf
@@ -1928,7 +1928,9 @@ def _sec25_cosines(th, X, Y, N, outD):
     def phi3(q): g = _tf.grad(Lval)(q); return (g * g).sum()
     def phi4(q):
         u = Jtr(q); Qu = _tf.jvp(lambda z: _tf.grad(sumf)(z), (q,), (u,))[1]; return (Qu * Qu).sum()   # ‖(ΣQ_k)·Jᵀr‖²
-    G = [_tf.grad(phi)(th) for phi in (phi1, phi2, phi3, phi4)] + [_tf.grad(Lval)(th)]   # vectors 1–4 = ∇‖·‖²; vector 5 = g = ∇L (raw loss gradient)
+    def phi5(q):
+        u = Jtr(q); Ju = _tf.jvp(ff, (q,), (u,))[1]; return (Ju * Ju).sum()   # ‖J·Jᵀr‖² = ‖JJᵀr‖² = ‖NTK·r‖²  (two J's, squared norm)
+    G = [_tf.grad(phi)(th) for phi in (phi1, phi2, phi3, phi4, phi5)]   # vector 5 = ∇θ‖JJᵀr‖²
     def cs(i, j):
         ni = float(G[i].norm()); nj = float(G[j].norm())
         return float(G[i] @ G[j]) / (ni * nj) if (ni > 1e-30 and nj > 1e-30) else 0.0
