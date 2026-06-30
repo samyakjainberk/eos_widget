@@ -180,6 +180,10 @@ class Config:
         d["gs"] = bool(self.gson)
         for k in ("s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s12", "s13", "s14"):
             d[k] = bool(getattr(self, k))
+        # §18-§25 section toggles (s26..s33) consumed by diagnostics/train; leave the scalar params
+        # (s28k/s29k/s30t/s31r/s31scale) numeric. int 0/1 already reads as truthy, but bool-cast for consistency.
+        for k in ("s26", "s27", "s28", "s29", "s30", "s31", "s32", "s33"):
+            d[k] = bool(getattr(self, k))
         return d
 
     @classmethod

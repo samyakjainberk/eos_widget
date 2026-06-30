@@ -117,6 +117,35 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
         idx = torch.as_tensor(r.choice(N, size=bs, replace=False), dtype=torch.long, device=dev)
         return X[idx], Y[idx], None, None      # §4d sign-groups undefined under sub-sampling
 
+    # ── §22 (s30) / §23 (s31): quadratic-Taylor surrogate REPLACE drivers ──────────────────────────────
+    # MIRRORS server.run_stream's `do_quad_sur` branch (server.py:3086-3120): when on, these REPLACE the real
+    # GD loop entirely — GD is run on the frozen-Q quadratic surrogate from a freeze point θ_f (§22: θ_t after
+    # s30t real steps; §23: θ₀ with a random rank-s31r Q), and §1/§2/§3 + §20 + (if s23/§15-on) the full §15
+    # are computed ALONG the surrogate. Gate: (s30 or s31) and MSE and dataset≠owt and M=N·d_out ≤ grid3dcap.
+    t0 = time.time()
+    M_surr = N * out_dim
+    grid3dcap = max(1, getattr(cfg, "grid3dcap", 500))
+    do_quad_sur = ((getattr(cfg, "s30", 0) or getattr(cfg, "s31", 0)) and loss.name == "mse"
+                   and cfg.dataset != "owt" and M_surr <= grid3dcap)
+    if do_quad_sur:
+        from .sec22_23 import quad_surrogate_driver
+        ee = max(1, cfg.eigevery)
+        sec20k = max(1, getattr(cfg, "s28k", 40))   # §20/§22/§23 share the M_r top-K⊕bottom-K count
+        if progress:
+            kind = "frozen-Q (§22)" if getattr(cfg, "s30", 0) else "random-Q (§23)"
+            print(f"  §22/§23 surrogate REPLACE mode: {kind} — {cfg.steps} surrogate steps from the freeze point")
+        sec2223 = list(quad_surrogate_driver(
+            model, loss, th0, X, Y, N, out_dim, cfg.lr, cfg.steps, ee, sec20k,
+            diag.n, diag.mV, diag.nResid, P.get("s1", 0), P.get("s2", 0), P.get("s3", 0), P.get("gs", True),
+            opt=cfg.optimizer, s15=getattr(cfg, "s23", 0), divreg=float(getattr(cfg, "divreg", 0.3)),
+            s30=getattr(cfg, "s30", 0), s30t=getattr(cfg, "s30t", 0),
+            s31=getattr(cfg, "s31", 0), s31r=getattr(cfg, "s31r", 200),
+            s31scale=getattr(cfg, "s31scale", 1.0), seed=cfg.seed))
+        meta["wall_sec"] = time.time() - t0
+        meta["surrogate"] = "g22" if getattr(cfg, "s30", 0) else "g23"
+        return {"meta": meta, "config": cfg, "history": [], "series": {},
+                "sec16": None, "sec17": None, "sec2223": sec2223}
+
     history = []
     ee = max(1, cfg.eigevery)
     t0 = time.time()
@@ -189,7 +218,7 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
 
     meta["wall_sec"] = time.time() - t0
     return {"meta": meta, "config": cfg, "history": history, "series": _to_series(history),
-            "sec16": sec16, "sec17": sec17}
+            "sec16": sec16, "sec17": sec17, "sec2223": None}
 
 
 # every per-step key that is a list-of-numbers and should become one track-per-index in `series`

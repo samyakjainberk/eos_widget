@@ -97,8 +97,18 @@ class Diagnostics:
         self.s21 = P.get("s21", 0)          # §13: residual-weighted curvature G1/G2/G3 vs exact ref (own toggle; shares §12 Lanczos)
         self.s22 = P.get("s22", 0)          # §12b: per-sample projection panels (s19=§12a angles+diag-align; both share the §12 Lanczos)
         self.s23 = P.get("s23", 0)          # §15: 2nd-difference decomposition of ‖J‖²_F & σ₁ (own toggle; holds 3 eig-ticks)
+        # §18-§25 per-step sections (server flags s26..s33; §22/§23 are surrogate REPLACE drivers run in train.py).
+        self.s26 = P.get("s26", 0)          # §18: per-sample (sample1 vs sample2) projections — re-slice of the §12 proj arrays (N=2 render)
+        self.s27 = P.get("s27", 0)          # §19: one-step grad-norm change A_t + tr(NTK) (MSE+GD only)
+        self.s28 = P.get("s28", 0)          # §20: M_r=Σr_kQ_k spectral histograms (cube cadence)
+        self.s28k = max(1, P.get("s28k", 40))   # §20: # eigenpairs per side (top-K ⊕ bottom-K) of M_r
+        self.s29 = P.get("s29", 0)          # §21: residual↔spectrum alignment (NTK + M_r + GN panels; cube cadence)
+        self.s29k = max(1, P.get("s29k", 40))   # §21: # NTK eigvecs (top) & M_r eigenpairs per side
+        self.s32 = P.get("s32", 0)          # §24: A=JJᵀr & B=(η/2N)JrᵀQ_kJr alignment vs r and top-4 NTK eigvecs
+        self.s33 = P.get("s33", 0)          # §25: ‖∇L‖ + d/dt(J·r) split + 5-gradient cosine alignments (needs 3 consecutive steps)
         self.divreg = float(P.get("divreg", 0.3))   # §15 divergence ε: softens the 0/0 spike at D²→0 inflections (0 = exact /D²)
         self._sec15_hist = []               # §15: rolling buffer of the last 2 eig-ticks' {th, J, r} (need t−1 and t−2)
+        self._sec25_hist = []               # §25: rolling buffer of the last 2 ticks' {th, J, r, t} (II/III need t−1 and t−2)
         self._sec14_rhist = []              # §14: per-sample residual history (last ≤5 ticks) for the eq-③ ratio
         self._sec14_prev = None             # §14: previous eig-tick's {TV,TW,BV,BW,r,Jg} (u,σ,r_j,J_k at t; cur gives J_i,r_k at t+1)
         self._sec13_prev = None             # §13: previous eig-tick's per-sample {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
@@ -132,6 +142,7 @@ class Diagnostics:
         self.efrac = min(1.0, max(0.5, cfg.energyp / 100.0))
         self.nprobe = max(1, cfg.slqprobes)
         self.lr = cfg.lr
+        self.optimizer = getattr(cfg, "optimizer", "gd")   # §19 (s27) is GD-only (the A_t formula uses the GD update)
         self.thr = 2.0 / cfg.lr                      # edge-of-stability threshold 2/η
         self.eigevery = max(1, cfg.eigevery)
         # Throttle the heaviest, slowly-varying panels so a run stays responsive (mirrors server.run_stream):
@@ -329,10 +340,29 @@ class Diagnostics:
         Jc = rr = None
         want_multi = self.multi_ok and (self.s7 or self.s8 or self.s9 or self.s10 or self.s11
                                          or self.s12 or self.s13 or self.s15 or self.s16 or self.s17
-                                         or self.s18 or self.s19 or self.s20 or self.s21 or self.s22 or self.s23)
-        if want_multi or self.s12single or (self.s23 and N <= self.grid3dcap):   # §15 also runs for a single sample (N=1)
+                                         or self.s18 or self.s19 or self.s20 or self.s21 or self.s22 or self.s23
+                                         or self.s26 or self.s27 or self.s28 or self.s29 or self.s32 or self.s33)
+        # §15/§19/§20/§21/§24/§25 (s23/s27/s28/s29/s32/s33) ALSO run for a single sample (N=1) — they only need
+        # the M×p Jacobian (M=N·outD), gated by grid3dcap, not the full `multi_ok` budget. MIRRORS server.py:3210.
+        single_sample = ((self.s23 or self.s27 or self.s28 or self.s29 or self.s32 or self.s33)
+                         and N <= self.grid3dcap)
+        if want_multi or self.s12single or single_sample:
             Jc, out_flat = jac_cols(self.model, th, X)
             rr = (-N * cS).reshape(-1)        # generic residual −N·∂L/∂out: Y−f (MSE), onehot−softmax (CE)
+
+        # ---- §24 (s32): A=JJᵀr (1st-order Δf) & B=(η/2N)·[(J·r)ᵀQ_k(J·r)]_k (2nd-order Δf) alignment ----
+        # MIRRORS server.py:3216-3231. Gate: s32 and dataset!="owt" and Jc/rr available (server.py:3217).
+        if self.s32 and self.dataset != "owt" and Jc is not None and rr is not None:
+            from .sec24 import sec24_payload
+            rec["g24"] = sec24_payload(self.model, Jc, rr, th, X, lr, N, outD)
+
+        # ---- §25 (s33): ‖∇L‖ + d/dt(J·r) split (jdr/jrd) + II/III + 5-gradient cosine alignments ----
+        # MIRRORS server.py:3238-3265. Gate: s33 and (N·outD)<=grid3dcap and dataset!="owt" and Jc/rr available.
+        if (self.s33 and (N * outD) <= self.grid3dcap and self.dataset != "owt"
+                and Jc is not None and rr is not None):
+            from .sec25 import sec25_payload
+            rec["g25"] = sec25_payload(self.model, self.loss, Jc, rr, th, X, Y, lr, N, outD,
+                                       self._sec25_hist, t)
 
         # ---- §7a (NTK alignment, always-on) + §7 (heavy FH-tensor SVD projections) ----
         # §7a needs only the NTK eigvecs Vk and the FH-tensor eigvecs Vh; the §7 projections additionally
@@ -603,7 +633,7 @@ class Diagnostics:
         # MATRIX-FREE: extract each Q_i's top-K12 & bottom-K12 eigenpairs by Lanczos on v↦Q_i·v — no p×p
         # Hessian formed. For the MLP the N samples' Lanczos run IN ONE BATCH via a vmap'd HVP (one vectorised
         # forward/backward per step, ~4–8× faster on GPU); other archs fall back to the per-sample loop.
-        if ((self.s19 or self.s20 or self.s21 or self.s22) and cube_emit and (self.multi_ok or self.s12single) and Jc is not None and rr is not None
+        if ((self.s19 or self.s20 or self.s21 or self.s22 or self.s26) and cube_emit and (self.multi_ok or self.s12single) and Jc is not None and rr is not None
                 and N <= self.sec12ncap):
             lblsel12 = (torch.arange(N, device=dev) * outD + Y.reshape(N, outD).argmax(dim=1)
                         if outD > 1 else torch.arange(N, device=dev))
@@ -658,8 +688,13 @@ class Diagnostics:
                     wtv, wbv, wtw, wbw = lanczos_extreme(lambda v, c=cW: hvp_S(self.model, th, X, c, v), p, 2, m12, (0x7B0001 + wi * 0x101), dev, dt)
                     wbases.append({"tv": torch.stack(wtv), "tw": torch.tensor(wtw, dtype=dt, device=dev),
                                    "bv": torch.stack(wbv), "bw": torch.tensor(wbw, dtype=dt, device=dev)})
-            if self.s19 or self.s22:       # §12a (angles+diag-align) ⊕ §12b (proj) — both in one payload, shown by their toggles
+            if self.s19 or self.s22 or self.s26:   # §12a (angles+diag-align) ⊕ §12b (proj) — both in one payload; §18 (s26) re-slices the proj arrays
                 rec["g4d"] = sec12_payload(TV, TW, BV, BW, r12, Jg12, self.grid3dcap, gTV=gTV, gTW=gTW, gBV=gBV, gBW=gBW, wbases=wbases)
+                if self.s26 and N == 2:        # §18 thin view-record (pure re-slice of the §12 proj arrays at sample 0 vs 1; N=2 only)
+                    from .sec18 import sec18_payload
+                    g18 = sec18_payload(rec["g4d"])
+                    if g18 is not None:
+                        rec["g18"] = g18
             if self.s21 and self.multi_ok and N <= self.grid3dcap:   # §13 (own toggle): exact ref J_iᵀQ_jJ_k·r_k (N HVPs) + G1/G2/G3 — multi-only (N³ cube)
                 T1_13 = torch.zeros(N, N, N, dtype=dt, device=dev)
                 QJ_list = []
@@ -769,6 +804,24 @@ class Diagnostics:
             self._sec15_hist.append({"th": th.detach().clone(), "J": Jg15.detach(), "r": r15.detach(), "t": t})
             if len(self._sec15_hist) > 2:
                 self._sec15_hist.pop(0)
+
+        # ---- §19 (s27): one-step grad-norm change A_t + tr(NTK) — MSE+GD only, every tick (server.py:3843) ----
+        if (self.s27 and self.optimizer == "gd" and self.loss.name == "mse"
+                and (N * outD) <= self.grid3dcap and Jc is not None and rr is not None):
+            from .sec19 import sec19_payload
+            rec["g19"] = sec19_payload(self.model, Jc, rr, th, X, lr, N, outD)
+
+        # ---- §20 (s28): M_r=Σr_kQ_k spectral histograms — any loss/optimizer, cube cadence (server.py:3846) ----
+        if (self.s28 and cube_emit and (N * outD) <= self.grid3dcap
+                and Jc is not None and rr is not None):
+            from .sec20 import sec20_payload
+            rec["g20"] = sec20_payload(self.model, Jc, rr, th, X, N, outD, self.s28k)
+
+        # ---- §21 (s29): residual↔spectrum alignment (NTK + M_r + GN panels) — cube cadence (server.py:3849) ----
+        if (self.s29 and cube_emit and (N * outD) <= self.grid3dcap
+                and Jc is not None and rr is not None):
+            from .sec21 import sec21_payload
+            rec["g21"] = sec21_payload(self.model, Jc, rr, th, X, N, outD, self.s29k)
 
         # ---- §5 SLQ spectral densities (expensive → ~50 snapshots/run via slqStride) ----
         if self.s5 and slq_tick:
