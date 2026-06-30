@@ -3254,7 +3254,8 @@ def run_stream(P):
                        "jrd": float(JJg25.norm()),                       # 3. ‖J·ṙ‖ = ‖JᵀJ ∇L‖
                        "II":  II25,                                      # 4. §15 panel-1 term II  (∂²‖J‖²_F cross-term; None until 3 consecutive steps)
                        "III": III25,                                     # 5. §15 panel-1 term III
-                       "ddJr": float((JJg25 - Mr25).abs().sum())}        # plot 4: Σ_i|（J·ṙ + J̇·r)_i| = ‖J·ṙ + J̇·r‖₁ = ‖d/dt(J·r)‖₁
+                       "ddJr": float((JJg25 - Mr25).abs().sum()),        # plot 4: Σ_i|（J·ṙ + J̇·r)_i| = ‖J·ṙ + J̇·r‖₁ = ‖d/dt(J·r)‖₁
+                       "dmJr": float((JJg25 + Mr25).abs().sum())}        # plot 5: Σ_i|（J·ṙ − J̇·r)_i| = ‖J·ṙ − J̇·r‖₁ = ‖JᵀJ∇L + M_r∇L‖₁
                 if isinstance(_TL.model, MlpModel):                      # §25 panels 2/3 — pairwise cosine sim of ∇θ of 5 scalars (MLP, exact autograd)
                     g25["cosA"], g25["cosB"] = _sec25_cosines(th, X, Y, N, outD)
                 sec25_hist.append({"th": th.detach().clone(), "J": Jg25.detach(), "r": r25.detach(), "t": t})
