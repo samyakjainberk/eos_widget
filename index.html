@@ -485,7 +485,7 @@
 
 <div id="sec_s25" style="display:none">
 <h2>25 · gradient-norm &amp; $\tfrac{d}{dt}(J\!\cdot\!r)$ dynamics, and cosine alignment of θ-gradient directions</h2>
-<p class="cap"><b>What this shows:</b> the dynamics of the residual-contracted gradient $J\!\cdot\!r=\sum_k r_k\nabla f_k$ under gradient flow $\dot\theta=-\nabla L$, and which parameter-space gradient directions move together. Six plots:
+<p class="cap"><b>What this shows:</b> the dynamics of the residual-contracted gradient $J\!\cdot\!r=\sum_k r_k\nabla f_k$ under gradient flow $\dot\theta=-\nabla L$, and which parameter-space gradient directions move together. Six plots, shown in two panels — <b>Panel 1</b> (top): plots 1, 5, 6; <b>Panel 2</b> (bottom): plots 2, 3, 4:
 <br><b>Plot 1 — five time-series.</b> By the product rule $\tfrac{d}{dt}(J\!\cdot\!r)=\dot J\!\cdot\!r+J\!\cdot\!\dot r$, with two terms: <b style="color:#16a34a">‖$\dot J\!\cdot\!r$‖ = ‖$M_r\nabla L$‖</b> ($M_r=\sum_k r_kQ_k$) and <b style="color:#db2777">‖$J\!\cdot\!\dot r$‖ = ‖$J^\top J\,\nabla L$‖</b>. Also <b style="color:#2563eb">‖∇L‖</b> (loss-gradient norm), and <b style="color:#ea580c">II</b>, <b style="color:#7c3aed">III</b> — two cross-terms of the second-difference decomposition of $\lVert J\rVert_F^2$ (= tr NTK), i.e. the §15 panel-1 terms (these need <b>eig-every = 1</b>, so they start a couple of ticks in). Linear y-axis.
 <br><b>Plots 2 &amp; 3 — pairwise cosine alignment</b> (over training) of the <b>$\theta$-gradients of five scalar quantities</b> (MLP only; exact autograd). The five vectors:
 <b>1</b> $=\nabla_\theta\lVert r\rVert^2$ &nbsp;·&nbsp;
@@ -498,7 +498,10 @@ Each line “$i\!\cdot\!j$” is $\cos\angle(\text{vector }i,\text{vector }j)\in
 <br><b>Plot 4 — $\cos\angle(\nabla_\theta\lVert f\rVert_2^2,\ \text{vector }i)$ for $i=1\!-\!5$</b>: how the gradient of the output norm $\lVert f\rVert_2^2$ (vector 6) aligns with each of the five vectors above — five lines, labelled $6\!\cdot\!i$.
 <br><b>Plot 5 — $\lVert\nabla_\theta\varphi_i\rVert$</b> (log scale): the norms of all <b>six</b> gradient vectors 1–6 (now including vector 6 = $\nabla_\theta\lVert f\rVert_2^2$).
 <br><b>Plot 6 — $\lVert\tfrac{d}{dt}(J\!\cdot\!r)\rVert_1$</b>: the $\ell_1$ norm of $J\!\cdot\!\dot r+\dot J\!\cdot\!r$, i.e. $\sum_i\lvert(J^\top J\,\nabla L-M_r\nabla L)_i\rvert$ (the two Plot-1 terms summed). Small $N$; GPU backend.</p>
-<div class="plotrow row6"><div id="p_s25" class="plot" style="height:300px"></div><div id="p_s25_cosA" class="plot" style="height:300px"></div><div id="p_s25_cosB" class="plot" style="height:300px"></div><div id="p_s25_cosF" class="plot" style="height:300px"></div><div id="p_s25_norms" class="plot" style="height:300px"></div><div id="p_s25_sum" class="plot" style="height:300px"></div></div>
+<p class="cap" style="margin:8px 0 1px;color:#475569"><b>Panel 1 — magnitudes &amp; dynamics</b> (plots 1, 5, 6): the time-series, the ∇θ-vector norms, and ‖d/dt(J·r)‖₁.</p>
+<div class="plotrow row3"><div id="p_s25" class="plot" style="height:240px"></div><div id="p_s25_norms" class="plot" style="height:240px"></div><div id="p_s25_sum" class="plot" style="height:240px"></div></div>
+<p class="cap" style="margin:10px 0 1px;color:#475569"><b>Panel 2 — cosine alignments</b> (plots 2, 3, 4): the pairwise cosines among vectors 1–5 (with the bold cos(J·ṙ, J̇·r) reference) and cos(∇‖f‖², vᵢ).</p>
+<div class="plotrow row3"><div id="p_s25_cosA" class="plot" style="height:240px"></div><div id="p_s25_cosB" class="plot" style="height:240px"></div><div id="p_s25_cosF" class="plot" style="height:240px"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
