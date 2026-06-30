@@ -3249,13 +3249,15 @@ def run_stream(P):
                     z25 = h1["J"].t() @ (h2["J"] @ g2_25)               # z = J_{t-1}ᵀ J_{t-2} g₂  (p,)
                     III25 = c225 * float((Jg25 * jac_hvp(h1["th"], X, z25)[:M]).sum())    # III = c²Σ_k ∇f_{t,k}ᵀ Q_{t-1,k} z
                 Mr25 = hvpS(th, X, gL25, rc25)                          # M_r∇L (p,);  J̇·r = −M_r∇L,  J·ṙ = JᵀJ∇L = JJg25
+                nJJ25 = float(JJg25.norm()); nMr25 = float(Mr25.norm())  # ‖J·ṙ‖, ‖J̇·r‖
                 g25 = {"gn":  float(gL25.norm()),                        # 1. ‖∇L‖
-                       "jdr": float(Mr25.norm()),                        # 2. ‖J̇·r‖ = ‖M_r ∇L‖
-                       "jrd": float(JJg25.norm()),                       # 3. ‖J·ṙ‖ = ‖JᵀJ ∇L‖
+                       "jdr": nMr25,                                     # 2. ‖J̇·r‖ = ‖M_r ∇L‖
+                       "jrd": nJJ25,                                     # 3. ‖J·ṙ‖ = ‖JᵀJ ∇L‖
                        "II":  II25,                                      # 4. §15 panel-1 term II  (∂²‖J‖²_F cross-term; None until 3 consecutive steps)
                        "III": III25,                                     # 5. §15 panel-1 term III
                        "ddJr": float((JJg25 - Mr25).abs().sum()),        # plot 4: Σ_i|（J·ṙ + J̇·r)_i| = ‖J·ṙ + J̇·r‖₁ = ‖d/dt(J·r)‖₁
-                       "dmJr": float((JJg25 + Mr25).abs().sum())}        # plot 5: Σ_i|（J·ṙ − J̇·r)_i| = ‖J·ṙ − J̇·r‖₁ = ‖JᵀJ∇L + M_r∇L‖₁
+                       "dmJr": float((JJg25 + Mr25).abs().sum()),        # plot 5: Σ_i|（J·ṙ − J̇·r)_i| = ‖J·ṙ − J̇·r‖₁ = ‖JᵀJ∇L + M_r∇L‖₁
+                       "cosJr": ((-float(JJg25 @ Mr25)) / (nJJ25 * nMr25)) if (nJJ25 > 1e-30 and nMr25 > 1e-30) else 0.0}   # cos(J·ṙ, J̇·r)=cos(JᵀJ∇L,−M_r∇L) — bold line in plots 2&3
                 if isinstance(_TL.model, MlpModel):                      # §25 panels 2/3 — pairwise cosine sim of ∇θ of 5 scalars (MLP, exact autograd)
                     g25["cosA"], g25["cosB"] = _sec25_cosines(th, X, Y, N, outD)
                 sec25_hist.append({"th": th.detach().clone(), "J": Jg25.detach(), "r": r25.detach(), "t": t})
