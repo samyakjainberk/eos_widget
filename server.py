@@ -1848,8 +1848,70 @@ def _power_absmax(hvp, p, dt, dev, iters=24, seed=0xB17):
     return lam
 
 
+def _sec15_surrogate(st, Jt, rt, hist, l_hvp, gss, th_freeze, X, N, outD, lr, p, kind, qhvp, divreg):
+    """§15 along the §22/§23 surrogate trajectory. The surrogate's per-sample function Hessian Q̃_k is FROZEN
+    (Q̇=0): kind='frozen' ⇒ Q̃_k=∇²f_k(θ_f); kind='random' ⇒ every Q̃_k is the shared random op qhvp. So the
+    2nd-difference decomposition is EXACT and panels 3/4 (VII/VIII, the Q̇ terms) vanish. `hist` = the last ≤2
+    emitted steps' {J,r,st}. Returns the available {g15,g15n,g15b,g15p34,g15corr} records (mirrors the main-loop
+    §15 block, with J̃/r̃ from the surrogate and the frozen Q̃ as the per-sample HVP)."""
+    M = N * outD; dt, dev = Jt.dtype, Jt.device
+    if kind == "frozen":
+        qk_hvp = lambda v: jac_hvp(th_freeze, X, v)[:M]                        # {Q̃_k v}_k = {∇²f_k(θ_f) v}_k
+        if isinstance(_TL.model, MlpModel):                                    # exact per-sample HVP (matches the FD jac_hvp path)
+            import torch.func as _tf
+            Xrep = X.repeat_interleave(outD, dim=0); OH = torch.eye(outD, dtype=dt, device=dev).repeat(N, 1)
+            spec = _TL.model.spec
+            def _f(tt, x, oh): return (fwd(tt, spec, x.unsqueeze(0))[0].reshape(-1) * oh).sum()
+            def persamp(v, k): return _tf.jvp(lambda q: _tf.grad(_f)(q, Xrep[k], OH[k]), (th_freeze,), (v,))[1]
+        else:
+            def persamp(v, k):
+                ck = torch.zeros(M, dtype=dt, device=dev); ck[k] = 1.0
+                return hvpS(th_freeze, X, v, ck.reshape(N, outD))
+    else:                                                                     # random: every Q̃_k = qhvp (shared)
+        qk_hvp = lambda v: qhvp(v).unsqueeze(0).repeat(M, 1)
+        persamp = lambda v, k: qhvp(v)
+    out = {}
+    consec = len(hist) >= 2 and hist[-1]["st"] == st - 1 and hist[-2]["st"] == st - 2
+    jn = Jt.norm(dim=1); rn = rt.abs()                                        # panel 5 — per-sample norms
+    acch = torch.zeros(M, dtype=dt, device=dev)
+    for pr in range(4):
+        Qv = qk_hvp(_randn_vec(p, (0x5EC15 + pr * 0x9E3779B1) & 0xFFFFFFFF))
+        acch = acch + (Qv * Qv).sum(dim=1)
+    _ms = lambda x: [float(x.mean()), float(x.std(unbiased=False))]
+    out["g15n"] = {"g": _ms(rn * jn), "j": _ms(jn), "h": _ms(torch.sqrt(acch / 4.0)), "r": _ms(rn)}
+    mB = min(p, 48); TVl = []; TWl = []; BVl = []; BWl = []                   # panel B — per-sample top/bot eigvec projection
+    AsumQJ = torch.zeros(p, dtype=dt, device=dev)
+    for k in range(M):
+        tv, bv, tw, bw = lanczos_extreme(lambda v, k=k: persamp(v, k), p, 1, mB, (0x5EC15B + k * 7919) & 0x7FFFFFFF, dt=dt)
+        TVl.append(torch.stack(tv)); BVl.append(torch.stack(bv))
+        TWl.append(torch.tensor(tw, dtype=dt, device=dev)); BWl.append(torch.tensor(bw, dtype=dt, device=dev))
+        AsumQJ = AsumQJ + persamp(Jt[k], k)
+    out["g15b"] = _sec15_panelB(torch.stack(TVl)[:, 0], torch.stack(BVl)[:, 0],
+                                torch.stack(TWl)[:, 0], torch.stack(BWl)[:, 0], Jt)
+    Avec = 2.0 * AsumQJ; gL = Jt.t() @ gss                                    # panel 8 — A=∇tr(NTK)=2Σ Q̃_k J̃_k, B=2·∇²L̃·∇L̃
+    gLn = float(gL.norm()); Bvec = 2.0 * l_hvp(gL)
+    An = float(Avec.norm()); Bn = float(Bvec.norm()); inner = float(Avec @ Bvec)
+    jnk = (Jt * Jt).sum(dim=1); jn2 = float(jnk.sum())
+    Q1 = float(jnk.mean()); Q2 = float(((rt * rt) * jnk).mean()); dq1 = dq2 = D2corr = None
+    if len(hist) >= 1 and hist[-1]["st"] == st - 1:
+        Jp = hist[-1]["J"]; rp = hist[-1]["r"]; jn2p = (Jp * Jp).sum(dim=1)
+        dq1 = Q1 - float(jn2p.mean()); dq2 = Q2 - float(((rp * rp) * jn2p).mean())
+    if consec:
+        D2corr = jn2 - 2.0 * float((hist[-1]["J"] ** 2).sum()) + float((hist[-2]["J"] ** 2).sum())
+    out["g15corr"] = {"jn2": jn2, "An": An, "gn2": gLn * gLn, "Bn": Bn, "inner": inner,
+                      "cos": (inner / (An * Bn) if (An > 1e-30 and Bn > 1e-30) else 0.0), "D2": D2corr,
+                      "pred": 0.5 * lr * lr * inner, "q1": Q1, "q2": Q2, "dq1": dq1, "dq2": dq2}
+    if consec:                                                                # panels 1-4 — 2nd-difference (3 consecutive steps); Q̇=0 ⇒ VII/VIII=0
+        h1, h2 = hist[-1], hist[-2]
+        sec, A15, B15, u1_15 = _sec15_stats(qk_hvp, qk_hvp, Jt, h1["J"], h2["J"], h1["r"], h2["r"], lr, N, diveps=divreg)
+        out["g15"] = sec
+        out["g15p34"] = _sec15_panel34(lambda thx, v: qk_hvp(v), th_freeze, Jt, h1["J"], h2["J"],
+                                       h1["r"], h2["r"], u1_15, A15, B15, sec, lr, N, diveps=divreg)
+    return out
+
+
 def _quad_surrogate_main(th_freeze, X, Y, N, outD, lr, steps, ee, K, n, mV, nResid,
-                         s1, s2, s3, gs, kind, qhvp=None):
+                         s1, s2, s3, gs, kind, qhvp=None, s15=0, divreg=0.3):
     """§22/§23 REPLACE mode: iterate the closed-loop quadratic-Taylor surrogate from th_freeze and compute the
     CORE Edge-of-Stability metrics ALONG it — loss L̃, residual r̃, the loss-Hessian sharpness λmax(∇²L̃), and the
     function-Hessian / Gauss-Newton(=NTK) / residual-weighted extreme spectra — plus the §20 M_r payload, so the
@@ -1869,6 +1931,7 @@ def _quad_surrogate_main(th_freeze, X, Y, N, outD, lr, steps, ee, K, n, mV, nRes
         hvpF_sur = (lambda v: hvpF(th_freeze, X, v)) if kind == "frozen" else (lambda v: M * qhvp(v))
         feTop, feBot = lanczos_extreme_vals(hvpF_sur, p, n, mV, 0xA53F9)
     th_sur = th_freeze.clone()
+    sur15_hist = []                                        # §15-on-surrogate: last ≤2 emitted steps' {J,r,st}
     for st in range(int(steps) + 1):
         dth = th_sur - th_freeze
         if kind == "frozen":
@@ -1908,7 +1971,14 @@ def _quad_surrogate_main(th_freeze, X, Y, N, outD, lr, steps, ee, K, n, mV, nRes
                 "hfBot": ([v / N for v in feBot[:n]] if feBot else None),
                 "hlTop": hlt, "hlBot": hlb, "gnTop": gnt, "gnBot": gnb, "srTop": srt, "srBot": srb,
             }
-            yield (st, step_fields, sec)
+            sec15r = {}
+            if s15:                                                         # §15 on the surrogate trajectory (frozen Q̃)
+                sec15r = _sec15_surrogate(st, Jqs, rt, sur15_hist, l_hvp, cS.reshape(-1),
+                                          th_freeze, X, N, outD, lr, p, kind, qhvp, divreg)
+                sur15_hist.append({"J": Jqs.detach().clone(), "r": rt.detach().clone(), "st": st})
+                if len(sur15_hist) > 2:
+                    sur15_hist.pop(0)
+            yield (st, step_fields, sec, sec15r)
         gss = _TL.loss.resid_cotangent(fss.reshape(N, outD), Y, N).reshape(-1)   # MSE: (f̃−Y)/N = −r̃/N
         th_sur = th_sur - lr * (Jqs.t() @ gss)
 
@@ -2994,7 +3064,7 @@ def run_stream(P):
                     return
                 thf = thf - lr * _opt_dir(_TL.model, gradL(thf, Xq, Yq)[0], opt)
             driver = _quad_surrogate_main(thf, Xq, Yq, Nfull, outD, lr, steps, ee, sec20k, n, mV, nResid,
-                                          s1, s2, s3, gs, "frozen")
+                                          s1, s2, s3, gs, "frozen", s15=s23, divreg=P.get("divreg", 0.3))
             rectype = "g22"
         else:                                                                # §23 random-Q (from θ₀)
             qh = _qrandom_hvp(p, s31r, (P.get("seed", 0) * 2654435761 + 0x235EE0) & 0x7FFFFFFF, th.dtype, _dev())
@@ -3002,10 +3072,10 @@ def run_stream(P):
             traw = _power_absmax(qh, p, th.dtype, _dev())
             sc = (tgt / traw) if traw > 1e-30 else 1.0
             driver = _quad_surrogate_main(th.detach().clone(), Xq, Yq, Nfull, outD, lr, steps, ee, sec20k, n, mV, nResid,
-                                          s1, s2, s3, gs, "random", qhvp=(lambda v, c=sc: c * qh(v)))
+                                          s1, s2, s3, gs, "random", qhvp=(lambda v, c=sc: c * qh(v)), s15=s23, divreg=P.get("divreg", 0.3))
             rectype = "g23"
         t0 = time.time()
-        for (st, step_fields, sec20) in driver:
+        for (st, step_fields, sec20, sec15r) in driver:
             if mytok != RUN_TOKEN.get(_devkey, mytok):
                 return
             yield {"type": "step", "t": st, "steps": steps, "p": p,
@@ -3014,6 +3084,8 @@ def run_stream(P):
             if s28:
                 yield {"type": "g20", "t": st, **sec20}                      # §20 section → surrogate M_r
             yield {"type": rectype, "t": st, **sec20}                        # §22/§23 section → its own M_r slider
+            for _t15, _r15 in sec15r.items():                               # §15 panels on the surrogate trajectory (if en23 on)
+                yield {"type": _t15, "t": st, **_r15}
         yield {"type": "done", "p": p}
         return
 

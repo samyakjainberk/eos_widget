@@ -4470,7 +4470,7 @@ function gpuHandle(m,st,sp,finish,resuming){
       clearAdvNotes();   // reset the §11–§17 "not produced" notes for this run
       st.textContent=`running on ${m.device} … p=${m.p}, 2/lr=${m.thr.toFixed(2)}`;
     }else if(m.type==='step'){if(!META)return;
-      if(m.surrogate){const b=document.getElementById('sur_banner');if(b){b.style.display='';b.textContent='⚠ §1–§3 & §20 show the '+(m.surrogate==='g22'?'§22 FROZEN-Q':'§23 RANDOM-Q')+' quadratic-surrogate trajectory — NOT the real model. (§4–§21 & §24 are off in surrogate mode.)';}}
+      if(m.surrogate){const b=document.getElementById('sur_banner');if(b){b.style.display='';b.textContent='⚠ §1–§3 & §20 show the '+(m.surrogate==='g22'?'§22 FROZEN-Q':'§23 RANDOM-Q')+' quadratic-surrogate trajectory — NOT the real model. (§4–§21 & §24 are off in surrogate mode; §15 runs on the surrogate trajectory if enabled.)';}}
       if(m.g24)ADV_GOT.en32=1;   // §24 lives in the step record → mark it produced so markSkippedAdv only notes a truly-empty §24
       if(m.g25)ADV_GOT.en33=1;   // §25 likewise lives in the step record
       pushPoint(m.t,m,META.n,META.kth,META.nResid);lastT=m.t;
