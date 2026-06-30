@@ -1910,6 +1910,35 @@ def _sec15_surrogate(st, Jt, rt, hist, l_hvp, gss, th_freeze, X, N, outD, lr, p,
     return out
 
 
+def _sec25_cosines(th, X, Y, N, outD):
+    """§25 extra panels: pairwise cosine similarity of ∇θ of 5 scalars (MLP only — exact autograd via torch.func;
+    all ‖·‖² so the gradient DIRECTION matches the user's ‖·‖/‖·‖² forms):
+      1: ∇‖r‖²       2: ∇‖J‖²_F (=∇ tr NTK)      3: ∇‖∇L‖²       4: ∇‖Q·Jᵀr‖²        5: ∇‖(JᵀJ)·Jᵀr‖²
+    where r=Y−f, Q=Σ_k Q_k (function Hessian), Jᵀr=Σ_k r_k ∇f_k. Returns (cosA[5], cosB[5]) for the pair sets
+    A=[(1,2),(1,3),(1,4),(1,5),(2,3)], B=[(2,4),(2,5),(3,4),(3,5),(4,5)]. Verified vs full finite-difference (cos=1)."""
+    import torch.func as _tf
+    spec = _TL.model.spec; Yf = Y.reshape(-1)
+    ff = lambda q: fwd(q, spec, X)[0].reshape(-1)
+    sumf = lambda q: ff(q).sum()
+    Lval = lambda q: _TL.loss.value(fwd(q, spec, X)[0], Y, N)
+    def Jtr(q):
+        out, vjpf = _tf.vjp(ff, q); return vjpf(Yf - out)[0]            # Jᵀr = Σ_k r_k ∇f_k  (r=Y−f at q)
+    def phi1(q): return ((Yf - ff(q)) ** 2).sum()
+    def phi2(q): J = _tf.jacrev(ff)(q); return (J * J).sum()
+    def phi3(q): g = _tf.grad(Lval)(q); return (g * g).sum()
+    def phi4(q):
+        u = Jtr(q); Qu = _tf.jvp(lambda z: _tf.grad(sumf)(z), (q,), (u,))[1]; return (Qu * Qu).sum()   # ‖(ΣQ_k)·Jᵀr‖²
+    def phi5(q):
+        u = Jtr(q); Ju = _tf.jvp(ff, (q,), (u,))[1]; JtJu = _tf.vjp(ff, q)[1](Ju)[0]; return (JtJu * JtJu).sum()   # ‖(JᵀJ)·Jᵀr‖²
+    G = [_tf.grad(phi)(th) for phi in (phi1, phi2, phi3, phi4, phi5)]
+    def cs(i, j):
+        ni = float(G[i].norm()); nj = float(G[j].norm())
+        return float(G[i] @ G[j]) / (ni * nj) if (ni > 1e-30 and nj > 1e-30) else 0.0
+    cosA = [cs(0, 1), cs(0, 2), cs(0, 3), cs(0, 4), cs(1, 2)]            # (1,2)(1,3)(1,4)(1,5)(2,3)
+    cosB = [cs(1, 3), cs(1, 4), cs(2, 3), cs(2, 4), cs(3, 4)]            # (2,4)(2,5)(3,4)(3,5)(4,5)
+    return cosA, cosB
+
+
 def _quad_surrogate_main(th_freeze, X, Y, N, outD, lr, steps, ee, K, n, mV, nResid,
                          s1, s2, s3, gs, kind, qhvp=None, s15=0, divreg=0.3):
     """§22/§23 REPLACE mode: iterate the closed-loop quadratic-Taylor surrogate from th_freeze and compute the
@@ -3224,6 +3253,8 @@ def run_stream(P):
                        "jrd": float(JJg25.norm()),                       # 3. ‖J·ṙ‖ = ‖JᵀJ ∇L‖
                        "II":  II25,                                      # 4. §15 panel-1 term II  (∂²‖J‖²_F cross-term; None until 3 consecutive steps)
                        "III": III25}                                     # 5. §15 panel-1 term III
+                if isinstance(_TL.model, MlpModel):                      # §25 panels 2/3 — pairwise cosine sim of ∇θ of 5 scalars (MLP, exact autograd)
+                    g25["cosA"], g25["cosB"] = _sec25_cosines(th, X, Y, N, outD)
                 sec25_hist.append({"th": th.detach().clone(), "J": Jg25.detach(), "r": r25.detach(), "t": t})
                 if len(sec25_hist) > 2:
                     sec25_hist.pop(0)
