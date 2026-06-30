@@ -2903,6 +2903,7 @@ def run_stream(P):
     sec13_prev = None         # §13: previous eig-tick's per-sample {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
     sec13_qjprev = None        # §13 panel 4: previous eig-tick's {QJ=(N_j,N_i,p) Q_iJ_j, r} for the ‖A−B‖/‖A‖ asymmetry
     sec15_hist = []            # §15: rolling buffer of the last 2 eig-ticks' {th, J, r} (need t−1 and t−2)
+    sec25_hist = []            # §25: rolling buffer of the last 2 ticks' {th, J, r} for the II/III tr-NTK 2nd-diff terms (need t−1,t−2)
     sec15_th64 = None          # §15: float64 SHADOW GD trajectory (MLP only). D²=‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖² is a ~9-digit
                                #   catastrophic cancellation when the net is near-stationary (e.g. chebyshev init=0.2: ‖J‖²≈21,
                                #   true D²≈1e-8). The displayed trajectory is float32 (≈7 digits) ⇒ D² is pure roundoff ⇒ divergence%
@@ -3128,22 +3129,32 @@ def run_stream(P):
 
             # §25: gradient-norm evolution + the product-rule split of d/dt(J·r), single time-series plot. With the
             # gradient-flow velocity θ̇=−∇L (no lr): J̇=Q·θ̇ ⇒ J̇·r=−M_r∇L (M_r=Σ_k r_k Q_k); ṙ=−J·θ̇ ⇒ J·ṙ=(JᵀJ)∇L.
-            # Curves: ‖∇L‖ ; ‖J̇·r‖=‖M_r∇L‖ ; ‖J·ṙ‖=‖JᵀJ∇L‖ ; |⟨∇‖J‖²_F,−Q∇L⟩| ; |⟨∇‖J‖²_F,G∇L⟩| where
-            # ∇_θ‖J‖²_F = 2Σ_k Q_k J_k (=∇ tr NTK), Q∇L=(1/N)Σ_k Q_k∇L (func Hessian, ÷N to match G), G∇L=Gauss-Newton·∇L=(1/N)JᵀJ∇L. (abs ⇒ −Q sign irrelevant.)
+            # Curves: ‖∇L‖ ; ‖J̇·r‖=‖M_r∇L‖ ; ‖J·ṙ‖=‖JᵀJ∇L‖ ; II ; III — the last two are the cross-terms of the
+            # ‖J‖²_F (=tr NTK) 2nd-difference decomposition (§15 panel 1), c=η/N: II = c²Σ_k ∇f_{t,k}ᵀ Q_{t-1,k} Q̃ g₂
+            # (Q̃=Σ_j r_{t-1,j}Q_{t-2,j}, g₂=J_{t-2}ᵀr_{t-2}); III = c²Σ_k ∇f_{t,k}ᵀ Q_{t-1,k} J_{t-1}ᵀJ_{t-2} g₂.
+            # II/III need 3 CONSECUTIVE GD steps (eigevery=1) ⇒ None until the t−1,t−2 history is filled.
             g25 = None
             if s33 and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
-                Jg25 = Jc[:M]; rc25 = rr[:M].reshape(N, outD)
+                Jg25 = Jc[:M]; rc25 = rr[:M].reshape(N, outD); r25 = rr[:M]
                 gL25 = gradL(th, X, Y)[0]                                # ∇L (p,)
                 JJg25 = Jg25.t() @ (Jg25 @ gL25)                        # (JᵀJ)·∇L (p,)  [= J·ṙ for MSE: ṙ=−J·θ̇, θ̇=−∇L]
-                A25 = torch.zeros(p, dtype=Jg25.dtype, device=_dev())   # A = ∇_θ‖J‖²_F = 2 Σ_k Q_k J_k (per-sample func-Hessian × its own gradient)
-                for kk in range(M):
-                    A25 = A25 + jac_hvp(th, X, Jg25[kk])[kk]
-                A25 = 2.0 * A25
+                II25 = III25 = None
+                if len(sec25_hist) >= 2 and sec25_hist[-1]["t"] == t - 1 and sec25_hist[-2]["t"] == t - 2:
+                    c225 = (lr / N) ** 2                                 # c² = (η/N)²
+                    h1, h2 = sec25_hist[-1], sec25_hist[-2]              # t−1, t−2
+                    g2_25 = h2["J"].t() @ h2["r"]                        # g₂ = J_{t-2}ᵀ r_{t-2}  (p,)
+                    a25 = h1["r"] @ jac_hvp(h2["th"], X, g2_25)[:M]      # Q̃ g₂ = Σ_j r_{t-1,j} Q_{t-2,j} g₂  (p,)
+                    II25 = c225 * float((Jg25 * jac_hvp(h1["th"], X, a25)[:M]).sum())     # II = c²Σ_k ∇f_{t,k}ᵀ Q_{t-1,k}(Q̃ g₂)
+                    z25 = h1["J"].t() @ (h2["J"] @ g2_25)               # z = J_{t-1}ᵀ J_{t-2} g₂  (p,)
+                    III25 = c225 * float((Jg25 * jac_hvp(h1["th"], X, z25)[:M]).sum())    # III = c²Σ_k ∇f_{t,k}ᵀ Q_{t-1,k} z
                 g25 = {"gn":  float(gL25.norm()),                        # 1. ‖∇L‖
                        "jdr": float(hvpS(th, X, gL25, rc25).norm()),     # 2. ‖J̇·r‖ = ‖M_r ∇L‖
                        "jrd": float(JJg25.norm()),                       # 3. ‖J·ṙ‖ = ‖JᵀJ ∇L‖
-                       "aq":  abs(float(A25 @ hvpF(th, X, gL25))) / N,   # 4. |⟨∇‖J‖²_F, −Q∇L⟩|, Q=(1/N)Σ_k Q_k (÷N to match G's normalization)
-                       "ag":  abs(float(A25 @ hvpG(th, X, gL25)))}       # 5. |⟨∇‖J‖²_F, G∇L⟩|  (G = loss-aware Gauss-Newton = (1/N)JᵀJ)
+                       "II":  II25,                                      # 4. §15 panel-1 term II  (∂²‖J‖²_F cross-term; None until 3 consecutive steps)
+                       "III": III25}                                     # 5. §15 panel-1 term III
+                sec25_hist.append({"th": th.detach().clone(), "J": Jg25.detach(), "r": r25.detach(), "t": t})
+                if len(sec25_hist) > 2:
+                    sec25_hist.pop(0)
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None

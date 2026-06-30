@@ -270,7 +270,7 @@
   <label title="§22 REPLACE mode — selecting this makes the WHOLE run a FROZEN-Q quadratic-Taylor surrogate: §1 (loss/sharpness/residual), §2/§3 (function-Hessian / loss-Hessian / Gauss-Newton=NTK / residual-weighted spectra) and §20 (M_r) all show the surrogate trajectory instead of the real model (§4–§21 are off). Q is frozen at the iteration t you set (right): real full-batch GD reaches θ_t, then GD runs on the quadratic loss; slider scrubs the surrogate's own iterations. §22/§23 are mutually exclusive. MSE only; small N (M ≤ grid3dcap)."><input type="checkbox" id="en30"> 22 · run on frozen-Q quadratic surrogate · freeze t= <input type="number" id="s30t" value="0" min="0" max="100000" step="1" title="§22: iteration t at which to freeze the 2nd-order Taylor (θ_t, J_t, Q_t)" style="width:62px;margin-left:4px"></label>
   <label title="§23 REPLACE mode — like §22 but the function Hessian is a FIXED low-rank RANDOM symmetric operator (rank R, scaled to the real Hessian's λmax × scale): selecting this makes §1/§2/§3/§20 show the random-Q quadratic surrogate trajectory from θ₀ — a null model (§4–§21 off, §22/§23 mutually exclusive). MSE only."><input type="checkbox" id="en31"> 23 · run on random-Hessian surrogate · R= <input type="number" id="s31r" value="200" min="1" max="2000" step="1" title="§23: rank R of the random function Hessian" style="width:58px;margin-left:4px"> scale <input type="number" id="s31scale" value="1.0" min="0" max="100" step="0.1" title="§23: random-Hessian spectral norm = real fn-Hessian λmax × this" style="width:50px;margin-left:2px"></label>
   <label title="§24 — decompose the 1-GD-step change in each output f_k into its FIRST-order term A=JJᵀr (NTK·r) and SECOND-order term B_k=(η/2N)(J·r)ᵀQ_k(J·r); plot ‖·‖, |cos|, and eigenvalue-weighted projections of A,B onto the residual r and the top-4 NTK eigenvectors u₁–u₄, as time-series over training. Needs the M×p Jacobian + a per-output Hessian-vp (GPU backend; small N). uᵢ is shown when M≥i (so u₃ needs M≥3, u₄ needs M≥4)."><input type="checkbox" id="en32"> 24 · 1st/2nd-order Δf alignment (A=JJᵀr, B=η/2N·JrᵀQ_kJr)</label>
-  <label title="§25 — single time-series of: ‖∇L‖; ‖J̇·r‖=‖M_r∇L‖ (M_r=Σr_kQ_k); ‖J·ṙ‖=‖JᵀJ∇L‖ (the two terms of d/dt(J·r), gradient-flow θ̇=−∇L); |⟨∇‖J‖²_F,−Q∇L⟩| and |⟨∇‖J‖²_F,G∇L⟩| (∇‖J‖²_F=2Σ_kQ_kJ_k; Q=(1/N)Σ_kQ_k function Hessian and G=(1/N)JᵀJ Gauss-Newton — both ÷N so the two inner products are on the same footing). Linear y-axis. Needs the M×p Jacobian + per-sample Hessian-vp (GPU backend; small N)."><input type="checkbox" id="en33"> 25 · gradient-norm &amp; d/dt(J·r) evolution</label>
+  <label title="§25 — single time-series of: ‖∇L‖; ‖J̇·r‖=‖M_r∇L‖ (M_r=Σr_kQ_k); ‖J·ṙ‖=‖JᵀJ∇L‖ (the two terms of d/dt(J·r), gradient-flow θ̇=−∇L); and II, III — the two cross-terms of the ‖J‖²_F (=tr NTK) 2nd-difference decomposition (§15 panel 1; c=η/N): II=c²Σ_k ∇f_{t,k}ᵀQ_{t-1,k}Q̃g₂ (Q̃=Σ_j r_{t-1,j}Q_{t-2,j}, g₂=J_{t-2}ᵀr_{t-2}), III=c²Σ_k ∇f_{t,k}ᵀQ_{t-1,k}J_{t-1}ᵀJ_{t-2}g₂ — these need 3 consecutive GD steps (eigevery=1) so they start a couple of ticks in. Linear y-axis. Needs the M×p Jacobian + per-sample Hessian-vp (GPU backend; small N)."><input type="checkbox" id="en33"> 25 · gradient-norm &amp; d/dt(J·r) evolution</label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -3151,9 +3151,9 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
      newP('p_s24_u'+i+'b',ab(),s24L('|cos(·,u'+i+')|·σ'+i+'·‖·‖',''));}}
   // §25 — gradient-norm evolution & d/dt(J·r) product-rule split (single linear-scale plot, 5 curves)
   {const tr25=(nm,c)=>({x:[],y:[],mode:'lines',name:nm,line:{color:c,width:1.8}});
-   const L25=baseLayout('§25 — ‖∇L‖, d/dt(J·r) terms, ∇‖J‖²·{Q∇L, G∇L}','value',false);
+   const L25=baseLayout('§25 — ‖∇L‖, d/dt(J·r) terms, ‖J‖²_F 2nd-diff II/III','value',false);
    L25.showlegend=true;L25.legend={font:{size:9},x:0.99,xanchor:'right',y:0.99,yanchor:'top',bgcolor:'rgba(255,255,255,0.7)'};
-   newP('p_s25',[tr25('‖∇L‖','#2563eb'),tr25('‖J̇·r‖ = ‖M_r∇L‖','#16a34a'),tr25('‖J·ṙ‖ = ‖JᵀJ∇L‖','#db2777'),tr25('|⟨∇‖J‖²,−Q∇L⟩|','#ea580c'),tr25('|⟨∇‖J‖²,G∇L⟩|','#7c3aed')],L25);}
+   newP('p_s25',[tr25('‖∇L‖','#2563eb'),tr25('‖J̇·r‖ = ‖M_r∇L‖','#16a34a'),tr25('‖J·ṙ‖ = ‖JᵀJ∇L‖','#db2777'),tr25('II  (∂²‖J‖²_F term)','#ea580c'),tr25('III  (∂²‖J‖²_F term)','#7c3aed')],L25);}
   // §5 SLQ
   const slqT=c=>[{x:[],y:[],mode:'lines',fill:'tozeroy',line:{color:c,width:1.6},fillcolor:c+'22',name:'density'}];
   newP('p_sH',slqT('#2563eb'),slqLayout('SLQ density — function Hessian H'));
@@ -3441,7 +3441,7 @@ function pushPoint(t,D,n,kth,nResid){
       extP('p_s24_u'+(i+1)+'b',T2(ca==null?null:ca*si*g.nA, cb==null?null:cb*si*g.nB),[0,1]);}
   }
   if(OPT.s33&&D.g25){const g=D.g25;   // §25 — gradient-norm + d/dt(J·r) split + ∇‖J‖²·{Q∇L,G∇L}. Single plot, 5 traces.
-    extP('p_s25',{x:[[t],[t],[t],[t],[t]],y:[[g.gn],[g.jdr],[g.jrd],[g.aq],[g.ag]]},[0,1,2,3,4]);
+    extP('p_s25',{x:[[t],[t],[t],[t],[t]],y:[[g.gn],[g.jdr],[g.jrd],[g.II],[g.III]]},[0,1,2,3,4]);   // II/III null until 3 consecutive steps (eigevery=1)
   }
   if(OPT.s4&&D.jt){   // D.jt is null on cross-entropy runs (server disables §4); guard like §7–§12
     extP('p_Jtopn',{x:reps(n,t),y:colsOf(n,D.jtN)},ids(n));     // phase 1: alignment
