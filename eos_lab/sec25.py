@@ -19,16 +19,17 @@ II/III formula here is BYTE-IDENTICAL to the II/III sub-expressions in eos_lab.l
 but evaluated at the HISTORY's θ_{t-1}, θ_{t-2} (the §15 path passes the same Jt/Jtm1/Jtm2/rtm1/rtm2 and
 hvp1/hvp2 closures bound to those θ's), so we inline it with jac_hvp exactly as the server does.
 
-cosA/cosB/cosF/gnorms (MLP only) are pairwise cosines of ∇θ of 6 scalars, EXACT autograd both sides:
-  φ1 = ‖r‖²   φ2 = ‖J‖²_F (= ∇ tr NTK)   φ3 = ‖∇L‖²   φ4 = ‖(ΣQ_k)·Jᵀr‖²   φ5 = ‖J·Jᵀr‖² (=‖NTK·r‖², TWO J's)   φ6 = ‖f‖₂²
+cosA/cosB/cosF/cosG/gnorms (MLP only) are pairwise cosines of ∇θ of 7 scalars, EXACT autograd both sides:
+  φ1 = ‖r‖²   φ2 = ‖J‖²_F (= ∇ tr NTK)   φ3 = ‖∇L‖²   φ4 = ‖(ΣQ_k)·Jᵀr‖²   φ5 = ‖J·Jᵀr‖² (=‖NTK·r‖², TWO J's)   φ6 = ‖f‖₂²   φ7 = ‖ġ‖² (ġ=d(∇L)/dt=−H∇L)
   cosA = [(1,2),(1,3),(1,4),(1,5),(2,3)]   cosB = [(2,4),(2,5),(3,4),(3,5),(4,5)]
-  cosF = [cos(6,1),cos(6,2),cos(6,3),cos(6,4),cos(6,5)] (vector 6 vs the other five)   gnorms = [‖∇φ_i‖]_{i=1..6}
-φ5 squares J·(Jᵀr) — vector 5 is ∇θ‖JJᵀr‖², NOT ∇L; φ6 squares the model output f. Mirrors server._sec25_cosines line-by-line.
+  cosF = [cos(6,1),cos(6,2),cos(6,3),cos(6,4),cos(6,5)] (vector 6 vs the other five)
+  cosG = [cos(7,1),cos(7,2),cos(7,3),cos(7,4),cos(7,5),cos(7,6)] (vector 7 vs the other six)   gnorms = [‖∇φ_i‖]_{i=1..7}
+φ5 squares J·(Jᵀr) — vector 5 is ∇θ‖JJᵀr‖², NOT ∇L; φ6 squares the model output f; φ7 squares ġ=−H∇L (H=∇²L). Mirrors server._sec25_cosines line-by-line.
 
 PARITY NOTE (FD-vs-exact): server's MlpModel uses FINITE-DIFFERENCE HVPs (EPS=1e-3) for hvpS, while eos_lab's
 hvp_S is EXACT autograd (double-backward). So the Mr25-derived fields (jdr, and the Mr25 part of ddJr/cosJr)
 match server only to the FD truncation error (~1e-6 relative in fp64), the documented FD-vs-exact gap — NOT a
-port bug. jrd (no hvpS), II/III (jac_hvp, FD on BOTH sides), and the 6-vector cosA/cosB/cosF/gnorms (exact autograd
+port bug. jrd (no hvpS), II/III (jac_hvp, FD on BOTH sides), and the 7-vector cosA/cosB/cosF/cosG/gnorms (exact autograd
 on BOTH sides) match to ~1e-12..1e-13 in fp64.
 """
 import torch
@@ -37,14 +38,15 @@ from .models import jac_cols, jac_hvp, hvp_S, grad_loss
 
 
 def _sec25_cosines(model, loss, th, X, Y, N, outD):
-    """§25 plots 2/3 (pairwise cosines) + plot 4 (cos of ∇‖f‖² vs the 5) + plot 5 (the 6 ∇θ-vector norms) —
+    """§25 plots 2/3 (pairwise cosines) + plot 3 (cos of ∇‖f‖² vs the 5) + plot 4 (cos of ∇‖ġ‖² vs the 6) + the 7 ∇θ-vector norms —
     MLP only, exact autograd via torch.func; every scalar is ‖·‖² so the gradient DIRECTION matches the
-    user's ‖·‖/‖·‖² forms. MIRRORS server._sec25_cosines (server.py:1913-1943) line-by-line.
+    user's ‖·‖/‖·‖² forms. MIRRORS server._sec25_cosines (server.py:1913-1946) line-by-line.
 
-      1: ∇‖r‖²    2: ∇‖J‖²_F (=∇ tr NTK)    3: ∇‖∇L‖²    4: ∇‖Q·Jᵀr‖²    5: ∇‖JJᵀr‖² (=∇‖NTK·r‖², two J's)    6: ∇‖f‖₂²
-    where r=Y−f, f=model output, Q=Σ_k Q_k (function Hessian), Jᵀr=Σ_k r_k ∇f_k. Returns (cosA[5], cosB[5], cosF[5], norms[6]):
+      1: ∇‖r‖²    2: ∇‖J‖²_F (=∇ tr NTK)    3: ∇‖∇L‖²    4: ∇‖Q·Jᵀr‖²    5: ∇‖JJᵀr‖² (=∇‖NTK·r‖², two J's)    6: ∇‖f‖₂²    7: ∇‖ġ‖² (ġ=d(∇L)/dt=−H∇L)
+    where r=Y−f, f=model output, Q=Σ_k Q_k (function Hessian), Jᵀr=Σ_k r_k ∇f_k, H=∇²L (loss Hessian). Returns (cosA[5], cosB[5], cosF[5], cosG[6], norms[7]):
     cosA=pairs [(1,2),(1,3),(1,4),(1,5),(2,3)], cosB=[(2,4),(2,5),(3,4),(3,5),(4,5)] (pairwise among 1-5);
-    cosF=[cos(6,1),cos(6,2),cos(6,3),cos(6,4),cos(6,5)] (vector 6 vs the other five); norms=‖∇θφ_i‖ i=1..6."""
+    cosF=[cos(6,1),cos(6,2),cos(6,3),cos(6,4),cos(6,5)] (vector 6 vs the other five);
+    cosG=[cos(7,1),cos(7,2),cos(7,3),cos(7,4),cos(7,5),cos(7,6)] (vector 7 vs the other six); norms=‖∇θφ_i‖ i=1..7."""
     import torch.func as _tf
     Yf = Y.reshape(-1)
     ff = lambda q: model.forward(q, X).reshape(-1)                      # f(θ) flat (M,)
@@ -80,7 +82,15 @@ def _sec25_cosines(model, loss, th, X, Y, N, outD):
         f = ff(q)
         return (f * f).sum()
 
-    G = [_tf.grad(phi)(th) for phi in (phi1, phi2, phi3, phi4, phi5, phi6)]  # 6 vectors; vector 6 = ∇θ‖f‖₂²
+    def gL_fn(q):                                                       # ∇L (the gradient g)
+        return _tf.grad(Lval)(q)
+
+    def phi7(q):                                                        # ‖ġ‖²=‖H∇L‖² (ġ=d(∇L)/dt=−∇²L·∇L; sign drops in the norm)
+        gL = gL_fn(q)
+        HgL = _tf.jvp(gL_fn, (q,), (gL,))[1]
+        return (HgL * HgL).sum()
+
+    G = [_tf.grad(phi)(th) for phi in (phi1, phi2, phi3, phi4, phi5, phi6, phi7)]  # 7 vectors; v6=∇‖f‖², v7=∇‖ġ‖²
 
     def cs(i, j):
         ni = float(G[i].norm()); nj = float(G[j].norm())
@@ -88,12 +98,13 @@ def _sec25_cosines(model, loss, th, X, Y, N, outD):
 
     cosA = [cs(0, 1), cs(0, 2), cs(0, 3), cs(0, 4), cs(1, 2)]          # (1,2)(1,3)(1,4)(1,5)(2,3)
     cosB = [cs(1, 3), cs(1, 4), cs(2, 3), cs(2, 4), cs(3, 4)]          # (2,4)(2,5)(3,4)(3,5)(4,5)
-    cosF = [cs(5, 0), cs(5, 1), cs(5, 2), cs(5, 3), cs(5, 4)]          # cos(∇‖f‖², vᵢ) for i=1..5  (§25 plot 4)
-    norms = [float(g.norm()) for g in G]                              # ‖∇θφ_i‖, i=1..6  (§25 plot 5)
-    return cosA, cosB, cosF, norms
+    cosF = [cs(5, 0), cs(5, 1), cs(5, 2), cs(5, 3), cs(5, 4)]          # cos(∇‖f‖², vᵢ) for i=1..5  (§25 panel-2 plot 3)
+    cosG = [cs(6, 0), cs(6, 1), cs(6, 2), cs(6, 3), cs(6, 4), cs(6, 5)]  # cos(∇‖ġ‖², vᵢ) for i=1..6  (§25 panel-2 plot 4)
+    norms = [float(g.norm()) for g in G]                              # ‖∇θφ_i‖, i=1..7  (§25 panel-1 norms plot)
+    return cosA, cosB, cosF, cosG, norms
 
 
-def sec25_payload(model, loss, Jc, rr, th, X, Y, lr, N, outD, hist, t, is_mlp=None):
+def sec25_payload(model, loss, Jc, rr, th, X, Y, lr, N, outD, hist, t, is_mlp=None, rhist=None):
     """§25 record. MIRRORS server.py's g25 block (server.py:3238-3265).
 
     Inputs (the per-step primitives diagnostics.compute() already has in scope):
@@ -104,12 +115,15 @@ def sec25_payload(model, loss, Jc, rr, th, X, Y, lr, N, outD, hist, t, is_mlp=No
       hist                     — the rolling §25 history list (entries {"th","J","r","t"}, capped at 2);
                                  this function APPENDS the current tick (th,J,r,t) and pops to keep len ≤ 2.
       t                        — current step index (for the t−1,t−2 consecutivity check)
-      is_mlp                   — whether to emit cosA/cosB/cosF/gnorms (MLP only). If None, inferred from
+      is_mlp                   — whether to emit cosA/cosB/cosF/cosG/gnorms (MLP only). If None, inferred from
                                  getattr(model,"spec",None) is not None (the eos_lab MLP test, matching
                                  server's isinstance(model, MlpModel)).
+      rhist                    — OPTIONAL rolling buffer (entries {"t","r"}, capped at 11) for cos(r_t, r_{t−k}),
+                                 k∈{1,2,3,5,10}. If a list is passed, this function APPENDS (t,r) and emits cosR
+                                 (all backends, not MLP-gated). If None, cosR is skipped. Mirrors server's sec25_rhist.
 
-    Returns the g25 dict {gn,jdr,jrd,II,III,ddJr,cosJr (+cosA,cosB,cosF,gnorms if MLP)}. II/III are None until
-    3 consecutive ticks (t, t−1, t−2) are in `hist`. NO side effects beyond mutating `hist`."""
+    Returns the g25 dict {gn,jdr,jrd,II,III,ddJr,cosJr (+cosA,cosB,cosF,cosG,gnorms if MLP; +cosR if rhist given)}.
+    II/III are None until 3 consecutive ticks (t, t−1, t−2) are in `hist`. Side effects: mutates `hist` (and `rhist` if given)."""
     if is_mlp is None:
         is_mlp = getattr(model, "spec", None) is not None
     M = N * outD
@@ -138,8 +152,20 @@ def sec25_payload(model, loss, Jc, rr, th, X, Y, lr, N, outD, hist, t, is_mlp=No
            "III": III25,                                             # 5. §15 panel-1 term III
            "ddJr": float((JJg25 - Mr25).abs().sum()),               # plot 5: ‖J·ṙ + J̇·r‖₁ = ‖d/dt(J·r)‖₁
            "cosJr": ((-float(JJg25 @ Mr25)) / (nJJ25 * nMr25)) if (nJJ25 > 1e-30 and nMr25 > 1e-30) else 0.0}   # cos(J·ṙ, J̇·r)
-    if is_mlp:                                                       # §25 plots 2/3 (pairwise cosines), plot 4 (cos of ∇‖f‖² vs the 5), plot 5 (the 6 ∇θ-vector norms) — MLP, exact autograd
-        g25["cosA"], g25["cosB"], g25["cosF"], g25["gnorms"] = _sec25_cosines(model, loss, th, X, Y, N, outD)
+    if is_mlp:                                                       # §25 panel-2 cosines: plots 2/3 (pairwise), plot 3 (cos ∇‖f‖² vs 5), plot 4 (cos ∇‖ġ‖² vs 6); panel-1 norms (7 ∇θ-vectors) — MLP, exact autograd
+        g25["cosA"], g25["cosB"], g25["cosF"], g25["cosG"], g25["gnorms"] = _sec25_cosines(model, loss, th, X, Y, N, outD)
+
+    if rhist is not None:                                            # §25 panel-1 plot 4: residual-direction drift — cos(r_t, r_{t−k}), k∈{1,2,3,5,10} (all backends)
+        rc = r25.detach().clone(); nrc = float(rc.norm())
+        rByT = {e["t"]: e["r"] for e in rhist}
+        cosR = []
+        for k in (1, 2, 3, 5, 10):
+            rp = rByT.get(t - k); npk = None if rp is None else float(rp.norm())
+            cosR.append((float(rc @ rp) / (nrc * npk)) if (rp is not None and nrc > 1e-30 and npk > 1e-30) else None)
+        g25["cosR"] = cosR                                           # cos of r now vs r at t−{1,2,3,5,10} (None until that lag exists)
+        rhist.append({"t": t, "r": rc})
+        if len(rhist) > 11:
+            rhist.pop(0)
 
     hist.append({"th": th.detach().clone(), "J": Jg25.detach(), "r": r25.detach(), "t": t})
     if len(hist) > 2:

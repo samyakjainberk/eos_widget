@@ -1911,11 +1911,12 @@ def _sec15_surrogate(st, Jt, rt, hist, l_hvp, gss, th_freeze, X, N, outD, lr, p,
 
 
 def _sec25_cosines(th, X, Y, N, outD):
-    """§25 extra panels: cosine similarity of ∇θ of 6 scalars (MLP only — exact autograd via torch.func):
-      1: ∇‖r‖²   2: ∇‖J‖²_F (=∇ tr NTK)   3: ∇‖∇L‖²   4: ∇‖Q·Jᵀr‖²   5: ∇‖JJᵀr‖² (=∇‖NTK·r‖²)   6: ∇‖f‖₂²
-    where r=Y−f, f=model output, Q=Σ_k Q_k (function Hessian), Jᵀr=Σ_k r_k ∇f_k. Returns (cosA[5], cosB[5], cosF[5], norms[6]):
+    """§25 extra panels: cosine similarity of ∇θ of 7 scalars (MLP only — exact autograd via torch.func):
+      1: ∇‖r‖²   2: ∇‖J‖²_F (=∇ tr NTK)   3: ∇‖∇L‖²   4: ∇‖Q·Jᵀr‖²   5: ∇‖JJᵀr‖² (=∇‖NTK·r‖²)   6: ∇‖f‖₂²   7: ∇‖ġ‖² (ġ=d(∇L)/dt=−H∇L)
+    where r=Y−f, f=model output, Q=Σ_k Q_k (function Hessian), Jᵀr=Σ_k r_k ∇f_k, H=∇²L (loss Hessian). Returns (cosA[5], cosB[5], cosF[5], cosG[6], norms[7]):
     cosA=pairs [(1,2),(1,3),(1,4),(1,5),(2,3)], cosB=[(2,4),(2,5),(3,4),(3,5),(4,5)] (pairwise among 1-5);
-    cosF=[cos(6,1),cos(6,2),cos(6,3),cos(6,4),cos(6,5)] (vector 6 vs the other five); norms=‖∇θφ_i‖ i=1..6. Verified vs full FD (cos=1)."""
+    cosF=[cos(6,1),cos(6,2),cos(6,3),cos(6,4),cos(6,5)] (vector 6 vs the other five);
+    cosG=[cos(7,1),cos(7,2),cos(7,3),cos(7,4),cos(7,5),cos(7,6)] (vector 7 vs the other six); norms=‖∇θφ_i‖ i=1..7. Verified vs full FD (cos=1)."""
     import torch.func as _tf
     spec = _TL.model.spec; Yf = Y.reshape(-1)
     ff = lambda q: fwd(q, spec, X)[0].reshape(-1)
@@ -1932,15 +1933,19 @@ def _sec25_cosines(th, X, Y, N, outD):
         u = Jtr(q); Ju = _tf.jvp(ff, (q,), (u,))[1]; return (Ju * Ju).sum()   # ‖J·Jᵀr‖² = ‖JJᵀr‖² = ‖NTK·r‖²  (two J's, squared norm)
     def phi6(q):
         f = ff(q); return (f * f).sum()                                       # ‖f‖₂² (model output)
-    G = [_tf.grad(phi)(th) for phi in (phi1, phi2, phi3, phi4, phi5, phi6)]   # 6 vectors; vector 6 = ∇θ‖f‖₂²
+    def gL_fn(q): return _tf.grad(Lval)(q)                                     # ∇L  (the gradient g)
+    def phi7(q):
+        gL = gL_fn(q); HgL = _tf.jvp(gL_fn, (q,), (gL,))[1]; return (HgL * HgL).sum()   # ‖ġ‖²=‖H∇L‖² (ġ=d(∇L)/dt=−∇²L·∇L; sign drops in the norm)
+    G = [_tf.grad(phi)(th) for phi in (phi1, phi2, phi3, phi4, phi5, phi6, phi7)]   # 7 vectors; v6=∇‖f‖², v7=∇‖ġ‖²
     def cs(i, j):
         ni = float(G[i].norm()); nj = float(G[j].norm())
         return float(G[i] @ G[j]) / (ni * nj) if (ni > 1e-30 and nj > 1e-30) else 0.0
     cosA = [cs(0, 1), cs(0, 2), cs(0, 3), cs(0, 4), cs(1, 2)]            # (1,2)(1,3)(1,4)(1,5)(2,3)
     cosB = [cs(1, 3), cs(1, 4), cs(2, 3), cs(2, 4), cs(3, 4)]            # (2,4)(2,5)(3,4)(3,5)(4,5)
-    cosF = [cs(5, 0), cs(5, 1), cs(5, 2), cs(5, 3), cs(5, 4)]           # cos(∇‖f‖², vᵢ) for i=1..5  (§25 plot 4)
-    norms = [float(g.norm()) for g in G]                                # ‖∇θ-vector‖ for all 6 quantities (§25 plot 5)
-    return cosA, cosB, cosF, norms
+    cosF = [cs(5, 0), cs(5, 1), cs(5, 2), cs(5, 3), cs(5, 4)]           # cos(∇‖f‖², vᵢ) for i=1..5  (§25 panel-2 plot 3)
+    cosG = [cs(6, 0), cs(6, 1), cs(6, 2), cs(6, 3), cs(6, 4), cs(6, 5)]  # cos(∇‖ġ‖², vᵢ) for i=1..6  (§25 panel-2 plot 4)
+    norms = [float(g.norm()) for g in G]                                # ‖∇θ-vector‖ for all 7 quantities (§25 panel-1 norms plot)
+    return cosA, cosB, cosF, cosG, norms
 
 
 def _quad_surrogate_main(th_freeze, X, Y, N, outD, lr, steps, ee, K, n, mV, nResid,
@@ -3007,6 +3012,7 @@ def run_stream(P):
     sec13_qjprev = None        # §13 panel 4: previous eig-tick's {QJ=(N_j,N_i,p) Q_iJ_j, r} for the ‖A−B‖/‖A‖ asymmetry
     sec15_hist = []            # §15: rolling buffer of the last 2 eig-ticks' {th, J, r} (need t−1 and t−2)
     sec25_hist = []            # §25: rolling buffer of the last 2 ticks' {th, J, r} for the II/III tr-NTK 2nd-diff terms (need t−1,t−2)
+    sec25_rhist = []           # §25: rolling buffer of the last 11 ticks' {t, r} for cos(r_t, r_{t−k}), k∈{1,2,3,5,10} (residual-direction drift)
     sec15_th64 = None          # §15: float64 SHADOW GD trajectory (MLP only). D²=‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖² is a ~9-digit
                                #   catastrophic cancellation when the net is near-stationary (e.g. chebyshev init=0.2: ‖J‖²≈21,
                                #   true D²≈1e-8). The displayed trajectory is float32 (≈7 digits) ⇒ D² is pure roundoff ⇒ divergence%
@@ -3261,8 +3267,18 @@ def run_stream(P):
                        "III": III25,                                     # 5. §15 panel-1 term III
                        "ddJr": float((JJg25 - Mr25).abs().sum()),        # plot 5: Σ_i|（J·ṙ + J̇·r)_i| = ‖J·ṙ + J̇·r‖₁ = ‖d/dt(J·r)‖₁
                        "cosJr": ((-float(JJg25 @ Mr25)) / (nJJ25 * nMr25)) if (nJJ25 > 1e-30 and nMr25 > 1e-30) else 0.0}   # cos(J·ṙ, J̇·r)=cos(JᵀJ∇L,−M_r∇L) — bold line in plots 2&3
-                if isinstance(_TL.model, MlpModel):                      # §25 plots 2/3 (pairwise cosines), plot 4 (cos of ∇‖f‖² vs the 5), plot 5 (the 6 ∇θ-vector norms) — MLP, exact autograd
-                    g25["cosA"], g25["cosB"], g25["cosF"], g25["gnorms"] = _sec25_cosines(th, X, Y, N, outD)
+                if isinstance(_TL.model, MlpModel):                      # §25 panel-2 cosines: plots 2/3 (pairwise), plot 3 (cos ∇‖f‖² vs 5), plot 4 (cos ∇‖ġ‖² vs 6); panel-1 norms plot (7 ∇θ-vectors) — MLP, exact autograd
+                    g25["cosA"], g25["cosB"], g25["cosF"], g25["cosG"], g25["gnorms"] = _sec25_cosines(th, X, Y, N, outD)
+                rc25 = r25.detach().clone(); nrc25 = float(rc25.norm())   # §25 panel-1 plot 4: residual-direction drift — cos(r_t, r_{t−k})
+                rByT = {e["t"]: e["r"] for e in sec25_rhist}
+                cosR = []
+                for k in (1, 2, 3, 5, 10):
+                    rp = rByT.get(t - k); npk = None if rp is None else float(rp.norm())
+                    cosR.append((float(rc25 @ rp) / (nrc25 * npk)) if (rp is not None and nrc25 > 1e-30 and npk > 1e-30) else None)
+                g25["cosR"] = cosR                                        # cos of r now vs r at t−{1,2,3,5,10} (None until that lag exists)
+                sec25_rhist.append({"t": t, "r": rc25})
+                if len(sec25_rhist) > 11:
+                    sec25_rhist.pop(0)
                 sec25_hist.append({"th": th.detach().clone(), "J": Jg25.detach(), "r": r25.detach(), "t": t})
                 if len(sec25_hist) > 2:
                     sec25_hist.pop(0)
