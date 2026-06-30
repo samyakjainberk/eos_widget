@@ -503,7 +503,12 @@ def opt_dir(model, g, opt):
 
 
 def _hvp_scalar(model, theta, X, scalar_fn, v):
-    """Generic exact HVP of a scalar(θ): (∇² scalar) · v via double-backward (Pearlmutter)."""
+    """Generic exact HVP of a scalar(θ): (∇² scalar) · v via double-backward (Pearlmutter).
+
+    NOTE: this is EXACT autograd, whereas server.py's MlpModel uses *finite-difference* HVPs here
+    (kept for byte-parity with the browser). So §1/§2/§3 sharpness & H/H_L/G/S eigenvalues match the
+    server to ~1e-6 in fp64 but diverge ~1% on fp32/GPU. The multi-sample primitives (jac_hvp/hvp_G2 →
+    §4/§7/§8/§15/§16/§17) DO mirror server's FD definitions, so those match to 1e-5..1e-13."""
     with torch.enable_grad():
         th = theta.detach().requires_grad_(True)
         out = model.forward(th, X)

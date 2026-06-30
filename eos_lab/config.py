@@ -7,7 +7,7 @@ MIRRORS:  index.html  (the control panel + PRESETS dropdown)  and  server.py _pa
 numerics consume (string-valued flags like bias/fixedx kept identical to server.py's P, so the two
 stay drop-in compatible). PRESETS mirrors the index.html PRESETS object 1:1.
 """
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict, field, fields
 
 
 @dataclass
@@ -149,7 +149,8 @@ class Config:
     s25base: int = 0      # §17: compute the five dotted baselines (per-sample analog of §16's). OFF (≈6× cost).
     s26: int = 0          # §18 — per-sample (sample1 vs sample2) projections; browser-rendered from the §12 proj. Here only so Config accepts capture params.
     s27: int = 0          # §19 — one-step grad-norm change vs D²(trNTK); browser-rendered. Here only so Config accepts capture params.
-    # §20-§23 are SERVER+BROWSER only (eos_lab implements §1-§15); these fields exist only so Config(**capture_params) doesn't crash.
+    # §20-§25 are SERVER+BROWSER only (eos_lab computes §1-§17); these fields exist only so a capture's params round-trip.
+    # Build from a raw capture/widget dict with Config.from_params() — it also drops the non-field knobs (mode/start/surrogate/c1..c12).
     s28: int = 0          # §20 — M_r=Σr_kQ_k spectral histograms (server/browser only)
     s28k: int = 40        # §20: # eigenpairs per side (top-K ⊕ bottom-K) of M_r
     s29: int = 0          # §21 — residual↔spectrum alignment (server/browser only)
@@ -187,6 +188,15 @@ class Config:
             raise KeyError(f"unknown preset '{name}'. Options: {', '.join(PRESETS)}")
         cfg = {**PRESETS[name], **overrides}
         return cls(**cfg)
+
+    @classmethod
+    def from_params(cls, params):
+        """Build a Config from a raw widget/capture param dict, silently dropping any key that is not a
+        Config field — e.g. the server-orchestration knobs (mode/start/surrogate) and the surrogate-compare
+        panel toggles (c1..c12), which have no eos_lab meaning. Use instead of Config(**capture_params),
+        which raises TypeError on those extra keys."""
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in params.items() if k in known})
 
 
 # Mirrors index.html PRESETS. Section flags are inherited from the all-on Config defaults

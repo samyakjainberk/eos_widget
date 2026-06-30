@@ -53,11 +53,15 @@ stays `O(p)` and runs scale to multi-million-parameter networks.
 
 ## What each panel shows
 
-Every section from the widget is here, and each is a flag on `config.Config` (all on by default):
+`eos_lab` **computes §1–§17 only**. The later sections — §20–§25 (`s28`–`s33`) — are accepted as
+`config.Config` fields purely so a capture can round-trip its controls, but they are computed **only in
+`server.py` / `index.html`**, not here; together with §10 (`s17`, cubic) and the §16/§17 baselines
+(`s24base` / `s25base`) they default **OFF**. The §1–§17 flags below are each a flag on `config.Config`,
+all on by default:
 
 - **§1** — loss (train **and** held-out test), **sharpness** (the top eigenvalue of the loss Hessian) against the `2/η` threshold, the residual, and the spectral edges of the function Hessian `H`.
 - **§2 / §3** — the top / bottom `n` eigenvalues of `H`, the loss Hessian, the Gauss–Newton matrix `G`, and the residual term `S` (the loss Hessian is `G + S`).
-- **§4** — the Jacobian `J = ∇Σf` projected onto the top/bottom eigenvectors of `H` (raw and normalized).
+- **§4** — the Jacobian `J = ∇Σf` projected onto the top/bottom eigenvectors `u` of `H`, in **3 phases**: phase 1 alignment `|⟨J,u⟩|/‖J‖`, phase 2 power-iteration `|⟨J,u⟩|·σ`, phase 3 residual-dominance `|⟨J·r,u⟩|·σ` — with `σ÷N` (per-sample scale) and the single-sample residual kept signed.
 - **§5** — the spectral density (via stochastic Lanczos quadrature) of `H`, the loss Hessian, `G`, and `S`.
 - **§6** — how fast the dominant eigenspace of `H` rotates from step to step (principal angles).
 - **§7a** — NTK alignment: the residual projected onto the top-`n` NTK eigenvectors `vₖ` (`ntkR`) and the top NTK eigenvector onto the FH right-singular vectors (`ntkH`), plus two change-product diagnostics — the per-step product of the sharpness change and the projection change `Δλ(t)·Δ⟨r,vₖ⟩(t)` (`ntkGs`, with running average `ntkGsA`) and its one-step-lagged form `Δλ(t)·Δ⟨r,vₖ⟩(t−1)` (`ntkGl`/`ntkGlA`).
@@ -99,15 +103,22 @@ At a fixed `seed`, `eos_lab` reproduces `server.py` to the bit on the GD traject
 diagnostic matches:
 
 ```
-max |Δloss|       = 0          (identical mulberry32 init + data + gradient)
-max |Δsharpness|  ≈ 1e-8       (autograd vs finite-difference curvature probes)
-§4–§9 vectors     Δ = 0 … ≤1e-6
+max |Δloss|              = 0            (identical mulberry32 init + data + gradient)
+§1/§2/§3 sharpness & H/H_L/G/S eigvals   ~1e-2  (≈4%)   (exact autograd HVP vs the server's
+                                                         finite-difference HVP — see below)
+§4/§7/§8/§15/§16/§17 multi-sample        Δ = 1e-5 … 1e-13
 ```
 
 There are two deliberate differences, both for readability: `device`/`dtype` are passed explicitly
 everywhere (no thread-locals, so you can always see where a tensor lives), and Hessian-vector products use
 autograd double-backward instead of finite differences (exact, and it doesn't touch the GD trajectory —
 only the curvature *probes* differ).
+
+That second difference is why the **§1/§2/§3 sharpness and `H`/`H_L`/`G`/`S` eigenvalues** differ from the
+server backend by **~1e-2 (≈4%)**: `eos_lab` uses **exact autograd HVPs**, whereas `server.py`'s `MlpModel`
+uses **finite-difference HVPs** (kept for byte-parity with the browser). The multi-sample primitives that
+build an explicit Jacobian (§4 / §7 / §8 / §15 / §16 / §17) don't go through that probe and **match to
+1e-5 … 1e-13**.
 
 ## Good to know
 

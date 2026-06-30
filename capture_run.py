@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Headless capture runner for the EoS / Progressive-Sharpening widget.
 
-Runs the SAME compute as the GPU backend's /run SSE stream (server.run_stream — sections §1–§17,
-i.e. every en1…en25 toggle) but, instead of streaming to a live browser, CAPTURES every record to a
+Runs the SAME compute as the GPU backend's /run SSE stream (server.run_stream — sections §1–§25,
+i.e. the en1…en33 toggles) but, instead of streaming to a live browser, CAPTURES every record to a
 single self-contained file you can load into the widget later (Compute → "Load saved run").
 
 This lets you fan many runs out across SLURM / multiple GPUs and analyse them all in the browser
@@ -20,10 +20,11 @@ afterwards, without keeping a server (or the tab) open while they compute.
 
 The output file is JSON (add --gzip for .json.gz). Load it from the widget's Compute dropdown.
 
-Every section toggle (s1…s24, s25 and the §11–§17 advanced ones s18…s23) defaults to ON, and so do
-the §16/§17 baselines (s24base/s25base), so "everything in the toggle list" is run by default. Whether
-a section actually produces records still depends on its gates (multi-sample / small-N / loss type) —
-exactly as in the live widget; the browser shows a "not produced" note for any gated-out section.
+The section toggles s1…s27 plus §20/§21 (s28/s29) default to ON (covering §1–§21), so "everything in
+the core toggle list" is run by default. The §16/§17 baselines (s24base/s25base) and §22–§25 (s30…s33)
+default to OFF — opt into them per-run with --set sNN=1. Whether a section actually produces records
+still depends on its gates (multi-sample / small-N / loss type) — exactly as in the live widget; the
+browser shows a "not produced" note for any gated-out section.
 """
 import argparse
 import gzip
