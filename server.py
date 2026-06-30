@@ -1911,11 +1911,11 @@ def _sec15_surrogate(st, Jt, rt, hist, l_hvp, gss, th_freeze, X, N, outD, lr, p,
 
 
 def _sec25_cosines(th, X, Y, N, outD):
-    """§25 extra panels: pairwise cosine similarity of ∇θ of 5 scalars (MLP only — exact autograd via torch.func;
-    all ‖·‖² so the gradient DIRECTION matches the user's ‖·‖/‖·‖² forms):
-      1: ∇‖r‖²       2: ∇‖J‖²_F (=∇ tr NTK)      3: ∇‖∇L‖²       4: ∇‖Q·Jᵀr‖²        5: ∇‖JJᵀr‖² (=∇‖NTK·r‖², two J's)
-    where r=Y−f, Q=Σ_k Q_k (function Hessian), Jᵀr=Σ_k r_k ∇f_k. Returns (cosA[5], cosB[5]) for the pair sets
-    A=[(1,2),(1,3),(1,4),(1,5),(2,3)], B=[(2,4),(2,5),(3,4),(3,5),(4,5)]. Verified vs full finite-difference (cos=1)."""
+    """§25 extra panels: cosine similarity of ∇θ of 6 scalars (MLP only — exact autograd via torch.func):
+      1: ∇‖r‖²   2: ∇‖J‖²_F (=∇ tr NTK)   3: ∇‖∇L‖²   4: ∇‖Q·Jᵀr‖²   5: ∇‖JJᵀr‖² (=∇‖NTK·r‖²)   6: ∇‖f‖₂²
+    where r=Y−f, f=model output, Q=Σ_k Q_k (function Hessian), Jᵀr=Σ_k r_k ∇f_k. Returns (cosA[5], cosB[5], cosF[5], norms[6]):
+    cosA=pairs [(1,2),(1,3),(1,4),(1,5),(2,3)], cosB=[(2,4),(2,5),(3,4),(3,5),(4,5)] (pairwise among 1-5);
+    cosF=[cos(6,1),cos(6,2),cos(6,3),cos(6,4),cos(6,5)] (vector 6 vs the other five); norms=‖∇θφ_i‖ i=1..6. Verified vs full FD (cos=1)."""
     import torch.func as _tf
     spec = _TL.model.spec; Yf = Y.reshape(-1)
     ff = lambda q: fwd(q, spec, X)[0].reshape(-1)
@@ -1930,14 +1930,17 @@ def _sec25_cosines(th, X, Y, N, outD):
         u = Jtr(q); Qu = _tf.jvp(lambda z: _tf.grad(sumf)(z), (q,), (u,))[1]; return (Qu * Qu).sum()   # ‖(ΣQ_k)·Jᵀr‖²
     def phi5(q):
         u = Jtr(q); Ju = _tf.jvp(ff, (q,), (u,))[1]; return (Ju * Ju).sum()   # ‖J·Jᵀr‖² = ‖JJᵀr‖² = ‖NTK·r‖²  (two J's, squared norm)
-    G = [_tf.grad(phi)(th) for phi in (phi1, phi2, phi3, phi4, phi5)]   # vector 5 = ∇θ‖JJᵀr‖²
+    def phi6(q):
+        f = ff(q); return (f * f).sum()                                       # ‖f‖₂² (model output)
+    G = [_tf.grad(phi)(th) for phi in (phi1, phi2, phi3, phi4, phi5, phi6)]   # 6 vectors; vector 6 = ∇θ‖f‖₂²
     def cs(i, j):
         ni = float(G[i].norm()); nj = float(G[j].norm())
         return float(G[i] @ G[j]) / (ni * nj) if (ni > 1e-30 and nj > 1e-30) else 0.0
     cosA = [cs(0, 1), cs(0, 2), cs(0, 3), cs(0, 4), cs(1, 2)]            # (1,2)(1,3)(1,4)(1,5)(2,3)
     cosB = [cs(1, 3), cs(1, 4), cs(2, 3), cs(2, 4), cs(3, 4)]            # (2,4)(2,5)(3,4)(3,5)(4,5)
-    norms = [float(g.norm()) for g in G]                                # ‖∇θ-vector‖ for the 5 quantities (plotted in §25 plot 4)
-    return cosA, cosB, norms
+    cosF = [cs(5, 0), cs(5, 1), cs(5, 2), cs(5, 3), cs(5, 4)]           # cos(∇‖f‖², vᵢ) for i=1..5  (§25 plot 4)
+    norms = [float(g.norm()) for g in G]                                # ‖∇θ-vector‖ for all 6 quantities (§25 plot 5)
+    return cosA, cosB, cosF, norms
 
 
 def _quad_surrogate_main(th_freeze, X, Y, N, outD, lr, steps, ee, K, n, mV, nResid,
@@ -3258,8 +3261,8 @@ def run_stream(P):
                        "III": III25,                                     # 5. §15 panel-1 term III
                        "ddJr": float((JJg25 - Mr25).abs().sum()),        # plot 5: Σ_i|（J·ṙ + J̇·r)_i| = ‖J·ṙ + J̇·r‖₁ = ‖d/dt(J·r)‖₁
                        "cosJr": ((-float(JJg25 @ Mr25)) / (nJJ25 * nMr25)) if (nJJ25 > 1e-30 and nMr25 > 1e-30) else 0.0}   # cos(J·ṙ, J̇·r)=cos(JᵀJ∇L,−M_r∇L) — bold line in plots 2&3
-                if isinstance(_TL.model, MlpModel):                      # §25 plots 2/3 (cosines) + plot 4 (the 5 ∇θ-vector norms) — MLP, exact autograd
-                    g25["cosA"], g25["cosB"], g25["gnorms"] = _sec25_cosines(th, X, Y, N, outD)
+                if isinstance(_TL.model, MlpModel):                      # §25 plots 2/3 (pairwise cosines), plot 4 (cos of ∇‖f‖² vs the 5), plot 5 (the 6 ∇θ-vector norms) — MLP, exact autograd
+                    g25["cosA"], g25["cosB"], g25["cosF"], g25["gnorms"] = _sec25_cosines(th, X, Y, N, outD)
                 sec25_hist.append({"th": th.detach().clone(), "J": Jg25.detach(), "r": r25.detach(), "t": t})
                 if len(sec25_hist) > 2:
                     sec25_hist.pop(0)
