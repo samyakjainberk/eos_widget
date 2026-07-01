@@ -3216,7 +3216,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
     newP('p_s25_cosG',['7·1','7·2','7·3','7·4','7·5','7·6'].map((nm,i)=>tr25(nm,cosCol6[i])),cosLay('Plot 7 — cos∠(∇‖ġ‖², vᵢ) for i=1–6  (vector 7 = ∇‖ġ‖₂², ġ=−H∇L)'));
     const rcLay=cosLay('Plot 8 — cos∠(r_t, r_{t−k}) k=1,10,30,50,100  +  cos(r_t,r₀) [bold]  (residual-direction change)');rcLay.yaxis.range=[-1.2,1.2];   // r changing direction? cos of r now vs r k steps back, and vs the initial r₀
     const rcTr=['t·(t-1)','t·(t-10)','t·(t-30)','t·(t-50)','t·(t-100)'].map((nm,i)=>{const tr=tr25(nm,cosCol[i]);tr.connectgaps=false;return tr;});
-    rcTr.push({x:[],y:[],mode:'lines',name:'cos(r_t, r₀)  (vs initial)',line:{color:'#111827',width:3.6}});   // bold reference: cumulative rotation from the start
+    rcTr.push({x:[],y:[],mode:'lines',name:'cos(r_t, r₀)  (vs initial)',line:{color:'#111827',width:3.6},connectgaps:false});   // bold reference: cumulative rotation from the start
     newP('p_s25_rcos',rcTr,rcLay);}
    {const nmCol=['#2563eb','#16a34a','#db2777','#ea580c','#7c3aed','#0891b2','#b45309'];
     const Lnrm=baseLayout('Plot 5 — ‖∇θ-vector‖ of all 7 quantities (6 = ∇‖f‖₂², 7 = ∇‖ġ‖₂²)','‖∇θφ‖ (log)',false);Lnrm.yaxis.type='log';Lnrm.showlegend=true;Lnrm.legend={font:{size:9},orientation:'h',x:0,y:1.1};

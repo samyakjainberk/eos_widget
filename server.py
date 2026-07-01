@@ -1778,7 +1778,8 @@ def _sec26_eigvecs(Jc, rr, th, X, N, outD, mr_hvp=None):
     An M_r eigenvector is emitted as NULL (→ its drift is None, a gap) when |λ_i(M_r)| ≤ 1e-6·λ_max(NTK): as the
     residual r→0 (loss converges) M_r=Σr_kQ_k→0, so its eigen-DIRECTIONS become ill-defined (pure noise in fp32) —
     we blank them rather than plot noise. All drifts downstream use |cos| so eigvec signs are gauge-free.
-    Drift lags {10,20,30,50,100} are in DIAGNOSTIC-TICK units (= GD steps only when eigevery=1, the intended setting).
+    Drift lags {10,20,30,50,100} are in GD-STEP units (history is keyed by step t; = diagnostic ticks only when eigevery=1,
+    the intended setting — with eigevery>1 a lag resolves only when eigevery divides it).
     MIRRORS eos_lab.sec26.sec26_eigvecs."""
     M = N * outD
     Jg = Jc[:M]; r = rr[:M]; p = Jg.shape[1]; rc = r.reshape(N, outD); dtv = Jg.dtype

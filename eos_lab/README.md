@@ -39,9 +39,9 @@ A handful of small, single-purpose modules:
 
 - **`config.py`** — the `Config` dataclass and the named presets.
 - **`models.py`** — the networks (MLP, CNN, VGG11, mini-GPT), the MSE / cross-entropy losses, and exact gradients + Hessian-vector products via autograd.
-- **`data.py`** — the datasets (synthetic, CIFAR-10, **CIFAR-2** = 2-class scalar ±1, **MNIST** & **MNIST-2** [padded to 3×32×32], sorting, OpenWebText, Chebyshev, **k-sparse parity** [`ksparse`: `in_dim` ±1 bits → scalar ±1 = parity of a fixed random `k`-subset; works with the MLP and the mean-pooled mini-GPT]) and seeded initialization.
+- **`data.py`** — the datasets (synthetic, CIFAR-10, **CIFAR-2** = 2-class scalar ±1, **MNIST** & **MNIST-2** [padded to 3×32×32], sorting, OpenWebText, Chebyshev, **Chebyshev-2** [`chebyshev2`: same Tₖ target via the closed form cos(k·arccos x)], **k-sparse parity** [`ksparse`: `in_dim` ±1 bits → scalar ±1 = parity of a fixed random `k`-subset; works with the MLP and the mean-pooled mini-GPT]) and seeded initialization.
 - **`linalg.py`** — the matrix-free linear algebra: Lanczos, stochastic Lanczos quadrature, principal angles, subspaces, and a robust `safe_eigh`/`safe_eigvalsh` (ramp + numpy fallback) so degenerate scalar-output Hessians never crash LAPACK/cuSOLVER.
-- **`diagnostics.py`** — the per-step measurements behind every panel (§1–§15).
+- **`diagnostics.py`** — the per-step measurements behind every panel (§1–§15, plus the ported §18–§26: `sec18`–`sec21`, `sec24`, `sec25`, `sec26`).
 - **`sec16.py` / `sec17.py`** — the two standalone curvature-aligned optimizers (§16 averaged-Hessian, §17 per-sample): project `g₊`/`g₋` onto the top-/bottom-`kdir` eigvectors (coefficient `⟨g,uᵢ⟩`, no `σ/η`), pure-curvature main run, with their five baselines (incl. E·gd).
 - **`train.py`** — the gradient-descent loop and `run_job`.
 - **`plots.py`** — renders each panel as a matplotlib figure.
@@ -53,11 +53,14 @@ stays `O(p)` and runs scale to multi-million-parameter networks.
 
 ## What each panel shows
 
-`eos_lab` **computes §1–§17 only**. The later sections — §20–§25 (`s28`–`s33`) — are accepted as
-`config.Config` fields purely so a capture can round-trip its controls, but they are computed **only in
-`server.py` / `index.html`**, not here; together with §10 (`s17`, cubic) and the §16/§17 baselines
-(`s24base` / `s25base`) they default **OFF**. The §1–§17 flags below are each a flag on `config.Config`,
-all on by default:
+`eos_lab` **computes §1–§26** — a full mirror of `server.py`. §1–§17 are described below; the later
+sections **§18–§26** (`s26`–`s34`) were ported and are computed per-step by `diagnostics.py` (`g18`–`g21`,
+`g24`, `g25`, `g26`), serving as the byte-parity reference for those panels. Exact-autograd/Jacobian
+quantities match `server.py` to ~1e-13; the finite-difference-HVP fields (§25 `jdr`/`ddJr`, §26 `M_r`
+eigvecs) carry the documented FD-vs-exact gap because server's MLP uses finite-difference HVPs (for browser
+byte-parity) while eos_lab uses exact autograd. §22/§23 (`s30`/`s31`) drive the quadratic-surrogate REPLACE
+mode in `train.py`. Together with §10 (`s17`, cubic) and the §16/§17 baselines (`s24base` / `s25base`) the
+opt-in sections default **OFF**. The §1–§17 flags below are each a flag on `config.Config`, all on by default:
 
 - **§1** — loss (train **and** held-out test), **sharpness** (the top eigenvalue of the loss Hessian) against the `2/η` threshold, the residual, and the spectral edges of the function Hessian `H`.
 - **§2 / §3** — the top / bottom `n` eigenvalues of `H`, the loss Hessian, the Gauss–Newton matrix `G`, and the residual term `S` (the loss Hessian is `G + S`).
@@ -77,6 +80,17 @@ all on by default:
 - **§15 (`s23`)** — 2nd-difference decomposition of `‖J‖²_F` (=tr NTK) and `σ₁` into theory terms I/II/III (resp. IV/V/VI), the matrices A/B, the chained-contraction norms, and a per-**effective**-sample top/bottom projection ratio. MSE, single or multi.
 - **§16 (`s24`, OFF by default)** — a standalone **curvature-aligned per-residual-sign optimizer** started from θ₀ (`sec16.py` / `plot_section16`): a GD warmup, then **project** the positive-residual gradient `g₊` onto the **top-`kdir`** eigvectors of the sample-averaged function Hessian `H̄` and `g₋` onto the **bottom-`kdir`** (coefficient `⟨g,uᵢ⟩`, *no* `σ/η` weighting), then `α₊/α₋` line-searches + a `(β,s)` grid. The **main run is pure curvature** (no gradient info). 6 panels (loss · loss-Hessian eig · function-Hessian eig · per-sample residuals · held-out test loss · ‖update‖₂) × {pos, neg, mean, best} look-aheads. `--set s24base=1` adds 5 dotted **baselines**: A random dirs · B shuffled ± sets · C frozen-random · D frozen-`H̄`-eigvec · **E the plain GD step**. `--set s24k=K` sets the eigvectors per side (default 32; the curvature extremes hold only a fraction of the gradient, so more directions descend better — the Lanczos subspace scales as `4·K+32` so they're actually resolved). MSE, small `M = N·d_out` (≤ 256).
 - **§17 (`s25`, OFF by default)** — the **per-sample** variant of §16 (`sec17.py` / `plot_section17`): each sample projects `rₖ∇fₖ` onto the top-/bottom-`kdir` eigvectors of its **own** `Qₖ=∇²fₖ` (`r>0` → top, `r<0` → bottom) instead of the averaged `H̄`. Same 6 panels + the 5 baselines (`--set s25base=1`, incl. E·gd). Per-sample Lanczos every iteration, so `M = N·d_out` ≤ 256 (and ≤ 64 in the single-threaded browser).
+
+The following **§18–§26** (`s26`–`s34`, all OFF by default) were ported from `server.py`; eos_lab computes them per-step in `diagnostics.py` (small `N`, MSE where noted). They need the `M×p` Jacobian + matrix-free HVPs:
+
+- **§18 (`s26`)** — per-sample (sample1 vs sample2) projections of the §12 cube; emitted as `g18` (needs exactly `nsamp=2`).
+- **§19 (`s27`, GD+MSE)** — one-step grad-norm change `A_t=Δ‖∇L‖` (the MSE-GD prediction) and `tr(NTK)`; `g19`.
+- **§20 (`s28`)** — spectral histograms of the residual-weighted function Hessian `M_r=Σ_k r_kQ_k` (its eigenvalues `λ_i` and `λ_i·|⟨v_i,u_k⟩|` for the top Jacobian directions `u_k`), top-`s28k`⊕bottom-`s28k` via matrix-free Lanczos on `hvp_S`; `g20`.
+- **§21 (`s29`)** — residual↔spectrum alignment: residual onto the top NTK (`JJᵀ`) eigvectors, and `J·r` onto the `M_r` eigvectors; `g21`.
+- **§22 / §23 (`s30` / `s31`)** — §20 on a **quadratic surrogate**: frozen-`Q` at iteration `s30t` (§22) or a random-Hessian rank-`s31r` surrogate (§23). These are REPLACE-mode drivers in `train.py` (they run their own trajectory).
+- **§24 (`s32`)** — 1st/2nd-order Δf alignment: `A=JJᵀr` (1st) and `B=(η/2N)[(J·r)ᵀQ_k(J·r)]_k` (2nd) vs the residual and the top-4 NTK eigvectors; `g24`.
+- **§25 (`s33`)** — gradient-norm & `d/dt(J·r)` evolution: an 8-plot, 2-panel layout — the product-rule split `‖M_r∇L‖`/`‖JᵀJ∇L‖` + `‖∇L‖` + §15 II/III, the pairwise cosines of the θ-gradients of 7 scalar quantities (incl. `∇‖ġ‖²`, `ġ=−H∇L`), their norms, `‖d/dt(J·r)‖₁`, and the residual-direction drift `cos(r_t, r_{t−k})` for `k∈{1,10,30,50,100}` plus a bold `cos(r_t, r_0)` reference; `g25` (MLP-only cosine panels via exact autograd).
+- **§26 (`s34`)** — eigenvector-direction drift `|cos(v_i(t), v_i(t−k))|` (`k∈{10,20,30,50,100}`) for the top-3 eigenvectors of GN=`JᵀJ` and NTK=`JJᵀ` and the top-3⊕bottom-3 of `M_r`, with **eigenvector continuation** (each mode matched to the previous step so eigenvalue crossings don't cause spurious jumps) and an `M_r` small-eigenvalue gate; 4 panels × 3 plots × 5 lags; `g26`.
 
 The multi-sample sections build an explicit `M×p` Jacobian (`M = N·d_out`), so they're **skipped
 automatically** when that's too big to form (the budget is `M ≤ 2048` and `M·p ≤ 7e8`; whatever is skipped

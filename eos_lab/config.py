@@ -147,9 +147,10 @@ class Config:
     s24base: int = 0      # §16: compute the five dotted baselines (A=random,B=shuffle,C=randfix,D=eigfix,E=gd). OFF (≈6× cost).
     s25: int = 0          # §17 — PER-SAMPLE function-Hessian variant of §16 (each sample uses its OWN Q_k eigvec). O(M²); small M. OFF.
     s25base: int = 0      # §17: compute the five dotted baselines (per-sample analog of §16's). OFF (≈6× cost).
-    s26: int = 0          # §18 — per-sample (sample1 vs sample2) projections; browser-rendered from the §12 proj. Here only so Config accepts capture params.
-    s27: int = 0          # §19 — one-step grad-norm change vs D²(trNTK); browser-rendered. Here only so Config accepts capture params.
-    # §20-§25 are SERVER+BROWSER only (eos_lab computes §1-§17); these fields exist only so a capture's params round-trip.
+    s26: int = 0          # §18 — per-sample (sample1 vs sample2) projections; eos_lab computes g18 from the §12 projection (diagnostics.py).
+    s27: int = 0          # §19 — one-step grad-norm change vs D²(trNTK); eos_lab computes g19 (diagnostics.py).
+    # §18-§26 are now COMPUTED by eos_lab too (diagnostics.py: g18-g21, g24, g25, g26 — a full mirror of server.py);
+    # §22/§23 (s30/s31) drive the quadratic-surrogate REPLACE mode in train.py. These fields also let a capture's params round-trip.
     # Build from a raw capture/widget dict with Config.from_params() — it also drops the non-field knobs (mode/start/surrogate/c1..c12).
     s28: int = 0          # §20 — M_r=Σr_kQ_k spectral histograms (server/browser only)
     s28k: int = 40        # §20: # eigenpairs per side (top-K ⊕ bottom-K) of M_r
@@ -162,6 +163,7 @@ class Config:
     s31scale: float = 1.0 # §23: random-Hessian spectral-norm scale
     s32: int = 0          # §24 — 1st/2nd-order Δf alignment A=JJᵀr & B=(η/2N)JrᵀQ_kJr (server/browser only)
     s33: int = 0          # §25 — gradient-norm + d/dt(J·r) split + ∇‖J‖²·{Q∇L,G∇L} evolution (server/browser only)
+    s34: int = 0          # §26 — eigenvector-direction drift |cos(v_i(t),v_i(t−k))| GN/NTK/M_r (server/browser only)
 
     # ---- test set (held-out) ----
     n_test: int = 0                # held-out test points (0 ⇒ default: max(nsamp, 256), capped per dataset)
@@ -180,9 +182,9 @@ class Config:
         d["gs"] = bool(self.gson)
         for k in ("s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s12", "s13", "s14"):
             d[k] = bool(getattr(self, k))
-        # §18-§25 section toggles (s26..s33) consumed by diagnostics/train; leave the scalar params
+        # §18-§26 section toggles (s26..s34) consumed by diagnostics/train; leave the scalar params
         # (s28k/s29k/s30t/s31r/s31scale) numeric. int 0/1 already reads as truthy, but bool-cast for consistency.
-        for k in ("s26", "s27", "s28", "s29", "s30", "s31", "s32", "s33"):
+        for k in ("s26", "s27", "s28", "s29", "s30", "s31", "s32", "s33", "s34"):
             d[k] = bool(getattr(self, k))
         return d
 

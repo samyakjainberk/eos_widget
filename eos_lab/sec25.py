@@ -119,7 +119,7 @@ def sec25_payload(model, loss, Jc, rr, th, X, Y, lr, N, outD, hist, t, is_mlp=No
                                  getattr(model,"spec",None) is not None (the eos_lab MLP test, matching
                                  server's isinstance(model, MlpModel)).
       rhist                    — OPTIONAL rolling buffer (entries {"t","r"}, capped at 101) for cos(r_t, r_{t−k}),
-                                 k∈{10,20,30,50,100}. If a list is passed, this function APPENDS (t,r) and emits cosR
+                                 k∈{1,10,30,50,100}. If a list is passed, this function APPENDS (t,r) and emits cosR
                                  (all backends, not MLP-gated). If None, cosR is skipped. Mirrors server's sec25_rhist.
 
     Returns the g25 dict {gn,jdr,jrd,II,III,ddJr,cosJr (+cosA,cosB,cosF,cosG,gnorms if MLP; +cosR if rhist given)}.

@@ -42,14 +42,15 @@ Lanczos — no `p×p` matrix is ever formed, so it scales to multi-million-param
 
 | Backend | What it is | Precision | Sections | File |
 |---|---|---|---|---|
-| **Browser widget** | zero-backend; synthetic MLP runs in JS | fp64 | §1–§25 | `index.html` |
-| **GPU backend** | same UI, PyTorch over SSE; real datasets + big nets | fp32 GPU / fp64 CPU | §1–§25 | `server.py` |
-| **`eos_lab/`** | headless Python package for scripted / SLURM runs | fp64 (fp32 GPU) | **§1–§17 only** | `eos_lab/` |
+| **Browser widget** | zero-backend; synthetic MLP runs in JS | fp64 | §1–§26 (computes §1–§17 in JS; renders §18–§26 from the backend) | `index.html` |
+| **GPU backend** | same UI, PyTorch over SSE; real datasets + big nets | fp32 GPU / fp64 CPU | §1–§26 | `server.py` |
+| **`eos_lab/`** | headless Python package for scripted / SLURM runs | fp64 (fp32 GPU) | **§1–§26** | `eos_lab/` |
 
 **Byte-parity invariant.** Data + init use the same `mulberry32` RNG across all three, so at a given seed
 the **GD trajectory is bit-identical** everywhere. `server.py`/`index.html` use finite-difference HVPs to
 stay byte-parity; `eos_lab` uses exact autograd HVPs (curvature *probes* differ by ~4%, the trajectory
-does not). §18–§25 are server/browser only.
+does not). §18–§26 need the GPU backend (`server.py`) or `eos_lab`; the browser computes only §1–§17
+locally and renders §18–§26 from the SSE stream.
 
 ---
 
@@ -72,7 +73,7 @@ for the package internals.
 
 ---
 
-## 📊 Section index (§1–§25)
+## 📊 Section index (§1–§26)
 
 Every section has a toggle and a caption carrying the full math — this table is just a finder. *Gates:*
 **M** = MSE · **CE** = cross-entropy ok · **multi** = needs >1 sample · **N** = small `N` only ·
@@ -117,7 +118,7 @@ Every section has a toggle and a caption carrying the full math — this table i
 | 16 | project `g₊`/`g₋` onto top/bottom-`kdir` eigvecs of the **averaged** `H̄`; pure-curvature run + 5 baselines | M · small M |
 | 17 | per-sample variant — each sample uses its **own** `Qₖ` (`r>0`→top, `r<0`→bottom) | M · small M |
 
-#### Server / browser only (§18–§25)
+#### GPU backend + `eos_lab` (§18–§26; browser renders from the SSE stream)
 | § | Panel | Gate |
 |---|---|---|
 | 18 | §12b per-sample, sample 1 vs sample 2 separately | exactly 2 samples |
@@ -126,7 +127,8 @@ Every section has a toggle and a caption carrying the full math — this table i
 | 21 | residual↔spectrum alignment — `r` on NTK, `J·r` on `M_r`, `J·r` on Gauss–Newton (slider) | multi · N |
 | 22 / 23 | **quadratic-Taylor REPLACE mode** — frozen-`Q` (§22) or random low-rank `Q` (§23) drives the whole run | M · N |
 | 24 | 1st/2nd-order `Δf` alignment time-series (`A=JJᵀr`, `Bₖ` second-order) | GPU · N |
-| 25 | gradient-norm & `d/dt(J·r)` evolution (5 curves) | GPU · N |
+| 25 | gradient-norm & `d/dt(J·r)` evolution — 8 plots / 2 panels: product-rule split + II/III, pairwise cosines of the θ-gradients of 7 scalars (incl. `∇‖ġ‖²`), their norms, `‖d/dt(J·r)‖₁`, and residual-direction drift `cos(r_t,r_{t−k})` + bold `cos(r_t,r_0)` | GPU · N |
+| 26 | eigenvector-direction drift `\|cos(vᵢ(t),vᵢ(t−k))\|`, `k∈{10,20,30,50,100}` — top-3 eigvecs of GN=`JᵀJ` & NTK=`JJᵀ`, top-3⊕bottom-3 of `M_r`, with eigenvector continuation; 4 panels × 3 plots × 5 lags | GPU · N |
 
 > **Cost note.** The cheap core (loss / sharpness / eigenvalues / §9 theory / §7a) runs every tick; the
 > heavy slowly-varying panels (§7 FH-eigvecs, §8) run every `heavy every` ticks (default 4) and §5 SLQ
@@ -143,7 +145,8 @@ the sections that fit that size). Real-data / conv / transformer runs use the GP
 **Datasets** — `synthetic` (in-browser MLP) · **CIFAR-10** / **MNIST** (10-class) · **CIFAR-2** / **MNIST-2**
 (2-class **scalar** ±1 — `d_out=1` keeps the §16/§17 optimizers feasible on real images) · **sorting** (MSE)
 · **OpenWebText** (GPT-2-BPE next-token LM; CE or MSE, minibatched) · **Chebyshev** (Cohen et al. EoS toy:
-points on [-1,1] labeled by `T_degree`, 6-layer width-50 tanh MLP) · **k-sparse parity** (`ksparse`: parity
+points on [-1,1] labeled by `T_degree`, 6-layer width-50 tanh MLP) · **Chebyshev-2** (`chebyshev2`: same
+`T_degree` target built from the closed form `cos(k·arccos x)` instead of the recurrence) · **k-sparse parity** (`ksparse`: parity
 of a fixed random `k`-subset of `in_dim` ±1 bits; MLP or mean-pooled mini-GPT) · **angle pair**
 (`anglepair`: 2 samples at a controllable angle — pairs with §18/§19) · **saddle** (saddle-to-saddle linear
 regression, staircase of escapes) · **agf** (alternating gradient flows, diagonal linear net) · **const**
@@ -173,7 +176,7 @@ fan many runs across SLURM/GPUs and analyse them whenever.
 
 ```bash
 # one capture — flags are plain widget params (s1–s27 + §20/§21 default ON; §16/§17 baselines
-# and §22–§25 default OFF, enable per-run via --set sNN=1):
+# and §22–§26 (incl. §24/§25/§26 = s32/s33/s34) default OFF, enable per-run via --set sNN=1):
 python capture_run.py --dataset cifar10 --arch vgg11 --nsamp 25 --steps 400 \
                       --device cuda:0 --out runs_captured/cifar_vgg.json
 

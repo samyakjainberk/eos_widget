@@ -97,7 +97,7 @@ class Diagnostics:
         self.s21 = P.get("s21", 0)          # §13: residual-weighted curvature G1/G2/G3 vs exact ref (own toggle; shares §12 Lanczos)
         self.s22 = P.get("s22", 0)          # §12b: per-sample projection panels (s19=§12a angles+diag-align; both share the §12 Lanczos)
         self.s23 = P.get("s23", 0)          # §15: 2nd-difference decomposition of ‖J‖²_F & σ₁ (own toggle; holds 3 eig-ticks)
-        # §18-§25 per-step sections (server flags s26..s33; §22/§23 are surrogate REPLACE drivers run in train.py).
+        # §18-§26 per-step sections (server flags s26..s34; §22/§23 are surrogate REPLACE drivers run in train.py).
         self.s26 = P.get("s26", 0)          # §18: per-sample (sample1 vs sample2) projections — re-slice of the §12 proj arrays (N=2 render)
         self.s27 = P.get("s27", 0)          # §19: one-step grad-norm change A_t + tr(NTK) (MSE+GD only)
         self.s28 = P.get("s28", 0)          # §20: M_r=Σr_kQ_k spectral histograms (cube cadence)
