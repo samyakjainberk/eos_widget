@@ -1763,6 +1763,70 @@ def _sec20_payload(Jc, rr, th, X, N, outD, K, mr_hvp=None):
     return {"lam": lam, "q1": q1, "q2": q2, "q3": q3, "q4": q4, "K": Klan}
 
 
+SEC26_SEED = SEC20_SEED   # §26 reuses §20's M_r Lanczos start ⇒ identical M_r eigenvectors (byte-parity)
+
+
+def _sec26_eigvecs(Jc, rr, th, X, N, outD, mr_hvp=None):
+    """§26: the eigenVECTORS whose across-training direction-drift is tracked. Returns a dict with keys
+    'gn','ntk','mrTop','mrBot' — each a list of 3 unit vectors (or zero for a null/spurious direction):
+      gn[i]    = i-th TOP eigenvector of the Gauss-Newton G=JᵀJ (p-dim) = i-th right-singular vector of J = normalize(Jᵀ g_i)
+      ntk[i]   = i-th TOP eigenvector of the NTK = JJᵀ (M-dim) = g_i, the i-th left-singular vector of J
+      mrTop[i] = i-th TOP eigenvector of M_r=Σ_k r_kQ_k (p-dim);  mrBot[i] = i-th BOTTOM eigenvector (bot[0]=most negative)
+    GN/NTK share ONE eigendecomposition of the M×M NTK (cheap); M_r top⊕bottom via matrix-free Lanczos on hvpS
+    (SAME q0/basis as §20 ⇒ identical eigvecs). All drifts downstream use |cos| so the arbitrary eigvec signs are
+    gauge-free. MIRRORS eos_lab.sec26.sec26_eigvecs."""
+    M = N * outD
+    Jg = Jc[:M]; r = rr[:M]; p = Jg.shape[1]; rc = r.reshape(N, outD); dtv = Jg.dtype
+    zP = torch.zeros(p, dtype=dtv, device=_dev()); zM = torch.zeros(M, dtype=dtv, device=_dev())
+    # --- NTK (M×M) and GN (p×p) top-3 from ONE eigendecomposition of the NTK ---
+    Kc, Vc = sym_eig_desc(Jg @ Jg.t())                     # NTK eigvecs (columns, descending σ²); Kc = σ_k²
+    ntol = 1e-9 * max(float(Kc[0]) if int(Kc.numel()) > 0 else 0.0, 1e-30)   # null-direction cutoff
+    ntk, gn = [], []
+    for kk in range(3):
+        if kk < M and float(Kc[kk]) > ntol:
+            gk = Vc[:, kk].clone()                         # NTK eigvec (M-dim), unit
+            uk = Jg.t() @ gk; nu = float(uk.norm())        # GN eigvec (p-dim) = normalize(Jᵀ g_k)
+            ntk.append(gk); gn.append(uk / nu if nu > 1e-30 else zP.clone())
+        else:
+            ntk.append(zM.clone()); gn.append(zP.clone())
+    # --- M_r=Σ_k r_kQ_k top-3 ⊕ bottom-3 via matrix-free Lanczos on hvpS (identical start to §20) ---
+    Klan = 3; mlan = min(p, max(5 * Klan, 64))
+    q0 = _randvec16(p, SEC26_SEED)
+    mhvp = mr_hvp if mr_hvp is not None else (lambda v: hvpS(th, X, v, rc))
+    Q, T, k = _lanczos_core(mhvp, p, mlan, 0, dt=dtv, q0=q0)
+    mu, Sv = _safe_eigh(T); desc = torch.argsort(mu, descending=True); Qmat = torch.stack(Q)
+    def ritz(pos):                                         # unit Ritz vector for the pos-th (descending) eigenvalue
+        v = Sv[:, int(desc[pos])].to(device=_dev(), dtype=dtv) @ Qmat; nv = float(v.norm())
+        return v / nv if nv > 1e-30 else zP.clone()
+    mrTop = [ritz(i) for i in range(min(3, k))]            # desc[0..2]  = 3 largest eigenvalues
+    mrBot = [ritz(k - 1 - i) for i in range(min(3, k))]    # desc[k-1..] = 3 smallest (bot[0]=most negative)
+    while len(mrTop) < 3: mrTop.append(zP.clone())
+    while len(mrBot) < 3: mrBot.append(zP.clone())
+    return {"gn": gn, "ntk": ntk, "mrTop": mrTop, "mrBot": mrBot}
+
+
+def _sec26_drift(cur, hist, t):
+    """§26: given the current-step eigvec dict `cur` and the rolling history `hist` (entries {'t', **eigvecs}),
+    return g26 = {key: [ [|cos(v_i(t),v_i(t−k))| for k∈{1,2,3,5,10}] for i in 0..2 ]} for key in gn/ntk/mrTop/mrBot.
+    None where that lag isn't in history yet or a vector is null. |cos| ⇒ eigvec sign flips are gauge-free."""
+    byT = {e["t"]: e for e in hist}
+    lags = (1, 2, 3, 5, 10)
+    out = {}
+    for key in ("gn", "ntk", "mrTop", "mrBot"):
+        rows = []
+        for i in range(3):
+            a = cur[key][i]; na = float(a.norm()); row = []
+            for kk in lags:
+                prev = byT.get(t - kk)
+                if prev is None or na <= 1e-30:
+                    row.append(None); continue
+                b = prev[key][i]; nb = float(b.norm())
+                row.append(abs(float(a @ b)) / (na * nb) if nb > 1e-30 else None)
+            rows.append(row)
+        out[key] = rows
+    return out
+
+
 SEC21_SEED = SEC20_SEED   # §21 panel 2 reuses §20's M_r Lanczos start ⇒ identical M_r eigenpairs
 
 
@@ -2960,6 +3024,7 @@ def run_stream(P):
     s31 = P.get("s31", 0)                # §23: §20's M_r histograms on a RANDOM-Hessian quadratic surrogate (low-rank R, frozen at θ₀)
     s32 = P.get("s32", 0)                # §24: A=JJᵀr & B=(η/2N)JrᵀQ_kJr alignment with residual + top-4 NTK eigvecs (time-series)
     s33 = P.get("s33", 0)                # §25: ‖∇L‖, ‖M_r∇L‖, ‖JᵀJ∇L‖, |⟨∇‖J‖²,Q∇L⟩|, |⟨∇‖J‖²,G∇L⟩| evolution (single plot)
+    s34 = P.get("s34", 0)                # §26: direction-drift |cos(v_i(t),v_i(t−k))| of the top-3 GN/NTK & top-3⊕bottom-3 M_r eigenvectors
     s30t = max(0, int(P.get("s30t", 0)))      # §22: iteration t at which to freeze the 2nd-order Taylor (θ_t, J_t, Q_t)
     s31r = max(1, int(P.get("s31r", 200)))    # §23: rank R of the random symmetric function Hessian
     s31scale = float(P.get("s31scale", 1.0))  # §23: random-Hessian spectral norm = (real function-Hessian λmax at θ₀)·s31scale
@@ -3033,6 +3098,7 @@ def run_stream(P):
     sec15_hist = []            # §15: rolling buffer of the last 2 eig-ticks' {th, J, r} (need t−1 and t−2)
     sec25_hist = []            # §25: rolling buffer of the last 2 ticks' {th, J, r} for the II/III tr-NTK 2nd-diff terms (need t−1,t−2)
     sec25_rhist = []           # §25: rolling buffer of the last 11 ticks' {t, r} for cos(r_t, r_{t−k}), k∈{1,2,3,5,10} (residual-direction drift)
+    sec26_hist = []            # §26: rolling buffer of the last 11 ticks' {t, gn/ntk/mrTop/mrBot eigvecs} for the eigenvector-direction drift
     sec15_th64 = None          # §15: float64 SHADOW GD trajectory (MLP only). D²=‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖² is a ~9-digit
                                #   catastrophic cancellation when the net is near-stationary (e.g. chebyshev init=0.2: ‖J‖²≈21,
                                #   true D²≈1e-8). The displayed trajectory is float32 (≈7 digits) ⇒ D² is pure roundoff ⇒ divergence%
@@ -3240,7 +3306,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29 or s32 or s33)) or ((s23 or s27 or s28 or s29 or s32 or s33) and N <= grid3dcap):   # §15/§19/§20/§21/§24/§25 also run for a single sample
+            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29 or s32 or s33 or s34)) or ((s23 or s27 or s28 or s29 or s32 or s33 or s34) and N <= grid3dcap):   # §15/§19/§20/§21/§24/§25/§26 also run for a single sample
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -3306,6 +3372,16 @@ def run_stream(P):
                 sec25_hist.append({"th": th.detach().clone(), "J": Jg25.detach(), "r": r25.detach(), "t": t})
                 if len(sec25_hist) > 2:
                     sec25_hist.pop(0)
+
+            # §26: eigenvector-direction drift — |cos(v_i(t),v_i(t−k))|, k∈{1,2,3,5,10}, for the top-3 GN & NTK
+            #       eigenvectors and the top-3 ⊕ bottom-3 M_r=Σr_kQ_k eigenvectors (12 eigvecs; 4 panels × 3 plots × 5 lags)
+            g26 = None
+            if s34 and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+                ev26 = _sec26_eigvecs(Jc, rr, th, X, N, outD)
+                g26 = _sec26_drift(ev26, sec26_hist, t)
+                sec26_hist.append({"t": t, **{key: [v.detach().clone() for v in ev26[key]] for key in ev26}})
+                if len(sec26_hist) > 11:
+                    sec26_hist.pop(0)
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None
@@ -3924,6 +4000,7 @@ def run_stream(P):
                 "d4Ht": d4Ht, "d4Hb": d4Hb, "d4Qt": d4Qt, "d4Qb": d4Qb,
                 "g24": g24,                                    # §24: A=JJᵀr & B=(η/2N)JrᵀQ_kJr alignment vs r and top-4 NTK eigvecs
                 "g25": g25,                                    # §25: ‖∇L‖ + d/dt(J·r) split + ∇‖J‖²·{Q∇L,G∇L} alignments
+                "g26": g26,                                    # §26: eigenvector-direction drift |cos(v_i(t),v_i(t−k))| for GN/NTK/M_r top-3 (+M_r bottom-3)
                 "sps": (t - start + 1) / max(time.time() - t0, 1e-9),
             }
 
@@ -4526,6 +4603,7 @@ def _parse_params(q):
         "s31": g("s31", "0") == "1",     # §23: §20 M_r histograms on a random-Hessian quadratic surrogate (rank s31r)
         "s32": g("s32", "0") == "1",     # §24: A=JJᵀr & B=(η/2N)JrᵀQ_kJr alignment with residual + top-4 NTK eigvecs (time-series)
         "s33": g("s33", "0") == "1",     # §25: gradient-norm + d/dt(J·r) split + ∇‖J‖²·{Q∇L,G∇L} alignment evolution (single plot)
+        "s34": g("s34", "0") == "1",     # §26: eigenvector-direction drift |cos(v_i(t),v_i(t−k))| of top-3 GN/NTK & top-3⊕bottom-3 M_r eigvecs
         "s30t": max(0, fi("s30t", 0)),   # §22: freeze iteration t
         "s31r": max(1, fi("s31r", 200)), # §23: rank R of the random function Hessian
         "s31scale": ff("s31scale", 1.0), # §23: random-Hessian spectral-norm scale (× real fn-Hessian λmax)
