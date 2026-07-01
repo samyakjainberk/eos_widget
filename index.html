@@ -538,6 +538,12 @@ Each line “$i\!\cdot\!j$” is $\cos\angle(\text{vector }i,\text{vector }j)\in
   <span id="s27iterval" style="color:#dc2626;font-weight:700;min-width:66px">iter 0</span>
   <span style="color:#94a3b8">drag to mark that iteration's point (red ◆) on all 12 plots</span>
 </div>
+<div style="display:flex;gap:10px;align-items:center;margin:2px 0 8px;font-size:13px;color:#374151">
+  <b>§27 progress:</b>
+  <progress id="s27prog" value="0" max="1" style="flex:1;max-width:460px;height:14px;accent-color:#7c3aed"></progress>
+  <span id="s27progtxt" style="color:#7c3aed;font-weight:700;min-width:210px">0 / 0 iterations finalized</span>
+  <span style="color:#94a3b8">§27 lags the live run by 50 steps (windowed)</span>
+</div>
 <p class="cap" style="margin:8px 0 1px;color:#475569"><b>Panel 1 — per-metric subspace:</b>&nbsp; $\nabla\lVert f\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert r\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert J\rVert_F^2$</p>
 <div class="plotrow row3"><div id="p_s27_f" class="plot" style="height:300px"></div><div id="p_s27_r" class="plot" style="height:300px"></div><div id="p_s27_J" class="plot" style="height:300px"></div></div>
 <p class="cap" style="margin:10px 0 1px;color:#475569"><b>Panel 2 — per-metric subspace:</b>&nbsp; $\nabla\lVert\nabla L\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert\dot r\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert\dot J\rVert_F^2$</p>
@@ -3261,7 +3267,11 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
    s27P('p_s27_g','∇‖∇L‖²  (per-metric)'); s27P('p_s27_rd','∇‖ṙ‖²  (per-metric)'); s27P('p_s27_Jd','∇‖J̇‖²_F  (per-metric)');
    s27P('p_s27c_f','∇‖f‖²  (common)'); s27P('p_s27c_r','∇‖r‖²  (common)'); s27P('p_s27c_J','∇‖J‖²_F  (common)');
    s27P('p_s27c_g','∇‖∇L‖²  (common)'); s27P('p_s27c_rd','∇‖ṙ‖²  (common)'); s27P('p_s27c_Jd','∇‖J̇‖²_F  (common)');
-   {const sl=document.getElementById('s27slider');if(sl){sl.max='0';sl.value='0';}const rd=document.getElementById('s27iterval');if(rd)rd.textContent='iter 0';}}   // reset the §27 highlight slider for the new run
+   {const sl=document.getElementById('s27slider');if(sl){sl.max='0';sl.value='0';}const rd=document.getElementById('s27iterval');if(rd)rd.textContent='iter 0';
+    const _st=parseInt((document.getElementById('steps')||{}).value)||0, _ee=Math.max(1,parseInt((document.getElementById('eigevery')||{}).value)||1);
+    window.S27_TOTAL=Math.floor(_st/_ee)+1;   // §27 finalizes one point per diagnostic tick (eigevery GD steps apart)
+    const pb=document.getElementById('s27prog'),pt=document.getElementById('s27progtxt');
+    if(pb){pb.max=window.S27_TOTAL;pb.value=0;} if(pt)pt.textContent='0 / '+window.S27_TOTAL+' iterations finalized';}}   // reset the §27 slider + progress bar for the new run
   // §5 SLQ
   const slqT=c=>[{x:[],y:[],mode:'lines',fill:'tozeroy',line:{color:c,width:1.6},fillcolor:c+'22',name:'density'}];
   newP('p_sH',slqT('#2563eb'),slqLayout('SLQ density — function Hessian H'));
@@ -4589,6 +4599,9 @@ function applyG27(pts){
   const sl=document.getElementById('s27slider');   // keep the highlight slider's range in sync with the iterations seen
   if(sl){const cf=(D['p_s27_f']||{c:[]}).c; const mx=cf.length?cf[cf.length-1]:0; if((+sl.max)<mx)sl.max=String(mx);
     if(!sl._wired){sl._wired=true; sl.oninput=e=>s27Highlight(+e.target.value);}}
+  {const fin=(D['p_s27_f']||{c:[]}).c.length, total=window.S27_TOTAL||fin;   // §27 progress bar: finalized points / total ticks (lags the live run by 50)
+   const pb=document.getElementById('s27prog'),pt=document.getElementById('s27progtxt');
+   if(pb){pb.max=Math.max(total,fin,1);pb.value=fin;} if(pt)pt.textContent=fin+' / '+total+' iterations finalized ('+(total?Math.round(100*fin/total):0)+'%)';}
 }
 // slider handler: mark the point whose iteration is closest to `iter` on all 12 §27 plots (highlight trace 1)
 function s27Highlight(iter){
