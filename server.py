@@ -3657,8 +3657,11 @@ def run_stream(P):
                     g_pred4 = {"t0": p4t0,
                                "kAct": [max(0.0, float(ka[-1 - i])) for i in range(K4)],   # top-K NTK eigvals, descending (clamp ≥0 for the log axis)
                                "kPred": [max(0.0, float(kp[-1 - i])) for i in range(K4)]}
-                    MrJ = torch.stack([hvpS(p4_th0, X, p4_J[k], p4_r0) for k in range(M)])   # M_r·J rows (M,p), Q & r frozen at t0
-                    p4_J = p4_J + (lr / max(N, 1)) * MrJ                          # advance predicted J for the NEXT step (frozen M_r)
+                    for _ in range(max(1, ee)):                                  # advance ONE GD step per actual step (ee GD steps between diagnostic ticks)
+                        if not torch.isfinite(p4_J).all():                       # diverged ⇒ stop advancing (render tolerates the gap)
+                            break
+                        MrJ = torch.stack([hvpS(p4_th0, X, p4_J[k], p4_r0) for k in range(M)])   # M_r·J rows (M,p), Q & r frozen at t0
+                        p4_J = p4_J + (lr / max(N, 1)) * MrJ                      # advance predicted J for the NEXT step (frozen M_r)
 
             # prediction-5 (s38): TRACE-STATISTIC prediction (PDF Eq-1..5). At t0 freeze θ0, J0=J(t0), the frozen
             #   output f0 & residual r0, Q0 (jac_hvp) and T (central-diff). Propagate 4 Jacobian trajectories
@@ -3691,27 +3694,31 @@ def run_stream(P):
                     trHess = thut / 8.0
                     out = []
                     for d in tr5["traj"]:
-                        J = d["J"]
-                        if d["self"]:
-                            dth = d["Dth"]; HzD = jac_hvp(th0, X, dth)[:M]
-                            r = Yf5 - (f0 + J0 @ dth + 0.5 * (HzD @ dth))          # quadratic-model self-residual
-                        else:
-                            r = rr[:M]                                            # live-run residual
-                        g = J.t() @ r
-                        Qg = jac_hvp(th0, X, g)[:M]
-                        if d["cubic"]:
-                            for gk in d["HistG"]:
-                                Qg = Qg + etaN5 * _T2m5(gk, g)                     # Q_t propagated (Eq-3 history)
-                            dJ = etaN5 * Qg + 0.5 * (etaN5 ** 2) * _T2m5(g, g)     # ΔJ = (η/N)Q_t[g] + ½(η/N)²T[g,g]
-                        else:
-                            dJ = etaN5 * Qg                                        # quadratic: T=0, Q frozen ⇒ ΔJ=(η/N)Q0[g]
-                        out.append([float((J * J).sum()) / N,                      # predicted Tr(NTK) WITH PSD = ‖J‖²_F ÷N
-                                    (tr5["tr0"] + d["trNo"]) / N])                 # ... WITHOUT PSD (drop the ‖ΔJ‖² per-step term)
-                        d["trNo"] += 2.0 * float((J * dJ).sum()); d["J"] = J + dJ
-                        if d["cubic"]:
-                            d["HistG"].append(g)
-                        if d["self"]:
-                            d["Dth"] = dth + etaN5 * g
+                        Jc5 = d["J"]
+                        out.append([float((Jc5 * Jc5).sum()) / N,                  # predicted Tr(NTK) WITH PSD = ‖J‖²_F ÷N (current J, at the tick)
+                                    (tr5["tr0"] + d["trNo"]) / N])                 # ... WITHOUT PSD (drop the per-step ‖ΔJ‖²)
+                        for _ in range(max(1, ee)):                               # advance ee GD steps to the next diagnostic tick
+                            J = d["J"]
+                            if not torch.isfinite(J).all():                        # diverged ⇒ stop advancing this trajectory
+                                break
+                            if d["self"]:
+                                dth = d["Dth"]; HzD = jac_hvp(th0, X, dth)[:M]
+                                r = Yf5 - (f0 + J0 @ dth + 0.5 * (HzD @ dth))       # quadratic-model self-residual
+                            else:
+                                r = rr[:M]                                         # live-run residual
+                            g = J.t() @ r
+                            Qg = jac_hvp(th0, X, g)[:M]
+                            if d["cubic"]:
+                                for gk in d["HistG"]:
+                                    Qg = Qg + etaN5 * _T2m5(gk, g)                  # Q_t propagated (Eq-3 history)
+                                dJ = etaN5 * Qg + 0.5 * (etaN5 ** 2) * _T2m5(g, g)  # ΔJ = (η/N)Q_t[g] + ½(η/N)²T[g,g]
+                            else:
+                                dJ = etaN5 * Qg                                     # quadratic: T=0, Q frozen ⇒ ΔJ=(η/N)Q0[g]
+                            d["trNo"] += 2.0 * float((J * dJ).sum()); d["J"] = J + dJ
+                            if d["cubic"]:
+                                d["HistG"].append(g)
+                            if d["self"]:
+                                d["Dth"] = dth + etaN5 * g
                     g_trace = {"t0": p5t0, "trGN": trGN, "trHess": trHess,
                                "qLive": out[0], "qSelf": out[1], "cLive": out[2], "cSelf": out[3]}
 
