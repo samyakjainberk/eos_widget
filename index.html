@@ -532,6 +532,12 @@ Each line “$i\!\cdot\!j$” is $\cos\angle(\text{vector }i,\text{vector }j)\in
 <h2>27 · $\nabla_\theta$-vector 3D subspace projection over a sliding $[t\!-\!50,\,t\!+\!50]$ window</h2>
 <p class="cap"><b>What this shows:</b> where each of six parameter-gradient vectors <b>moves</b> in a local low-dimensional subspace as training proceeds. At every iteration $t$ we form six $p$-dimensional vectors — <b style="color:#2563eb">$\nabla\lVert f\rVert^2$</b>, <b style="color:#2563eb">$\nabla\lVert r\rVert^2$</b>, <b style="color:#2563eb">$\nabla\lVert J\rVert_F^2$</b>, <b style="color:#2563eb">$\nabla\lVert\nabla L\rVert^2$</b>, and the two <b>discrete</b> step-difference ones <b style="color:#db2777">$\nabla\lVert\dot r\rVert^2=-2J^\top(r_t-r_{t-1})$</b> and <b style="color:#db2777">$\nabla\lVert\dot J\rVert_F^2=\nabla\lVert J\rVert_F^2-2\nabla\langle J,J_{t-1}\rangle_F$</b> (both $0$ at $t\!=\!0$). For a given metric we <b>stack its vectors over the window $[t\!-\!50,t\!+\!50]$</b> (whatever is available — clipped at the run's ends) into a $p\times W$ matrix, take its <b>top-3 left singular directions</b>, and <b>project the $t$-th vector onto that 3-D subspace</b>. Plotting this projected point for every $t$ gives a curve <b>coloured by iteration</b> (Viridis: <span style="color:#440154">dark = early</span> → <span style="color:#fde725;background:#333">yellow = late</span>), so you can see the direction of travel.
 <br><b style="color:#7c3aed">Panels 1–2</b> use a <b>per-metric</b> subspace (each metric gets its own top-3 window directions). <b style="color:#7c3aed">Panels 3–4</b> use a <b>common</b> subspace: all six metrics' windows are stacked into one $p\times 6W$ matrix, its top-3 singular directions are taken once, and every metric's $t$-th vector is projected onto that <b>shared</b> 3-D space (so cross-metric geometry is comparable). Because the $+50$ half-window needs <b>future</b> iterations, §27 is emitted with a <b>50-step lag</b> (iteration $t$ appears at step $t\!+\!50$; the final 50 are flushed at the end with right-clipped windows). Sign continuity aligns each window's directions to the previous iteration's (windows overlap in 100/101 columns) so the curves don't flip. GPU backend, small $N$/$p$ (stores $6\times101$ $p$-vectors + a per-step Gram eigendecomposition); off in surrogate mode; use <b>eig-every = 1</b>.</p>
+<div style="display:flex;gap:10px;align-items:center;margin:6px 0 8px;font-size:13px;color:#374151">
+  <b>Highlight iteration:</b>
+  <input type="range" id="s27slider" min="0" max="0" value="0" step="1" style="flex:1;max-width:460px;vertical-align:middle">
+  <span id="s27iterval" style="color:#dc2626;font-weight:700;min-width:66px">iter 0</span>
+  <span style="color:#94a3b8">drag to mark that iteration's point (red ◆) on all 12 plots</span>
+</div>
 <p class="cap" style="margin:8px 0 1px;color:#475569"><b>Panel 1 — per-metric subspace:</b>&nbsp; $\nabla\lVert f\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert r\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert J\rVert_F^2$</p>
 <div class="plotrow row3"><div id="p_s27_f" class="plot" style="height:300px"></div><div id="p_s27_r" class="plot" style="height:300px"></div><div id="p_s27_J" class="plot" style="height:300px"></div></div>
 <p class="cap" style="margin:10px 0 1px;color:#475569"><b>Panel 2 — per-metric subspace:</b>&nbsp; $\nabla\lVert\nabla L\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert\dot r\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert\dot J\rVert_F^2$</p>
@@ -3254,7 +3260,8 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   {s27P('p_s27_f','∇‖f‖²  (per-metric)'); s27P('p_s27_r','∇‖r‖²  (per-metric)'); s27P('p_s27_J','∇‖J‖²_F  (per-metric)');
    s27P('p_s27_g','∇‖∇L‖²  (per-metric)'); s27P('p_s27_rd','∇‖ṙ‖²  (per-metric)'); s27P('p_s27_Jd','∇‖J̇‖²_F  (per-metric)');
    s27P('p_s27c_f','∇‖f‖²  (common)'); s27P('p_s27c_r','∇‖r‖²  (common)'); s27P('p_s27c_J','∇‖J‖²_F  (common)');
-   s27P('p_s27c_g','∇‖∇L‖²  (common)'); s27P('p_s27c_rd','∇‖ṙ‖²  (common)'); s27P('p_s27c_Jd','∇‖J̇‖²_F  (common)');}
+   s27P('p_s27c_g','∇‖∇L‖²  (common)'); s27P('p_s27c_rd','∇‖ṙ‖²  (common)'); s27P('p_s27c_Jd','∇‖J̇‖²_F  (common)');
+   {const sl=document.getElementById('s27slider');if(sl){sl.max='0';sl.value='0';}const rd=document.getElementById('s27iterval');if(rd)rd.textContent='iter 0';}}   // reset the §27 highlight slider for the new run
   // §5 SLQ
   const slqT=c=>[{x:[],y:[],mode:'lines',fill:'tozeroy',line:{color:c,width:1.6},fillcolor:c+'22',name:'density'}];
   newP('p_sH',slqT('#2563eb'),slqLayout('SLQ density — function Hessian H'));
@@ -4564,7 +4571,8 @@ function s27P(id,title){
     line:{color:[],colorscale:'Viridis',width:2}};
   const lay={title:{text:title,font:{size:11.5}},margin:{l:0,r:0,t:24,b:0},uirevision:'s27',showlegend:false,
     scene:{xaxis:{title:'PC1'},yaxis:{title:'PC2'},zaxis:{title:'PC3'},aspectmode:'cube',camera:{eye:{x:1.6,y:1.6,z:1.3}}}};
-  Plotly.newPlot(id,[tr],lay,{responsive:false,displaylogo:false});
+  const hi={type:'scatter3d',mode:'markers',x:[],y:[],z:[],marker:{size:9,color:'#dc2626',symbol:'diamond',line:{color:'#111',width:1}},hoverinfo:'skip',showlegend:false};   // slider-controlled iteration highlight (trace 1)
+  Plotly.newPlot(id,[tr,hi],lay,{responsive:false,displaylogo:false});
   window.S27DATA[id]={x:[],y:[],z:[],c:[]};
 }
 function applyG27(pts){
@@ -4578,6 +4586,19 @@ function applyG27(pts){
     }}
   for(const id of touched){const d=D[id];   // full-array restyle ⇒ the Viridis colour range auto-tracks [0, current max t]
     Plotly.restyle(id,{x:[d.x],y:[d.y],z:[d.z],'marker.color':[d.c],'line.color':[d.c]},[0]);}
+  const sl=document.getElementById('s27slider');   // keep the highlight slider's range in sync with the iterations seen
+  if(sl){const cf=(D['p_s27_f']||{c:[]}).c; const mx=cf.length?cf[cf.length-1]:0; if((+sl.max)<mx)sl.max=String(mx);
+    if(!sl._wired){sl._wired=true; sl.oninput=e=>s27Highlight(+e.target.value);}}
+}
+// slider handler: mark the point whose iteration is closest to `iter` on all 12 §27 plots (highlight trace 1)
+function s27Highlight(iter){
+  const D=window.S27DATA||{}; const rd=document.getElementById('s27iterval'); if(rd)rd.textContent='iter '+iter;
+  for(const m of ['f','r','J','g','rd','Jd'])for(const pre of ['p_s27_','p_s27c_']){
+    const id=pre+m, d=D[id], gd=document.getElementById(id);
+    if(!d||!gd||!gd._fullLayout)continue;
+    let bi=-1,bd=Infinity; for(let i=0;i<d.c.length;i++){const dd=Math.abs(d.c[i]-iter); if(dd<bd){bd=dd;bi=i;}}
+    try{if(bi<0)Plotly.restyle(id,{x:[[]],y:[[]],z:[[]]},[1]); else Plotly.restyle(id,{x:[[d.x[bi]]],y:[[d.y[bi]]],z:[[d.z[bi]]]},[1]);}catch(e){}
+  }
 }
 function currentQueryParams(){   // the exact query-style param dict the backend receives (also stored in a browser-saved capture)
   const o={};
