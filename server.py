@@ -3231,6 +3231,8 @@ def run_stream(P):
     s34 = P.get("s34", 0)                # §26: direction-drift |cos(v_i(t),v_i(t−k))| of the top-3 GN/NTK & top-3⊕bottom-3 M_r eigenvectors
     s35 = P.get("s35", 0)                # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag)
     s36 = P.get("s36", 0)                # prediction-3: linear residual theory r_{t+1}=(I−η̃JJᵀ)r_t after the ‖J·ṙ‖−‖J̇·r‖ sign-change (prediction widget)
+    s37 = P.get("s37", 0)                # prediction-4: frozen-M_r Jacobian propagation J_{s+1}=(I+(η/N)M_r)J_s → top-10 NTK eigvals predicted vs actual (prediction widget)
+    p4t0 = max(0, int(P.get("p4t0", 10)))   # prediction-4: iteration t0 at which the function-Hessian Q & residual are frozen
     s30t = max(0, int(P.get("s30t", 0)))      # §22: iteration t at which to freeze the 2nd-order Taylor (θ_t, J_t, Q_t)
     s31r = max(1, int(P.get("s31r", 200)))    # §23: rank R of the random symmetric function Hessian
     s31scale = float(P.get("s31scale", 1.0))  # §23: random-Hessian spectral norm = (real function-Hessian λmax at θ₀)·s31scale
@@ -3310,6 +3312,7 @@ def run_stream(P):
     sec27_prev = None          # §27: previous step's {r, J} for the discrete ṙ/J̇ gradient vectors
     sec27_last_t = None        # §27: last stepped iteration index (for the end-of-run flush of the trailing 50)
     p3_prev_sign = None; p3_tstar = None; p3_Jstar = None; p3_rtheory = None   # prediction-3: (jrd−jdr) sign tracker, sign-change t*, frozen J(t*), linear-theory residual
+    p4_J = None; p4_th0 = None; p4_r0 = None   # prediction-4: frozen J(t0), θ(t0), residual(t0) for the frozen-M_r Jacobian propagation
     sec15_th64 = None          # §15: float64 SHADOW GD trajectory (MLP only). D²=‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖² is a ~9-digit
                                #   catastrophic cancellation when the net is near-stationary (e.g. chebyshev init=0.2: ‖J‖²≈21,
                                #   true D²≈1e-8). The displayed trajectory is float32 (≈7 digits) ⇒ D² is pure roundoff ⇒ divergence%
@@ -3518,7 +3521,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36)) or ((s23 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36) and N <= grid3dcap):   # §15/§19/§20/§21/§24/§25/§26/§27/pred-3 also run for a single sample
+            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37)) or ((s23 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37) and N <= grid3dcap):   # §15/§19/§20/§21/§24/§25/§26/§27/pred-3/pred-4 also run for a single sample
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -3635,6 +3638,24 @@ def run_stream(P):
                     g_pred3.update({"tstar": p3_tstar, "rAct": na3, "rThy": nt3, "cos": cos3})
                     for _ in range(max(1, ee)):   # advance the linear theory ONE GD step per actual step — ee steps between diagnostic ticks (eigevery>1)
                         p3_rtheory = p3_rtheory - (lr / N) * (p3_Jstar @ (p3_Jstar.t() @ p3_rtheory))
+
+            # prediction-4 (s37): frozen-M_r Jacobian propagation. At iteration t0 freeze θ0, J0=J(t0) and the
+            #   residual r0; then propagate J_{s+1} = (I + (η/N)·M_r)·J_s with M_r = Σ_k r0_k Q_k(θ0) frozen
+            #   (matrix-free via hvpS), and compare the top-10 NTK eigenvalues λ(JJᵀ) of the predicted vs actual J.
+            g_pred4 = None
+            if s37 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+                Jm4 = Jc[:M]
+                if p4_J is None and t >= p4t0:                                   # freeze Q & residual at t0
+                    p4_J = Jm4.detach().clone(); p4_th0 = th.detach().clone(); p4_r0 = rr[:M].reshape(N, outD).detach().clone()
+                if p4_J is not None:
+                    K4 = min(10, M)
+                    ka = _safe_eigvalsh(Jm4 @ Jm4.t())                           # actual NTK eigenvalues (ascending)
+                    kp = _safe_eigvalsh(p4_J @ p4_J.t())                         # predicted NTK eigenvalues
+                    g_pred4 = {"t0": p4t0,
+                               "kAct": [max(0.0, float(ka[-1 - i])) for i in range(K4)],   # top-K NTK eigvals, descending (clamp ≥0 for the log axis)
+                               "kPred": [max(0.0, float(kp[-1 - i])) for i in range(K4)]}
+                    MrJ = torch.stack([hvpS(p4_th0, X, p4_J[k], p4_r0) for k in range(M)])   # M_r·J rows (M,p), Q & r frozen at t0
+                    p4_J = p4_J + (lr / max(N, 1)) * MrJ                          # advance predicted J for the NEXT step (frozen M_r)
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None
@@ -4258,6 +4279,7 @@ def run_stream(P):
                 "g26": g26,                                    # §26: eigenvector-direction drift |cos(v_i(t),v_i(t−k))| for GN/NTK/M_r top-3 (+M_r bottom-3)
                 "g27": g27,                                    # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag)
                 "g_pred3": g_pred3,                            # prediction-3: (jrd−jdr) + post-sign-change linear residual theory ‖r‖/cos (prediction widget)
+                "g_pred4": g_pred4,                            # prediction-4: top-10 NTK eigenvalues — frozen-M_r Jacobian propagation predicted vs actual (prediction widget)
                 "sps": (t - start + 1) / max(time.time() - t0, 1e-9),
             }
 
@@ -4871,6 +4893,8 @@ def _parse_params(q):
         "s34": g("s34", "0") == "1",     # §26: eigenvector-direction drift |cos(v_i(t),v_i(t−k))| of top-3 GN/NTK & top-3⊕bottom-3 M_r eigvecs
         "s35": g("s35", "0") == "1",     # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag)
         "s36": g("s36", "0") == "1",     # prediction-3: linear residual theory after the ‖J·ṙ‖−‖J̇·r‖ sign-change (prediction widget)
+        "s37": g("s37", "0") == "1",     # prediction-4: frozen-M_r Jacobian propagation NTK-eigenvalue prediction (prediction widget)
+        "p4t0": fi("p4t0", 10),          # prediction-4: iteration t0 at which Q & residual are frozen
         "s30t": max(0, fi("s30t", 0)),   # §22: freeze iteration t
         "s31r": max(1, fi("s31r", 200)), # §23: rank R of the random function Hessian
         "s31scale": ff("s31scale", 1.0), # §23: random-Hessian spectral-norm scale (× real fn-Hessian λmax)
