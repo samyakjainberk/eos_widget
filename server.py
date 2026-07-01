@@ -2416,6 +2416,76 @@ def cubic_step(ctx, st, th, X, Y, t, J, out, rr, bEk_vals, shH):
     return rec
 
 
+def cubic_self_init_state():
+    """Fresh per-run state for the SELF-RESIDUAL cubic (prediction-widget plot 4) — §10's cubic state plus
+    the frozen output f₀ and the self-trajectory Δθ, so the propagation is driven by the frozen-quadratic
+    self-residual r_q (as in §9d) instead of the live run's residual."""
+    s = cubic_init_state()
+    s["F0"] = None; s["Dth"] = None
+    return s
+
+
+def cubic_self_step(ctx, st, th, X, Y, t, rr, bEk_vals):
+    """Eq-51 cubic σ₁ prediction (MULTI) driven by the frozen-quadratic SELF-residual r_q instead of the
+    live residual: §10's cubic J/Q/T propagation fused with §9d's Δθ self-trajectory. Returns {c51d, c51dp}.
+    r_q = Y − (f₀ + J₀·Δθ + ½·Q₀[Δθ]·Δθ);  g = J_t·r_q drives BOTH the cubic ΔJ and Δθ += (η/N)g.
+    The actuals for plot 4 are the live run's cActN/cActH (reused from cubic_step). MIRRORS eos_lab cubic_self_step."""
+    N, p, M = ctx["N"], ctx["p"], ctx["M"]
+    lr, ee, cubW, cn = ctx["lr"], ctx["ee"], ctx["cubicapprox"], ctx["cn"]
+    multi, multi_ok = ctx["multi"], ctx["multi_ok"]
+    etaN = lr / max(N, 1); reps_ = max(1, ee); eps = 1e-2
+    dev, dt = _dev(), DTYPE
+    rec = {}
+    if not (multi and multi_ok):
+        return rec
+    th0 = st["Th0"]
+
+    def T2m(a, b):                                  # multi: T[a,b]={∇³f_c(θ₀)[a,b]}_c (M,p) via central diff of Q[b]
+        an = float(a.norm())
+        if an < 1e-30:
+            return torch.zeros(M, p, dtype=dt, device=dev)
+        ah = a / an
+        return an * (jac_hvp(th0 + eps * ah, X, b) - jac_hvp(th0 - eps * ah, X, b)) / (2 * eps)
+
+    if st["T0"] < 0 or (t - st["T0"]) >= cubW:      # window start: freeze θ₀, J₀, Q-probes; reset accumulators + Δθ
+        st["T0"] = t; st["Th0"] = th.clone(); th0 = st["Th0"]
+        st["Z"] = [_randn_vec(p, (0xCB1C + i * 0x9E3779B1) & 0xFFFFFFFF) for i in range(cn)]
+        J0, _ = jac_cols(th0, X)
+        st["J0"] = J0; st["J"] = J0.clone(); st["HistG"] = []
+        st["Base"] = float(bEk_vals[0]) if bEk_vals is not None else float(_safe_eigvalsh(J0 @ J0.t())[-1])
+        st["Q0z"] = [jac_hvp(th0, X, z) for z in st["Z"]]
+        st["dQz"] = [torch.zeros(M, p, dtype=dt, device=dev) for _ in st["Z"]]
+        st["A51"] = st["P51"] = 0.0
+        st["F0"] = (Y.reshape(-1) - rr).clone()                     # f₀ = frozen output at the window start
+        st["Dth"] = torch.zeros(p, dtype=dt, device=dev)            # Δθ self-trajectory (starts at 0 ⇒ r_q = live r)
+    if st["J"] is None or st["F0"] is None:
+        return rec
+    actN = float(bEk_vals[0]); cap = 10.0 * max(actN, 1e-30)
+    clmp = lambda x: min(max(x, 0.0), cap)
+    rec["c51d"] = clmp(st["Base"] + st["A51"]) / N                  # predicted σ₁ THROUGH the previous step (pre-update, matches c51 ordering)
+    rec["c51dp"] = clmp(st["Base"] + st["A51"] + st["P51"]) / N     # + PSD term Σ‖ΔJᵀu₁‖²
+    for _ in range(reps_):
+        dth = st["Dth"]
+        HzD = jac_hvp(th0, X, dth)                                  # Q₀[Δθ] (M,p)
+        r_q = Y.reshape(-1) - (st["F0"] + st["J0"] @ dth + 0.5 * (HzD @ dth))   # frozen-quadratic self-residual
+        Jc = st["J"]; Kc, Vc = sym_eig_desc(Jc @ Jc.t())
+        u1 = pin_sign(Vc[:, 0]); sg = math.sqrt(max(float(Kc[0]), 1e-30))
+        v1 = Jc.t() @ u1; v1 = v1 / max(float(v1.norm()), 1e-30)
+        g = Jc.t() @ r_q                                           # self-residual gradient (propagated J)
+        Qg = jac_hvp(th0, X, g)
+        for gk in st["HistG"]:
+            Qg = Qg + etaN * T2m(gk, g)                            # propagated Q_t[g] via the g-history + T
+        Tgg = T2m(g, g)
+        Qgu = (u1.unsqueeze(1) * Qg).sum(0); Tggu = (u1.unsqueeze(1) * Tgg).sum(0)
+        dJ = etaN * Qg + 0.5 * (etaN ** 2) * Tgg                    # ΔJ = (η/N)Q_t[g] + ½(η/N)²T[g,g]
+        dJu = dJ.t() @ u1
+        st["A51"] += 2 * etaN * sg * float(v1 @ Qgu) + (etaN ** 2) * sg * float(v1 @ Tggu)
+        st["P51"] += float(dJu @ dJu)
+        st["HistG"].append(g); st["J"] = Jc + dJ
+        st["Dth"] = dth + etaN * g                                 # advance Δθ (self-GD, Eq-15) ⇒ r_q evolves
+    return rec
+
+
 def sur_T2(th0, X, a, eps=1e-2):
     """T₀[a,a] = ∇³f(θ₀)[a,a] (M,p) — the frozen 3rd-derivative contracted twice with `a`, via a central
     difference of jac_hvp in the unit `a` direction. Used by the CUBIC surrogate's forward f₀+J₀Δθ+½ΔθᵀQΔθ
@@ -3269,6 +3339,7 @@ def run_stream(P):
     cubCtx = {"N": N, "p": p, "M": M, "lr": lr, "ee": ee, "cubicapprox": max(1, P.get("cubicapprox", 10)),
               "cn": max(1, min(nProbe, 4)), "multi": multi, "multi_ok": multi_ok}
     cubSt = cubic_init_state()
+    cubSelfSt = cubic_self_init_state()   # prediction-widget plot 4: Eq-51 cubic driven by the frozen-quadratic self-residual
 
     # ── §16: standalone curvature-aligned optimizer (own iteration axis i). Runs from θ₀ in float64, streams g16 records,
     #    then the normal GD loop below proceeds. Independent of the GD θ. MULTI-OUTPUT: the effective samples are the
@@ -3827,6 +3898,8 @@ def run_stream(P):
 
             # ---- §10 CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation) ----
             cub = cubic_step(cubCtx, cubSt, th, X, Y, t, J, out, rr, bEk_vals, thAH) if s17 else {}
+            if s17:
+                cub.update(cubic_self_step(cubCtx, cubSelfSt, th, X, Y, t, rr, bEk_vals))   # plot 4: c51d/c51dp (self-residual cubic; actuals reuse cActN/cActH)
 
             # ---- §11 3D grids T1=JᵢᵀQⱼJₖ, T2=uⱼuₖT1, T3=rᵢuⱼuₖT1 (multi-sample, small M, SLQ cadence) ----
             g3d = None
@@ -4808,6 +4881,8 @@ class Handler(BaseHTTPRequestHandler):
             self._sse(parse_qs(u.query))
         elif u.path == "/captures":
             self._captures()
+        elif u.path in ("/prediction", "/prediction/"):
+            self._static("/eos_widget_prediction/index_prediction.html")   # EoS prediction-demo widget (§1/2/3 + §21 p1/p2 + 4-plot forecast panel)
         else:
             self._static(u.path)
 
