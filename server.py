@@ -3692,35 +3692,35 @@ def run_stream(P):
                         v = _randn_vec(p, (0x7EAC5 + kp * 0x9E3779B1) & 0xFFFFFFFF).sign()
                         thut += float(v @ ((gradL(th + 1e-3 * v, X, Y)[0] - gradL(th - 1e-3 * v, X, Y)[0]) / (2e-3)))
                     trHess = thut / 8.0
-                    out = []
-                    for d in tr5["traj"]:
-                        Jc5 = d["J"]
-                        out.append([float((Jc5 * Jc5).sum()) / N,                  # predicted Tr(NTK) WITH PSD = ‖J‖²_F ÷N (current J, at the tick)
-                                    (tr5["tr0"] + d["trNo"]) / N])                 # ... WITHOUT PSD (drop the per-step ‖ΔJ‖²)
+                    tr_out = []                                                    # renamed from `out` — must NOT shadow the live model outputs (feeds cubic_step)
+                    for dtr in tr5["traj"]:
+                        Jc5 = dtr["J"]
+                        tr_out.append([float((Jc5 * Jc5).sum()) / N,               # predicted Tr(NTK) WITH PSD = ‖J‖²_F ÷N (current J, at the tick)
+                                    (tr5["tr0"] + dtr["trNo"]) / N])              # ... WITHOUT PSD (drop the per-step ‖ΔJ‖²)
                         for _ in range(max(1, ee)):                               # advance ee GD steps to the next diagnostic tick
-                            J = d["J"]
-                            if not torch.isfinite(J).all():                        # diverged ⇒ stop advancing this trajectory
+                            Jtr = dtr["J"]                                         # renamed from `J` — must NOT shadow the live Jacobian (feeds cubic_step)
+                            if not torch.isfinite(Jtr).all():                      # diverged ⇒ stop advancing this trajectory
                                 break
-                            if d["self"]:
-                                dth = d["Dth"]; HzD = jac_hvp(th0, X, dth)[:M]
+                            if dtr["self"]:
+                                dth = dtr["Dth"]; HzD = jac_hvp(th0, X, dth)[:M]
                                 r = Yf5 - (f0 + J0 @ dth + 0.5 * (HzD @ dth))       # quadratic-model self-residual
                             else:
                                 r = rr[:M]                                         # live-run residual
-                            g = J.t() @ r
+                            g = Jtr.t() @ r
                             Qg = jac_hvp(th0, X, g)[:M]
-                            if d["cubic"]:
-                                for gk in d["HistG"]:
+                            if dtr["cubic"]:
+                                for gk in dtr["HistG"]:
                                     Qg = Qg + etaN5 * _T2m5(gk, g)                  # Q_t propagated (Eq-3 history)
                                 dJ = etaN5 * Qg + 0.5 * (etaN5 ** 2) * _T2m5(g, g)  # ΔJ = (η/N)Q_t[g] + ½(η/N)²T[g,g]
                             else:
                                 dJ = etaN5 * Qg                                     # quadratic: T=0, Q frozen ⇒ ΔJ=(η/N)Q0[g]
-                            d["trNo"] += 2.0 * float((J * dJ).sum()); d["J"] = J + dJ
-                            if d["cubic"]:
-                                d["HistG"].append(g)
-                            if d["self"]:
-                                d["Dth"] = dth + etaN5 * g
+                            dtr["trNo"] += 2.0 * float((Jtr * dJ).sum()); dtr["J"] = Jtr + dJ
+                            if dtr["cubic"]:
+                                dtr["HistG"].append(g)
+                            if dtr["self"]:
+                                dtr["Dth"] = dth + etaN5 * g
                     g_trace = {"t0": p5t0, "trGN": trGN, "trHess": trHess,
-                               "qLive": out[0], "qSelf": out[1], "cLive": out[2], "cSelf": out[3]}
+                               "qLive": tr_out[0], "qSelf": tr_out[1], "cLive": tr_out[2], "cSelf": tr_out[3]}
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None
