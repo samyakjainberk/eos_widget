@@ -167,6 +167,7 @@ def sec25_payload(model, loss, Jc, rr, th, X, Y, lr, N, outD, hist, t, is_mlp=No
             if not r0hist: r0hist.append(rc.clone())                 # capture r_0 once
             r0 = r0hist[0]; n0 = float(r0.norm())
             g25["cosR0"] = (float(rc @ r0) / (nrc * n0)) if (nrc > 1e-30 and n0 > 1e-30) else None
+        g25["rnorm"] = float(r25.reshape(N, outD).norm(dim=1).mean())   # ⟨‖r_i‖⟩_i: average over samples of the per-sample residual norm
         rhist.append({"t": t, "r": rc})
         if len(rhist) > 101:
             rhist.pop(0)

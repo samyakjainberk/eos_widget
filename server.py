@@ -3398,6 +3398,7 @@ def run_stream(P):
                     sec25_r0hist.append(rc25.clone())                    # capture the initial residual r_0 once
                 r0_25 = sec25_r0hist[0]; n0_25 = float(r0_25.norm())
                 g25["cosR0"] = (float(rc25 @ r0_25) / (nrc25 * n0_25)) if (nrc25 > 1e-30 and n0_25 > 1e-30) else None   # cos(r_t, r_0): cumulative rotation from the start
+                g25["rnorm"] = float(r25.reshape(N, outD).norm(dim=1).mean())   # ⟨‖r_i‖⟩_i: average over samples of the per-sample residual norm (magnitude evolution)
                 sec25_rhist.append({"t": t, "r": rc25})
                 if len(sec25_rhist) > 101:                                # hold ≥100 ticks back for the lag-100 line
                     sec25_rhist.pop(0)
