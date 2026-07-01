@@ -4663,9 +4663,10 @@ window.addEventListener('load',()=>{try{
 // ★ prediction-1 & 2 sweep: stream (lr,std) pairs from /run?mode=sweep and scatter them live
 let SWEEP_ES=null, SWEEP_N=0, SWEEP_STEPS=100;
 const SW1={x:[],y:[],text:[],col:[]}, SW2={x:[],y:[]};
-function sweepPearson(){const x=SW2.x,y=SW2.y,n=x.length;if(n<2)return NaN;
-  let mx=0,my=0;for(let i=0;i<n;i++){mx+=x[i];my+=y[i];}mx/=n;my/=n;
-  let sxy=0,sx=0,sy=0;for(let i=0;i<n;i++){const dx=x[i]-mx,dy=y[i]-my;sxy+=dx*dy;sx+=dx*dx;sy+=dy*dy;}
+function sweepPearson(){const xs=[],ys=[];for(let i=0;i<SW2.x.length;i++){if(isFinite(SW2.x[i])&&isFinite(SW2.y[i])){xs.push(SW2.x[i]);ys.push(SW2.y[i]);}}
+  const n=xs.length;if(n<2)return NaN;   // skip diverged/non-finite pairs so one bad point can't poison r
+  let mx=0,my=0;for(let i=0;i<n;i++){mx+=xs[i];my+=ys[i];}mx/=n;my/=n;
+  let sxy=0,sx=0,sy=0;for(let i=0;i<n;i++){const dx=xs[i]-mx,dy=ys[i]-my;sxy+=dx*dy;sx+=dx*dx;sy+=dy*dy;}
   return (sx>0&&sy>0)?sxy/Math.sqrt(sx*sy):NaN;}
 function addSweepPt(m){
   SW1.x.push(m.tPred);SW1.y.push(m.tAct);

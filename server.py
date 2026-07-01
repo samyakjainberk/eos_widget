@@ -3618,7 +3618,7 @@ def run_stream(P):
             # prediction-3 (s36): after (jrd−jdr)=‖J·ṙ‖−‖J̇·r‖ first changes sign at t*, freeze J*=J(t*) and
             #   compare the ACTUAL residual with the frozen-J linear NTK theory r_{k+1}=(I−(η/N)J*J*ᵀ)r_k from r(t*).
             g_pred3 = None
-            if s36 and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+            if s36 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 Jm3 = Jc[:M]; rm3 = rr[:M]
                 gL3 = gradL(th, X, Y)[0]
                 jrd3 = float((Jm3.t() @ (Jm3 @ gL3)).norm())                    # ‖J·ṙ‖ = ‖JᵀJ∇L‖
@@ -3633,7 +3633,8 @@ def run_stream(P):
                     na3 = float(rm3.norm()); nt3 = float(p3_rtheory.norm())
                     cos3 = (float(rm3 @ p3_rtheory) / (na3 * nt3)) if (na3 > 1e-30 and nt3 > 1e-30) else None
                     g_pred3.update({"tstar": p3_tstar, "rAct": na3, "rThy": nt3, "cos": cos3})
-                    p3_rtheory = p3_rtheory - (lr / N) * (p3_Jstar @ (p3_Jstar.t() @ p3_rtheory))   # advance the linear theory for the NEXT step
+                    for _ in range(max(1, ee)):   # advance the linear theory ONE GD step per actual step — ee steps between diagnostic ticks (eigevery>1)
+                        p3_rtheory = p3_rtheory - (lr / N) * (p3_Jstar @ (p3_Jstar.t() @ p3_rtheory))
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None
@@ -5016,23 +5017,33 @@ def run_sweep(P):
         lr = _math.exp(rng.uniform(_math.log(lrmin), _math.log(lrmax)))
         std = _math.exp(rng.uniform(_math.log(stdmin), _math.log(stdmax)))
         th = _TL.model.init_theta(seed0 + 1, std)
-        diffs = []; losses = []; th_at_T = None
+        diffs = []; losses = []; th_at_T = None; diverged = False
         for t in range(steps):
-            Jc, out = jac_cols(th, X); Jm = Jc[:M]
+            out = _TL.model.forward(th, X)
+            lv = float(_TL.loss.value(out, Y, N))
+            if not (lv < 1e12):                       # NaN or blow-up ⇒ stop this pair, keep only the finite history
+                diverged = True; break
+            Jc, _ = jac_cols(th, X); Jm = Jc[:M]
             cS = _TL.loss.resid_cotangent(out.reshape(N, outD), Y, N)
             rr = (-N * cS).reshape(-1)[:M]
             gL = gradL(th, X, Y)[0]
             jrd = float((Jm.t() @ (Jm @ gL)).norm())
             jdr = float(hvpS(th, X, gL, rr.reshape(N, outD)).norm())
-            diffs.append(jrd - jdr); losses.append(float(_TL.loss.value(out, Y, N)))
+            diffs.append(jrd - jdr); losses.append(lv)
             if t == Tstart:
                 th_at_T = th.detach().clone()
             th = th - lr * gL
         tAct, censA = _first_signchange(diffs, steps)
-        tPredRel, censP = _pred_signchange(th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart)
+        if th_at_T is not None:                       # predict only if θ(Tstart) was reached before any divergence
+            tPredRel, censP = _pred_signchange(th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart)
+            tPred = tPredRel + Tstart
+        else:
+            tPred, censP = steps, True
+        curv = _fit_quad_coeff(losses)                 # fitted on the finite prefix only
         yield {"type": "sweeppt", "i": pi, "lr": float(lr), "std": float(std),
-               "tAct": tAct, "censA": censA, "tPred": tPredRel + Tstart, "censP": censP,
-               "startDiff": (diffs[0] if diffs else 0.0), "curv": _fit_quad_coeff(losses)}
+               "tAct": tAct, "censA": censA or diverged, "tPred": tPred, "censP": censP,
+               "startDiff": (diffs[0] if diffs else 0.0),
+               "curv": (curv if curv == curv else 0.0), "diverged": diverged}
     yield {"type": "done"}
 
 
