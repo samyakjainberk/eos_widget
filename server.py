@@ -1768,19 +1768,25 @@ SEC26_SEED = SEC20_SEED   # §26 reuses §20's M_r Lanczos start ⇒ identical M
 
 def _sec26_eigvecs(Jc, rr, th, X, N, outD, mr_hvp=None):
     """§26: the eigenVECTORS whose across-training direction-drift is tracked. Returns a dict with keys
-    'gn','ntk','mrTop','mrBot' — each a list of 3 unit vectors (or zero for a null/spurious direction):
+    'gn','ntk','mrTop','mrBot' — each a list of 3 unit vectors (or zero for a null/negligible direction):
       gn[i]    = i-th TOP eigenvector of the Gauss-Newton G=JᵀJ (p-dim) = i-th right-singular vector of J = normalize(Jᵀ g_i)
       ntk[i]   = i-th TOP eigenvector of the NTK = JJᵀ (M-dim) = g_i, the i-th left-singular vector of J
       mrTop[i] = i-th TOP eigenvector of M_r=Σ_k r_kQ_k (p-dim);  mrBot[i] = i-th BOTTOM eigenvector (bot[0]=most negative)
-    GN/NTK share ONE eigendecomposition of the M×M NTK (cheap); M_r top⊕bottom via matrix-free Lanczos on hvpS
-    (SAME q0/basis as §20 ⇒ identical eigvecs). All drifts downstream use |cos| so the arbitrary eigvec signs are
-    gauge-free. MIRRORS eos_lab.sec26.sec26_eigvecs."""
+    GN/NTK share ONE eigendecomposition of the M×M NTK (cheap). M_r top⊕bottom via a matrix-free Lanczos on hvpS,
+    started from the SAME §20 mulberry32 q0 (SEC26_SEED=SEC20_SEED); the eigvecs converge to §20's (subspace dim
+    min(p,64) here vs §20's min(p,5·K), so the same operator/start but not byte-identical intermediates).
+    An M_r eigenvector is emitted as NULL (→ its drift is None, a gap) when |λ_i(M_r)| ≤ 1e-6·λ_max(NTK): as the
+    residual r→0 (loss converges) M_r=Σr_kQ_k→0, so its eigen-DIRECTIONS become ill-defined (pure noise in fp32) —
+    we blank them rather than plot noise. All drifts downstream use |cos| so eigvec signs are gauge-free.
+    Drift lags {1,2,3,5,10} are in DIAGNOSTIC-TICK units (= GD steps only when eigevery=1, the intended setting).
+    MIRRORS eos_lab.sec26.sec26_eigvecs."""
     M = N * outD
     Jg = Jc[:M]; r = rr[:M]; p = Jg.shape[1]; rc = r.reshape(N, outD); dtv = Jg.dtype
     zP = torch.zeros(p, dtype=dtv, device=_dev()); zM = torch.zeros(M, dtype=dtv, device=_dev())
     # --- NTK (M×M) and GN (p×p) top-3 from ONE eigendecomposition of the NTK ---
     Kc, Vc = sym_eig_desc(Jg @ Jg.t())                     # NTK eigvecs (columns, descending σ²); Kc = σ_k²
-    ntol = 1e-9 * max(float(Kc[0]) if int(Kc.numel()) > 0 else 0.0, 1e-30)   # null-direction cutoff
+    ntop = float(Kc[0]) if int(Kc.numel()) > 0 else 0.0
+    ntol = 1e-9 * max(ntop, 1e-30)                         # null-direction cutoff (GN/NTK)
     ntk, gn = [], []
     for kk in range(3):
         if kk < M and float(Kc[kk]) > ntol:
@@ -1789,17 +1795,21 @@ def _sec26_eigvecs(Jc, rr, th, X, N, outD, mr_hvp=None):
             ntk.append(gk); gn.append(uk / nu if nu > 1e-30 else zP.clone())
         else:
             ntk.append(zM.clone()); gn.append(zP.clone())
-    # --- M_r=Σ_k r_kQ_k top-3 ⊕ bottom-3 via matrix-free Lanczos on hvpS (identical start to §20) ---
+    # --- M_r=Σ_k r_kQ_k top-3 ⊕ bottom-3 via matrix-free Lanczos on hvpS (same §20 start) ---
     Klan = 3; mlan = min(p, max(5 * Klan, 64))
     q0 = _randvec16(p, SEC26_SEED)
     mhvp = mr_hvp if mr_hvp is not None else (lambda v: hvpS(th, X, v, rc))
     Q, T, k = _lanczos_core(mhvp, p, mlan, 0, dt=dtv, q0=q0)
     mu, Sv = _safe_eigh(T); desc = torch.argsort(mu, descending=True); Qmat = torch.stack(Q)
-    def ritz(pos):                                         # unit Ritz vector for the pos-th (descending) eigenvalue
-        v = Sv[:, int(desc[pos])].to(device=_dev(), dtype=dtv) @ Qmat; nv = float(v.norm())
+    mtol = 1e-6 * max(ntop, 1e-30)                         # blank M_r eigvecs with |λ| below this: M_r≈0 (r→0) ⇒ direction is noise
+    def ritz(pos):                                         # unit Ritz vector for desc[pos]; null if that M_r eigenvalue is negligible
+        ix = int(desc[pos])
+        if abs(float(mu[ix])) <= mtol: return zP.clone()
+        v = Sv[:, ix].to(device=_dev(), dtype=dtv) @ Qmat; nv = float(v.norm())
         return v / nv if nv > 1e-30 else zP.clone()
-    mrTop = [ritz(i) for i in range(min(3, k))]            # desc[0..2]  = 3 largest eigenvalues
-    mrBot = [ritz(k - 1 - i) for i in range(min(3, k))]    # desc[k-1..] = 3 smallest (bot[0]=most negative)
+    kt = min(3, k)
+    mrTop = [ritz(i) for i in range(kt)]                             # desc[0..] = largest eigenvalues
+    mrBot = [ritz(k - 1 - i) for i in range(3) if (k - 1 - i) >= kt]  # desc[k-1..] = most-negative first, DISTINCT from the top-kt (no double-count when k<6)
     while len(mrTop) < 3: mrTop.append(zP.clone())
     while len(mrBot) < 3: mrBot.append(zP.clone())
     return {"gn": gn, "ntk": ntk, "mrTop": mrTop, "mrBot": mrBot}
