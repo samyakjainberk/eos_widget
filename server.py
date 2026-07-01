@@ -4830,6 +4830,9 @@ def _parse_params(q):
         "cvar": ff("cvar", 0.0),         # const dataset: variance of Gaussian noise added to the constant target (0 ⇒ exact constant)
         "initscheme": g("initscheme", "default"),
         "surrogate": g("surrogate", "quad"), "mode": g("mode", "run"),
+        "swpairs": fi("swpairs", 12), "swK": fi("swK", 20), "swTstart": fi("swTstart", 0),   # prediction-widget sweep (Sections 1&2)
+        "swlrmin": ff("swlrmin", 0.0), "swlrmax": ff("swlrmax", 0.0),   # 0 ⇒ auto range (base lr ×[1/4,4])
+        "swstdmin": ff("swstdmin", 0.0), "swstdmax": ff("swstdmax", 0.0),
         "s1": g("s1", "1") == "1", "s2": g("s2", "1") == "1", "s3": g("s3", "1") == "1",
         "s4": g("s4", "1") == "1", "s5": g("s5", "1") == "1", "s6": g("s6", "1") == "1",
         "s7": g("s7", "1") == "1", "s8": g("s8", "1") == "1", "s9": g("s9", "1") == "1",
@@ -4894,6 +4897,143 @@ def _sanitize(o):
     if isinstance(o, dict):
         return {k: _sanitize(v) for k, v in o.items()}
     return o
+
+
+# ===================== prediction-widget sweep (Sections 1 & 2) =====================
+def _first_signchange(diffs, cap):
+    """First index where the sign of `diffs` flips (skipping exact 0s). Returns (t, censored):
+    (t, False) if it flips within the run, else (cap, True)."""
+    prev = None
+    for i, d in enumerate(diffs):
+        s = 1 if d > 0 else (-1 if d < 0 else 0)
+        if s == 0:
+            continue
+        if prev is not None and s != prev:
+            return i, False
+        prev = s
+    return cap, True
+
+
+def _fit_quad_coeff(ys):
+    """Curvature = the t² coefficient a of the least-squares fit loss(t) ≈ a·t² + b·t + c."""
+    import numpy as _np
+    n = len(ys)
+    if n < 3:
+        return 0.0
+    a = _np.polyfit(_np.arange(n, dtype=_np.float64), _np.asarray(ys, dtype=_np.float64), 2)[0]
+    return float(a)
+
+
+def _pred_signchange(th_start, X, Y, N, outD, p, lr, K, max_steps):
+    """PREDICTED first sign-change of d = ‖J·ṙ‖−‖J̇·r‖ along the cubic Eq-51 (§10) trajectory from th_start,
+    with the quadratic model refrozen every K steps. Returns (t, censored). The residual is the frozen-quad
+    self-residual r_q (like §9d / cubic_self); jrd/jdr use the cubic-propagated J and r_q with Q frozen at
+    the current anchor. Sign only ⇒ ∇L magnitude is irrelevant."""
+    etaN = lr / max(N, 1); M = N * outD; eps = 1e-2; dev, dt = _dev(), DTYPE
+    Yf = Y.reshape(-1)[:M]
+
+    def T2m(th0, a, b):                                    # multi 3rd-derivative T[a,b] via central diff of Q[b]
+        an = float(a.norm())
+        if an < 1e-30:
+            return torch.zeros(M, p, dtype=dt, device=dev)
+        ah = a / an
+        return an * (jac_hvp(th0 + eps * ah, X, b)[:M] - jac_hvp(th0 - eps * ah, X, b)[:M]) / (2 * eps)
+
+    def anchor(thc):                                      # (re)freeze the quadratic model at thc
+        J0, _ = jac_cols(thc, X)
+        f0 = _TL.model.forward(thc, X).reshape(-1)[:M]
+        return {"th0": thc.clone(), "J0": J0[:M].clone(), "f0": f0.clone(),
+                "J": J0[:M].clone(), "Dth": torch.zeros(p, dtype=dt, device=dev), "HistG": []}
+
+    st = anchor(th_start); prev = None
+    for s in range(max_steps):
+        if s > 0 and s % K == 0:                          # refreeze every K steps at the current predicted θ
+            st = anchor(st["th0"] + st["Dth"])
+        th0 = st["th0"]; Jc = st["J"]; dth = st["Dth"]
+        HzD = jac_hvp(th0, X, dth)[:M]
+        r_q = Yf - (st["f0"] + st["J0"] @ dth + 0.5 * (HzD @ dth))    # frozen-quad self-residual
+        gL = -(1.0 / N) * (Jc.t() @ r_q)                  # predicted ∇L (MSE)
+        jrd = float((Jc.t() @ (Jc @ gL)).norm())          # ‖J·ṙ‖ = ‖JᵀJ∇L‖
+        jdr = float(hvpS(th0, X, gL, r_q.reshape(N, outD)).norm())    # ‖J̇·r‖ = ‖M_r∇L‖ (Q frozen at th0, weighted by r_q)
+        d = jrd - jdr; sg = (1 if d > 0 else (-1 if d < 0 else 0))
+        if prev is not None and sg != 0 and sg != prev:
+            return s, False
+        if sg != 0:
+            prev = sg
+        g = Jc.t() @ r_q                                  # advance the cubic-self trajectory (Eq-51)
+        Qg = jac_hvp(th0, X, g)[:M]
+        for gk in st["HistG"]:
+            Qg = Qg + etaN * T2m(th0, gk, g)
+        dJ = etaN * Qg + 0.5 * (etaN ** 2) * T2m(th0, g, g)
+        st["HistG"].append(g); st["J"] = Jc + dJ
+        st["Dth"] = dth + etaN * g
+    return max_steps, True
+
+
+def run_sweep(P):
+    """Prediction-widget Sections 1 & 2 — sweep N random (lr, init-std) pairs (log-uniform in the ranges).
+    Per pair a light full-batch GD run tracks d = ‖J·ṙ‖−‖J̇·r‖ = jrd−jdr (§25) + the loss, and yields:
+      tAct  = first step d changes sign (censored at `steps` if none),
+      tPred = the same sign-change PREDICTED from θ(Tstart) via cubic Eq-51 (§10) with the quad model
+              refrozen every K steps (censored),
+      startDiff = d at step 0,  curv = the t² coefficient of the fit loss(t)≈a t²+b t+c.
+    Streams one point per pair on the fly (may be slow; the page plots as they arrive). Prediction widget only."""
+    dataset = P.get("dataset", "synthetic"); arch = P.get("arch", "mlp")
+    if dataset in ("chebyshev", "chebyshev2"):
+        inD = outD = 1
+    elif dataset in ("cifar2", "mnist2"):
+        inD, outD = 3072, 1
+    elif dataset in ("cifar10", "cifar_mlp", "cifar_cnn", "cifar_vgg", "mnist", "mnist_mlp"):
+        inD, outD = 3072, 10
+    else:
+        inD, outD = int(P.get("indim", 10)), int(P.get("outdim", 1))
+    _TL.model = build_model(arch, inD, outD, P)
+    _TL.loss = build_loss(P.get("loss", "mse"))
+    if _TL.loss.name != "mse":
+        yield {"type": "meta", "error": "sweep needs MSE loss (the ‖J·ṙ‖−‖J̇·r‖ theory is for squared loss)."}
+        return
+    p = _TL.model.p; N = int(P["nsamp"]); M = N * outD
+    if M > 400 or M * p > 200_000_000:
+        yield {"type": "meta", "error": f"sweep too large (M={M}, p={p}); use a small MLP + small nsamp."}
+        return
+    steps = max(5, int(P.get("steps", 200)))
+    npairs = max(1, min(200, int(P.get("swpairs", 12))))
+    K = max(1, int(P.get("swK", 20)))
+    Tstart = max(0, min(steps - 2, int(P.get("swTstart", 0))))
+    seed0 = int(P.get("seed", 0))
+    base_lr = float(P.get("lr", 0.1)); base_std = float(P.get("init", 0.5))
+    _lrmn = float(P.get("swlrmin", 0) or 0); _lrmx = float(P.get("swlrmax", 0) or 0)          # 0 ⇒ auto (base±4×)
+    _stmn = float(P.get("swstdmin", 0) or 0); _stmx = float(P.get("swstdmax", 0) or 0)
+    lrmin = _lrmn if _lrmn > 0 else base_lr / 4; lrmax = _lrmx if _lrmx > 0 else base_lr * 4
+    stdmin = _stmn if _stmn > 0 else base_std / 4; stdmax = _stmx if _stmx > 0 else base_std * 4
+    lrmin = max(1e-6, lrmin); lrmax = max(lrmin * 1.01, lrmax); stdmin = max(1e-6, stdmin); stdmax = max(stdmin * 1.01, stdmax)
+    _, X, Y, _, _ = init_data_theta(P, dataset, N, inD, outD)
+    yield {"type": "meta", "npairs": npairs, "steps": steps, "K": K, "Tstart": Tstart, "p": p, "N": N, "M": M,
+           "lrRange": [lrmin, lrmax], "stdRange": [stdmin, stdmax]}
+    import math as _math
+    rng = __import__("random").Random(seed0 or 1)         # deterministic log-uniform (lr, std) pairs
+    for pi in range(npairs):
+        lr = _math.exp(rng.uniform(_math.log(lrmin), _math.log(lrmax)))
+        std = _math.exp(rng.uniform(_math.log(stdmin), _math.log(stdmax)))
+        th = _TL.model.init_theta(seed0 + 1, std)
+        diffs = []; losses = []; th_at_T = None
+        for t in range(steps):
+            Jc, out = jac_cols(th, X); Jm = Jc[:M]
+            cS = _TL.loss.resid_cotangent(out.reshape(N, outD), Y, N)
+            rr = (-N * cS).reshape(-1)[:M]
+            gL = gradL(th, X, Y)[0]
+            jrd = float((Jm.t() @ (Jm @ gL)).norm())
+            jdr = float(hvpS(th, X, gL, rr.reshape(N, outD)).norm())
+            diffs.append(jrd - jdr); losses.append(float(_TL.loss.value(out, Y, N)))
+            if t == Tstart:
+                th_at_T = th.detach().clone()
+            th = th - lr * gL
+        tAct, censA = _first_signchange(diffs, steps)
+        tPredRel, censP = _pred_signchange(th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart)
+        yield {"type": "sweeppt", "i": pi, "lr": float(lr), "std": float(std),
+               "tAct": tAct, "censA": censA, "tPred": tPredRel + Tstart, "censP": censP,
+               "startDiff": (diffs[0] if diffs else 0.0), "curv": _fit_quad_coeff(losses)}
+    yield {"type": "done"}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -4976,7 +5116,8 @@ class Handler(BaseHTTPRequestHandler):
         if dev.type == "cuda":
             torch.cuda.set_device(dev)
         P["_token"] = tok
-        gen = run_surrogate_compare(P) if P.get("mode") == "surrogate" else run_stream(P)
+        _mode = P.get("mode")
+        gen = run_sweep(P) if _mode == "sweep" else (run_surrogate_compare(P) if _mode == "surrogate" else run_stream(P))
         try:
             for msg in gen:
                 payload = "data: " + json.dumps(_sanitize(msg)) + "\n\n"

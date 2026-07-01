@@ -306,6 +306,19 @@
 <div class="plotrow row3"><div id="p_p3_diff" class="plot" style="height:270px"></div><div id="p_p3_rnorm" class="plot" style="height:270px"></div><div id="p_p3_cos" class="plot" style="height:270px"></div></div>
 </div>
 
+<div id="sec_sweep" style="border:2px solid #b45309;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#fffbeb">
+<h2 style="color:#b45309;margin-top:4px">★ Prediction-1 &amp; 2 — sweep over (lr, init-std)</h2>
+<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:4px 0 8px;font-size:13px;color:#374151">
+  <button id="runsweep" class="btn-run" style="background:#b45309">Run sweep</button>
+  <label>pairs&nbsp;<input id="swpairs" value="16" style="width:46px"></label>
+  <label>K (quad refreeze)&nbsp;<input id="swK" value="20" style="width:46px"></label>
+  <label>T_start&nbsp;<input id="swTstart" value="0" style="width:46px"></label>
+  <span id="sweepstatus" style="color:#6b7280"></span>
+</div>
+<p class="cap">Each pair runs a full-batch GD training (config below, but with that pair's lr &amp; init-std). <b>Prediction-1 (left):</b> the iteration $t^{\star}$ at which $d=\lVert J\dot r\rVert-\lVert\dot J r\rVert$ (jrd−jdr) first changes sign — <b>actual (y)</b> vs. <b>predicted (x)</b>. The prediction runs the cubic Eq-51 (§10) trajectory from $\theta(T_{\rm start})$ with the quadratic model <b>refrozen every K</b> steps, and reports its first predicted sign-change; points on the dotted $y=x$ line are perfect. Each point is labelled with its lr &amp; init-std; <b style="color:#ef4444">red</b> = censored (no sign-change within the run). <b>Prediction-2 (right):</b> $d$ at the <b>start</b> of training vs. the loss curve's <b>curvature</b> (the $t^2$ coefficient of loss(t)) — a strong Pearson correlation would confirm that early $(\lVert J\dot r\rVert-\lVert\dot J r\rVert)$ predicts loss concavity/convexity. Points stream in as each pair finishes (it can be slow).</p>
+<div class="plotrow row2"><div id="p_sw1" class="plot" style="height:380px"></div><div id="p_sw2" class="plot" style="height:380px"></div></div>
+</div>
+
 <div id="sec_1">
 <h2>1 · Loss, sharpness, residual, and the spectral edges of $H$<span class="secparams" id="secp1"></span></h2>
 <p class="cap">The core training signals. <b>Loss</b> $L$; <b>sharpness</b> $=\lambda_{\max}(\nabla^2 L)$ of the full loss Hessian, plotted against the Edge-of-Stability threshold $2/\eta$ (dashed) it tends to hover at; <b>residual</b> $r=y-f(x)$ (signed, per output component). Last panel: the largest and smallest eigenvalue of the <b>function Hessian</b> $H=\sum_a\nabla^2 f_a$ (per-sample scale, $\div N$).</p>
@@ -3387,6 +3400,11 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_p3_diff',[{x:[],y:[],mode:'lines',name:'‖J·ṙ‖ (jrd)',line:{color:'#2563eb',width:1.7}},{x:[],y:[],mode:'lines',name:'‖J̇·r‖ (jdr)',line:{color:'#16a34a',width:1.7}},{x:[],y:[],mode:'lines',name:'diff = jrd−jdr',line:{color:'#dc2626',width:2}}],baseLayout('‖J·ṙ‖, ‖J̇·r‖ and their difference (crosses 0 ⇒ t*)','value',false));
   {const L=baseLayout('‖r‖ — actual vs frozen-J linear theory (from t*)','‖r‖ (log)',false);L.yaxis.type='log';newP('p_p3_rnorm',[{x:[],y:[],mode:'lines',name:'‖r‖ actual',line:{color:'#2563eb',width:2}},{x:[],y:[],mode:'lines',name:'‖r‖ theory',line:{color:'#ea580c',width:1.9,dash:'dash'}}],L);}
   {const L=baseLayout('cos(r_actual, r_theory) from t*','cos',false);L.yaxis.range=[-1.05,1.05];newP('p_p3_cos',[{x:[],y:[],mode:'lines',name:'cos',line:{color:'#7c3aed',width:2}}],L);}
+  // ★ prediction-1 & 2 sweep scatter plots (populated by startSweep from /run?mode=sweep)
+  {const L=baseLayout('Prediction-1 — predicted vs actual (jrd−jdr) sign-change t*','actual t* (iters)',false);L.xaxis.title='predicted t*';L.showlegend=false;
+   newP('p_sw1',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:[],line:{color:'#1e293b',width:0.5}}},{x:[0,1],y:[0,1],mode:'lines',line:{color:'#94a3b8',dash:'dot',width:1},hoverinfo:'skip'}],L);}
+  {const L=baseLayout('Prediction-2 — start (jrd−jdr) vs loss curvature  (Pearson r = —)','loss curvature (t² coef)',false);L.xaxis.title='(jrd−jdr) at t=0';L.showlegend=false;
+   newP('p_sw2',[{x:[],y:[],mode:'markers',type:'scatter',marker:{size:9,color:'#7c3aed',line:{color:'#1e293b',width:0.5}}}],L);}
   attachHover();
   resizeAllPlots();
 }
@@ -4639,8 +4657,48 @@ window.addEventListener('load',()=>{try{
   const cm=document.getElementById('compute'); if(cm&&cm.value!=='gpu'){cm.value='gpu'; cm.dispatchEvent(new Event('change'));}
   const ns=document.getElementById('nsamp'); if(ns&&!(+ns.value>1)){ns.value='10';}
   for(const id of ['en1','en2','en3','en29']){const el=document.getElementById(id); if(el)el.checked=true;}   // show §1/§2/§3/§21 (the §9/§10 detail stays CSS-hidden)
+  const _rs=document.getElementById('runsweep'); if(_rs)_rs.onclick=startSweep;   // prediction-1&2 sweep button
   if(typeof syncSectionVis==='function')syncSectionVis();
 }catch(e){}});
+// ★ prediction-1 & 2 sweep: stream (lr,std) pairs from /run?mode=sweep and scatter them live
+let SWEEP_ES=null, SWEEP_N=0, SWEEP_STEPS=100;
+const SW1={x:[],y:[],text:[],col:[]}, SW2={x:[],y:[]};
+function sweepPearson(){const x=SW2.x,y=SW2.y,n=x.length;if(n<2)return NaN;
+  let mx=0,my=0;for(let i=0;i<n;i++){mx+=x[i];my+=y[i];}mx/=n;my/=n;
+  let sxy=0,sx=0,sy=0;for(let i=0;i<n;i++){const dx=x[i]-mx,dy=y[i]-my;sxy+=dx*dy;sx+=dx*dx;sy+=dy*dy;}
+  return (sx>0&&sy>0)?sxy/Math.sqrt(sx*sy):NaN;}
+function addSweepPt(m){
+  SW1.x.push(m.tPred);SW1.y.push(m.tAct);
+  SW1.text.push('lr='+(+m.lr).toPrecision(2)+'  σ='+(+m.std).toPrecision(2));
+  SW1.col.push((m.censA||m.censP)?'#ef4444':'#2563eb');
+  SW2.x.push(m.startDiff);SW2.y.push(m.curv);
+  Plotly.restyle('p_sw1',{x:[SW1.x],y:[SW1.y],text:[SW1.text],'marker.color':[SW1.col]},[0]);
+  const mx=Math.max(SWEEP_STEPS,Math.max.apply(null,SW1.x.concat(SW1.y).concat([1])));
+  Plotly.restyle('p_sw1',{x:[[0,mx]],y:[[0,mx]]},[1]);            // y=x reference line
+  Plotly.restyle('p_sw2',{x:[SW2.x],y:[SW2.y]},[0]);
+  const r=sweepPearson();
+  try{Plotly.relayout('p_sw2',{'title.text':'Prediction-2 — start (jrd−jdr) vs loss curvature  (Pearson r = '+(isFinite(r)?r.toFixed(3):'—')+')'});}catch(e){}
+}
+function startSweep(){
+  if(SWEEP_ES){SWEEP_ES.close();SWEEP_ES=null;}
+  SW1.x.length=SW1.y.length=SW1.text.length=SW1.col.length=0; SW2.x.length=SW2.y.length=0;
+  try{Plotly.restyle('p_sw1',{x:[[]],y:[[]],text:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw2',{x:[[]],y:[[]]},[0]);}catch(e){}
+  const st=document.getElementById('sweepstatus'); if(st)st.textContent='starting…';
+  const q=currentQueryParams(); const ps=new URLSearchParams(); for(const k in q)ps.set(k,q[k]);
+  ps.set('mode','sweep');
+  ps.set('swpairs',(document.getElementById('swpairs').value||'16'));
+  ps.set('swK',(document.getElementById('swK').value||'20'));
+  ps.set('swTstart',(document.getElementById('swTstart').value||'0'));
+  let es; try{es=new EventSource('/run?'+ps.toString());}catch(e){if(st)st.textContent='cannot reach backend';return;}
+  SWEEP_ES=es;
+  es.onmessage=ev=>{let m;try{m=JSON.parse(ev.data);}catch(e){return;}
+    if(m.type==='meta'){if(m.error){if(st)st.textContent='error: '+m.error;es.close();SWEEP_ES=null;return;}SWEEP_N=m.npairs;SWEEP_STEPS=m.steps;if(st)st.textContent='0/'+SWEEP_N+' pairs…';}
+    else if(m.type==='sweeppt'){addSweepPt(m);if(st)st.textContent=SW1.x.length+'/'+SWEEP_N+' pairs';}
+    else if(m.type==='done'){const r=sweepPearson();if(st)st.textContent='done — '+SW1.x.length+' pairs · Pearson r='+(isFinite(r)?r.toFixed(3):'—');es.close();SWEEP_ES=null;}
+    else if(m.type==='error'){if(st)st.textContent='error: '+m.error;es.close();SWEEP_ES=null;}
+  };
+  es.onerror=()=>{if(SWEEP_ES){if(st)st.textContent=(st.textContent||'')+' (closed)';es.close();SWEEP_ES=null;}};
+}
 function backendURL(start){
   const ps=new URLSearchParams();
   const q=currentQueryParams();
