@@ -79,3 +79,17 @@ def sec26_drift(cur, hist, t):
             rows.append(row)
         out[key] = rows
     return out
+
+
+def sec26_match(cur, prev):
+    """§26 eigenvector CONTINUATION: reorder each group of `cur` so track i aligns with `prev`'s track i (previous
+    step's tracked order), via the permutation maximizing Σ_i |cos(prev_i, cur_perm(i))| — follows each eigenvector
+    as a continuous MODE through eigenvalue crossings (no rank-swap |cos| jumps). MIRRORS server._sec26_match."""
+    import itertools
+    out = {}
+    for key in ("gn", "ntk", "mrTop", "mrBot"):
+        c = cur[key]; p = prev[key]; n = len(c)
+        O = [[abs(float(p[i] @ c[j])) / max(float(p[i].norm()) * float(c[j].norm()), 1e-30) for j in range(n)] for i in range(n)]
+        best = max(itertools.permutations(range(n)), key=lambda pm: sum(O[i][pm[i]] for i in range(n)))
+        out[key] = [c[best[i]] for i in range(n)]
+    return out

@@ -371,8 +371,10 @@ class Diagnostics:
         # MIRRORS server.py §26 block. Gate: s34 and (N·outD)<=grid3dcap and dataset!="owt" and Jc/rr available.
         if (self.s34 and (N * outD) <= self.grid3dcap and self.dataset != "owt"
                 and Jc is not None and rr is not None):
-            from .sec26 import sec26_eigvecs, sec26_drift
+            from .sec26 import sec26_eigvecs, sec26_drift, sec26_match
             ev26 = sec26_eigvecs(self.model, Jc, rr, th, X, N, outD)
+            if self._sec26_hist:                                 # eigenvector continuation: follow each mode through eigenvalue crossings
+                ev26 = sec26_match(ev26, self._sec26_hist[-1])
             rec["g26"] = sec26_drift(ev26, self._sec26_hist, t)
             self._sec26_hist.append({"t": t, **{key: [v.detach().clone() for v in ev26[key]] for key in ev26}})
             if len(self._sec26_hist) > 101:

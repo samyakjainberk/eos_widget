@@ -1837,6 +1837,22 @@ def _sec26_drift(cur, hist, t):
     return out
 
 
+def _sec26_match(cur, prev):
+    """§26 eigenvector CONTINUATION: reorder each group of `cur` (this step's eigvecs, by eigenvalue) so track i
+    aligns with `prev`'s track i (the previous step's tracked order), via the permutation maximizing
+    Σ_i |cos(prev_i, cur_perm(i))|. This follows each eigenvector as a CONTINUOUS MODE through eigenvalue crossings
+    (where the strict eigenvalue-rank order swaps and would otherwise make |cos| drift jump discontinuously).
+    |overlap| ⇒ gauge-free. n≤3 per group ⇒ the ≤6 permutations are enumerated. MIRRORS eos_lab.sec26.sec26_match."""
+    import itertools
+    out = {}
+    for key in ("gn", "ntk", "mrTop", "mrBot"):
+        c = cur[key]; p = prev[key]; n = len(c)
+        O = [[abs(float(p[i] @ c[j])) / max(float(p[i].norm()) * float(c[j].norm()), 1e-30) for j in range(n)] for i in range(n)]
+        best = max(itertools.permutations(range(n)), key=lambda pm: sum(O[i][pm[i]] for i in range(n)))
+        out[key] = [c[best[i]] for i in range(n)]
+    return out
+
+
 SEC21_SEED = SEC20_SEED   # §21 panel 2 reuses §20's M_r Lanczos start ⇒ identical M_r eigenpairs
 
 
@@ -3388,6 +3404,8 @@ def run_stream(P):
             g26 = None
             if s34 and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 ev26 = _sec26_eigvecs(Jc, rr, th, X, N, outD)
+                if sec26_hist:                                           # eigenvector continuation: follow each mode through eigenvalue crossings (no rank-swap discontinuities)
+                    ev26 = _sec26_match(ev26, sec26_hist[-1])
                 g26 = _sec26_drift(ev26, sec26_hist, t)
                 sec26_hist.append({"t": t, **{key: [v.detach().clone() for v in ev26[key]] for key in ev26}})
                 if len(sec26_hist) > 101:                                # hold ≥100 ticks back for the lag-100 line
