@@ -503,7 +503,7 @@ class Diagnostics:
             QJr = hvp_S(self.model, th, X, u1s.reshape(N, outD), Jrs)
             qn = max(float(QJr.norm()), 1e-30)
             q10 = []
-            for k in range(n):
+            for k in range(min(n, bEk_vecs.shape[1])):    # ≤ M GN eigvecs exist (clamp so N·d_out<neig doesn't index OOB)
                 g = Jc.t() @ bEk_vecs[:, k]
                 g = g / max(float(g.norm()), 1e-30)
                 q10.append(float(QJr @ g))

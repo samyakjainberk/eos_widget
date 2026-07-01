@@ -4183,7 +4183,7 @@ async function loop(){                                   // drives ST forward; r
           const dn=M;
           const QJr=hvpS(S.th,spec,X,N,inDim,p,Jrs,eps,u1s);const qn=Math.max(norm(QJr),1e-30);
           q10=[];q10N=[];
-          for(let k=0;k<S.n;k++){
+          for(let k=0;k<Math.min(S.n,bEk.vecs.length);k++){   // ≤ M GN eigvecs exist (clamp so N·d_out<neig doesn't index OOB)
             const vk=bEk.vecs[k],g=new Float64Array(p);
             for(let a=0;a<dn;a++){const c=vk[a],ja=bJc[a];for(let i=0;i<p;i++)g[i]+=c*ja[i];}
             const gnrm=Math.max(norm(g),1e-30);for(let i=0;i<p;i++)g[i]/=gnrm;     // g_k = J v_k / σ_k (σ_k>0)
