@@ -3123,7 +3123,8 @@ def run_stream(P):
     sec13_qjprev = None        # §13 panel 4: previous eig-tick's {QJ=(N_j,N_i,p) Q_iJ_j, r} for the ‖A−B‖/‖A‖ asymmetry
     sec15_hist = []            # §15: rolling buffer of the last 2 eig-ticks' {th, J, r} (need t−1 and t−2)
     sec25_hist = []            # §25: rolling buffer of the last 2 ticks' {th, J, r} for the II/III tr-NTK 2nd-diff terms (need t−1,t−2)
-    sec25_rhist = []           # §25: rolling buffer of the last 101 ticks' {t, r} for cos(r_t, r_{t−k}), k∈{10,20,30,50,100} (residual-direction drift)
+    sec25_rhist = []           # §25: rolling buffer of the last 101 ticks' {t, r} for cos(r_t, r_{t−k}), k∈{1,10,30,50,100} (residual-direction drift)
+    sec25_r0hist = []          # §25: the INITIAL residual r_0 (persistent, 1 entry) for the cos(r_t, r_0) cumulative-rotation reference line
     sec26_hist = []            # §26: rolling buffer of the last 101 ticks' {t, gn/ntk/mrTop/mrBot eigvecs} for the eigenvector-direction drift
     sec15_th64 = None          # §15: float64 SHADOW GD trajectory (MLP only). D²=‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖² is a ~9-digit
                                #   catastrophic cancellation when the net is near-stationary (e.g. chebyshev init=0.2: ‖J‖²≈21,
@@ -3388,10 +3389,14 @@ def run_stream(P):
                 rc25 = r25.detach().clone(); nrc25 = float(rc25.norm())   # §25 panel-1 plot 4: residual-direction drift — cos(r_t, r_{t−k})
                 rByT = {e["t"]: e["r"] for e in sec25_rhist}
                 cosR = []
-                for k in (10, 20, 30, 50, 100):
+                for k in (1, 10, 30, 50, 100):                            # t−1 (odd) exposes the EoS step-to-step sign flip that the even lags alias
                     rp = rByT.get(t - k); npk = None if rp is None else float(rp.norm())
                     cosR.append((float(rc25 @ rp) / (nrc25 * npk)) if (rp is not None and nrc25 > 1e-30 and npk > 1e-30) else None)
-                g25["cosR"] = cosR                                        # cos of r now vs r at t−{10,20,30,50,100} (None until that lag exists)
+                g25["cosR"] = cosR                                        # cos of r now vs r at t−{1,10,30,50,100} (None until that lag exists)
+                if not sec25_r0hist:
+                    sec25_r0hist.append(rc25.clone())                    # capture the initial residual r_0 once
+                r0_25 = sec25_r0hist[0]; n0_25 = float(r0_25.norm())
+                g25["cosR0"] = (float(rc25 @ r0_25) / (nrc25 * n0_25)) if (nrc25 > 1e-30 and n0_25 > 1e-30) else None   # cos(r_t, r_0): cumulative rotation from the start
                 sec25_rhist.append({"t": t, "r": rc25})
                 if len(sec25_rhist) > 101:                                # hold ≥100 ticks back for the lag-100 line
                     sec25_rhist.pop(0)

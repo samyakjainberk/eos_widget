@@ -110,7 +110,8 @@ class Diagnostics:
         self.divreg = float(P.get("divreg", 0.3))   # §15 divergence ε: softens the 0/0 spike at D²→0 inflections (0 = exact /D²)
         self._sec15_hist = []               # §15: rolling buffer of the last 2 eig-ticks' {th, J, r} (need t−1 and t−2)
         self._sec25_hist = []               # §25: rolling buffer of the last 2 ticks' {th, J, r, t} (II/III need t−1 and t−2)
-        self._sec25_rhist = []              # §25: rolling buffer of the last 101 ticks' {t, r} for cos(r_t, r_{t−k}), k∈{10,20,30,50,100}
+        self._sec25_rhist = []              # §25: rolling buffer of the last 101 ticks' {t, r} for cos(r_t, r_{t−k}), k∈{1,10,30,50,100}
+        self._sec25_r0hist = []             # §25: initial residual r_0 (persistent) for the cos(r_t, r_0) cumulative-rotation reference
         self._sec26_hist = []               # §26: rolling buffer of the last 101 ticks' {t, gn/ntk/mrTop/mrBot eigvecs} for eigenvector-direction drift
         self._sec14_rhist = []              # §14: per-sample residual history (last ≤5 ticks) for the eq-③ ratio
         self._sec14_prev = None             # §14: previous eig-tick's {TV,TW,BV,BW,r,Jg} (u,σ,r_j,J_k at t; cur gives J_i,r_k at t+1)
@@ -365,7 +366,7 @@ class Diagnostics:
                 and Jc is not None and rr is not None):
             from .sec25 import sec25_payload
             rec["g25"] = sec25_payload(self.model, self.loss, Jc, rr, th, X, Y, lr, N, outD,
-                                       self._sec25_hist, t, rhist=self._sec25_rhist)
+                                       self._sec25_hist, t, rhist=self._sec25_rhist, r0hist=self._sec25_r0hist)
 
         # ---- §26 (s34): eigenvector-direction drift |cos(v_i(t),v_i(t−k))| of top-3 GN/NTK & top-3⊕bottom-3 M_r ----
         # MIRRORS server.py §26 block. Gate: s34 and (N·outD)<=grid3dcap and dataset!="owt" and Jc/rr available.

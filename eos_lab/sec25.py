@@ -104,7 +104,7 @@ def _sec25_cosines(model, loss, th, X, Y, N, outD):
     return cosA, cosB, cosF, cosG, norms
 
 
-def sec25_payload(model, loss, Jc, rr, th, X, Y, lr, N, outD, hist, t, is_mlp=None, rhist=None):
+def sec25_payload(model, loss, Jc, rr, th, X, Y, lr, N, outD, hist, t, is_mlp=None, rhist=None, r0hist=None):
     """§25 record. MIRRORS server.py's g25 block (server.py:3238-3265).
 
     Inputs (the per-step primitives diagnostics.compute() already has in scope):
@@ -155,14 +155,18 @@ def sec25_payload(model, loss, Jc, rr, th, X, Y, lr, N, outD, hist, t, is_mlp=No
     if is_mlp:                                                       # §25 panel-2 cosines: plots 2/3 (pairwise), plot 3 (cos ∇‖f‖² vs 5), plot 4 (cos ∇‖ġ‖² vs 6); panel-1 norms (7 ∇θ-vectors) — MLP, exact autograd
         g25["cosA"], g25["cosB"], g25["cosF"], g25["cosG"], g25["gnorms"] = _sec25_cosines(model, loss, th, X, Y, N, outD)
 
-    if rhist is not None:                                            # §25 panel-1 plot 4: residual-direction drift — cos(r_t, r_{t−k}), k∈{10,20,30,50,100} (all backends)
+    if rhist is not None:                                            # §25 panel-1 plot 4: residual-direction drift — cos(r_t, r_{t−k}), k∈{1,10,30,50,100} (all backends)
         rc = r25.detach().clone(); nrc = float(rc.norm())
         rByT = {e["t"]: e["r"] for e in rhist}
         cosR = []
-        for k in (10, 20, 30, 50, 100):
+        for k in (1, 10, 30, 50, 100):                               # t−1 (odd) exposes the EoS step-to-step sign flip that the even lags alias
             rp = rByT.get(t - k); npk = None if rp is None else float(rp.norm())
             cosR.append((float(rc @ rp) / (nrc * npk)) if (rp is not None and nrc > 1e-30 and npk > 1e-30) else None)
-        g25["cosR"] = cosR                                           # cos of r now vs r at t−{1,2,3,5,10} (None until that lag exists)
+        g25["cosR"] = cosR                                           # cos of r now vs r at t−{1,10,30,50,100} (None until that lag exists)
+        if r0hist is not None:                                       # cos(r_t, r_0): cumulative rotation from the initial residual (bold reference line)
+            if not r0hist: r0hist.append(rc.clone())                 # capture r_0 once
+            r0 = r0hist[0]; n0 = float(r0.norm())
+            g25["cosR0"] = (float(rc @ r0) / (nrc * n0)) if (nrc > 1e-30 and n0 > 1e-30) else None
         rhist.append({"t": t, "r": rc})
         if len(rhist) > 101:
             rhist.pop(0)
