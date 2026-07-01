@@ -3233,6 +3233,8 @@ def run_stream(P):
     s36 = P.get("s36", 0)                # prediction-3: linear residual theory r_{t+1}=(I−η̃JJᵀ)r_t after the ‖J·ṙ‖−‖J̇·r‖ sign-change (prediction widget)
     s37 = P.get("s37", 0)                # prediction-4: frozen-M_r Jacobian propagation J_{s+1}=(I+(η/N)M_r)J_s → top-10 NTK eigvals predicted vs actual (prediction widget)
     p4t0 = max(0, int(P.get("p4t0", 10)))   # prediction-4: iteration t0 at which the function-Hessian Q & residual are frozen
+    s38 = P.get("s38", 0)                # prediction-5: trace-statistic prediction Tr(NTK) (quad/cubic × live/self, ±PSD) vs Tr(∇²L) & Tr(JᵀJ) (prediction widget)
+    p5t0 = max(0, int(P.get("p5t0", 10)))   # prediction-5: iteration t0 at which Q, residual & J are frozen for the trace propagation
     s30t = max(0, int(P.get("s30t", 0)))      # §22: iteration t at which to freeze the 2nd-order Taylor (θ_t, J_t, Q_t)
     s31r = max(1, int(P.get("s31r", 200)))    # §23: rank R of the random symmetric function Hessian
     s31scale = float(P.get("s31scale", 1.0))  # §23: random-Hessian spectral norm = (real function-Hessian λmax at θ₀)·s31scale
@@ -3313,6 +3315,7 @@ def run_stream(P):
     sec27_last_t = None        # §27: last stepped iteration index (for the end-of-run flush of the trailing 50)
     p3_prev_sign = None; p3_tstar = None; p3_Jstar = None; p3_rtheory = None   # prediction-3: (jrd−jdr) sign tracker, sign-change t*, frozen J(t*), linear-theory residual
     p4_J = None; p4_th0 = None; p4_r0 = None   # prediction-4: frozen J(t0), θ(t0), residual(t0) for the frozen-M_r Jacobian propagation
+    tr5 = None                                 # prediction-5: frozen state {θ0,J0,f0,Yf,tr0,traj[4]} for the trace-statistic propagation
     sec15_th64 = None          # §15: float64 SHADOW GD trajectory (MLP only). D²=‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖² is a ~9-digit
                                #   catastrophic cancellation when the net is near-stationary (e.g. chebyshev init=0.2: ‖J‖²≈21,
                                #   true D²≈1e-8). The displayed trajectory is float32 (≈7 digits) ⇒ D² is pure roundoff ⇒ divergence%
@@ -3521,7 +3524,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37)) or ((s23 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37) and N <= grid3dcap):   # §15/§19/§20/§21/§24/§25/§26/§27/pred-3/pred-4 also run for a single sample
+            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37 or s38)) or ((s23 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37 or s38) and N <= grid3dcap):   # §15/§19/§20/§21/§24/§25/§26/§27/pred-3/4/5 also run for a single sample
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -3656,6 +3659,61 @@ def run_stream(P):
                                "kPred": [max(0.0, float(kp[-1 - i])) for i in range(K4)]}
                     MrJ = torch.stack([hvpS(p4_th0, X, p4_J[k], p4_r0) for k in range(M)])   # M_r·J rows (M,p), Q & r frozen at t0
                     p4_J = p4_J + (lr / max(N, 1)) * MrJ                          # advance predicted J for the NEXT step (frozen M_r)
+
+            # prediction-5 (s38): TRACE-STATISTIC prediction (PDF Eq-1..5). At t0 freeze θ0, J0=J(t0), the frozen
+            #   output f0 & residual r0, Q0 (jac_hvp) and T (central-diff). Propagate 4 Jacobian trajectories
+            #   {quad(T=0), cubic}×{live, self}: ΔJ=(η/N)Q_t[g]+½(η/N)²T[g,g], g=Jᵀr, Q_{t+1}=Q_t+(η/N)T[g]; the
+            #   SELF residual is always the frozen QUADRATIC model r_q=Y−(f0+J0Δθ+½ΔθᵀQ0Δθ). Report predicted
+            #   Tr(NTK)=‖J‖²_F/N (with PSD) and its no-PSD accumulation (drop ‖ΔJ‖²), vs actual Tr(JᵀJ)/N & Tr(∇²L)/N.
+            g_trace = None
+            if s38 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+                Jm5 = Jc[:M]
+                if tr5 is None and t >= p5t0:                                    # freeze at t0
+                    Yf5 = Y.reshape(-1)[:M].detach().clone(); r0 = rr[:M].detach().clone()
+                    tr5 = {"th0": th.detach().clone(), "J0": Jm5.detach().clone(), "f0": (Yf5 - r0), "Yf": Yf5,
+                           "tr0": float((Jm5 * Jm5).sum()),
+                           "traj": [{"cubic": c, "self": s_, "J": Jm5.detach().clone(),
+                                     "HistG": [], "Dth": torch.zeros(p, dtype=DTYPE, device=_dev()), "trNo": 0.0}
+                                    for c in (False, True) for s_ in (False, True)]}
+                if tr5 is not None:
+                    etaN5 = lr / max(N, 1); th0 = tr5["th0"]; J0 = tr5["J0"]; f0 = tr5["f0"]; Yf5 = tr5["Yf"]
+                    def _T2m5(a, b):                                              # T[a,b]=∇³f(θ0)[a,b] (M,p) via central diff of Q[b]
+                        an = float(a.norm())
+                        if an < 1e-30:
+                            return torch.zeros(M, p, dtype=DTYPE, device=_dev())
+                        ah = a / an
+                        return an * (jac_hvp(th0 + 1e-2 * ah, X, b)[:M] - jac_hvp(th0 - 1e-2 * ah, X, b)[:M]) / (2e-2)
+                    trGN = float((Jm5 * Jm5).sum()) / N                           # actual Tr(JᵀJ)=‖J‖²_F ÷N (exact)
+                    thut = 0.0                                                    # actual Tr(∇²L) ÷N via Hutchinson (FD loss-Hessian HVP)
+                    for kp in range(8):
+                        v = _randn_vec(p, (0x7EAC5 + kp * 0x9E3779B1) & 0xFFFFFFFF).sign()
+                        thut += float(v @ ((gradL(th + 1e-3 * v, X, Y)[0] - gradL(th - 1e-3 * v, X, Y)[0]) / (2e-3)))
+                    trHess = thut / 8.0
+                    out = []
+                    for d in tr5["traj"]:
+                        J = d["J"]
+                        if d["self"]:
+                            dth = d["Dth"]; HzD = jac_hvp(th0, X, dth)[:M]
+                            r = Yf5 - (f0 + J0 @ dth + 0.5 * (HzD @ dth))          # quadratic-model self-residual
+                        else:
+                            r = rr[:M]                                            # live-run residual
+                        g = J.t() @ r
+                        Qg = jac_hvp(th0, X, g)[:M]
+                        if d["cubic"]:
+                            for gk in d["HistG"]:
+                                Qg = Qg + etaN5 * _T2m5(gk, g)                     # Q_t propagated (Eq-3 history)
+                            dJ = etaN5 * Qg + 0.5 * (etaN5 ** 2) * _T2m5(g, g)     # ΔJ = (η/N)Q_t[g] + ½(η/N)²T[g,g]
+                        else:
+                            dJ = etaN5 * Qg                                        # quadratic: T=0, Q frozen ⇒ ΔJ=(η/N)Q0[g]
+                        out.append([float((J * J).sum()) / N,                      # predicted Tr(NTK) WITH PSD = ‖J‖²_F ÷N
+                                    (tr5["tr0"] + d["trNo"]) / N])                 # ... WITHOUT PSD (drop the ‖ΔJ‖² per-step term)
+                        d["trNo"] += 2.0 * float((J * dJ).sum()); d["J"] = J + dJ
+                        if d["cubic"]:
+                            d["HistG"].append(g)
+                        if d["self"]:
+                            d["Dth"] = dth + etaN5 * g
+                    g_trace = {"t0": p5t0, "trGN": trGN, "trHess": trHess,
+                               "qLive": out[0], "qSelf": out[1], "cLive": out[2], "cSelf": out[3]}
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None
@@ -4280,6 +4338,7 @@ def run_stream(P):
                 "g27": g27,                                    # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag)
                 "g_pred3": g_pred3,                            # prediction-3: (jrd−jdr) + post-sign-change linear residual theory ‖r‖/cos (prediction widget)
                 "g_pred4": g_pred4,                            # prediction-4: top-10 NTK eigenvalues — frozen-M_r Jacobian propagation predicted vs actual (prediction widget)
+                "g_trace": g_trace,                           # prediction-5: Tr(NTK) predictions (quad/cubic × live/self, ±PSD) vs Tr(∇²L) & Tr(JᵀJ) (prediction widget)
                 "sps": (t - start + 1) / max(time.time() - t0, 1e-9),
             }
 
@@ -4895,6 +4954,8 @@ def _parse_params(q):
         "s36": g("s36", "0") == "1",     # prediction-3: linear residual theory after the ‖J·ṙ‖−‖J̇·r‖ sign-change (prediction widget)
         "s37": g("s37", "0") == "1",     # prediction-4: frozen-M_r Jacobian propagation NTK-eigenvalue prediction (prediction widget)
         "p4t0": fi("p4t0", 10),          # prediction-4: iteration t0 at which Q & residual are frozen
+        "s38": g("s38", "0") == "1",     # prediction-5: trace-statistic Tr(NTK) prediction (prediction widget)
+        "p5t0": fi("p5t0", 10),          # prediction-5: freeze iteration t0 for the trace propagation
         "s30t": max(0, fi("s30t", 0)),   # §22: freeze iteration t
         "s31r": max(1, fi("s31r", 200)), # §23: rank R of the random function Hessian
         "s31scale": ff("s31scale", 1.0), # §23: random-Hessian spectral-norm scale (× real fn-Hessian λmax)

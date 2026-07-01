@@ -300,6 +300,17 @@
 <div class="plotrow row4"><div id="p_pd1" class="plot" style="height:270px"></div><div id="p_pd2" class="plot" style="height:270px"></div><div id="p_pd3" class="plot" style="height:270px"></div><div id="p_pd4" class="plot" style="height:270px"></div></div>
 </div>
 
+<div id="sec_trace" style="border:2px solid #9333ea;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#faf5ff">
+<h2 style="color:#7e22ce;margin-top:4px">★ Trace statistics — predicted Tr(NTK) vs Tr($\nabla^2 L$) &amp; Tr($J^\top J$)</h2>
+<div style="display:flex;gap:12px;align-items:center;margin:4px 0 8px;font-size:13px;color:#374151">
+  <label>freeze iteration $t_0$&nbsp;<input id="p5t0" value="10" style="width:52px"></label>
+  <span style="color:#94a3b8">freeze $Q$, residual &amp; $J$ at $t_0$; propagate $\Delta J=\tfrac{\eta}{N}Q_t[J^\top r]+\tfrac12(\tfrac{\eta}{N})^2 T[J^\top r,J^\top r]$</span>
+</div>
+<p class="cap">The same four predictions as the $\sigma_1$ panel, but tracking the <b>trace</b> $\mathrm{Tr(NTK)}=\mathrm{Tr}(J^\top J)=\lVert J\rVert_F^2$ instead of the top eigenvalue. From $t_0$ we propagate the Jacobian (Eq-2/3) and accumulate $\mathrm{Tr}(\Delta\mathrm{NTK})$ (Eq-4). Each plot shows the predicted Tr(NTK) <b style="color:#2563eb">without</b> and <b style="color:#16a34a">with</b> the PSD term (Eq-5), overlaid on the actual <b style="color:#dc2626">Tr($\nabla^2 L$)</b> (full loss Hessian, Hutchinson) and <b style="color:#ea580c">Tr($J^\top J$)</b> (Gauss–Newton, exact) — all $\div N$. <b>Top row:</b> quadratic ($T=0$). <b>Bottom row:</b> cubic. <b>Left:</b> residual from the live run. <b>Right:</b> residual self-computed from the frozen quadratic model.</p>
+<div class="plotrow row2"><div id="p_pt1" class="plot" style="height:300px"></div><div id="p_pt2" class="plot" style="height:300px"></div></div>
+<div class="plotrow row2"><div id="p_pt3" class="plot" style="height:300px"></div><div id="p_pt4" class="plot" style="height:300px"></div></div>
+</div>
+
 <div id="sec_pred4" style="border:2px solid #0d9488;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#f0fdfa">
 <h2 style="color:#0f766e;margin-top:4px">★ Prediction-4 — frozen-$M_r$ Jacobian propagation → NTK spectrum</h2>
 <div style="display:flex;gap:12px;align-items:center;margin:4px 0 8px;font-size:13px;color:#374151">
@@ -3415,6 +3426,14 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
    const mk=(lo)=>{const tr=[];for(let i=0;i<5;i++){tr.push({x:[],y:[],mode:'lines',name:'λ'+(lo+i+1)+' pred',line:{color:cols[i],width:1.9}});tr.push({x:[],y:[],mode:'markers',name:'λ'+(lo+i+1)+' actual',marker:{color:cols[i],size:4.5,symbol:'circle',line:{color:'#111',width:0.4}}});}return tr;};
    {const L=baseLayout('Prediction-4 — top-5 NTK eigenvalues (λ1–λ5)','λ (log)',false);L.yaxis.type='log';newP('p_pd5',mk(0),L);}
    {const L=baseLayout('Prediction-4 — NTK eigenvalues λ6–λ10','λ (log)',false);L.yaxis.type='log';newP('p_pd6',mk(5),L);}}
+  // ★ trace statistics: 4 plots {quad,cubic}×{live,self}; traces [pred Tr(NTK), pred+PSD, actual Tr(∇²L), actual Tr(JᵀJ)]
+  {const tt=()=>[{x:[],y:[],mode:'lines',name:'pred Tr(NTK)',line:{color:'#2563eb',width:1.9}},
+                 {x:[],y:[],mode:'lines',name:'pred + PSD',line:{color:'#16a34a',width:1.6}},
+                 {x:[],y:[],mode:'lines',name:'actual Tr(∇²L)',line:{color:'#dc2626',width:1.7,dash:'dash'}},
+                 {x:[],y:[],mode:'lines',name:'actual Tr(JᵀJ)',line:{color:'#ea580c',width:1.7,dash:'dot'}}];
+   const mkT=(id,ti)=>newP(id,tt(),baseLayout(ti,'trace ÷N',false));
+   mkT('p_pt1','Trace — quadratic (T=0) · live residual'); mkT('p_pt2','Trace — quadratic (T=0) · self residual');
+   mkT('p_pt3','Trace — cubic · live residual'); mkT('p_pt4','Trace — cubic · self residual');}
   // ★ prediction-1 & 2 sweep scatter plots (populated by startSweep from /run?mode=sweep)
   {const L=baseLayout('Prediction-1 — predicted vs actual (jrd−jdr) sign-change t*','actual t* (iters)',false);L.xaxis.title='predicted t*';L.showlegend=false;
    newP('p_sw1',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:[],line:{color:'#1e293b',width:0.5}}},{x:[0,1],y:[0,1],mode:'lines',line:{color:'#94a3b8',dash:'dot',width:1},hoverinfo:'skip'}],L);}
@@ -3735,6 +3754,10 @@ function pushPoint(t,D,n,kth,nResid){
       xs.push([t]);ys.push([kp[i]]);ids.push(2*j); xs.push([t]);ys.push([ka[i]]);ids.push(2*j+1);}
       if(ids.length)extP(id,{x:xs,y:ys},ids);};
     push(0,'p_pd5'); push(5,'p_pd6');
+  }
+  if(D.g_trace){const g=D.g_trace,sh=g.trHess,gn=g.trGN;   // ★ trace stats: traces [predNo(blue), predWith(green), Tr(∇²L)(red), Tr(JᵀJ)(orange)]
+    const pt=(key,id)=>{const a=g[key]; if(a)extP(id,{x:[[t],[t],[t],[t]],y:[[a[1]],[a[0]],[sh],[gn]]},[0,1,2,3]);};
+    pt('qLive','p_pt1'); pt('qSelf','p_pt2'); pt('cLive','p_pt3'); pt('cSelf','p_pt4');
   }
 }
 
@@ -4669,8 +4692,9 @@ function currentQueryParams(){   // the exact query-style param dict the backend
   const o={};
   for(const id of QUERY_IDS){const el=document.getElementById(id);if(el)o[id]=val(id);}
   for(const [k,id] of SEC_TOGGLE_MAP)o[k]=chk(id)?'1':'0';
-  for(const k of ['s1','s2','s3','s12','s14','s16','s17','s29','s36','s37'])o[k]='1';   // prediction demo: always compute §1/2/3 + §9/§9c/§9d-c/§10 + §21 + prediction-3/4 to feed the panels
+  for(const k of ['s1','s2','s3','s12','s14','s16','s17','s29','s36','s37','s38'])o[k]='1';   // prediction demo: always compute §1/2/3 + §9/§9c/§9d-c/§10 + §21 + prediction-3/4/5 to feed the panels
   {const e=document.getElementById('p4t0');if(e)o['p4t0']=e.value||'10';}   // prediction-4 freeze iteration t0
+  {const e=document.getElementById('p5t0');if(e)o['p5t0']=e.value||'10';}   // prediction-5 (trace) freeze iteration t0
   return o;
 }
 // prediction-demo defaults (run last, override the page's own init): the self-residual cubic (plot 4 = c51d)
