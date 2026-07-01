@@ -273,6 +273,7 @@
   <label title="§24 — decompose the 1-GD-step change in each output f_k into its FIRST-order term A=JJᵀr (NTK·r) and SECOND-order term B_k=(η/2N)(J·r)ᵀQ_k(J·r); plot ‖·‖, |cos|, and eigenvalue-weighted projections of A,B onto the residual r and the top-4 NTK eigenvectors u₁–u₄, as time-series over training. Needs the M×p Jacobian + a per-output Hessian-vp (GPU backend; small N). uᵢ is shown when M≥i (so u₃ needs M≥3, u₄ needs M≥4)."><input type="checkbox" id="en32"> 24 · 1st/2nd-order Δf alignment (A=JJᵀr, B=η/2N·JrᵀQ_kJr)</label>
   <label title="§25 — eight plots on the residual-contracted gradient J·r=Σ_k r_k∇f_k under gradient flow θ̇=−∇L. PLOT 1 (time-series): ‖∇L‖; ‖J̇·r‖=‖M_r∇L‖ (M_r=Σ_k r_kQ_k, NOT ÷N here); ‖J·ṙ‖=‖JᵀJ∇L‖ — the two product-rule terms of d/dt(J·r); plus II, III, the two cross-terms of the ‖J‖²_F (=tr NTK) 2nd-difference decomposition (§15 panel 1; c=η/N): II=c²Σ_k ∇f_{t,k}ᵀQ_{t-1,k}Q̃g₂ (Q̃=Σ_j r_{t-1,j}Q_{t-2,j}, g₂=J_{t-2}ᵀr_{t-2}), III=c²Σ_k ∇f_{t,k}ᵀQ_{t-1,k}J_{t-1}ᵀJ_{t-2}g₂ (need 3 consecutive GD steps, so eigevery=1; start a couple ticks in). Linear y-axis. PLOTS 2&amp;3 (MLP only): pairwise cosine of the θ-gradients of 5 scalars — 1=∇‖r‖², 2=∇‖J‖²_F(=∇tr NTK), 3=∇‖∇L‖², 4=∇‖Q·Jᵀr‖² (Q=Σ_kQ_k), 5=∇‖JJᵀr‖²(=∇‖NTK·r‖²) — all 10 pairs split across the two, each with a bold black reference line cos(J·ṙ,J̇·r) (exact autograd). PLOT 4: cos(∇‖f‖₂², vᵢ) for i=1–5 — a 6th vector 6=∇‖f‖₂² (f=output) vs the five. PLOT 7 (panel 2's 4th plot): cos(∇‖ġ‖₂², vᵢ) for i=1–6 — a 7th vector 7=∇‖ġ‖₂² (ġ=d(∇L)/dt=−H∇L, H=∇²L the loss Hessian) vs the other six. PLOT 5: the norms ‖∇θφ_i‖ of all 7 vectors (log). PLOT 6: ‖d/dt(J·r)‖₁=Σ_i|JᵀJ∇L−M_r∇L|_i. PLOT 8 (panel 1's 4th plot): cos(r_t, r_{t−k}) for k=1,10,30,50,100 + a bold cos(r_t, r₀) reference — residual-direction change. k=1 shows the step-to-step turn (at EoS r flips sign each step → −1; even lags alias that flip); the bold line vs the initial residual r₀ shows the cumulative rotation from the start (all backends; line k starts once that lag exists). PLOT 9 (panel 1's 5th plot): ⟨‖r_i‖⟩ = average over samples of the per-sample residual norm (log) — the residual MAGNITUDE over training, complementing plot 8's direction. Needs the M×p Jacobian + per-sample Hessian-vp (GPU backend; small N)."><input type="checkbox" id="en33"> 25 · gradient-norm &amp; d/dt(J·r) evolution</label>
   <label title="§26 — eigenvector-direction drift: |cos(v_i(t), v_i(t−k))| for k=10,20,30,50,100, the absolute cosine of a rank-i eigenvector now vs the same-rank eigenvector k diagnostic-steps earlier (1=frozen direction, dips=rotating). |cos| since eigvec signs are arbitrary. Three operators: GN=JᵀJ (Gauss-Newton, param space, p-dim eigvecs), NTK=JJᵀ (function space, M-dim eigvecs), M_r=Σ_k r_kQ_k (residual-contracted function Hessian, p-dim eigvecs). 4 panels × 3 plots × 5 lag-lines: panels 1-3 = top/2nd/3rd eigenvector (each showing GN·NTK·M_r), panel 4 = M_r bottom-1/2/3 (most negative). GN/NTK from one eigendecomposition of the NTK; M_r top-3⊕bottom-3 via the same matrix-free Lanczos as §20. EIGENVECTOR CONTINUATION: the 3 tracks are the top-3 at the first step, then followed as continuous modes (each step matched to the previous by max overlap) — so eigenvalue CROSSINGS don't cause artificial |cos| jumps; a dip means the mode genuinely rotated. Near TRUE degeneracies (indistinguishable modes) residual jumps can remain (worst at EoS / fp32 GPU); M_r eigvecs are BLANKED (gaps) once the residual→0 makes M_r≈0 (|λ(M_r)|≤1e-6·λmax(NTK)). Use eig-every=1; fp64 CPU backend for the cleanest M_r read. GPU backend, small N; off in surrogate mode."><input type="checkbox" id="en34"> 26 · eigenvector-direction drift (GN / NTK / M_r)</label>
+  <label title="§27 — 3D subspace projection of six ∇θ gradient-vectors over a sliding [t−50,t+50] window. Six per-step p-dim vectors: ∇‖f‖², ∇‖r‖², ∇‖J‖²_F, ∇‖∇L‖², and the two DISCRETE step-difference ones ∇‖ṙ‖²=−2Jᵀ(r_t−r_{t−1}) & ∇‖J̇‖²_F=∇‖J‖²_F−2∇⟨J,J_{t−1}⟩_F. For each iteration t, stack a metric's window vectors (p×W, W≤101, clipped at the ends), take the top-3 LEFT singular directions, and project the t-th vector onto them → one 3D point; the curve over t is coloured by iteration (Viridis: dark=early → yellow=late). Panels 1-2 (per-metric subspace, {f,r,J} & {g,ṙ,J̇}); panels 3-4 (COMMON subspace = top-3 of all six metrics stacked, p×6W; same metric split). Because the +50 half-window needs FUTURE iterations, §27 streams with a 50-STEP LAG (iteration t emitted at step t+50; trailing 50 flushed at end). GPU backend, small N/p; off in surrogate mode; eig-every=1."><input type="checkbox" id="en35"> 27 · ∇θ-vector 3D subspace projection (sliding window)</label>
   <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
 </div>
 
@@ -525,6 +526,20 @@ Each line “$i\!\cdot\!j$” is $\cos\angle(\text{vector }i,\text{vector }j)\in
 <div class="plotrow row3"><div id="p_s26_gn3" class="plot" style="height:240px"></div><div id="p_s26_ntk3" class="plot" style="height:240px"></div><div id="p_s26_mr3" class="plot" style="height:240px"></div></div>
 <p class="cap" style="margin:10px 0 1px;color:#475569"><b>Panel 4 — $M_r$ bottom eigenvectors</b> (three most-negative): bottom-1 &nbsp;·&nbsp; bottom-2 &nbsp;·&nbsp; bottom-3</p>
 <div class="plotrow row3"><div id="p_s26_mrb1" class="plot" style="height:240px"></div><div id="p_s26_mrb2" class="plot" style="height:240px"></div><div id="p_s26_mrb3" class="plot" style="height:240px"></div></div>
+</div>
+
+<div id="sec_s27" style="display:none">
+<h2>27 · $\nabla_\theta$-vector 3D subspace projection over a sliding $[t\!-\!50,\,t\!+\!50]$ window</h2>
+<p class="cap"><b>What this shows:</b> where each of six parameter-gradient vectors <b>moves</b> in a local low-dimensional subspace as training proceeds. At every iteration $t$ we form six $p$-dimensional vectors — <b style="color:#2563eb">$\nabla\lVert f\rVert^2$</b>, <b style="color:#2563eb">$\nabla\lVert r\rVert^2$</b>, <b style="color:#2563eb">$\nabla\lVert J\rVert_F^2$</b>, <b style="color:#2563eb">$\nabla\lVert\nabla L\rVert^2$</b>, and the two <b>discrete</b> step-difference ones <b style="color:#db2777">$\nabla\lVert\dot r\rVert^2=-2J^\top(r_t-r_{t-1})$</b> and <b style="color:#db2777">$\nabla\lVert\dot J\rVert_F^2=\nabla\lVert J\rVert_F^2-2\nabla\langle J,J_{t-1}\rangle_F$</b> (both $0$ at $t\!=\!0$). For a given metric we <b>stack its vectors over the window $[t\!-\!50,t\!+\!50]$</b> (whatever is available — clipped at the run's ends) into a $p\times W$ matrix, take its <b>top-3 left singular directions</b>, and <b>project the $t$-th vector onto that 3-D subspace</b>. Plotting this projected point for every $t$ gives a curve <b>coloured by iteration</b> (Viridis: <span style="color:#440154">dark = early</span> → <span style="color:#fde725;background:#333">yellow = late</span>), so you can see the direction of travel.
+<br><b style="color:#7c3aed">Panels 1–2</b> use a <b>per-metric</b> subspace (each metric gets its own top-3 window directions). <b style="color:#7c3aed">Panels 3–4</b> use a <b>common</b> subspace: all six metrics' windows are stacked into one $p\times 6W$ matrix, its top-3 singular directions are taken once, and every metric's $t$-th vector is projected onto that <b>shared</b> 3-D space (so cross-metric geometry is comparable). Because the $+50$ half-window needs <b>future</b> iterations, §27 is emitted with a <b>50-step lag</b> (iteration $t$ appears at step $t\!+\!50$; the final 50 are flushed at the end with right-clipped windows). Sign continuity aligns each window's directions to the previous iteration's (windows overlap in 100/101 columns) so the curves don't flip. GPU backend, small $N$/$p$ (stores $6\times101$ $p$-vectors + a per-step Gram eigendecomposition); off in surrogate mode; use <b>eig-every = 1</b>.</p>
+<p class="cap" style="margin:8px 0 1px;color:#475569"><b>Panel 1 — per-metric subspace:</b>&nbsp; $\nabla\lVert f\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert r\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert J\rVert_F^2$</p>
+<div class="plotrow row3"><div id="p_s27_f" class="plot" style="height:300px"></div><div id="p_s27_r" class="plot" style="height:300px"></div><div id="p_s27_J" class="plot" style="height:300px"></div></div>
+<p class="cap" style="margin:10px 0 1px;color:#475569"><b>Panel 2 — per-metric subspace:</b>&nbsp; $\nabla\lVert\nabla L\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert\dot r\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert\dot J\rVert_F^2$</p>
+<div class="plotrow row3"><div id="p_s27_g" class="plot" style="height:300px"></div><div id="p_s27_rd" class="plot" style="height:300px"></div><div id="p_s27_Jd" class="plot" style="height:300px"></div></div>
+<p class="cap" style="margin:10px 0 1px;color:#475569"><b>Panel 3 — common subspace</b> (all six metrics stacked):&nbsp; $\nabla\lVert f\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert r\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert J\rVert_F^2$</p>
+<div class="plotrow row3"><div id="p_s27c_f" class="plot" style="height:300px"></div><div id="p_s27c_r" class="plot" style="height:300px"></div><div id="p_s27c_J" class="plot" style="height:300px"></div></div>
+<p class="cap" style="margin:10px 0 1px;color:#475569"><b>Panel 4 — common subspace:</b>&nbsp; $\nabla\lVert\nabla L\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert\dot r\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert\dot J\rVert_F^2$</p>
+<div class="plotrow row3"><div id="p_s27c_g" class="plot" style="height:300px"></div><div id="p_s27c_rd" class="plot" style="height:300px"></div><div id="p_s27c_Jd" class="plot" style="height:300px"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -3139,6 +3154,8 @@ function syncSectionVis(multi){
     if(vis)requestAnimationFrame(()=>{for(const id of ['p_s25','p_s25_cosA','p_s25_cosB','p_s25_cosF','p_s25_cosG','p_s25_norms','p_s25_sum','p_s25_rcos','p_s25_rnorm']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
   {const el=document.getElementById('sec_s26');if(el){const vis=chk('en34');el.style.display=vis?'':'none';   // §26 eigenvector-direction drift (GN/NTK/M_r)
     if(vis)requestAnimationFrame(()=>{for(const id of ['p_s26_gn1','p_s26_ntk1','p_s26_mr1','p_s26_gn2','p_s26_ntk2','p_s26_mr2','p_s26_gn3','p_s26_ntk3','p_s26_mr3','p_s26_mrb1','p_s26_mrb2','p_s26_mrb3']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
+  {const el=document.getElementById('sec_s27');if(el){const vis=chk('en35');el.style.display=vis?'':'none';   // §27 ∇θ-vector 3D subspace projection (sliding window)
+    if(vis)requestAnimationFrame(()=>{for(const id of ['p_s27_f','p_s27_r','p_s27_J','p_s27_g','p_s27_rd','p_s27_Jd','p_s27c_f','p_s27c_r','p_s27c_J','p_s27c_g','p_s27c_rd','p_s27c_Jd']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
   {const el=document.getElementById('sec_s13');if(el)el.style.display=(chk('en21')&&multi)?'':'none';}   // §13 residual-weighted curvature alignment (own toggle en21; reuses the §12 Lanczos)
   {const el=document.getElementById('sec_s14');if(el){const vis=(chk('en20')&&multi);el.style.display=vis?'':'none';   // §14 Tr(ΔNTK) per-triplet decomposition (s20, multi-only)
     if(vis&&typeof S14_SNAPS!=='undefined'&&S14_SNAPS.length)requestAnimationFrame(()=>s14RenderNow(S14_CURIDX));}}   // redraw canvases now that the divs have size
@@ -3233,6 +3250,11 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
    s26P('p_s26_gn2','GN — JᵀJ top-2');       s26P('p_s26_ntk2','NTK — JJᵀ top-2');      s26P('p_s26_mr2','M_r — Σr_kQ_k top-2');
    s26P('p_s26_gn3','GN — JᵀJ top-3');       s26P('p_s26_ntk3','NTK — JJᵀ top-3');      s26P('p_s26_mr3','M_r — Σr_kQ_k top-3');
    s26P('p_s26_mrb1','M_r — bottom-1 (most −)');s26P('p_s26_mrb2','M_r — bottom-2');    s26P('p_s26_mrb3','M_r — bottom-3');}
+  // §27 — 3D subspace projection of the six ∇θ gradient-vectors (12 scatter3d: panels 1-2 per-metric, 3-4 common; re-created empty each run ⇒ resets S27DATA)
+  {s27P('p_s27_f','∇‖f‖²  (per-metric)'); s27P('p_s27_r','∇‖r‖²  (per-metric)'); s27P('p_s27_J','∇‖J‖²_F  (per-metric)');
+   s27P('p_s27_g','∇‖∇L‖²  (per-metric)'); s27P('p_s27_rd','∇‖ṙ‖²  (per-metric)'); s27P('p_s27_Jd','∇‖J̇‖²_F  (per-metric)');
+   s27P('p_s27c_f','∇‖f‖²  (common)'); s27P('p_s27c_r','∇‖r‖²  (common)'); s27P('p_s27c_J','∇‖J‖²_F  (common)');
+   s27P('p_s27c_g','∇‖∇L‖²  (common)'); s27P('p_s27c_rd','∇‖ṙ‖²  (common)'); s27P('p_s27c_Jd','∇‖J̇‖²_F  (common)');}
   // §5 SLQ
   const slqT=c=>[{x:[],y:[],mode:'lines',fill:'tozeroy',line:{color:c,width:1.6},fillcolor:c+'22',name:'density'}];
   newP('p_sH',slqT('#2563eb'),slqLayout('SLQ density — function Hessian H'));
@@ -3460,7 +3482,8 @@ const ADV_SECS={en18:{sec:'sec_g3d',name:'§11 (3D Hessian–NTK grids)'},
   en31:{sec:'sec_s23',name:'§23 (§20 on random-Hessian surrogate)'},
   en32:{sec:'sec_s24',name:'§24 (1st/2nd-order Δf alignment) — GPU backend only; off in surrogate mode'},
   en33:{sec:'sec_s25',name:'§25 (gradient-norm & d/dt(J·r) evolution) — GPU backend only; off in surrogate mode'},
-  en34:{sec:'sec_s26',name:'§26 (eigenvector-direction drift GN/NTK/M_r) — GPU backend only; off in surrogate mode'}};
+  en34:{sec:'sec_s26',name:'§26 (eigenvector-direction drift GN/NTK/M_r) — GPU backend only; off in surrogate mode'},
+  en35:{sec:'sec_s27',name:'§27 (3D subspace projection of the six ∇θ gradient-vectors) — GPU backend only; off in surrogate mode'}};
 let ADV_GOT={};   // toggle id → true once that section's g-record has arrived this run
 function datasetOutDim(){const d=val('dataset');
   if(d==='cifar10'||d==='mnist')return 10; if(d==='cifar2'||d==='mnist2'||d==='chebyshev'||d==='chebyshev2'||d==='ksparse'||d==='anglepair'||d==='agf')return 1;
@@ -3538,6 +3561,7 @@ function pushPoint(t,D,n,kth,nResid){
     E('p_s26_gn3',g.gn&&g.gn[2]);   E('p_s26_ntk3',g.ntk&&g.ntk[2]);   E('p_s26_mr3',g.mrTop&&g.mrTop[2]);   // panel 3 (3rd)
     E('p_s26_mrb1',g.mrBot&&g.mrBot[0]); E('p_s26_mrb2',g.mrBot&&g.mrBot[1]); E('p_s26_mrb3',g.mrBot&&g.mrBot[2]);   // panel 4 (M_r bottom-3)
   }
+  if(OPT.s35&&D.g27){applyG27(D.g27.pts);}   // §27 — accumulate this step's finalized iteration-point(s) into the 12 3D curves
   if(OPT.s4&&D.jt){   // D.jt is null on cross-entropy runs (server disables §4); guard like §7–§12
     extP('p_Jtopn',{x:reps(n,t),y:colsOf(n,D.jtN)},ids(n));     // phase 1: alignment
     extP('p_Jbotn',{x:reps(n,t),y:colsOf(n,D.jbN)},ids(n));
@@ -3698,7 +3722,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const qapprox=Math.max(1,+val('qapprox')||250);              // §9 quadratic-approx window length (GD steps)
   const qmode=Math.max(1,+val('qmode')||1), tset=Math.max(1,+val('tset')||1);   // qmode (legacy, unused by Eq-22); Eq-29 set-T size
   const nProbe=Math.max(1,+val('slqprobes')), efrac=Math.min(1,Math.max(0.5,(+val('energyp'))/100));
-  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),s30:chk('en30'),s31:chk('en31'),s32:chk('en32'),s33:chk('en33'),s34:chk('en34'),gs:val('gson')==='1'};
+  const opt={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),s30:chk('en30'),s31:chk('en31'),s32:chk('en32'),s33:chk('en33'),s34:chk('en34'),s35:chk('en35'),gs:val('gson')==='1'};
   OPT=opt;
   const {spec,p}=buildSpec(inDim,width,depth,act,useBias,outDim);
   if(p>100000){st.textContent=`p=${p} parameters exceeds the cap (100000). Reduce width/depth.`;ST=null;updateButtons();return;}
@@ -4528,7 +4552,33 @@ const QUERY_IDS=['depth','width','act','bias','fixedx','inputstd','ssign','optim
    'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','cubeevery','s24warm','s24iter','s24grid','s24ares','s24k','s28k','s29k','s30t','s31r','s31scale',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg','ksparse','angle','norm1','norm2','lab1','lab2','saddlesep','agfratio'];
 const SEC_TOGGLE_MAP=[['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
-   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base'],['s26','en26'],['s27','en27'],['s28','en28'],['s29','en29'],['s30','en30'],['s31','en31'],['s32','en32'],['s33','en33'],['s34','en34']];
+   ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base'],['s26','en26'],['s27','en27'],['s28','en28'],['s29','en29'],['s30','en30'],['s31','en31'],['s32','en32'],['s33','en33'],['s34','en34'],['s35','en35']];
+
+// §27 — render the 3D subspace-projection curves from the g27 payload (server computes; browser only draws).
+// One scatter3d trace per plot; points accumulate over the run, coloured by iteration (Viridis gradient).
+function s27P(id,title){
+  window.S27DATA=window.S27DATA||{};
+  const tr={type:'scatter3d',mode:'lines+markers',x:[],y:[],z:[],
+    marker:{size:2.6,color:[],colorscale:'Viridis',opacity:0.9,
+      colorbar:{thickness:8,len:0.68,tickfont:{size:8},title:{text:'iter',font:{size:9},side:'right'}}},
+    line:{color:[],colorscale:'Viridis',width:2}};
+  const lay={title:{text:title,font:{size:11.5}},margin:{l:0,r:0,t:24,b:0},uirevision:'s27',showlegend:false,
+    scene:{xaxis:{title:'PC1'},yaxis:{title:'PC2'},zaxis:{title:'PC3'},aspectmode:'cube',camera:{eye:{x:1.6,y:1.6,z:1.3}}}};
+  Plotly.newPlot(id,[tr],lay,{responsive:false,displaylogo:false});
+  window.S27DATA[id]={x:[],y:[],z:[],c:[]};
+}
+function applyG27(pts){
+  if(!pts||!pts.length)return;
+  const D=window.S27DATA=window.S27DATA||{}, MET=['f','r','J','g','rd','Jd'], touched=new Set();
+  for(const pt of pts){const t=pt.t;
+    for(const m of MET){
+      const dp=D['p_s27_'+m], dc=D['p_s27c_'+m];
+      if(dp&&pt.perM&&pt.perM[m]){dp.x.push(pt.perM[m][0]);dp.y.push(pt.perM[m][1]);dp.z.push(pt.perM[m][2]);dp.c.push(t);touched.add('p_s27_'+m);}
+      if(dc&&pt.common&&pt.common[m]){dc.x.push(pt.common[m][0]);dc.y.push(pt.common[m][1]);dc.z.push(pt.common[m][2]);dc.c.push(t);touched.add('p_s27c_'+m);}
+    }}
+  for(const id of touched){const d=D[id];   // full-array restyle ⇒ the Viridis colour range auto-tracks [0, current max t]
+    Plotly.restyle(id,{x:[d.x],y:[d.y],z:[d.z],'marker.color':[d.c],'line.color':[d.c]},[0]);}
+}
 function currentQueryParams(){   // the exact query-style param dict the backend receives (also stored in a browser-saved capture)
   const o={};
   for(const id of QUERY_IDS){const el=document.getElementById(id);if(el)o[id]=val(id);}
@@ -4571,6 +4621,7 @@ function gpuHandle(m,st,sp,finish,resuming){
       if(m.g24)ADV_GOT.en32=1;   // §24 lives in the step record → mark it produced so markSkippedAdv only notes a truly-empty §24
       if(m.g25)ADV_GOT.en33=1;   // §25 likewise lives in the step record
       if(m.g26)ADV_GOT.en34=1;   // §26 (eigenvector-direction drift) lives in the step record too
+      if(m.g27)ADV_GOT.en35=1;   // §27 (∇θ-vector 3D subspace projection) lives in the step record too
       pushPoint(m.t,m,META.n,META.kth,META.nResid);lastT=m.t;
       if(m.sps!=null)sp.textContent=`steps/sec: ${m.sps.toFixed(1)}`;
       st.textContent=`running on ${META.device} … step ${m.t}/${m.steps}  ·  p=${m.p}, 2/lr=${META.thr.toFixed(2)}`;
@@ -4591,6 +4642,7 @@ function gpuHandle(m,st,sp,finish,resuming){
     }else if(m.type==='g15corr'){ADV_GOT.en23=1;S15_TERMS_GOT=true;s15corrPush(m);
     }else if(m.type==='g16'){ADV_GOT.en24=1;s16Push(m);
     }else if(m.type==='g17'){ADV_GOT.en25=1;s17Push(m);
+    }else if(m.type==='g27'){ADV_GOT.en35=1;applyG27(m.pts);   // §27 end-of-run flush (trailing 50 iterations, right-clipped windows)
     }else if(m.type==='done'){st.textContent=`done — through step ${lastT} · p=${m.p} · 2/lr=${(META?META.thr:0).toFixed(3)}.`;markSkippedAdv();finish();
     }else if(m.type==='error'){st.textContent='backend: '+m.error;markSkippedAdv();finish();}
 }
@@ -4669,7 +4721,7 @@ async function loadCapture(obj){
   if(ES){ES.close();ES=null;} RUNNING=false;PAUSED=false;ABORT=false;ST=null;   // stop any live run
   if(typeof resetScrub==='function')resetScrub();
   applyCaptureParams(obj.params);
-  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),s30:chk('en30'),s31:chk('en31'),s32:chk('en32'),s33:chk('en33'),s34:chk('en34'),gs:val('gson')==='1'};   // for markSkippedAdv
+  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),s30:chk('en30'),s31:chk('en31'),s32:chk('en32'),s33:chk('en33'),s34:chk('en34'),s35:chk('en35'),gs:val('gson')==='1'};   // for markSkippedAdv
   lastT=-1;META=null;cursorX=null;GPU_CAPTURE=obj.records.slice();   // keep loaded records re-savable
   const finish=()=>{RUNNING=false;updateButtons();};
   const recs=obj.records;
@@ -4786,7 +4838,7 @@ async function loadFromServer(){
   }catch(e){if(st)st.textContent='failed to load from server: '+e.message;console.error(e);}
 }
 function runGPU(){
-  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),s30:chk('en30'),s31:chk('en31'),s32:chk('en32'),s33:chk('en33'),s34:chk('en34'),gs:val('gson')==='1'};
+  OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),s30:chk('en30'),s31:chk('en31'),s32:chk('en32'),s33:chk('en33'),s34:chk('en34'),s35:chk('en35'),gs:val('gson')==='1'};
   lastT=-1;META=null;cursorX=null;openStream(0,false);
 }
 function stopGPU(){ if(RUNNING){PAUSED=true;if(ES){ES.close();ES=null;}RUNNING=false;

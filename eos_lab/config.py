@@ -164,6 +164,7 @@ class Config:
     s32: int = 0          # §24 — 1st/2nd-order Δf alignment A=JJᵀr & B=(η/2N)JrᵀQ_kJr (server/browser only)
     s33: int = 0          # §25 — gradient-norm + d/dt(J·r) split + ∇‖J‖²·{Q∇L,G∇L} evolution (server/browser only)
     s34: int = 0          # §26 — eigenvector-direction drift |cos(v_i(t),v_i(t−k))| GN/NTK/M_r (server/browser only)
+    s35: int = 0          # §27 — sliding-window 3D subspace projection of the six ∇θ gradient-vectors (server/browser only)
 
     # ---- test set (held-out) ----
     n_test: int = 0                # held-out test points (0 ⇒ default: max(nsamp, 256), capped per dataset)
@@ -184,7 +185,7 @@ class Config:
             d[k] = bool(getattr(self, k))
         # §18-§26 section toggles (s26..s34) consumed by diagnostics/train; leave the scalar params
         # (s28k/s29k/s30t/s31r/s31scale) numeric. int 0/1 already reads as truthy, but bool-cast for consistency.
-        for k in ("s26", "s27", "s28", "s29", "s30", "s31", "s32", "s33", "s34"):
+        for k in ("s26", "s27", "s28", "s29", "s30", "s31", "s32", "s33", "s34", "s35"):
             d[k] = bool(getattr(self, k))
         return d
 

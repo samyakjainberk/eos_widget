@@ -107,12 +107,16 @@ class Diagnostics:
         self.s32 = P.get("s32", 0)          # §24: A=JJᵀr & B=(η/2N)JrᵀQ_kJr alignment vs r and top-4 NTK eigvecs
         self.s33 = P.get("s33", 0)          # §25: ‖∇L‖ + d/dt(J·r) split + 5-gradient cosine alignments (needs 3 consecutive steps)
         self.s34 = P.get("s34", 0)          # §26: eigenvector-direction drift |cos(v_i(t),v_i(t−k))| of top-3 GN/NTK & top-3⊕bottom-3 M_r
+        self.s35 = P.get("s35", 0)          # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag)
         self.divreg = float(P.get("divreg", 0.3))   # §15 divergence ε: softens the 0/0 spike at D²→0 inflections (0 = exact /D²)
         self._sec15_hist = []               # §15: rolling buffer of the last 2 eig-ticks' {th, J, r} (need t−1 and t−2)
         self._sec25_hist = []               # §25: rolling buffer of the last 2 ticks' {th, J, r, t} (II/III need t−1 and t−2)
         self._sec25_rhist = []              # §25: rolling buffer of the last 101 ticks' {t, r} for cos(r_t, r_{t−k}), k∈{1,10,30,50,100}
         self._sec25_r0hist = []             # §25: initial residual r_0 (persistent) for the cos(r_t, r_0) cumulative-rotation reference
         self._sec26_hist = []               # §26: rolling buffer of the last 101 ticks' {t, gn/ntk/mrTop/mrBot eigvecs} for eigenvector-direction drift
+        self._sec27 = None                  # §27: Sec27State (rolling 101 vector-sets + sign refs), created lazily on first §27 step
+        self._sec27_prev = None             # §27: previous step's {r, J} for the discrete ṙ/J̇ gradient vectors
+        self._sec27_last_t = None           # §27: last stepped iteration index (for the end-of-run flush of the trailing 50)
         self._sec14_rhist = []              # §14: per-sample residual history (last ≤5 ticks) for the eq-③ ratio
         self._sec14_prev = None             # §14: previous eig-tick's {TV,TW,BV,BW,r,Jg} (u,σ,r_j,J_k at t; cur gives J_i,r_k at t+1)
         self._sec13_prev = None             # §13: previous eig-tick's per-sample {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
@@ -345,10 +349,10 @@ class Diagnostics:
         want_multi = self.multi_ok and (self.s7 or self.s8 or self.s9 or self.s10 or self.s11
                                          or self.s12 or self.s13 or self.s15 or self.s16 or self.s17
                                          or self.s18 or self.s19 or self.s20 or self.s21 or self.s22 or self.s23
-                                         or self.s26 or self.s27 or self.s28 or self.s29 or self.s32 or self.s33 or self.s34)
+                                         or self.s26 or self.s27 or self.s28 or self.s29 or self.s32 or self.s33 or self.s34 or self.s35)
         # §15/§19/§20/§21/§24/§25/§26 (s23/s27/s28/s29/s32/s33/s34) ALSO run for a single sample (N=1) — they only
         # need the M×p Jacobian (M=N·outD), gated by grid3dcap, not the full `multi_ok` budget. MIRRORS server.py:3210.
-        single_sample = ((self.s23 or self.s27 or self.s28 or self.s29 or self.s32 or self.s33 or self.s34)
+        single_sample = ((self.s23 or self.s27 or self.s28 or self.s29 or self.s32 or self.s33 or self.s34 or self.s35)
                          and N <= self.grid3dcap)
         if want_multi or self.s12single or single_sample:
             Jc, out_flat = jac_cols(self.model, th, X)
@@ -380,6 +384,21 @@ class Diagnostics:
             self._sec26_hist.append({"t": t, **{key: [v.detach().clone() for v in ev26[key]] for key in ev26}})
             if len(self._sec26_hist) > 101:
                 self._sec26_hist.pop(0)
+
+        # ---- §27 (s35): sliding-window 3D subspace projection of the six ∇θ gradient-vectors ----
+        # 50-step-lag streaming: at step t we finalize iteration t−50 (its +50 window is now buffered);
+        # the trailing 50 are emitted by finalize_sec27() after the loop. Browser renders g27 only.
+        if (self.s35 and (N * outD) <= self.grid3dcap and self.dataset != "owt"
+                and Jc is not None and rr is not None):
+            from .sec27 import Sec27State, sec27_vectors
+            if self._sec27 is None:
+                self._sec27 = Sec27State()
+            vecs, self._sec27_prev = sec27_vectors(self.model, self.loss, th, X, Y, N, outD,
+                                                   Jc, rr, self._sec27_prev)
+            pts = self._sec27.push_step(t, vecs)
+            self._sec27_last_t = t
+            if pts:
+                rec["g27"] = {"pts": pts}
 
         # ---- §7a (NTK alignment, always-on) + §7 (heavy FH-tensor SVD projections) ----
         # §7a needs only the NTK eigvecs Vk and the FH-tensor eigvecs Vh; the §7 projections additionally
@@ -856,6 +875,14 @@ class Diagnostics:
                 rec["tr_G"] = hutch_trace(self._hG(th, X), p, ntr, 0x52, dev, dt)
                 rec["tr_S"] = hutch_trace(self._hS(th, X, cS), p, ntr, 0x53, dev, dt)
         return rec
+
+    def finalize_sec27(self):
+        """§27 end-of-run flush: finalize the trailing iterations whose +50 forward window never
+        completed during streaming (right-clipped). Call once after the loop. Returns {"pts":[...]} or None."""
+        if self._sec27 is None or self._sec27_last_t is None:
+            return None
+        pts = self._sec27.flush(self._sec27_last_t)
+        return {"pts": pts} if pts else None
 
     def _theory_step(self, th, X, Y, t, J, out, rr, bEk_vals):
         """§9 Eq-13/21/22/23/29 predicted σ₁ over frozen-Q windows. MIRRORS server's s12 block.

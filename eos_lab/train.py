@@ -175,6 +175,12 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
         if t < cfg.steps:
             th = th - cfg.lr * opt_dir(model, grad_loss(model, loss, th, Xb, Yb)[0], cfg.optimizer)
 
+    # ── §27 end-of-run flush: emit the trailing iteration-points whose +50 forward window never
+    #    completed during streaming (right-clipped windows, t > last_step−50) ──
+    _f27 = diag.finalize_sec27()
+    if _f27 is not None:
+        history.append({"t": (history[-1]["t"] + 1 if history else cfg.steps + 1), "g27": _f27})
+
     # ── §16: standalone curvature-aligned per-residual-sign optimizer (own iteration axis), run from θ₀ ──
     # MULTI-OUTPUT: the effective samples are the M = N·d_out outputs (residual / Jacobian-row dim), so cifar10 (d=10) /
     # sorting-GPT (d=seqlen) work too. Gate on M=N·d (jac_cols = M backward) + M·p memory; any arch, MSE only.

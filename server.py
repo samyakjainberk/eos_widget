@@ -2047,6 +2047,112 @@ def _sec25_cosines(th, X, Y, N, outD):
     return cosA, cosB, cosF, cosG, norms
 
 
+# ── §27: sliding-window 3D subspace projection of six ∇θ gradient-vectors (MIRRORS eos_lab.sec27) ──
+# Six per-step p-vectors (exact autograd): f=∇‖f‖² r=∇‖r‖² J=∇‖J‖²_F g=∇‖∇L‖²
+#   rd=∇‖ṙ‖²=−2Jᵀ(r_t−r_{t−1})   Jd=∇‖J̇‖²_F=∇‖J‖²_F−2∇⟨J,J_{t−1}⟩_F   (rd/Jd DISCRETE ⇒ 0 at t=0).
+# For iteration t the window [t−50,t+50] of a metric is projected onto its top-3 LEFT singular directions
+# via the Gram G=AᵀA (coord_i=σ_i·v_i[center]); panels 1-2 use a per-metric subspace, panels 3-4 a COMMON
+# subspace (all six metrics stacked, p×6W). 50-step-lag streaming: rolling 101 buffer, finalize iteration t
+# at step t+50 (its +50 window is buffered); the trailing 50 are flushed at end-of-run. Browser renders g27 only.
+_SEC27_METRICS = ("f", "r", "J", "g", "rd", "Jd")
+_SEC27_HALF = 50
+_SEC27_TOP = 3
+
+
+def _sec27_top_eig(gram, top):
+    """Top-`top` eigenpairs (descending) of a symmetric PSD Gram; pads to `top` if smaller."""
+    n = gram.shape[0]; k = min(top, n)
+    evals, evecs = torch.linalg.eigh(gram)
+    order = torch.argsort(evals, descending=True)[:k]
+    lam = evals[order].clamp_min(0.0); V = evecs[:, order]; sig = lam.sqrt()
+    if k < top:
+        sig = torch.cat([sig, torch.zeros(top - k, dtype=gram.dtype, device=gram.device)])
+        V = torch.cat([V, torch.zeros(n, top - k, dtype=gram.dtype, device=gram.device)], dim=1)
+    return sig, V
+
+
+def _sec27_sign_align(prev, keys, V):
+    """Flip each mode's sign in V (in place) to match `prev` over shared column-keys; return the
+    {"keys","V"} state to store for the next iteration (heavy window overlap ⇒ stable curves)."""
+    if prev is not None:
+        pidx = {kk: i for i, kk in enumerate(prev["keys"])}
+        cur = [(i, pidx[kk]) for i, kk in enumerate(keys) if kk in pidx]
+        if cur:
+            ci = torch.tensor([i for i, _ in cur], device=V.device)
+            pi = torch.tensor([j for _, j in cur], device=V.device)
+            for j in range(V.shape[1]):
+                if float((V[ci, j] * prev["V"][pi, j]).sum()) < 0:
+                    V[:, j] = -V[:, j]
+    return {"keys": list(keys), "V": V.detach().clone()}
+
+
+class _Sec27State:
+    """Rolling-buffer state for the 50-lag streaming projection (one per run). MIRRORS eos_lab.sec27.Sec27State."""
+
+    def __init__(self, half=_SEC27_HALF, top=_SEC27_TOP):
+        self.half = half; self.top = top; self.cap = 2 * half + 1
+        self.buf = []; self.next_t = 0; self.sign = {}
+
+    def push_step(self, t, vecs):
+        self.buf.append({"t": t, "vecs": vecs})
+        if len(self.buf) > self.cap:
+            self.buf.pop(0)
+        pts = []
+        while self.next_t + self.half <= t:
+            pts.append(self._finalize(self.next_t)); self.next_t += 1
+        return pts
+
+    def flush(self, last_t):
+        pts = []
+        while self.next_t <= last_t:
+            pts.append(self._finalize(self.next_t)); self.next_t += 1
+        return pts
+
+    def _window(self, t):
+        lo, hi = t - self.half, t + self.half
+        return [e for e in self.buf if lo <= e["t"] <= hi]
+
+    def _finalize(self, t):
+        win = self._window(t); iters = [e["t"] for e in win]; center = iters.index(t); W = len(win)
+        perM = {}; common = {}
+        for m in _SEC27_METRICS:                                          # panels 1-2: per-metric subspace
+            cols = torch.stack([e["vecs"][m] for e in win], dim=1)
+            sig, V = _sec27_top_eig(cols.t() @ cols, self.top)
+            self.sign[m] = _sec27_sign_align(self.sign.get(m), iters, V)
+            perM[m] = [float(sig[j] * V[center, j]) for j in range(self.top)]
+        big = torch.cat([torch.stack([e["vecs"][m] for e in win], dim=1) for m in _SEC27_METRICS], dim=1)
+        keys_c = [(m, it) for m in _SEC27_METRICS for it in iters]        # panels 3-4: common subspace
+        sig_c, V_c = _sec27_top_eig(big.t() @ big, self.top)
+        self.sign["c"] = _sec27_sign_align(self.sign.get("c"), keys_c, V_c)
+        for mi, m in enumerate(_SEC27_METRICS):
+            col = mi * W + center
+            common[m] = [float(sig_c[j] * V_c[col, j]) for j in range(self.top)]
+        return {"t": t, "perM": perM, "common": common}
+
+
+def _sec27_vectors(th, X, Y, N, outD, Jc, rr, prev):
+    """Six ∇θ metric vectors (detached (p,)) + the {r,J} to carry as next `prev`. MIRRORS eos_lab.sec27.sec27_vectors."""
+    import torch.func as _tf
+    M = N * outD; Jm = Jc[:M]; rm = rr[:M]
+    spec = _TL.model.spec; Yf = Y.reshape(-1)
+    ff = lambda q: fwd(q, spec, X)[0].reshape(-1)
+    Lval = lambda q: _TL.loss.value(fwd(q, spec, X)[0], Y, N)
+    def phi_f(q): f = ff(q); return (f * f).sum()                         # ‖f‖²
+    def phi_r(q): d = Yf - ff(q); return (d * d).sum()                    # ‖r‖²
+    def phi_J(q): J = _tf.jacrev(ff)(q); return (J * J).sum()             # ‖J‖²_F
+    def phi_g(q): g = _tf.grad(Lval)(q); return (g * g).sum()             # ‖∇L‖²
+    m_f = _tf.grad(phi_f)(th).detach(); m_r = _tf.grad(phi_r)(th).detach()
+    m_J = _tf.grad(phi_J)(th).detach(); m_g = _tf.grad(phi_g)(th).detach()
+    if prev is None:                                                     # ṙ, J̇ undefined at t=0 ⇒ zero vectors
+        z = torch.zeros_like(m_f); m_rd = z; m_Jd = z.clone()
+    else:
+        dr = rm - prev["r"]; m_rd = (-2.0 * (Jm.t() @ dr)).detach()       # ∇‖ṙ‖² = −2 Jᵀ Δr
+        C = prev["J"]; cross = _tf.grad(lambda q: (_tf.jacrev(ff)(q) * C).sum())(th).detach()   # ∇⟨J,J_{t−1}⟩_F
+        m_Jd = (m_J - 2.0 * cross).detach()                              # ∇‖J̇‖²_F = ∇‖J‖²_F − 2∇⟨J,J_{t−1}⟩_F
+    vecs = {"f": m_f, "r": m_r, "J": m_J, "g": m_g, "rd": m_rd, "Jd": m_Jd}
+    return vecs, {"r": rm.detach().clone(), "J": Jm.detach().clone()}
+
+
 def _quad_surrogate_main(th_freeze, X, Y, N, outD, lr, steps, ee, K, n, mV, nResid,
                          s1, s2, s3, gs, kind, qhvp=None, s15=0, divreg=0.3):
     """§22/§23 REPLACE mode: iterate the closed-loop quadratic-Taylor surrogate from th_freeze and compute the
@@ -3052,6 +3158,7 @@ def run_stream(P):
     s32 = P.get("s32", 0)                # §24: A=JJᵀr & B=(η/2N)JrᵀQ_kJr alignment with residual + top-4 NTK eigvecs (time-series)
     s33 = P.get("s33", 0)                # §25: ‖∇L‖, ‖M_r∇L‖, ‖JᵀJ∇L‖, |⟨∇‖J‖²,Q∇L⟩|, |⟨∇‖J‖²,G∇L⟩| evolution (single plot)
     s34 = P.get("s34", 0)                # §26: direction-drift |cos(v_i(t),v_i(t−k))| of the top-3 GN/NTK & top-3⊕bottom-3 M_r eigenvectors
+    s35 = P.get("s35", 0)                # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag)
     s30t = max(0, int(P.get("s30t", 0)))      # §22: iteration t at which to freeze the 2nd-order Taylor (θ_t, J_t, Q_t)
     s31r = max(1, int(P.get("s31r", 200)))    # §23: rank R of the random symmetric function Hessian
     s31scale = float(P.get("s31scale", 1.0))  # §23: random-Hessian spectral norm = (real function-Hessian λmax at θ₀)·s31scale
@@ -3127,6 +3234,9 @@ def run_stream(P):
     sec25_rhist = []           # §25: rolling buffer of the last 101 ticks' {t, r} for cos(r_t, r_{t−k}), k∈{1,10,30,50,100} (residual-direction drift)
     sec25_r0hist = []          # §25: the INITIAL residual r_0 (persistent, 1 entry) for the cos(r_t, r_0) cumulative-rotation reference line
     sec26_hist = []            # §26: rolling buffer of the last 101 ticks' {t, gn/ntk/mrTop/mrBot eigvecs} for the eigenvector-direction drift
+    sec27_state = None         # §27: _Sec27State (rolling 101 vector-sets + sign refs), created lazily on the first §27 step
+    sec27_prev = None          # §27: previous step's {r, J} for the discrete ṙ/J̇ gradient vectors
+    sec27_last_t = None        # §27: last stepped iteration index (for the end-of-run flush of the trailing 50)
     sec15_th64 = None          # §15: float64 SHADOW GD trajectory (MLP only). D²=‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖² is a ~9-digit
                                #   catastrophic cancellation when the net is near-stationary (e.g. chebyshev init=0.2: ‖J‖²≈21,
                                #   true D²≈1e-8). The displayed trajectory is float32 (≈7 digits) ⇒ D² is pure roundoff ⇒ divergence%
@@ -3334,7 +3444,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29 or s32 or s33 or s34)) or ((s23 or s27 or s28 or s29 or s32 or s33 or s34) and N <= grid3dcap):   # §15/§19/§20/§21/§24/§25/§26 also run for a single sample
+            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29 or s32 or s33 or s34 or s35)) or ((s23 or s27 or s28 or s29 or s32 or s33 or s34 or s35) and N <= grid3dcap):   # §15/§19/§20/§21/§24/§25/§26/§27 also run for a single sample
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -3417,6 +3527,19 @@ def run_stream(P):
                 sec26_hist.append({"t": t, **{key: [v.detach().clone() for v in ev26[key]] for key in ev26}})
                 if len(sec26_hist) > 101:                                # hold ≥100 ticks back for the lag-100 line
                     sec26_hist.pop(0)
+
+            # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag).
+            #      At step t we finalize iteration t−50 (its [t−100,t] window is buffered); the trailing
+            #      50 are flushed after the loop. Browser renders g27 only (no local recompute).
+            g27 = None
+            if s35 and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+                if sec27_state is None:
+                    sec27_state = _Sec27State()
+                _v27, sec27_prev = _sec27_vectors(th, X, Y, N, outD, Jc, rr, sec27_prev)
+                _pts27 = sec27_state.push_step(t, _v27)
+                sec27_last_t = t
+                if _pts27:
+                    g27 = {"pts": _pts27}
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None
@@ -4036,6 +4159,7 @@ def run_stream(P):
                 "g24": g24,                                    # §24: A=JJᵀr & B=(η/2N)JrᵀQ_kJr alignment vs r and top-4 NTK eigvecs
                 "g25": g25,                                    # §25: ‖∇L‖ + d/dt(J·r) split + ∇‖J‖²·{Q∇L,G∇L} alignments
                 "g26": g26,                                    # §26: eigenvector-direction drift |cos(v_i(t),v_i(t−k))| for GN/NTK/M_r top-3 (+M_r bottom-3)
+                "g27": g27,                                    # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag)
                 "sps": (t - start + 1) / max(time.time() - t0, 1e-9),
             }
 
@@ -4081,6 +4205,11 @@ def run_stream(P):
             done += 1
 
         th = th - lr * _opt_dir(_TL.model, gradL(th, X, Y)[0], opt)
+
+    if sec27_state is not None and sec27_last_t is not None:       # §27 end-of-run flush: the trailing 50 iterations (right-clipped windows)
+        _f27 = sec27_state.flush(sec27_last_t)
+        if _f27:
+            yield {"type": "g27", "pts": _f27}
 
     yield {"type": "done", "p": p}
 
@@ -4639,6 +4768,7 @@ def _parse_params(q):
         "s32": g("s32", "0") == "1",     # §24: A=JJᵀr & B=(η/2N)JrᵀQ_kJr alignment with residual + top-4 NTK eigvecs (time-series)
         "s33": g("s33", "0") == "1",     # §25: gradient-norm + d/dt(J·r) split + ∇‖J‖²·{Q∇L,G∇L} alignment evolution (single plot)
         "s34": g("s34", "0") == "1",     # §26: eigenvector-direction drift |cos(v_i(t),v_i(t−k))| of top-3 GN/NTK & top-3⊕bottom-3 M_r eigvecs
+        "s35": g("s35", "0") == "1",     # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag)
         "s30t": max(0, fi("s30t", 0)),   # §22: freeze iteration t
         "s31r": max(1, fi("s31r", 200)), # §23: rank R of the random function Hessian
         "s31scale": ff("s31scale", 1.0), # §23: random-Hessian spectral-norm scale (× real fn-Hessian λmax)
