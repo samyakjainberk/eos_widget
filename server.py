@@ -2091,29 +2091,29 @@ class _Sec27State:
 
     def __init__(self, half=_SEC27_HALF, top=_SEC27_TOP):
         self.half = half; self.top = top; self.cap = 2 * half + 1
-        self.buf = []; self.next_t = 0; self.sign = {}
+        self.buf = []; self.n_seen = 0; self.n_final = 0; self.sign = {}   # position-based (robust to eigevery>1 & resume)
 
     def push_step(self, t, vecs):
         self.buf.append({"t": t, "vecs": vecs})
         if len(self.buf) > self.cap:
             self.buf.pop(0)
+        self.n_seen += 1
         pts = []
-        while self.next_t + self.half <= t:
-            pts.append(self._finalize(self.next_t)); self.next_t += 1
+        while self.n_seen - self.n_final > self.half:
+            pts.append(self._finalize(self.n_final)); self.n_final += 1
         return pts
 
-    def flush(self, last_t):
+    def flush(self):
         pts = []
-        while self.next_t <= last_t:
-            pts.append(self._finalize(self.next_t)); self.next_t += 1
+        while self.n_final < self.n_seen:
+            pts.append(self._finalize(self.n_final)); self.n_final += 1
         return pts
 
-    def _window(self, t):
-        lo, hi = t - self.half, t + self.half
-        return [e for e in self.buf if lo <= e["t"] <= hi]
-
-    def _finalize(self, t):
-        win = self._window(t); iters = [e["t"] for e in win]; center = iters.index(t); W = len(win)
+    def _finalize(self, pos):
+        buf_start = self.n_seen - len(self.buf)
+        lo = max(0, pos - self.half); hi = min(self.n_seen - 1, pos + self.half)
+        win = self.buf[lo - buf_start: hi - buf_start + 1]
+        iters = [e["t"] for e in win]; center = pos - lo; W = len(win)
         perM = {}; common = {}
         for m in _SEC27_METRICS:                                          # panels 1-2: per-metric subspace
             cols = torch.stack([e["vecs"][m] for e in win], dim=1)
@@ -2127,7 +2127,7 @@ class _Sec27State:
         for mi, m in enumerate(_SEC27_METRICS):
             col = mi * W + center
             common[m] = [float(sig_c[j] * V_c[col, j]) for j in range(self.top)]
-        return {"t": t, "perM": perM, "common": common}
+        return {"t": iters[center], "perM": perM, "common": common}
 
 
 def _sec27_vectors(th, X, Y, N, outD, Jc, rr, prev):
@@ -2429,7 +2429,8 @@ def cubic_self_step(ctx, st, th, X, Y, t, rr, bEk_vals):
     """Eq-51 cubic σ₁ prediction (MULTI) driven by the frozen-quadratic SELF-residual r_q instead of the
     live residual: §10's cubic J/Q/T propagation fused with §9d's Δθ self-trajectory. Returns {c51d, c51dp}.
     r_q = Y − (f₀ + J₀·Δθ + ½·Q₀[Δθ]·Δθ);  g = J_t·r_q drives BOTH the cubic ΔJ and Δθ += (η/N)g.
-    The actuals for plot 4 are the live run's cActN/cActH (reused from cubic_step). MIRRORS eos_lab cubic_self_step."""
+    The actuals for plot 4 are the live run's cActN/cActH (reused from cubic_step). Server-side only —
+    the prediction widget renders c51d from the SSE stream (no eos_lab/browser recompute)."""
     N, p, M = ctx["N"], ctx["p"], ctx["M"]
     lr, ee, cubW, cn = ctx["lr"], ctx["ee"], ctx["cubicapprox"], ctx["cn"]
     multi, multi_ok = ctx["multi"], ctx["multi_ok"]
@@ -3603,7 +3604,7 @@ def run_stream(P):
             #      At step t we finalize iteration t−50 (its [t−100,t] window is buffered); the trailing
             #      50 are flushed after the loop. Browser renders g27 only (no local recompute).
             g27 = None
-            if s35 and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+            if s35 and isinstance(_TL.model, MlpModel) and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 if sec27_state is None:
                     sec27_state = _Sec27State()
                 _v27, sec27_prev = _sec27_vectors(th, X, Y, N, outD, Jc, rr, sec27_prev)
@@ -4279,8 +4280,8 @@ def run_stream(P):
 
         th = th - lr * _opt_dir(_TL.model, gradL(th, X, Y)[0], opt)
 
-    if sec27_state is not None and sec27_last_t is not None:       # §27 end-of-run flush: the trailing 50 iterations (right-clipped windows)
-        _f27 = sec27_state.flush(sec27_last_t)
+    if sec27_state is not None and sec27_state.n_seen > 0:         # §27 end-of-run flush: the trailing 50 iterations (right-clipped windows)
+        _f27 = sec27_state.flush()
         if _f27:
             yield {"type": "g27", "pts": _f27}
 

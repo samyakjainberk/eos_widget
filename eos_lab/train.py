@@ -175,11 +175,10 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
         if t < cfg.steps:
             th = th - cfg.lr * opt_dir(model, grad_loss(model, loss, th, Xb, Yb)[0], cfg.optimizer)
 
-    # ── §27 end-of-run flush: emit the trailing iteration-points whose +50 forward window never
-    #    completed during streaming (right-clipped windows, t > last_step−50) ──
-    _f27 = diag.finalize_sec27()
-    if _f27 is not None:
-        history.append({"t": (history[-1]["t"] + 1 if history else cfg.steps + 1), "g27": _f27})
+    # ── §27 end-of-run flush: the trailing iteration-points whose +50 forward window never completed
+    #    during streaming (right-clipped). Kept OUT of `history` so it does NOT inject a NaN tail into the
+    #    scalar series / wandb final_loss / cli readouts — returned separately as results["sec27_flush"]. ──
+    sec27_flush = diag.finalize_sec27()
 
     # ── §16: standalone curvature-aligned per-residual-sign optimizer (own iteration axis), run from θ₀ ──
     # MULTI-OUTPUT: the effective samples are the M = N·d_out outputs (residual / Jacobian-row dim), so cifar10 (d=10) /
@@ -228,7 +227,7 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
 
     meta["wall_sec"] = time.time() - t0
     return {"meta": meta, "config": cfg, "history": history, "series": _to_series(history),
-            "sec16": sec16, "sec17": sec17, "sec2223": None}
+            "sec16": sec16, "sec17": sec17, "sec2223": None, "sec27_flush": sec27_flush}
 
 
 # every per-step key that is a list-of-numbers and should become one track-per-index in `series`

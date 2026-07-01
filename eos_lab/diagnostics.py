@@ -388,7 +388,8 @@ class Diagnostics:
         # ---- §27 (s35): sliding-window 3D subspace projection of the six ∇θ gradient-vectors ----
         # 50-step-lag streaming: at step t we finalize iteration t−50 (its +50 window is now buffered);
         # the trailing 50 are emitted by finalize_sec27() after the loop. Browser renders g27 only.
-        if (self.s35 and (N * outD) <= self.grid3dcap and self.dataset != "owt"
+        if (self.s35 and getattr(self.model, "spec", None) is not None    # MLP only (autograd ∇θ-vectors, like §25); parity with server's isinstance(MlpModel) gate
+                and (N * outD) <= self.grid3dcap and self.dataset != "owt"
                 and Jc is not None and rr is not None):
             from .sec27 import Sec27State, sec27_vectors
             if self._sec27 is None:
@@ -879,9 +880,9 @@ class Diagnostics:
     def finalize_sec27(self):
         """§27 end-of-run flush: finalize the trailing iterations whose +50 forward window never
         completed during streaming (right-clipped). Call once after the loop. Returns {"pts":[...]} or None."""
-        if self._sec27 is None or self._sec27_last_t is None:
+        if self._sec27 is None or self._sec27.n_seen == 0:
             return None
-        pts = self._sec27.flush(self._sec27_last_t)
+        pts = self._sec27.flush()
         return {"pts": pts} if pts else None
 
     def _theory_step(self, th, X, Y, t, J, out, rr, bEk_vals):

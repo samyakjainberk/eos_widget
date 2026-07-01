@@ -4864,7 +4864,7 @@ async function loadFromServer(){
   // Prefer the compacted sibling (X.min.json) — it loads fast and never hangs; fall back to the full file.
   const cands=/\.min\.json$/i.test(name)?[name]:(/\.json$/i.test(name)?[name.replace(/\.json$/i,'.min.json'),name]:[name]);
   let r=null,used=null;
-  for(const c of cands){try{const rr=await fetch('runs_captured/'+encodeURIComponent(c),{cache:'no-store'});if(rr.ok){r=rr;used=c;break;}}catch(e){}}
+  for(const c of cands){try{const rr=await fetch('/runs_captured/'+encodeURIComponent(c),{cache:'no-store'});if(rr.ok){r=rr;used=c;break;}}catch(e){}}
   if(!r){if(st)st.textContent=`server has no ${cands.join(' or ')} in runs_captured/ — is the backend running and the file there?`;return;}
   const len=+(r.headers.get('content-length')||0), mb=len?(' ('+(len/1e6).toFixed(0)+' MB)'):'';
   if(st)st.textContent=`streaming ${used}${mb} …`;
@@ -4872,7 +4872,7 @@ async function loadFromServer(){
     let obj;
     try{ obj=await streamParseCapture(r,st,used); }                                   // incremental, frame-budgeted — no big parse freeze
     catch(e){ console.warn('stream parse failed; falling back to JSON.parse',e);       // safety net: re-fetch + atomic parse
-      const r2=await fetch('runs_captured/'+encodeURIComponent(used),{cache:'no-store'}); obj=await r2.json(); }
+      const r2=await fetch('/runs_captured/'+encodeURIComponent(used),{cache:'no-store'}); obj=await r2.json(); }
     await loadCapture(obj);
   }catch(e){if(st)st.textContent='failed to load from server: '+e.message;console.error(e);}
 }

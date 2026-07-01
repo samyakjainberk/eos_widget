@@ -120,39 +120,40 @@ class Sec27State:
         self.half = half
         self.top = top
         self.cap = 2 * half + 1
-        self.buf = []            # [{"t": int, "vecs": {metric: (p,) tensor}}], newest last, capped at self.cap
-        self.next_t = 0          # next iteration index to finalize (streamed in order)
+        self.buf = []            # last ≤cap ticks {t, vecs}, newest last
+        self.n_seen = 0          # total ticks pushed (POSITION counter — robust to eigevery>1 & resume: t need not be 0,1,2,…)
+        self.n_final = 0         # ticks finalized so far
         self.sign = {}           # key → {"keys","V"}: per-metric ("f".."Jd") + common ("c") sign references
 
     def push_step(self, t, vecs):
-        """Append this step's six vectors; return the list of iteration-points that just became
-        complete (their +HALF neighbour is now buffered) — normally ≤1 in steady state."""
+        """Append this tick's six vectors; return the ticks that just became complete (their +HALF forward
+        neighbour is now buffered). Indexed by POSITION (not the t value), so it is correct for non-consecutive
+        t (eigevery>1) and for a resumed run whose first t>0."""
         self.buf.append({"t": t, "vecs": vecs})
         if len(self.buf) > self.cap:
             self.buf.pop(0)
+        self.n_seen += 1
         pts = []
-        while self.next_t + self.half <= t:            # iteration next_t now has its +HALF future ⇒ finalize it
-            pts.append(self._finalize(self.next_t))
-            self.next_t += 1
+        while self.n_seen - self.n_final > self.half:    # tick at position n_final now has its +HALF future
+            pts.append(self._finalize(self.n_final))
+            self.n_final += 1
         return pts
 
-    def flush(self, last_t):
-        """End-of-run: finalize the trailing iterations (t in (last_t−HALF, last_t]) with the
-        right-clipped windows still available in the buffer. Returns their points in order."""
+    def flush(self):
+        """End-of-run: finalize the trailing ticks (right-clipped windows) still in the buffer."""
         pts = []
-        while self.next_t <= last_t:
-            pts.append(self._finalize(self.next_t))
-            self.next_t += 1
+        while self.n_final < self.n_seen:
+            pts.append(self._finalize(self.n_final))
+            self.n_final += 1
         return pts
 
-    def _window(self, t):
-        lo, hi = t - self.half, t + self.half
-        return [e for e in self.buf if lo <= e["t"] <= hi]
-
-    def _finalize(self, t):
-        win = self._window(t)
+    def _finalize(self, pos):
+        buf_start = self.n_seen - len(self.buf)          # absolute position of buf[0]
+        lo = max(0, pos - self.half)
+        hi = min(self.n_seen - 1, pos + self.half)       # right-clipped for the tail; = pos+HALF during streaming
+        win = self.buf[lo - buf_start: hi - buf_start + 1]
         iters = [e["t"] for e in win]
-        center = iters.index(t)
+        center = pos - lo                                # index of the finalized tick within its window
         W = len(win)
         perM, common = {}, {}
         # ---- panels 1-2: per-metric subspace ----
@@ -170,4 +171,4 @@ class Sec27State:
         for mi, m in enumerate(METRICS):
             col = mi * W + center                                      # center column of metric m in the stack
             common[m] = [float(sig_c[j] * V_c[col, j]) for j in range(self.top)]
-        return {"t": t, "perM": perM, "common": common}
+        return {"t": iters[center], "perM": perM, "common": common}
