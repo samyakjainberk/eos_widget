@@ -229,8 +229,8 @@ def make_test_set(model, P, dataset, n_test, in_dim, out_dim, device, dtype, cif
         except FileNotFoundError:
             return None
         return _two_class_test(raw, n_test, P, device, dtype)
-    if dataset == "chebyshev":
-        return None                                      # fixed deterministic dataset — no held-out split
+    if dataset in ("chebyshev", "chebyshev2"):
+        return None                                      # fixed deterministic dataset — no held-out split (§16/§17 testset built separately)
     if dataset == "ksparse":
         return make_ksparse_testset(n_test, in_dim, P.get("ksparse", 3), P["seed"], device, dtype)
     if dataset == "anglepair":
@@ -276,6 +276,15 @@ def load_chebyshev(n, k, device, dtype):
         for _ in range(2, int(k) + 1):
             tm2, tm1 = tm1, 2 * x * tm1 - tm2
         y = tm1
+    return x.unsqueeze(1), y.unsqueeze(1)
+
+
+def load_chebyshev2(n, k, device, dtype):
+    """Chebyshev-2 regression: n points evenly spaced on [-1,1] (input, n×1), labeled by the Chebyshev
+    polynomial T_k of degree k via the TRIGONOMETRIC closed form T_k(x)=cos(k·arccos x) (output, n×1).
+    Same target as load_chebyshev (recurrence) up to float roundoff. MSE. MIRRORS server.load_chebyshev2."""
+    x = torch.linspace(-1.0, 1.0, max(int(n), 1), dtype=dtype, device=device)
+    y = torch.cos(float(int(k)) * torch.arccos(torch.clamp(x, -1.0, 1.0)))   # T_k(x)=cos(k·arccos x); clamp guards arccos at the ±1 endpoints
     return x.unsqueeze(1), y.unsqueeze(1)
 
 
@@ -467,6 +476,8 @@ def init_data_theta(model, P, dataset, N, in_dim, out_dim, device, dtype, cifar_
         X, Y = load_sort(N, in_dim, drng, device, dtype)
     elif dataset == "chebyshev":
         X, Y = load_chebyshev(N, P.get("degree", 3), device, dtype)
+    elif dataset == "chebyshev2":
+        X, Y = load_chebyshev2(N, P.get("degree", 3), device, dtype)                     # T_k via the cos(k·arccos x) closed form
     elif dataset == "ksparse":
         X, Y = load_ksparse(N, in_dim, P.get("ksparse", 3), P["seed"], device, dtype)   # n ±1 bits → scalar ±1 parity of a fixed k-subset
     elif dataset == "anglepair":
@@ -533,7 +544,7 @@ def init_data_theta(model, P, dataset, N, in_dim, out_dim, device, dtype, cifar_
     # Fixed-target datasets (cifar10/sorting/chebyshev) load Y directly and so skip the residual-sign
     # construction above — force the requested initial residual sign here by overriding Y per sample
     # (keep the dataset's inputs X and the residual's natural magnitude; only its sign is pinned).
-    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev", "ksparse", "anglepair", "saddle") and ssign in ("pos", "neg"):
+    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev", "chebyshev2", "ksparse", "anglepair", "saddle") and ssign in ("pos", "neg"):
         s = 1.0 if ssign == "pos" else -1.0
         floor = 0.25 * max(abs(tgt), 1e-6)
         f0 = model.forward(th, X)

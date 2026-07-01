@@ -290,6 +290,15 @@ def sec16_chebyshev_testset(N, degree, dev, dt):
     return xm.unsqueeze(1), y.unsqueeze(1)
 
 
+def sec16_chebyshev2_testset(N, degree, dev, dt):
+    """Held-out chebyshev-2 test set for §16 Panel 5: the N-1 MIDPOINTS of linspace(-1,1,N), labelled by
+    T_degree=cos(degree·arccos x) (the closed form). MIRRORS server._sec16_chebyshev2_testset / index.html sec16Cheb2."""
+    xt = torch.linspace(-1.0, 1.0, max(int(N), 1), dtype=dt, device=dev)
+    xm = (xt[:-1] + xt[1:]) / 2.0 if int(N) > 1 else xt.clone()
+    y = torch.cos(float(int(degree)) * torch.arccos(torch.clamp(xm, -1.0, 1.0)))
+    return xm.unsqueeze(1), y.unsqueeze(1)
+
+
 def sec16_driver(model, loss, th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid=0.1, ares=0.01,
                  Xtest=None, Ytest=None, baselines=False, kdir=8):
     """Run §16 (mode='eig', the curvature step) and, if `baselines`, FIVE extra trajectories — 'random' (A),

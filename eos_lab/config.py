@@ -13,7 +13,7 @@ from dataclasses import dataclass, asdict, field, fields
 @dataclass
 class Config:
     # ---- dataset & architecture (mirror index.html 'Dataset & architecture' panel) ----
-    dataset: str = "synthetic"      # synthetic | cifar10 | cifar2 | mnist | mnist2 | sorting | owt | chebyshev | ksparse | anglepair
+    dataset: str = "synthetic"      # synthetic | cifar10 | cifar2 | mnist | mnist2 | sorting | owt | chebyshev | chebyshev2 | ksparse | anglepair
     arch: str = "mlp"               # mlp | cnn | vgg11 | gpt
     loss: str = "mse"               # mse | ce
     chmul: float = 0.25             # CNN/VGG channel multiplier
@@ -22,7 +22,7 @@ class Config:
     nlayer: int = 2                 # GPT blocks
     seqlen: int = 16                # sorting sequence length / owt block size (tokens per sequence)
     vocab: int = 50257              # owt vocabulary (GPT-2 BPE) — token-embedding/head size
-    degree: int = 3                 # chebyshev: degree of the target Chebyshev polynomial T_k
+    degree: int = 3                 # chebyshev/chebyshev2: degree of the target Chebyshev polynomial T_k
     ksparse: int = 3                # k-sparse parity: #bits in the parity subset S (≤ indim = #input bits)
     angle: float = 90.0             # anglepair: angle (deg) between the two samples
     norm1: float = 1.0              # anglepair: ‖x₁‖
@@ -246,4 +246,7 @@ PRESETS = {
     # width-50 tanh MLP (≈12.9k params). Sharpens to the 2/η edge of stability.
     "chebyshev": dict(dataset="chebyshev", arch="mlp", loss="mse", act="tanh", depth=6, width=50, bias=1,
                       fixedx=0, indim=1, outdim=1, nsamp=20, degree=3, lr=0.1, init=0.5, steps=5000),
+    # Chebyshev-2: same as chebyshev but the target T_k is built from the closed form cos(k·arccos x).
+    "chebyshev2": dict(dataset="chebyshev2", arch="mlp", loss="mse", act="tanh", depth=6, width=50, bias=1,
+                       fixedx=0, indim=1, outdim=1, nsamp=20, degree=3, lr=0.1, init=0.5, steps=5000),
 }

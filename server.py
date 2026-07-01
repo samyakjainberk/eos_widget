@@ -765,6 +765,14 @@ def _sec16_chebyshev_testset(N, degree, dt):
     return xm.unsqueeze(1), y.unsqueeze(1)
 
 
+def _sec16_chebyshev2_testset(N, degree, dt):
+    """Held-out chebyshev-2 §16 test set: the N-1 MIDPOINTS of linspace(-1,1,N), labels T_degree=cos(deg·arccos x)."""
+    xt = torch.linspace(-1.0, 1.0, max(int(N), 1), dtype=dt, device=_dev())
+    xm = (xt[:-1] + xt[1:]) / 2.0 if int(N) > 1 else xt.clone()
+    y = torch.cos(float(int(degree)) * torch.arccos(torch.clamp(xm, -1.0, 1.0)))
+    return xm.unsqueeze(1), y.unsqueeze(1)
+
+
 def _ksparse_testset(N, nbits, k, seed, dt):
     """Held-out k-sparse parity test set: the SAME fixed subset S as training, fresh ±1 bits from a
     DISJOINT mulberry32 stream (seed*7919+99991). MIRRORS eos_lab.make_test_set / index.html sec16Holdout."""
@@ -2627,6 +2635,16 @@ def load_chebyshev(n, k):
     return x.unsqueeze(1), y.unsqueeze(1)
 
 
+def load_chebyshev2(n, k):
+    """Chebyshev-2 regression: `n` points evenly spaced on [-1,1] (input, n×1), labeled by the Chebyshev
+    polynomial T_k of degree `k` via the TRIGONOMETRIC closed form T_k(x)=cos(k·arccos x) (output, n×1).
+    Same target as `chebyshev` (which uses the T₀=1,T₁=x,Tₘ=2x·Tₘ₋₁−Tₘ₋₂ recurrence) up to float roundoff;
+    the closed form avoids recurrence error growth at high k. MSE regression. MIRRORS eos_lab.data.load_chebyshev2."""
+    x = torch.linspace(-1.0, 1.0, max(int(n), 1), dtype=DTYPE, device=_dev())
+    y = torch.cos(float(int(k)) * torch.arccos(torch.clamp(x, -1.0, 1.0)))   # T_k(x)=cos(k·arccos x); clamp guards arccos at the ±1 endpoints
+    return x.unsqueeze(1), y.unsqueeze(1)
+
+
 def load_ksparse(n, nbits, k, seed):
     """k-sparse parity: input is an `nbits`-dim ±1 bit vector; the target is the PARITY (product) of a
     FIXED random size-k subset S of the bits → scalar ±1 (+1 for even #(−1) over S, −1 for odd). MSE
@@ -2802,6 +2820,8 @@ def init_data_theta(P, dataset, N, inD, outD):
         X, Y = load_sort(N, inD, drng)
     elif dataset == "chebyshev":
         X, Y = load_chebyshev(N, P.get("degree", 3))
+    elif dataset == "chebyshev2":
+        X, Y = load_chebyshev2(N, P.get("degree", 3))                   # T_k via the cos(k·arccos x) closed form
     elif dataset == "ksparse":
         X, Y = load_ksparse(N, inD, P.get("ksparse", 3), P["seed"])     # n ±1 bits → scalar ±1 parity of a fixed k-subset
     elif dataset == "anglepair":
@@ -2869,7 +2889,7 @@ def init_data_theta(P, dataset, N, inD, outD):
     # Fixed-target datasets (cifar10/sorting/chebyshev) load Y directly and so skip the residual-sign
     # construction above — force the requested initial residual sign here by overriding Y per sample
     # (keep the dataset's inputs X and the residual's natural magnitude; only its sign is pinned).
-    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev", "ksparse", "anglepair", "saddle") and ssign in ("pos", "neg"):
+    if dataset in ("cifar10", "cifar2", "mnist", "mnist2", "sorting", "chebyshev", "chebyshev2", "ksparse", "anglepair", "saddle") and ssign in ("pos", "neg"):
         s = 1.0 if ssign == "pos" else -1.0
         floor = 0.25 * max(abs(tgt), 1e-6)
         F0 = _TL.model.forward(th, X)
@@ -2900,7 +2920,7 @@ def run_stream(P):
         inDimE = outDimE = int(P["seqlen"])
     elif dataset == "owt":
         inDimE, outDimE = int(P["seqlen"]), int(P["vocab"])   # block size, vocab
-    elif dataset == "chebyshev":
+    elif dataset in ("chebyshev", "chebyshev2"):
         inDimE = outDimE = 1                                  # scalar x → scalar T_k(x)
     elif dataset == "ksparse":
         inDimE, outDimE = int(P["indim"]), 1                  # n ±1 bits in → scalar ±1 parity out (gpt: read as a length-n bit sequence, mean-pooled)
@@ -3057,6 +3077,8 @@ def run_stream(P):
         Xt16 = Yt16 = None
         if dataset == "chebyshev":                                       # §16 Panel 5 held-out test set (grid midpoints)
             Xt16, Yt16 = _sec16_chebyshev_testset(Nfull, P.get("degree", 3), torch.float64)
+        elif dataset == "chebyshev2":
+            Xt16, Yt16 = _sec16_chebyshev2_testset(Nfull, P.get("degree", 3), torch.float64)
         else:                                                            # real held-out images (cifar/mnist) or iid-Gaussian (synthetic/const); None for sorting
             Xt16, Yt16 = _sec16_holdout(dataset, Nfull, P, inD, outD)
         for rec16 in _sec16_driver(th16, X16, Y16, lr, P.get("s24warm", 5), P.get("s24iter", 250),
@@ -3077,6 +3099,8 @@ def run_stream(P):
         Xt17 = Yt17 = None
         if dataset == "chebyshev":
             Xt17, Yt17 = _sec16_chebyshev_testset(Nfull, P.get("degree", 3), torch.float64)
+        elif dataset == "chebyshev2":
+            Xt17, Yt17 = _sec16_chebyshev2_testset(Nfull, P.get("degree", 3), torch.float64)
         else:
             Xt17, Yt17 = _sec16_holdout(dataset, Nfull, P, inD, outD)
         for rec17 in _sec17_driver(th17, X17, Y17, lr, P.get("s24warm", 5), P.get("s24iter", 250),
@@ -4001,7 +4025,7 @@ def run_surrogate_compare(P):
         inDimE, outDimE = 3072, 1                         # 2-class MNIST cast as SCALAR regression (±1)
     elif dataset == "sorting":
         inDimE = outDimE = int(P["seqlen"])
-    elif dataset == "chebyshev":
+    elif dataset in ("chebyshev", "chebyshev2"):
         inDimE = outDimE = 1                              # scalar x → scalar T_k(x)
     elif dataset == "ksparse":
         inDimE, outDimE = int(P["indim"]), 1             # mirror run_stream (surrogate path must match the dataset's effective dims)

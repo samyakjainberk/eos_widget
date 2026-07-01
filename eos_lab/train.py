@@ -54,7 +54,7 @@ def effective_dims(cfg):
         return cfg.seqlen, cfg.seqlen
     if cfg.dataset == "owt":
         return cfg.seqlen, cfg.vocab       # in_dim = block size (tokens/seq), out_dim = vocab
-    if cfg.dataset == "chebyshev":
+    if cfg.dataset in ("chebyshev", "chebyshev2"):
         return 1, 1                        # scalar x → scalar T_k(x)
     if cfg.dataset == "ksparse":
         return cfg.indim, 1                # n ±1 bits in → scalar ±1 parity out (gpt: read as a length-n bit sequence, mean-pooled)
@@ -181,11 +181,13 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
     sec16 = None
     M16 = N * out_dim
     if getattr(cfg, "s24", 0) and loss.name == "mse" and M16 <= 256 and M16 * model.p <= 300_000_000 and N <= 64:
-        from .sec16 import sec16_driver, sec16_chebyshev_testset
+        from .sec16 import sec16_driver, sec16_chebyshev_testset, sec16_chebyshev2_testset
         if progress:
             print(f"  §16: standalone optimizer — {cfg.s24warm} GD warmup + {cfg.s24iter} iters from θ₀  (M=N·d={M16})")
         if cfg.dataset == "chebyshev":                                  # §16 Panel 5 held-out test set (midpoints of the grid)
             Xt16, Yt16 = sec16_chebyshev_testset(N, cfg.degree, dev, dtype)
+        elif cfg.dataset == "chebyshev2":
+            Xt16, Yt16 = sec16_chebyshev2_testset(N, cfg.degree, dev, dtype)
         else:                                                           # all others: real held-out split (cifar/mnist/sorting/synthetic/const) or None
             _ts16 = make_test_set(model, P, cfg.dataset, N, in_dim, out_dim, dev, dtype, cifar_dir)
             Xt16, Yt16 = _ts16 if _ts16 is not None else (None, None)
@@ -201,11 +203,13 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
     sec17 = None
     if getattr(cfg, "s25", 0) and loss.name == "mse" and M16 <= 256 and M16 * model.p <= 300_000_000 and N <= 64:
         from .sec17 import sec17_driver
-        from .sec16 import sec16_chebyshev_testset
+        from .sec16 import sec16_chebyshev_testset, sec16_chebyshev2_testset
         if progress:
             print(f"  §17: per-sample optimizer — {cfg.s24warm} GD warmup + {cfg.s24iter} iters from θ₀  (M=N·d={M16})")
         if cfg.dataset == "chebyshev":
             Xt17, Yt17 = sec16_chebyshev_testset(N, cfg.degree, dev, dtype)
+        elif cfg.dataset == "chebyshev2":
+            Xt17, Yt17 = sec16_chebyshev2_testset(N, cfg.degree, dev, dtype)
         else:
             _ts17 = make_test_set(model, P, cfg.dataset, N, in_dim, out_dim, dev, dtype, cifar_dir)
             Xt17, Yt17 = _ts17 if _ts17 is not None else (None, None)

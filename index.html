@@ -122,6 +122,7 @@
     <option value="sort_gpt">sorting · mini-GPT transformer (GPU backend)</option>
     <option value="owt_gpt">OpenWebText · mini-GPT LM, minibatch SGD (GPU backend)</option>
     <option value="chebyshev">Chebyshev · T₃ regression on [-1,1] (GPU backend)</option>
+    <option value="chebyshev2">Chebyshev-2 · T₃ = cos(3·arccos x) on [-1,1] (GPU backend)</option>
     <option value="ksparse_mlp">k-sparse parity · MLP (in-browser; ±1 bits → ±1)</option>
     <option value="ksparse_gpt">k-sparse parity · mini-GPT transformer (GPU backend)</option>
     <option value="saddle">saddle-to-saddle · linear regression · tanh MLP (in-browser) — staircase loss</option>
@@ -136,7 +137,7 @@
   <div class="panel">
     <div class="panel-title">Dataset &amp; architecture <span style="color:#94a3b8;font-weight:400;text-transform:none">· GPU backend only</span></div>
     <div class="grid">
-      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="const">const target (iid x → fixed +y)</option><option value="cifar10">CIFAR-10 (10-class one-hot)</option><option value="cifar2">CIFAR-2 (2-class scalar ±1)</option><option value="mnist">MNIST (10-class one-hot)</option><option value="mnist2">MNIST-2 (2-class scalar ±1)</option><option value="sorting">sorting</option><option value="owt">OpenWebText</option><option value="chebyshev">Chebyshev</option><option value="ksparse">k-sparse parity (±1 bits → ±1)</option><option value="anglepair">angle pair (2 samples · controllable norm/angle · ±1)</option><option value="saddle">saddle-to-saddle (linear regression · diagonal teacher · staircase loss)</option><option value="agf">alternating gradient flows (scalar y=β*·x · use with diagonal-linear arch)</option></select></div>
+      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="const">const target (iid x → fixed +y)</option><option value="cifar10">CIFAR-10 (10-class one-hot)</option><option value="cifar2">CIFAR-2 (2-class scalar ±1)</option><option value="mnist">MNIST (10-class one-hot)</option><option value="mnist2">MNIST-2 (2-class scalar ±1)</option><option value="sorting">sorting</option><option value="owt">OpenWebText</option><option value="chebyshev">Chebyshev</option><option value="chebyshev2">Chebyshev-2 (T_k = cos(k·arccos x))</option><option value="ksparse">k-sparse parity (±1 bits → ±1)</option><option value="anglepair">angle pair (2 samples · controllable norm/angle · ±1)</option><option value="saddle">saddle-to-saddle (linear regression · diagonal teacher · staircase loss)</option><option value="agf">alternating gradient flows (scalar y=β*·x · use with diagonal-linear arch)</option></select></div>
       <div class="ctl"><label>architecture</label><select id="arch"><option value="mlp" selected>MLP</option><option value="cnn">CNN</option><option value="vgg11">VGG11</option><option value="gpt">mini-GPT</option><option value="diaglin">diagonal linear (β=u⊙v · AGF)</option></select></div>
       <div class="ctl"><label>loss</label><select id="loss"><option value="mse" selected>MSE</option><option value="ce">cross-entropy</option></select></div>
       <div class="ctl"><label>CNN/VGG channel mult</label><input id="chmul" type="number" value="0.25" min="0.05" max="2" step="0.05"></div>
@@ -2717,6 +2718,13 @@ function sec16Cheb(N,degree){   // §16 Panel 5 held-out test set — N−1 MIDP
   const d=degree|0;for(let i=0;i<m;i++){if(d<=0){Yt[i]=1;continue;}let t2=1,t1=xm[i];for(let kk=2;kk<=d;kk++){const t=2*xm[i]*t1-t2;t2=t1;t1=t;}Yt[i]=t1;}
   return {X:xm,Y:Yt,N:m};
 }
+function sec16Cheb2(N,degree){   // §16 Panel 5 held-out test set, chebyshev-2 — N−1 MIDPOINTS of linspace(-1,1,N), labelled T_degree=cos(degree·arccos x) (mirror server/eos_lab)
+  const n=Math.max(1,N|0),xt=new Float64Array(n);for(let i=0;i<n;i++)xt[i]=n>1?(-1+2*i/(n-1)):0;
+  const m=n>1?n-1:1,xm=new Float64Array(m),Yt=new Float64Array(m);
+  for(let i=0;i<m;i++)xm[i]=n>1?0.5*(xt[i]+xt[i+1]):xt[0];
+  const d=degree|0;for(let i=0;i<m;i++){Yt[i]=Math.cos(d*Math.acos(Math.max(-1,Math.min(1,xm[i]))));}
+  return {X:xm,Y:Yt,N:m};
+}
 function sec16Ksparse(N,nbits,k,seed){   // §16/§17 held-out k-sparse parity test set — SAME fixed subset S, fresh ±1 bits from a DISJOINT stream (mirror server._ksparse_testset)
   const nb=Math.max(1,nbits|0),kk=Math.max(1,Math.min(k|0,nb)),perm=_shuffle16(nb,((seed^0x4B5A11)>>>0)),Sset=new Set(perm.slice(0,kk));
   const rng=mulberry32(((seed*7919+99991)>>>0)),X=new Float64Array(N*nb),Y=new Float64Array(N);
@@ -3421,7 +3429,7 @@ const ADV_SECS={en18:{sec:'sec_g3d',name:'§11 (3D Hessian–NTK grids)'},
   en33:{sec:'sec_s25',name:'§25 (gradient-norm & d/dt(J·r) evolution) — GPU backend only; off in surrogate mode'}};
 let ADV_GOT={};   // toggle id → true once that section's g-record has arrived this run
 function datasetOutDim(){const d=val('dataset');
-  if(d==='cifar10'||d==='mnist')return 10; if(d==='cifar2'||d==='mnist2'||d==='chebyshev'||d==='ksparse'||d==='anglepair'||d==='agf')return 1;
+  if(d==='cifar10'||d==='mnist')return 10; if(d==='cifar2'||d==='mnist2'||d==='chebyshev'||d==='chebyshev2'||d==='ksparse'||d==='anglepair'||d==='agf')return 1;
   if(d==='sorting')return Math.max(1,+val('seqlen')||16); if(d==='owt')return Math.max(1,+val('vocab')||50257);
   return Math.max(1,+val('outdim')||1);}
 function secNote(secId,msg){const sec=document.getElementById(secId);if(!sec)return;
@@ -3743,6 +3751,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   if(opt.s24 && val('arch')==='mlp' && val('loss')==='mse' && N*outDim<=256 && N*outDim*p<=300000000 && N<=64){   // §16 multi-output: effective samples M=N·d_out
     s16Reset();
     const cb16=(val('dataset')==='chebyshev')?sec16Cheb(N,Math.max(1,+val('degree')||3))   // Panel-5 held-out test set (chebyshev midpoints; ksparse fresh ±1 bits; synthetic/const fresh iid-Gaussian)
+              :(val('dataset')==='chebyshev2')?sec16Cheb2(N,Math.max(1,+val('degree')||3))   // chebyshev-2: cos(k·arccos x) midpoints
               :(val('dataset')==='ksparse')?sec16Ksparse(N,inDim,Math.max(1,+val('ksparse')||3),+val('seed')||0)
               :(val('dataset')==='anglepair')?null   // 2-point geometry — no held-out set (Panel 5 skipped)
               :sec16Holdout(val('dataset'),N,inDim,outDim,+val('seed')||0,+val('tgt'),+val('inputstd'),val('fixedx'),val('ssign'),+val('cvar')||0);
@@ -3753,6 +3762,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   if(opt.s25 && val('arch')==='mlp' && val('loss')==='mse' && N*outDim<=64 && N*outDim*p<=300000000 && N<=64){   // §17 PER-SAMPLE (O(M²) per-sample Lanczos; browser is single-threaded ⇒ kept ≤64; the GPU/offline paths go to 256)
     s17Reset();
     const cb17=(val('dataset')==='chebyshev')?sec16Cheb(N,Math.max(1,+val('degree')||3))   // reuse §16's held-out test sets (same observables)
+              :(val('dataset')==='chebyshev2')?sec16Cheb2(N,Math.max(1,+val('degree')||3))   // chebyshev-2: cos(k·arccos x) midpoints
               :(val('dataset')==='ksparse')?sec16Ksparse(N,inDim,Math.max(1,+val('ksparse')||3),+val('seed')||0)
               :(val('dataset')==='anglepair')?null
               :sec16Holdout(val('dataset'),N,inDim,outDim,+val('seed')||0,+val('tgt'),+val('inputstd'),val('fixedx'),val('ssign'),+val('cvar')||0);
@@ -4782,6 +4792,8 @@ const PRESETS={
   // Chebyshev regression (Cohen et al. EoS): nsamp points on [-1,1] labeled by T_degree; a 6-hidden-layer
   // width-50 tanh MLP (≈12.9k params). Sharpness climbs to the 2/η edge of stability.
   chebyshev:{dataset:'chebyshev',arch:'mlp',loss:'mse',depth:6,width:50,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.1,init:0.5,nsamp:20,batch:0,indim:1,outdim:1,degree:3,tgt:1.0,neig:3,kth:1,steps:5000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
+  // Chebyshev-2: identical to chebyshev but T_k comes from the closed form cos(k·arccos x).
+  chebyshev2:{dataset:'chebyshev2',arch:'mlp',loss:'mse',depth:6,width:50,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.1,init:0.5,nsamp:20,batch:0,indim:1,outdim:1,degree:3,tgt:1.0,neig:3,kth:1,steps:5000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // k-sparse parity: 10 ±1 input bits, label = product (parity) of a fixed random k=3-subset → ±1; tanh MLP, MSE.
   // Runs in-browser; switch arch→gpt + Compute→GPU backend for the transformer version (same dataset).
   ksparse_mlp:{dataset:'ksparse',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:24,batch:0,indim:10,outdim:1,ksparse:3,tgt:1.0,neig:3,kth:1,steps:600,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,vocab:50257,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en24:1,en25:1,en28:1,s28k:40,qapprox:25,qmode:1,tset:3,compute:'browser'},
@@ -4820,7 +4832,7 @@ function cmpSyncInitScale(pre){const sc=document.getElementById(pre+'_initscheme
 // Each dataset has a sensible DEFAULT config (a preset): picking the dataset applies it (good lr/init/N
 // + the sections that actually run at that size) so you don't also have to hunt for the matching preset.
 const DATASET_PRESET={cifar10:'cifar_mlp',cifar2:'cifar2_mlp',mnist:'mnist_mlp',mnist2:'mnist2_mlp',
-  sorting:'sort_gpt',owt:'owt_gpt',chebyshev:'chebyshev',ksparse:'ksparse_mlp',anglepair:'anglepair',saddle:'saddle',agf:'agf',const:'gpu_const',synthetic:'msample'};
+  sorting:'sort_gpt',owt:'owt_gpt',chebyshev:'chebyshev',chebyshev2:'chebyshev2',ksparse:'ksparse_mlp',anglepair:'anglepair',saddle:'saddle',agf:'agf',const:'gpu_const',synthetic:'msample'};
 document.getElementById('dataset').addEventListener('change',e=>{
   const pn=DATASET_PRESET[e.target.value];
   if(pn&&typeof PRESETS!=='undefined'&&PRESETS[pn]){const pe=document.getElementById('preset');pe.value=pn;applyPreset(pn);syncSectionVis();drawPreview();}
@@ -4897,6 +4909,7 @@ const CMP_PRESETS = {
   sort_gpt: { ...CMP_BASE, dataset:'sorting', arch:'gpt', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:16, outdim:16, nsamp:128, lr:0.0002, init:0.1, steps:4000, eigevery:2, seqlen:16 },
   owt_gpt:  { ...CMP_BASE, dataset:'owt', arch:'gpt', loss:'ce', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:16, outdim:16, nsamp:64, lr:0.0006, init:0.1, steps:2000, eigevery:5, seqlen:128, vocab:50257 },
   chebyshev:{ ...CMP_BASE, dataset:'chebyshev', arch:'mlp', loss:'mse', depth:6, width:50, act:'tanh', bias:'1', fixedx:'0', indim:1, outdim:1, nsamp:20, degree:3, lr:0.1, init:0.5, steps:5000, slqprobes:4 },
+  chebyshev2:{ ...CMP_BASE, dataset:'chebyshev2', arch:'mlp', loss:'mse', depth:6, width:50, act:'tanh', bias:'1', fixedx:'0', indim:1, outdim:1, nsamp:20, degree:3, lr:0.1, init:0.5, steps:5000, slqprobes:4 },
 };
 function cmpApplyPreset(pre, name) {
   const P = CMP_PRESETS[name]; if (!P) return;
@@ -4938,13 +4951,14 @@ function cmpHTML(pre, kind) {
       <option value="sort_gpt">sorting · mini-GPT transformer (GPU backend)</option>
       <option value="owt_gpt">OpenWebText · mini-GPT LM, minibatch SGD (GPU backend)</option>
       <option value="chebyshev">Chebyshev · T₃ regression on [-1,1] (GPU backend)</option>
+      <option value="chebyshev2">Chebyshev-2 · T₃ = cos(3·arccos x) on [-1,1] (GPU backend)</option>
       <option value="custom">— custom (manual) —</option>
     </select>
     <span class="hint">picking a preset applies its defaults and runs (needs the GPU backend) · sample-sign toggle sets the §4d groups</span>
   </div>
   <div class="controls">
     <div class="panel"><div class="panel-title">Dataset &amp; architecture</div><div class="grid">
-      ${C('dataset', 'dataset', '', '', [['synthetic', 'synthetic', 1], ['const', 'const target', 0], ['cifar10', 'CIFAR-10', 0], ['sorting', 'sorting', 0], ['owt', 'OpenWebText', 0], ['chebyshev', 'Chebyshev', 0]])}
+      ${C('dataset', 'dataset', '', '', [['synthetic', 'synthetic', 1], ['const', 'const target', 0], ['cifar10', 'CIFAR-10', 0], ['sorting', 'sorting', 0], ['owt', 'OpenWebText', 0], ['chebyshev', 'Chebyshev', 0], ['chebyshev2', 'Chebyshev-2', 0]])}
       ${C('arch', 'architecture', '', '', [['mlp', 'MLP', 1], ['cnn', 'CNN', 0], ['vgg11', 'VGG11', 0], ['gpt', 'mini-GPT', 0]])}
       ${C('loss', 'loss', '', '', [['mse', 'MSE', 1], ['ce', 'cross-entropy', 0]])}
       ${C('chmul', 'CNN/VGG chan mult', 0.25, 0.05)}
