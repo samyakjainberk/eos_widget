@@ -110,8 +110,8 @@ class Diagnostics:
         self.divreg = float(P.get("divreg", 0.3))   # §15 divergence ε: softens the 0/0 spike at D²→0 inflections (0 = exact /D²)
         self._sec15_hist = []               # §15: rolling buffer of the last 2 eig-ticks' {th, J, r} (need t−1 and t−2)
         self._sec25_hist = []               # §25: rolling buffer of the last 2 ticks' {th, J, r, t} (II/III need t−1 and t−2)
-        self._sec25_rhist = []              # §25: rolling buffer of the last 11 ticks' {t, r} for cos(r_t, r_{t−k}), k∈{1,2,3,5,10}
-        self._sec26_hist = []               # §26: rolling buffer of the last 11 ticks' {t, gn/ntk/mrTop/mrBot eigvecs} for eigenvector-direction drift
+        self._sec25_rhist = []              # §25: rolling buffer of the last 101 ticks' {t, r} for cos(r_t, r_{t−k}), k∈{10,20,30,50,100}
+        self._sec26_hist = []               # §26: rolling buffer of the last 101 ticks' {t, gn/ntk/mrTop/mrBot eigvecs} for eigenvector-direction drift
         self._sec14_rhist = []              # §14: per-sample residual history (last ≤5 ticks) for the eq-③ ratio
         self._sec14_prev = None             # §14: previous eig-tick's {TV,TW,BV,BW,r,Jg} (u,σ,r_j,J_k at t; cur gives J_i,r_k at t+1)
         self._sec13_prev = None             # §13: previous eig-tick's per-sample {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
@@ -375,7 +375,7 @@ class Diagnostics:
             ev26 = sec26_eigvecs(self.model, Jc, rr, th, X, N, outD)
             rec["g26"] = sec26_drift(ev26, self._sec26_hist, t)
             self._sec26_hist.append({"t": t, **{key: [v.detach().clone() for v in ev26[key]] for key in ev26}})
-            if len(self._sec26_hist) > 11:
+            if len(self._sec26_hist) > 101:
                 self._sec26_hist.pop(0)
 
         # ---- §7a (NTK alignment, always-on) + §7 (heavy FH-tensor SVD projections) ----

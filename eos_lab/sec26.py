@@ -1,4 +1,4 @@
-"""§26: eigenvector-direction drift — |cos(v_i(t), v_i(t−k))|, k∈{1,2,3,5,10}, for the top-3 eigenvectors of
+"""§26: eigenvector-direction drift — |cos(v_i(t), v_i(t−k))|, k∈{10,20,30,50,100}, for the top-3 eigenvectors of
 the Gauss–Newton GN=JᵀJ (p-dim) and the NTK=JJᵀ (M-dim), and the top-3 ⊕ bottom-3 eigenvectors of the
 residual-contracted function Hessian M_r=Σ_k r_kQ_k (p-dim). |cos| because eigvec signs are arbitrary.
 
@@ -60,11 +60,11 @@ def sec26_eigvecs(model, Jc, rr, th, X, N, outD, mr_hvp=None):
 
 
 def sec26_drift(cur, hist, t):
-    """g26 = {key: [[|cos(v_i(t),v_i(t−k))| for k∈{1,2,3,5,10}] for i in 0..2]} for key in gn/ntk/mrTop/mrBot.
+    """g26 = {key: [[|cos(v_i(t),v_i(t−k))| for k∈{10,20,30,50,100}] for i in 0..2]} for key in gn/ntk/mrTop/mrBot.
     None where that lag isn't in history yet or a vector is null. |cos| ⇒ eigvec sign flips are gauge-free.
     MIRRORS server._sec26_drift."""
     byT = {e["t"]: e for e in hist}
-    lags = (1, 2, 3, 5, 10)
+    lags = (10, 20, 30, 50, 100)
     out = {}
     for key in ("gn", "ntk", "mrTop", "mrBot"):
         rows = []

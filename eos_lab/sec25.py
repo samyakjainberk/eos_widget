@@ -118,8 +118,8 @@ def sec25_payload(model, loss, Jc, rr, th, X, Y, lr, N, outD, hist, t, is_mlp=No
       is_mlp                   — whether to emit cosA/cosB/cosF/cosG/gnorms (MLP only). If None, inferred from
                                  getattr(model,"spec",None) is not None (the eos_lab MLP test, matching
                                  server's isinstance(model, MlpModel)).
-      rhist                    — OPTIONAL rolling buffer (entries {"t","r"}, capped at 11) for cos(r_t, r_{t−k}),
-                                 k∈{1,2,3,5,10}. If a list is passed, this function APPENDS (t,r) and emits cosR
+      rhist                    — OPTIONAL rolling buffer (entries {"t","r"}, capped at 101) for cos(r_t, r_{t−k}),
+                                 k∈{10,20,30,50,100}. If a list is passed, this function APPENDS (t,r) and emits cosR
                                  (all backends, not MLP-gated). If None, cosR is skipped. Mirrors server's sec25_rhist.
 
     Returns the g25 dict {gn,jdr,jrd,II,III,ddJr,cosJr (+cosA,cosB,cosF,cosG,gnorms if MLP; +cosR if rhist given)}.
@@ -155,16 +155,16 @@ def sec25_payload(model, loss, Jc, rr, th, X, Y, lr, N, outD, hist, t, is_mlp=No
     if is_mlp:                                                       # §25 panel-2 cosines: plots 2/3 (pairwise), plot 3 (cos ∇‖f‖² vs 5), plot 4 (cos ∇‖ġ‖² vs 6); panel-1 norms (7 ∇θ-vectors) — MLP, exact autograd
         g25["cosA"], g25["cosB"], g25["cosF"], g25["cosG"], g25["gnorms"] = _sec25_cosines(model, loss, th, X, Y, N, outD)
 
-    if rhist is not None:                                            # §25 panel-1 plot 4: residual-direction drift — cos(r_t, r_{t−k}), k∈{1,2,3,5,10} (all backends)
+    if rhist is not None:                                            # §25 panel-1 plot 4: residual-direction drift — cos(r_t, r_{t−k}), k∈{10,20,30,50,100} (all backends)
         rc = r25.detach().clone(); nrc = float(rc.norm())
         rByT = {e["t"]: e["r"] for e in rhist}
         cosR = []
-        for k in (1, 2, 3, 5, 10):
+        for k in (10, 20, 30, 50, 100):
             rp = rByT.get(t - k); npk = None if rp is None else float(rp.norm())
             cosR.append((float(rc @ rp) / (nrc * npk)) if (rp is not None and nrc > 1e-30 and npk > 1e-30) else None)
         g25["cosR"] = cosR                                           # cos of r now vs r at t−{1,2,3,5,10} (None until that lag exists)
         rhist.append({"t": t, "r": rc})
-        if len(rhist) > 11:
+        if len(rhist) > 101:
             rhist.pop(0)
 
     hist.append({"th": th.detach().clone(), "J": Jg25.detach(), "r": r25.detach(), "t": t})

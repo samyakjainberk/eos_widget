@@ -1778,7 +1778,7 @@ def _sec26_eigvecs(Jc, rr, th, X, N, outD, mr_hvp=None):
     An M_r eigenvector is emitted as NULL (→ its drift is None, a gap) when |λ_i(M_r)| ≤ 1e-6·λ_max(NTK): as the
     residual r→0 (loss converges) M_r=Σr_kQ_k→0, so its eigen-DIRECTIONS become ill-defined (pure noise in fp32) —
     we blank them rather than plot noise. All drifts downstream use |cos| so eigvec signs are gauge-free.
-    Drift lags {1,2,3,5,10} are in DIAGNOSTIC-TICK units (= GD steps only when eigevery=1, the intended setting).
+    Drift lags {10,20,30,50,100} are in DIAGNOSTIC-TICK units (= GD steps only when eigevery=1, the intended setting).
     MIRRORS eos_lab.sec26.sec26_eigvecs."""
     M = N * outD
     Jg = Jc[:M]; r = rr[:M]; p = Jg.shape[1]; rc = r.reshape(N, outD); dtv = Jg.dtype
@@ -1817,10 +1817,10 @@ def _sec26_eigvecs(Jc, rr, th, X, N, outD, mr_hvp=None):
 
 def _sec26_drift(cur, hist, t):
     """§26: given the current-step eigvec dict `cur` and the rolling history `hist` (entries {'t', **eigvecs}),
-    return g26 = {key: [ [|cos(v_i(t),v_i(t−k))| for k∈{1,2,3,5,10}] for i in 0..2 ]} for key in gn/ntk/mrTop/mrBot.
+    return g26 = {key: [ [|cos(v_i(t),v_i(t−k))| for k∈{10,20,30,50,100}] for i in 0..2 ]} for key in gn/ntk/mrTop/mrBot.
     None where that lag isn't in history yet or a vector is null. |cos| ⇒ eigvec sign flips are gauge-free."""
     byT = {e["t"]: e for e in hist}
-    lags = (1, 2, 3, 5, 10)
+    lags = (10, 20, 30, 50, 100)
     out = {}
     for key in ("gn", "ntk", "mrTop", "mrBot"):
         rows = []
@@ -3107,8 +3107,8 @@ def run_stream(P):
     sec13_qjprev = None        # §13 panel 4: previous eig-tick's {QJ=(N_j,N_i,p) Q_iJ_j, r} for the ‖A−B‖/‖A‖ asymmetry
     sec15_hist = []            # §15: rolling buffer of the last 2 eig-ticks' {th, J, r} (need t−1 and t−2)
     sec25_hist = []            # §25: rolling buffer of the last 2 ticks' {th, J, r} for the II/III tr-NTK 2nd-diff terms (need t−1,t−2)
-    sec25_rhist = []           # §25: rolling buffer of the last 11 ticks' {t, r} for cos(r_t, r_{t−k}), k∈{1,2,3,5,10} (residual-direction drift)
-    sec26_hist = []            # §26: rolling buffer of the last 11 ticks' {t, gn/ntk/mrTop/mrBot eigvecs} for the eigenvector-direction drift
+    sec25_rhist = []           # §25: rolling buffer of the last 101 ticks' {t, r} for cos(r_t, r_{t−k}), k∈{10,20,30,50,100} (residual-direction drift)
+    sec26_hist = []            # §26: rolling buffer of the last 101 ticks' {t, gn/ntk/mrTop/mrBot eigvecs} for the eigenvector-direction drift
     sec15_th64 = None          # §15: float64 SHADOW GD trajectory (MLP only). D²=‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖² is a ~9-digit
                                #   catastrophic cancellation when the net is near-stationary (e.g. chebyshev init=0.2: ‖J‖²≈21,
                                #   true D²≈1e-8). The displayed trajectory is float32 (≈7 digits) ⇒ D² is pure roundoff ⇒ divergence%
@@ -3372,25 +3372,25 @@ def run_stream(P):
                 rc25 = r25.detach().clone(); nrc25 = float(rc25.norm())   # §25 panel-1 plot 4: residual-direction drift — cos(r_t, r_{t−k})
                 rByT = {e["t"]: e["r"] for e in sec25_rhist}
                 cosR = []
-                for k in (1, 2, 3, 5, 10):
+                for k in (10, 20, 30, 50, 100):
                     rp = rByT.get(t - k); npk = None if rp is None else float(rp.norm())
                     cosR.append((float(rc25 @ rp) / (nrc25 * npk)) if (rp is not None and nrc25 > 1e-30 and npk > 1e-30) else None)
-                g25["cosR"] = cosR                                        # cos of r now vs r at t−{1,2,3,5,10} (None until that lag exists)
+                g25["cosR"] = cosR                                        # cos of r now vs r at t−{10,20,30,50,100} (None until that lag exists)
                 sec25_rhist.append({"t": t, "r": rc25})
-                if len(sec25_rhist) > 11:
+                if len(sec25_rhist) > 101:                                # hold ≥100 ticks back for the lag-100 line
                     sec25_rhist.pop(0)
                 sec25_hist.append({"th": th.detach().clone(), "J": Jg25.detach(), "r": r25.detach(), "t": t})
                 if len(sec25_hist) > 2:
                     sec25_hist.pop(0)
 
-            # §26: eigenvector-direction drift — |cos(v_i(t),v_i(t−k))|, k∈{1,2,3,5,10}, for the top-3 GN & NTK
+            # §26: eigenvector-direction drift — |cos(v_i(t),v_i(t−k))|, k∈{10,20,30,50,100}, for the top-3 GN & NTK
             #       eigenvectors and the top-3 ⊕ bottom-3 M_r=Σr_kQ_k eigenvectors (12 eigvecs; 4 panels × 3 plots × 5 lags)
             g26 = None
             if s34 and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 ev26 = _sec26_eigvecs(Jc, rr, th, X, N, outD)
                 g26 = _sec26_drift(ev26, sec26_hist, t)
                 sec26_hist.append({"t": t, **{key: [v.detach().clone() for v in ev26[key]] for key in ev26}})
-                if len(sec26_hist) > 11:
+                if len(sec26_hist) > 101:                                # hold ≥100 ticks back for the lag-100 line
                     sec26_hist.pop(0)
 
             # §7 NTK + function-Hessian tensor SVD
