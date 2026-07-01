@@ -300,6 +300,12 @@
 <div class="plotrow row4"><div id="p_pd1" class="plot" style="height:270px"></div><div id="p_pd2" class="plot" style="height:270px"></div><div id="p_pd3" class="plot" style="height:270px"></div><div id="p_pd4" class="plot" style="height:270px"></div></div>
 </div>
 
+<div id="sec_pred3" style="border:2px solid #0891b2;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#f0fdff">
+<h2 style="color:#0e7490;margin-top:4px">★ Prediction-3 — linear residual theory after the ‖J·ṙ‖−‖J̇·r‖ sign-change</h2>
+<p class="cap">Track $d \equiv \lVert J\dot r\rVert - \lVert\dot J r\rVert$ (§25's jrd − jdr). At the first $t^{\star}$ where it changes sign, freeze $J^{\star}=J(t^{\star})$ and evolve the frozen-$J$ linear NTK theory $r_{t+1}=(I-\tfrac{\eta}{N}J^{\star}J^{\star\top})r_t$ from the actual residual $r(t^{\star})$, and compare to the ACTUAL residual thereafter. <b>Left:</b> the two norms + their difference (sign-change = where the red crosses 0 → $t^{\star}$). <b>Middle:</b> $\lVert r\rVert$ actual vs theory (log). <b>Right:</b> $\cos(r_{\rm actual}, r_{\rm theory})$ — 1 = perfect direction match, decaying as the frozen-$J$ linear theory drifts from the true nonlinear evolution.</p>
+<div class="plotrow row3"><div id="p_p3_diff" class="plot" style="height:270px"></div><div id="p_p3_rnorm" class="plot" style="height:270px"></div><div id="p_p3_cos" class="plot" style="height:270px"></div></div>
+</div>
+
 <div id="sec_1">
 <h2>1 · Loss, sharpness, residual, and the spectral edges of $H$<span class="secparams" id="secp1"></span></h2>
 <p class="cap">The core training signals. <b>Loss</b> $L$; <b>sharpness</b> $=\lambda_{\max}(\nabla^2 L)$ of the full loss Hessian, plotted against the Edge-of-Stability threshold $2/\eta$ (dashed) it tends to hover at; <b>residual</b> $r=y-f(x)$ (signed, per output component). Last panel: the largest and smallest eigenvalue of the <b>function Hessian</b> $H=\sum_a\nabla^2 f_a$ (per-sample scale, $\div N$).</p>
@@ -3377,6 +3383,10 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_pd2',tvPred('predicted (Eq-21, self r_q)','+ PSD','actual λmax(∇²L)','actual λmax(NTK)'),baseLayout('Plot 2 — frozen-Q Eq-21 · quadratic SELF residual','σ₁',false));
   newP('p_pd3',tvPred('cubic (Eq-51, live r)','+ PSD','actual λmax(NTK)','actual λmax(∇²L)'),baseLayout('Plot 3 — cubic Eq-51 · LIVE residual','σ₁',false));
   newP('p_pd4',tvPred('cubic (Eq-51, self r_q)','+ PSD','actual λmax(NTK)','actual λmax(∇²L)'),baseLayout('Plot 4 — cubic Eq-51 · quadratic SELF residual','σ₁',false));
+  // ★ prediction-3 panel: (jrd,jdr,diff) sign-change, then frozen-J linear residual theory vs actual
+  newP('p_p3_diff',[{x:[],y:[],mode:'lines',name:'‖J·ṙ‖ (jrd)',line:{color:'#2563eb',width:1.7}},{x:[],y:[],mode:'lines',name:'‖J̇·r‖ (jdr)',line:{color:'#16a34a',width:1.7}},{x:[],y:[],mode:'lines',name:'diff = jrd−jdr',line:{color:'#dc2626',width:2}}],baseLayout('‖J·ṙ‖, ‖J̇·r‖ and their difference (crosses 0 ⇒ t*)','value',false));
+  {const L=baseLayout('‖r‖ — actual vs frozen-J linear theory (from t*)','‖r‖ (log)',false);L.yaxis.type='log';newP('p_p3_rnorm',[{x:[],y:[],mode:'lines',name:'‖r‖ actual',line:{color:'#2563eb',width:2}},{x:[],y:[],mode:'lines',name:'‖r‖ theory',line:{color:'#ea580c',width:1.9,dash:'dash'}}],L);}
+  {const L=baseLayout('cos(r_actual, r_theory) from t*','cos',false);L.yaxis.range=[-1.05,1.05];newP('p_p3_cos',[{x:[],y:[],mode:'lines',name:'cos',line:{color:'#7c3aed',width:2}}],L);}
   attachHover();
   resizeAllPlots();
 }
@@ -3679,6 +3689,13 @@ function pushPoint(t,D,n,kth,nResid){
     const cN=(D.cActN==null?null:D.cActN),cH=(D.cActH==null?null:D.cActH);
     if(D.c51!=null||D.c51p!=null||cN!=null||cH!=null)extP('p_pd3',{x:[[t],[t],[t],[t]],y:[[D.c51],[D.c51p],[cN],[cH]]},[0,1,2,3]);
     if(D.c51d!=null||D.c51dp!=null||cN!=null||cH!=null)extP('p_pd4',{x:[[t],[t],[t],[t]],y:[[D.c51d],[D.c51dp],[cN],[cH]]},[0,1,2,3]);
+  }
+  if(D.g_pred3){const g=D.g_pred3;   // ★ prediction-3: (jrd,jdr,diff) always; ‖r‖ actual/theory + cos once t* is reached
+    extP('p_p3_diff',{x:[[t],[t],[t]],y:[[g.jrd],[g.jdr],[g.diff]]},[0,1,2]);
+    if(g.tstar!=null){
+      extP('p_p3_rnorm',{x:[[t],[t]],y:[[g.rAct],[g.rThy]]},[0,1]);
+      if(g.cos!=null)extP('p_p3_cos',{x:[[t]],y:[[g.cos]]},[0]);
+    }
   }
 }
 
@@ -4613,7 +4630,7 @@ function currentQueryParams(){   // the exact query-style param dict the backend
   const o={};
   for(const id of QUERY_IDS){const el=document.getElementById(id);if(el)o[id]=val(id);}
   for(const [k,id] of SEC_TOGGLE_MAP)o[k]=chk(id)?'1':'0';
-  for(const k of ['s1','s2','s3','s12','s14','s16','s17','s29'])o[k]='1';   // prediction demo: always compute §1/2/3 + §9/§9c/§9d-c/§10 + §21 to feed the prediction panel
+  for(const k of ['s1','s2','s3','s12','s14','s16','s17','s29','s36'])o[k]='1';   // prediction demo: always compute §1/2/3 + §9/§9c/§9d-c/§10 + §21 + prediction-3 to feed the panels
   return o;
 }
 // prediction-demo defaults (run last, override the page's own init): the self-residual cubic (plot 4 = c51d)
