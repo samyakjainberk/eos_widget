@@ -349,8 +349,8 @@
   <label title="GD steps PER sweep pair. The sweep trains a fresh net per (lr,std) pair up to this many steps to find the sign-change &amp; loss-curvature — kept SEPARATE from (and much smaller than) the main run's steps so the sweep stays fast. Increase if too many pairs are censored (no sign-change within the window).">steps/pair&nbsp;<input id="swsteps" value="500" style="width:52px"></label>
   <label>K (quad refreeze)&nbsp;<input id="swK" value="20" style="width:46px"></label>
   <label>T_start&nbsp;<input id="swTstart" value="0" style="width:46px"></label>
-  <label title="Prediction-2: sum d=(jrd−jdr) AND d²loss/dt² over the first N iterations (from 0), then plot the SIGN of each sum.">sum window N&nbsp;<input id="swsumn" value="20" style="width:46px"></label>
-  <label title="Prediction-2b: sum d=(jrd−jdr) AND ∇‖J‖ (the change in ‖J‖) over the first N₂ iterations (from 0), then plot the SIGN of each sum (own window; larger = less noisy).">2b sum window N₂&nbsp;<input id="swsumn2" value="20" style="width:46px"></label>
+  <label title="Prediction-2: sum d=(jrd−jdr) AND d²loss/dt² over the first N iterations (from 0), then plot the SIGN of each sum.">sum window N&nbsp;<input id="swsumn" value="10" style="width:46px"></label>
+  <label title="Prediction-2b: sum d=(jrd−jdr) AND ∇‖J‖ (the change in ‖J‖) over the first N₂ iterations (from 0), then plot the SIGN of each sum (own window; larger = less noisy).">2b sum window N₂&nbsp;<input id="swsumn2" value="10" style="width:46px"></label>
   <label style="display:none" title="Blank (default): the sweep auto-runs on THIS server/GPU right after the main run finishes — no extra port needed. (Hidden 'for now'; a concurrent sweep on the same GPU would cancel the main run via the per-device token, so it defers.) Set a fleet GPU port here to instead run the sweep concurrently on that GPU.">sweep on port&nbsp;<input id="swport" value="" style="width:52px"></label>
   <span id="sweepstatus" style="color:#6b7280"></span>
 </div>
@@ -4841,6 +4841,8 @@ function ensureSweepPlots(){   // build the pred-1&2 sweep scatter plots on dema
   {const L=baseLayout('Prediction-2b — Σd vs Σ∇‖J‖ (signed-log) · N₂','signed log₁₀(Σ ∇‖J‖)',false);L.xaxis.title='signed log₁₀(Σ d)';L.showlegend=false;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
    newP('p_sw3',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:'#0891b2',line:{color:'#1e293b',width:0.5}}}],L);}
 }
+let SWEEP_THEN_RUN=false;   // set by the main Run button: run the sweep FIRST, then auto-start the main run when it ends. On one GPU a concurrent sweep would cancel the main run (per-device token) and a deferred sweep (after a long run) looks like it never fires — so sweep-first makes it visibly run the moment Run is clicked.
+function _sweepDoneThenRun(){ if(SWEEP_THEN_RUN){SWEEP_THEN_RUN=false; if(typeof run==='function') run(); } }   // hand off to the main run once the (Run-triggered) sweep terminates, however it ends
 function startSweep(){ _runSweep(false); }   // ★ prediction-1&2 sweep entry (onclick)
 function _runSweep(forceSame){   // forceSame=true ⇒ ignore the swport box and run on THIS server (same-origin fallback)
   if(SWEEP_ES){SWEEP_ES.close();SWEEP_ES=null;}
@@ -4854,8 +4856,8 @@ function _runSweep(forceSame){   // forceSame=true ⇒ ignore the swport box and
   ps.set('swpairs',(document.getElementById('swpairs').value||'16'));
   {const e=document.getElementById('swsteps'),v=e&&e.value.trim();if(v&&+v>=5)ps.set('steps',v);}   // sweep uses its OWN (small) steps/pair, NOT the main run's 5000 — keeps the sweep fast
   ps.set('swK',(document.getElementById('swK').value||'20'));
-  {const e=document.getElementById('swsumn');if(e)ps.set('swsumn',e.value||'20');}
-  {const e=document.getElementById('swsumn2');if(e)ps.set('swsumn2',e.value||'20');}
+  {const e=document.getElementById('swsumn');if(e)ps.set('swsumn',e.value||'10');}
+  {const e=document.getElementById('swsumn2');if(e)ps.set('swsumn2',e.value||'10');}
   ps.set('swTstart',(document.getElementById('swTstart').value||'0'));
   const swportEl=document.getElementById('swport'), swportVal=swportEl?swportEl.value.trim():'';
   let base='';
@@ -4864,14 +4866,14 @@ function _runSweep(forceSame){   // forceSame=true ⇒ ignore the swport box and
   let es; try{es=new EventSource(base+'/run?'+ps.toString());}catch(e){if(base){if(st)st.textContent='sweep port '+swportVal+' unreachable — retrying on this server…';return _runSweep(true);}if(st)st.textContent='cannot reach backend';return;}
   SWEEP_ES=es;
   es.onmessage=ev=>{let m;try{m=JSON.parse(ev.data);}catch(e){return;}
-    if(m.type==='meta'){if(m.error){if(st)st.textContent='error: '+m.error;es.close();SWEEP_ES=null;return;}gotData=true;SWEEP_N=m.npairs;SWEEP_STEPS=m.steps;if(st)st.textContent='0/'+SWEEP_N+' pairs…'+(base?' (port '+swportVal+')':'');}
+    if(m.type==='meta'){if(m.error){if(st)st.textContent='error: '+m.error;es.close();SWEEP_ES=null;_sweepDoneThenRun();return;}gotData=true;SWEEP_N=m.npairs;SWEEP_STEPS=m.steps;if(st)st.textContent='0/'+SWEEP_N+' pairs…'+(base?' (port '+swportVal+')':'');}
     else if(m.type==='sweeppt'){gotData=true;addSweepPt(m);if(st)st.textContent=SW1.x.length+'/'+SWEEP_N+' pairs';}
-    else if(m.type==='done'){const r=sweepPearson();if(st)st.textContent='done — '+SW1.x.length+' pairs · Pearson r='+(isFinite(r)?r.toFixed(3):'—');es.close();SWEEP_ES=null;}
-    else if(m.type==='error'){if(st)st.textContent='error: '+m.error;es.close();SWEEP_ES=null;}
+    else if(m.type==='done'){const r=sweepPearson();if(st)st.textContent='done — '+SW1.x.length+' pairs · Pearson r='+(isFinite(r)?r.toFixed(3):'—');es.close();SWEEP_ES=null;_sweepDoneThenRun();}
+    else if(m.type==='error'){if(st)st.textContent='error: '+m.error;es.close();SWEEP_ES=null;_sweepDoneThenRun();}
   };
   es.onerror=()=>{if(SWEEP_ES){es.close();SWEEP_ES=null;
     if(base&&!gotData){if(st)st.textContent='sweep port '+swportVal+' unreachable — retrying on this server…';return _runSweep(true);}   // separate GPU port down / not port-forwarded to the browser ⇒ fall back to same-origin so the sweep still plots
-    if(st)st.textContent=(st.textContent||'')+' (closed)';}};
+    if(st)st.textContent=(st.textContent||'')+' (closed)';_sweepDoneThenRun();}};
 }
 function backendURL(start){
   const ps=new URLSearchParams();
@@ -5159,13 +5161,13 @@ const PRESETS={
   // CIFAR-10 (MSE on one-hot) — fully-connected net on flattened 3072-dim images (GPU backend)
   cifar_mlp:{dataset:'cifar10',arch:'mlp',loss:'mse',depth:2,width:128,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:128,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,compute:'gpu'},
   // CIFAR-2 (2-class SCALAR ±1) — small N so the per-sample §16/§17 sections also run; en24/en25 on
-  cifar2_mlp:{dataset:'cifar2',arch:'mlp',loss:'mse',depth:1,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:16,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en18:1,en19:1,en20:1,en21:1,en22:1,en23:1,en24:1,en25:1,s24iter:200,s24warm:5,qapprox:100,qmode:1,tset:3,compute:'gpu'},
+  cifar2_mlp:{dataset:'cifar2',arch:'mlp',loss:'mse',depth:4,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:16,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en18:1,en19:1,en20:1,en21:1,en22:1,en23:1,en24:1,en25:1,s24iter:200,s24warm:5,qapprox:100,qmode:1,tset:3,compute:'gpu'},
   cifar2_cnn:{dataset:'cifar2',arch:'cnn',loss:'mse',depth:2,width:128,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:12,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:200,eigevery:4,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:1.0,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,compute:'gpu'},
   cifar2_vgg:{dataset:'cifar2',arch:'vgg11',loss:'mse',depth:2,width:128,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:12,batch:0,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:200,eigevery:4,slqprobes:3,energyp:99,gson:'0',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,compute:'gpu'},
   // MNIST (10-class one-hot) — padded to 3×32×32, drop-in for cifar-shaped nets
   mnist_mlp:{dataset:'mnist',arch:'mlp',loss:'mse',depth:1,width:48,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:8,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en18:1,en19:1,en20:1,en21:1,en22:1,en23:1,en24:1,en25:0,s24iter:200,s24warm:5,qapprox:100,qmode:1,tset:3,compute:'gpu'},
   // MNIST-2 (2-class SCALAR ±1) — small N so §16/§17 run; en24/en25 on
-  mnist2_mlp:{dataset:'mnist2',arch:'mlp',loss:'mse',depth:1,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:16,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en18:1,en19:1,en20:1,en21:1,en22:1,en23:1,en24:1,en25:1,s24iter:200,s24warm:5,qapprox:100,qmode:1,tset:3,compute:'gpu'},
+  mnist2_mlp:{dataset:'mnist2',arch:'mlp',loss:'mse',depth:4,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:16,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en18:1,en19:1,en20:1,en21:1,en22:1,en23:1,en24:1,en25:1,s24iter:200,s24warm:5,qapprox:100,qmode:1,tset:3,compute:'gpu'},
   // CIFAR-10 (MSE) — small 3-block conv net (avg-pool, tanh) on a CIFAR subset (GPU backend)
   cifar_cnn:{dataset:'cifar10',arch:'cnn',loss:'mse',depth:2,width:128,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:128,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:1.0,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,compute:'gpu'},
   // CIFAR-10 (MSE) — VGG11 (avg-pool, no BN). chmul=0.25→~0.6M (fast); set chmul=1 for the full ~9.4M VGG11
@@ -5257,12 +5259,11 @@ syncInitScaleEnabled();   // grey out init_scale on load if the current scheme i
 {const sl=document.getElementById('s23_slider');if(sl)sl.addEventListener('input',function(){S23CH.renderIdx(+this.value);});}   // §23 surrogate scrub
 let PENDING_AUTOSWEEP=false;   // ★ auto-sweep on Run: a concurrent sweep on the SAME GPU would cancel the main run (per-device RUN_TOKEN) ⇒ only run it concurrently when routed to a SEPARATE port; otherwise defer to the main run's 'done'
 document.getElementById('run').addEventListener('click',()=>{
-  run();
+  const sp=document.getElementById('swport'),spv=sp?sp.value.trim():'';
   if(chk('enPs')&&typeof startSweep==='function'){
-    const sp=document.getElementById('swport'),spv=sp?sp.value.trim():'';
-    if(spv&&spv!==(location.port||'')){PENDING_AUTOSWEEP=false;startSweep();}   // separate GPU port ⇒ concurrent, as soon as the run starts
-    else PENDING_AUTOSWEEP=true;                                                // same GPU ⇒ defer until the main run finishes (avoids cancelling it)
-  } else PENDING_AUTOSWEEP=false;
+    if(spv&&spv!==(location.port||'')){SWEEP_THEN_RUN=false;PENDING_AUTOSWEEP=false;startSweep();run();}   // separate GPU port ⇒ sweep there CONCURRENTLY while the main run starts now
+    else{SWEEP_THEN_RUN=true;PENDING_AUTOSWEEP=false;startSweep();}   // same GPU ⇒ ★ sweep FIRST (runs the moment Run is clicked, no cancellation), then _sweepDoneThenRun() auto-starts the main run
+  } else {SWEEP_THEN_RUN=false;PENDING_AUTOSWEEP=false;run();}
 });
 document.getElementById('stop').addEventListener('click',stopRun);
 document.getElementById('resume').addEventListener('click',resumeRun);
