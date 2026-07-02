@@ -238,7 +238,13 @@
 </div>
 
 <div class="toggles">
-  <span class="tt">Panels</span>
+  <span class="tt">Prediction panels</span>
+  <label title="★ σ₁ one-step forecasts (Eq-21 & cubic Eq-51; live + self residual) vs the actual NTK / ∇²L edges"><input type="checkbox" id="enPd" checked> ★ σ₁ forecasts</label>
+  <label title="★ Trace statistics — predicted Tr(NTK) vs Tr(∇²L) & Tr(JᵀJ) (Prediction-5)"><input type="checkbox" id="enPt" checked> ★ Trace stats</label>
+  <label title="★ Prediction-4 — frozen-M_r Jacobian propagation → top-10 NTK spectrum"><input type="checkbox" id="enP4" checked> ★ Prediction-4</label>
+  <label title="★ Prediction-3 — frozen-J linear residual theory after the ‖J·ṙ‖−‖J̇·r‖ sign-change"><input type="checkbox" id="enP3" checked> ★ Prediction-3</label>
+  <label title="★ Prediction-1 & 2 — sweep over (lr, init-std): predicted vs actual sign-change + start-d vs loss curvature"><input type="checkbox" id="enPs" checked> ★ Prediction-1&2 (sweep)</label>
+  <span class="tt" style="margin-left:14px">Base panels (feed the forecasts)</span>
   <label><input type="checkbox" id="en1" checked> 1 · loss / sharpness / residual</label>
   <label><input type="checkbox" id="en2" checked> 2 · eig top-n</label>
   <label><input type="checkbox" id="en3" checked> 3 · eig bottom-n</label>
@@ -274,7 +280,7 @@
   <label title="§25 — eight plots on the residual-contracted gradient J·r=Σ_k r_k∇f_k under gradient flow θ̇=−∇L. PLOT 1 (time-series): ‖∇L‖; ‖J̇·r‖=‖M_r∇L‖ (M_r=Σ_k r_kQ_k, NOT ÷N here); ‖J·ṙ‖=‖JᵀJ∇L‖ — the two product-rule terms of d/dt(J·r); plus II, III, the two cross-terms of the ‖J‖²_F (=tr NTK) 2nd-difference decomposition (§15 panel 1; c=η/N): II=c²Σ_k ∇f_{t,k}ᵀQ_{t-1,k}Q̃g₂ (Q̃=Σ_j r_{t-1,j}Q_{t-2,j}, g₂=J_{t-2}ᵀr_{t-2}), III=c²Σ_k ∇f_{t,k}ᵀQ_{t-1,k}J_{t-1}ᵀJ_{t-2}g₂ (need 3 consecutive GD steps, so eigevery=1; start a couple ticks in). Linear y-axis. PLOTS 2&amp;3 (MLP only): pairwise cosine of the θ-gradients of 5 scalars — 1=∇‖r‖², 2=∇‖J‖²_F(=∇tr NTK), 3=∇‖∇L‖², 4=∇‖Q·Jᵀr‖² (Q=Σ_kQ_k), 5=∇‖JJᵀr‖²(=∇‖NTK·r‖²) — all 10 pairs split across the two, each with a bold black reference line cos(J·ṙ,J̇·r) (exact autograd). PLOT 4: cos(∇‖f‖₂², vᵢ) for i=1–5 — a 6th vector 6=∇‖f‖₂² (f=output) vs the five. PLOT 7 (panel 2's 4th plot): cos(∇‖ġ‖₂², vᵢ) for i=1–6 — a 7th vector 7=∇‖ġ‖₂² (ġ=d(∇L)/dt=−H∇L, H=∇²L the loss Hessian) vs the other six. PLOT 5: the norms ‖∇θφ_i‖ of all 7 vectors (log). PLOT 6: ‖d/dt(J·r)‖₁=Σ_i|JᵀJ∇L−M_r∇L|_i. PLOT 8 (panel 1's 4th plot): cos(r_t, r_{t−k}) for k=1,10,30,50,100 + a bold cos(r_t, r₀) reference — residual-direction change. k=1 shows the step-to-step turn (at EoS r flips sign each step → −1; even lags alias that flip); the bold line vs the initial residual r₀ shows the cumulative rotation from the start (all backends; line k starts once that lag exists). PLOT 9 (panel 1's 5th plot): ⟨‖r_i‖⟩ = average over samples of the per-sample residual norm (log) — the residual MAGNITUDE over training, complementing plot 8's direction. Needs the M×p Jacobian + per-sample Hessian-vp (GPU backend; small N)."><input type="checkbox" id="en33"> 25 · gradient-norm &amp; d/dt(J·r) evolution</label>
   <label title="§26 — eigenvector-direction drift: |cos(v_i(t), v_i(t−k))| for k=10,20,30,50,100, the absolute cosine of a rank-i eigenvector now vs the same-rank eigenvector k diagnostic-steps earlier (1=frozen direction, dips=rotating). |cos| since eigvec signs are arbitrary. Three operators: GN=JᵀJ (Gauss-Newton, param space, p-dim eigvecs), NTK=JJᵀ (function space, M-dim eigvecs), M_r=Σ_k r_kQ_k (residual-contracted function Hessian, p-dim eigvecs). 4 panels × 3 plots × 5 lag-lines: panels 1-3 = top/2nd/3rd eigenvector (each showing GN·NTK·M_r), panel 4 = M_r bottom-1/2/3 (most negative). GN/NTK from one eigendecomposition of the NTK; M_r top-3⊕bottom-3 via the same matrix-free Lanczos as §20. EIGENVECTOR CONTINUATION: the 3 tracks are the top-3 at the first step, then followed as continuous modes (each step matched to the previous by max overlap) — so eigenvalue CROSSINGS don't cause artificial |cos| jumps; a dip means the mode genuinely rotated. Near TRUE degeneracies (indistinguishable modes) residual jumps can remain (worst at EoS / fp32 GPU); M_r eigvecs are BLANKED (gaps) once the residual→0 makes M_r≈0 (|λ(M_r)|≤1e-6·λmax(NTK)). Use eig-every=1; fp64 CPU backend for the cleanest M_r read. GPU backend, small N; off in surrogate mode."><input type="checkbox" id="en34"> 26 · eigenvector-direction drift (GN / NTK / M_r)</label>
   <label title="§27 — 3D subspace projection of six ∇θ gradient-vectors over a sliding [t−50,t+50] window. Six per-step p-dim vectors: ∇‖f‖², ∇‖r‖², ∇‖J‖²_F, ∇‖∇L‖², and the two DISCRETE step-difference ones ∇‖ṙ‖²=−2Jᵀ(r_t−r_{t−1}) & ∇‖J̇‖²_F=∇‖J‖²_F−2∇⟨J,J_{t−1}⟩_F. For each iteration t, stack a metric's window vectors (p×W, W≤101, clipped at the ends), take the top-3 LEFT singular directions, and project the t-th vector onto them → one 3D point; the curve over t is coloured by iteration (Viridis: dark=early → yellow=late). Panels 1-2 (per-metric subspace, {f,r,J} & {g,ṙ,J̇}); panels 3-4 (COMMON subspace = top-3 of all six metrics stacked, p×6W; same metric split). Because the +50 half-window needs FUTURE iterations, §27 streams with a 50-STEP LAG (iteration t emitted at step t+50; trailing 50 flushed at end). GPU backend, small N/p; off in surrogate mode; eig-every=1."><input type="checkbox" id="en35"> 27 · ∇θ-vector 3D subspace projection (sliding window)</label>
-  <span class="hint" style="color:#94a3b8;font-size:12px">turning a panel off skips its computation (and re-runs)</span>
+  <span class="hint" style="color:#94a3b8;font-size:12px">turn a panel off to hide it</span>
 </div>
 
 <hr>
@@ -290,7 +296,10 @@
 <style>
   /* Prediction demo: §9/§9c/§9d-c/§10 predictions are COMPUTED (forced in currentQueryParams) to feed the
      panel below, but their multi-column detail sections are hidden so the demo stays focused on the forecast. */
-  #sec_9,#sec_12,#sec_9c,#sec_9dc,#sec_cubic{display:none!important}
+  #sec_9,#sec_12,#sec_9c,#sec_9dc,#sec_cubic,#sec_9d{display:none!important}
+  /* Prediction widget: show ONLY prediction-relevant section toggles. The other en* checkboxes stay in the
+     DOM (hidden here) so chk() / SEC_TOGGLE_MAP still resolve every id and the forced computations are unchanged. */
+  .toggles label:has(#en4),.toggles label:has(#en5),.toggles label:has(#en6),.toggles label:has(#en7),.toggles label:has(#en8),.toggles label:has(#en9),.toggles label:has(#en10),.toggles label:has(#en11),.toggles label:has(#en12),.toggles label:has(#en13),.toggles label:has(#en14),.toggles label:has(#en15),.toggles label:has(#en16),.toggles label:has(#en17),.toggles label:has(#en18),.toggles label:has(#en19),.toggles label:has(#en20),.toggles label:has(#en21),.toggles label:has(#en22),.toggles label:has(#en23),.toggles label:has(#en24),.toggles label:has(#en25),.toggles label:has(#en26),.toggles label:has(#en27),.toggles label:has(#en28),.toggles label:has(#en30),.toggles label:has(#en31),.toggles label:has(#en32),.toggles label:has(#en33),.toggles label:has(#en34){display:none!important}
   #sec_pred{border:2px solid #7c3aed;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#faf7ff}
   #sec_pred h2{color:#6d28d9;margin-top:4px}
 </style>
@@ -307,8 +316,7 @@
   <span style="color:#94a3b8">freeze $Q$, residual &amp; $J$ at $t_0$; propagate $\Delta J=\tfrac{\eta}{N}Q_t[J^\top r]+\tfrac12(\tfrac{\eta}{N})^2 T[J^\top r,J^\top r]$</span>
 </div>
 <p class="cap">The same four predictions as the $\sigma_1$ panel, but tracking the <b>trace</b> $\mathrm{Tr(NTK)}=\mathrm{Tr}(J^\top J)=\lVert J\rVert_F^2$ instead of the top eigenvalue. From $t_0$ we propagate the Jacobian (Eq-2/3) and accumulate $\mathrm{Tr}(\Delta\mathrm{NTK})$ (Eq-4). Each plot shows the predicted Tr(NTK) <b style="color:#2563eb">without</b> and <b style="color:#16a34a">with</b> the PSD term (Eq-5), overlaid on the actual <b style="color:#dc2626">Tr($\nabla^2 L$)</b> (full loss Hessian, Hutchinson) and <b style="color:#ea580c">Tr($J^\top J$)</b> (Gauss–Newton, exact) — all $\div N$. <b>Top row:</b> quadratic ($T=0$). <b>Bottom row:</b> cubic. <b>Left:</b> residual from the live run. <b>Right:</b> residual self-computed from the frozen quadratic model.</p>
-<div class="plotrow row2"><div id="p_pt1" class="plot" style="height:300px"></div><div id="p_pt2" class="plot" style="height:300px"></div></div>
-<div class="plotrow row2"><div id="p_pt3" class="plot" style="height:300px"></div><div id="p_pt4" class="plot" style="height:300px"></div></div>
+<div class="plotrow row4"><div id="p_pt1" class="plot" style="height:300px"></div><div id="p_pt2" class="plot" style="height:300px"></div><div id="p_pt3" class="plot" style="height:300px"></div><div id="p_pt4" class="plot" style="height:300px"></div></div>
 </div>
 
 <div id="sec_pred4" style="border:2px solid #0d9488;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#f0fdfa">
@@ -864,12 +872,7 @@ Use the <b>Panels</b> toggles (and <b>G &amp; S spectra</b>) to switch off the c
 SLQ refreshes at most ~50× per run. The 99%-energy subspaces use the top/bottom Ritz pairs (energy normalized by the captured part); $n$, $k$ clamped to $\lfloor p/2\rfloor$.
 The <b>GPU backend</b> (server.py) raises the cap to <b>10,000,000</b> and adds CIFAR-10 / sorting datasets and CNN / VGG11 / mini-GPT architectures.</p>
 
-<hr>
-<div id="cmp_q"></div>
-<hr>
-<div id="cmp_l"></div>
-<hr>
-<div id="cmp_c"></div>
+<!-- Q/L/C surrogate-vs-actual compare sections removed (prediction-only widget) -->
 
 <script>
 // ================= numeric core (validated against a PyTorch port) =================
@@ -3218,6 +3221,13 @@ function syncSectionVis(multi){
     if(vis)requestAnimationFrame(()=>{for(const id of S16_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}   // re-size §16 plots when the section becomes visible
   {const el=document.getElementById('sec_s17');if(el){const vis=chk('en25');el.style.display=vis?'':'none';   // §17 per-sample optimizer (own toggle en25)
     if(vis)requestAnimationFrame(()=>{for(const id of S17_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}   // re-size §17 plots when the section becomes visible
+  // ★ prediction-panel visibility (this widget's headline panels — enPd/enPt/enP4/enP3/enPs)
+  {const el=document.getElementById('sec_pred'); if(el)el.style.display=chk('enPd')?'':'none';}
+  {const el=document.getElementById('sec_trace');if(el)el.style.display=chk('enPt')?'':'none';}
+  {const el=document.getElementById('sec_pred4');if(el)el.style.display=chk('enP4')?'':'none';}
+  {const el=document.getElementById('sec_pred3');if(el)el.style.display=chk('enP3')?'':'none';}
+  {const el=document.getElementById('sec_sweep');if(el)el.style.display=chk('enPs')?'':'none';}
+  requestAnimationFrame(()=>{for(const id of ['p_pd1','p_pd2','p_pd3','p_pd4','p_pt1','p_pt2','p_pt3','p_pt4','p_pd5','p_pd6','p_p3_diff','p_p3_rnorm','p_p3_cos','p_sw1','p_sw2']){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});   // re-measure ★ prediction plots when shown
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
   if(typeof SCRUB_FRAC!=='undefined'&&SCRUB_FRAC<1)requestAnimationFrame(()=>applyTimeScrub(SCRUB_FRAC));   // keep a just-shown section's plots at the current rewound position
 }
@@ -3419,8 +3429,10 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_pd4',tvPred('cubic (Eq-51, self r_q)','+ PSD','actual λmax(NTK)','actual λmax(∇²L)'),baseLayout('Plot 4 — cubic Eq-51 · quadratic SELF residual','σ₁',false));
   // ★ prediction-3 panel: (jrd,jdr,diff) sign-change, then frozen-J linear residual theory vs actual
   newP('p_p3_diff',[{x:[],y:[],mode:'lines',name:'‖J·ṙ‖ (jrd)',line:{color:'#2563eb',width:1.7}},{x:[],y:[],mode:'lines',name:'‖J̇·r‖ (jdr)',line:{color:'#16a34a',width:1.7}},{x:[],y:[],mode:'lines',name:'diff = jrd−jdr',line:{color:'#dc2626',width:2}}],baseLayout('‖J·ṙ‖, ‖J̇·r‖ and their difference (crosses 0 ⇒ t*)','value',false));
-  {const L=baseLayout('‖r‖ — actual vs frozen-J linear theory (from t*)','‖r‖ (log)',false);L.yaxis.type='log';newP('p_p3_rnorm',[{x:[],y:[],mode:'lines',name:'‖r‖ actual',line:{color:'#2563eb',width:2}},{x:[],y:[],mode:'lines',name:'‖r‖ theory',line:{color:'#ea580c',width:1.9,dash:'dash'}}],L);}
-  {const L=baseLayout('cos(r_actual, r_theory) from t*','cos',false);L.yaxis.range=[-1.05,1.05];newP('p_p3_cos',[{x:[],y:[],mode:'lines',name:'cos',line:{color:'#7c3aed',width:2}}],L);}
+  window._P3_CLEARED=false;   // reset the pred-3 "waiting for t*" placeholder each run
+  const _p3note=[{text:'activates at the ‖J·ṙ‖−‖J̇·r‖<br>sign-change t* (none yet in this run)',xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,align:'center',font:{size:11,color:'#94a3b8'}}];
+  {const L=baseLayout('‖r‖ — actual vs frozen-J linear theory (from t*)','‖r‖ (log)',false);L.yaxis.type='log';L.annotations=_p3note;newP('p_p3_rnorm',[{x:[],y:[],mode:'lines',name:'‖r‖ actual',line:{color:'#2563eb',width:2}},{x:[],y:[],mode:'lines',name:'‖r‖ theory',line:{color:'#ea580c',width:1.9,dash:'dash'}}],L);}
+  {const L=baseLayout('cos(r_actual, r_theory) from t*','cos',false);L.yaxis.range=[-1.05,1.05];L.annotations=_p3note;newP('p_p3_cos',[{x:[],y:[],mode:'lines',name:'cos',line:{color:'#7c3aed',width:2}}],L);}
   // ★ prediction-4: top-10 NTK eigenvalues — predicted (frozen-M_r Jacobian, lines) vs actual (dots); 2 plots λ1–5 & λ6–10
   {const cols=['#2563eb','#16a34a','#db2777','#ea580c','#7c3aed'];
    const mk=(lo)=>{const tr=[];for(let i=0;i<5;i++){tr.push({x:[],y:[],mode:'lines',name:'λ'+(lo+i+1)+' pred',line:{color:cols[i],width:1.9}});tr.push({x:[],y:[],mode:'markers',name:'λ'+(lo+i+1)+' actual',marker:{color:cols[i],size:4.5,symbol:'circle',line:{color:'#111',width:0.4}}});}return tr;};
@@ -3435,9 +3447,9 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
    mkT('p_pt1','Trace — quadratic (T=0) · live residual'); mkT('p_pt2','Trace — quadratic (T=0) · self residual');
    mkT('p_pt3','Trace — cubic · live residual'); mkT('p_pt4','Trace — cubic · self residual');}
   // ★ prediction-1 & 2 sweep scatter plots (populated by startSweep from /run?mode=sweep)
-  {const L=baseLayout('Prediction-1 — predicted vs actual (jrd−jdr) sign-change t*','actual t* (iters)',false);L.xaxis.title='predicted t*';L.showlegend=false;
+  {const L=baseLayout('Prediction-1 — predicted vs actual (jrd−jdr) sign-change t*','actual t* (iters)',false);L.xaxis.title='predicted t*';L.showlegend=false;L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
    newP('p_sw1',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:[],line:{color:'#1e293b',width:0.5}}},{x:[0,1],y:[0,1],mode:'lines',line:{color:'#94a3b8',dash:'dot',width:1},hoverinfo:'skip'}],L);}
-  {const L=baseLayout('Prediction-2 — start (jrd−jdr) vs loss curvature  (Pearson r = —)','loss curvature (t² coef)',false);L.xaxis.title='(jrd−jdr) at t=0';L.showlegend=false;
+  {const L=baseLayout('Prediction-2 — start (jrd−jdr) vs loss curvature  (Pearson r = —)','loss curvature (t² coef)',false);L.xaxis.title='(jrd−jdr) at t=0';L.showlegend=false;L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
    newP('p_sw2',[{x:[],y:[],mode:'markers',type:'scatter',marker:{size:9,color:'#7c3aed',line:{color:'#1e293b',width:0.5}}}],L);}
   attachHover();
   resizeAllPlots();
@@ -3745,6 +3757,7 @@ function pushPoint(t,D,n,kth,nResid){
   if(D.g_pred3){const g=D.g_pred3;   // ★ prediction-3: (jrd,jdr,diff) always; ‖r‖ actual/theory + cos once t* is reached
     extP('p_p3_diff',{x:[[t],[t],[t]],y:[[g.jrd],[g.jdr],[g.diff]]},[0,1,2]);
     if(g.tstar!=null){
+      if(!window._P3_CLEARED){window._P3_CLEARED=true;try{Plotly.relayout('p_p3_rnorm',{annotations:[]});Plotly.relayout('p_p3_cos',{annotations:[]});}catch(e){}}   // t* reached → drop the placeholder
       extP('p_p3_rnorm',{x:[[t],[t]],y:[[g.rAct],[g.rThy]]},[0,1]);
       if(g.cos!=null)extP('p_p3_cos',{x:[[t]],y:[[g.cos]]},[0]);
     }
@@ -4730,6 +4743,7 @@ function startSweep(){
   if(SWEEP_ES){SWEEP_ES.close();SWEEP_ES=null;}
   SW1.x.length=SW1.y.length=SW1.text.length=SW1.col.length=0; SW2.x.length=SW2.y.length=0;
   try{Plotly.restyle('p_sw1',{x:[[]],y:[[]],text:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw2',{x:[[]],y:[[]]},[0]);}catch(e){}
+  try{Plotly.relayout('p_sw1',{annotations:[]});Plotly.relayout('p_sw2',{annotations:[]});}catch(e){}   // drop the "click Run sweep" placeholder once the sweep starts
   const st=document.getElementById('sweepstatus'); if(st)st.textContent='starting…';
   const q=currentQueryParams(); const ps=new URLSearchParams(); for(const k in q)ps.set(k,q[k]);
   ps.set('mode','sweep');
@@ -5113,6 +5127,7 @@ function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic'
 document.getElementById('loss').addEventListener('change',syncLossPanels);
 document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
 ['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','en24','en25','en26','en27','en28','en29','en30','en31','en32','en33','en34','gson'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();});});
+['enPd','enPt','enP4','enP3','enPs','en35'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>syncSectionVis());});   // ★ prediction-panel + §27 toggles: show/hide live (no re-run needed)
 // §22 (en30) & §23 (en31) are MUTUALLY EXCLUSIVE — selecting one quadratic surrogate deselects the other (the surrogate REPLACES §1–§21, so only one trajectory can drive the plots).
 {const e30=document.getElementById('en30'),e31=document.getElementById('en31');const mux=(a,b)=>{if(a.checked&&b.checked){b.checked=false;syncSectionVis();}};
  if(e30&&e31){e30.addEventListener('change',()=>mux(e30,e31));e31.addEventListener('change',()=>mux(e31,e30));}}
@@ -5567,7 +5582,7 @@ function makeCompareSection(pre, kind) {
   document.getElementById(pre + '_status').textContent = 'press Run to start this ' + kind + ' comparison (needs the GPU backend — python server.py).';
 }
 
-window.addEventListener('load',()=>{makeCompareSection('q','quad');makeCompareSection('l','linear');makeCompareSection('c','cubic');applyPreset('linear');drawPreview();updateParamBadge();
+window.addEventListener('load',()=>{applyPreset('linear');drawPreview();updateParamBadge();
   try{s12GrpVis();s12HistVis();}catch(e){console.error('§12b default visibility',e);}});   // §12b: apply hidden-by-default groups (5,6,7)/(8,9) + residual histograms (toggleable)
 </script>
 </div>
