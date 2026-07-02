@@ -4814,27 +4814,31 @@ function sweepCorrLabel(S){const r=sweepPearson(S),rho=sweepSpearman(S);   // AL
 // and the re-anchored curves are never capped. ‖r‖ / eigenvalues are ≥0, so this is a high-side cap only.
 const PRED_CAP_F=20;
 function _capPred(v,ref,f){if(v==null)return null;const c=(f||PRED_CAP_F)*Math.abs(ref);if(!isFinite(v))return c>0?c:null;return (c>0&&v>c)?c:v;}
+// signed log10 for the Prediction-2/2b scatters: keeps the sign, compresses the wild magnitude range (Σ can hit ~1e19
+// on divergence), so a strong monotonic (Σd ↔ Σcurv / Σ∇‖J‖) relationship shows up as a DIAGONAL cloud, and each
+// quadrant still reads as a sign combo. slog(v)=sign(v)·log10(1+|v|).
+function slog(v){return (v==null||!isFinite(v))?null:(v<0?-1:1)*Math.log10(1+Math.abs(v));}
 function addSweepPt(m){
   SW1.x.push(m.tPred);SW1.y.push(m.tAct);
   SW1.text.push('lr='+(+m.lr).toPrecision(2)+'  σ='+(+m.std).toPrecision(2));
   SW1.col.push((m.censA||m.censP)?'#ef4444':'#2563eb');
-  {const sx=(m.sumD<0?-1:1),sy=(m.sumCurv<0?-1:1);SW2.x.push(sx);SW2.y.push(sy);SW2.ok.push(!m.diverged);SW2.rx.push(m.sumD);SW2.ry.push(m.sumCurv);SW2.jx.push(sx+(Math.random()-0.5)*0.44);SW2.jy.push(sy+(Math.random()-0.5)*0.44);}   // ±1 sign of Σd and of Σ(d²loss/dt²) over first N; also keep the RAW sums for the rank-ρ fallback; jittered for display (Pearson uses the exact ±1)
-  {const sx=(m.sumD2<0?-1:1),sy=(m.sumJgrad<0?-1:1);SW3.x.push(sx);SW3.y.push(sy);SW3.ok.push(!m.diverged&&m.sumJgrad!==0);SW3.rx.push(m.sumD2);SW3.ry.push(m.sumJgrad);SW3.jx.push(sx+(Math.random()-0.5)*0.44);SW3.jy.push(sy+(Math.random()-0.5)*0.44);}   // ±1 sign of Σd and of Σ∇‖J‖ over first N₂; also keep RAW sums for the rank-ρ fallback (‖J‖ almost always rises ⇒ y-sign constant ⇒ sign-Pearson undefined)
+  {const sx=(m.sumD<0?-1:1),sy=(m.sumCurv<0?-1:1);SW2.x.push(sx);SW2.y.push(sy);SW2.ok.push(!m.diverged);SW2.rx.push(m.sumD);SW2.ry.push(m.sumCurv);SW2.jx.push(slog(m.sumD));SW2.jy.push(slog(m.sumCurv));}   // plot the CONTINUOUS signed-log Σd vs Σ(d²loss/dt²) so a high correlation shows as a diagonal; sign x/y kept for the sign-Pearson, raw rx/ry for the rank ρ
+  {const sx=(m.sumD2<0?-1:1),sy=(m.sumJgrad<0?-1:1);SW3.x.push(sx);SW3.y.push(sy);SW3.ok.push(!m.diverged&&m.sumJgrad!==0);SW3.rx.push(m.sumD2);SW3.ry.push(m.sumJgrad);SW3.jx.push(slog(m.sumD2));SW3.jy.push(slog(m.sumJgrad));}   // continuous signed-log Σd vs Σ∇‖J‖
   Plotly.restyle('p_sw1',{x:[SW1.x],y:[SW1.y],text:[SW1.text],'marker.color':[SW1.col]},[0]);
   const mx=Math.max(SWEEP_STEPS,Math.max.apply(null,SW1.x.concat(SW1.y).concat([1])));
   Plotly.restyle('p_sw1',{x:[[0,mx]],y:[[0,mx]]},[1]);            // y=x reference line
   Plotly.restyle('p_sw2',{x:[SW2.jx],y:[SW2.jy],text:[SW1.text],'marker.opacity':[0.75]},[0]);   // jittered ±1 signs so all overlapping (lr,σ) pairs are visible near each corner (Pearson r uses the exact SW2.x/y)
-  try{Plotly.relayout('p_sw2',{'title.text':'Prediction-2 — sign(Σd) vs sign(Σd²L/dt²) · N='+(m.swsumn!=null?m.swsumn:'')+'  ('+sweepCorrLabel(SW2)+')'});}catch(e){}
+  try{Plotly.relayout('p_sw2',{'title.text':'Prediction-2 — Σd vs Σd²L/dt² (signed-log) · N='+(m.swsumn!=null?m.swsumn:'')+'  ('+sweepCorrLabel(SW2)+')'});}catch(e){}
   Plotly.restyle('p_sw3',{x:[SW3.jx],y:[SW3.jy],text:[SW1.text],'marker.opacity':[0.75]},[0]);   // 3rd plot: jittered ±1 signs so overlapping pairs are visible; y = sign of Σ∇‖J‖ over first N₂
-  try{Plotly.relayout('p_sw3',{'title.text':'Prediction-2b — sign(Σd) vs sign(Σ∇‖J‖) · N₂='+(m.swsumn2!=null?m.swsumn2:'')+'  ('+sweepCorrLabel(SW3)+')'});}catch(e){}
+  try{Plotly.relayout('p_sw3',{'title.text':'Prediction-2b — Σd vs Σ∇‖J‖ (signed-log) · N₂='+(m.swsumn2!=null?m.swsumn2:'')+'  ('+sweepCorrLabel(SW3)+')'});}catch(e){}
 }
 function ensureSweepPlots(){   // build the pred-1&2 sweep scatter plots on demand — the sweep can run WITHOUT a prior main run (which is otherwise the only thing that creates them, via initLivePlots)
   const g=document.getElementById('p_sw1'); if(g&&g._fullData)return;   // already built
   {const L=baseLayout('Prediction-1 — predicted vs actual (jrd−jdr) sign-change t*','actual t* (iters)',false);L.xaxis.title='predicted t*';L.showlegend=false;L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
    newP('p_sw1',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:[],line:{color:'#1e293b',width:0.5}}},{x:[0,1],y:[0,1],mode:'lines',line:{color:'#94a3b8',dash:'dot',width:1},hoverinfo:'skip'}],L);}
-  {const L=baseLayout('Prediction-2 — sign(Σd) vs sign(Σd²L/dt²) · N  (r = —)','sign(Σ d²L/dt²)',false);L.xaxis.title='sign(Σ d)';L.showlegend=false;L.xaxis.range=[-1.8,1.8];L.yaxis.range=[-1.8,1.8];L.xaxis.tickmode='array';L.xaxis.tickvals=[-1,1];L.yaxis.tickmode='array';L.yaxis.tickvals=[-1,1];L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
+  {const L=baseLayout('Prediction-2 — Σd vs Σd²L/dt² (signed-log) · N','signed log₁₀(Σ d²L/dt²)',false);L.xaxis.title='signed log₁₀(Σ d)';L.showlegend=false;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
    newP('p_sw2',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:'#7c3aed',line:{color:'#1e293b',width:0.5}}}],L);}
-  {const L=baseLayout('Prediction-2b — sign(Σd) vs sign(Σ∇‖J‖) · N₂  (r = —)','sign(Σ ∇‖J‖)',false);L.xaxis.title='sign(Σ d)';L.showlegend=false;L.xaxis.range=[-1.8,1.8];L.yaxis.range=[-1.8,1.8];L.xaxis.tickmode='array';L.xaxis.tickvals=[-1,1];L.yaxis.tickmode='array';L.yaxis.tickvals=[-1,1];L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
+  {const L=baseLayout('Prediction-2b — Σd vs Σ∇‖J‖ (signed-log) · N₂','signed log₁₀(Σ ∇‖J‖)',false);L.xaxis.title='signed log₁₀(Σ d)';L.showlegend=false;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
    newP('p_sw3',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:'#0891b2',line:{color:'#1e293b',width:0.5}}}],L);}
 }
 function startSweep(){ _runSweep(false); }   // ★ prediction-1&2 sweep entry (onclick)
