@@ -315,7 +315,7 @@
   <label>freeze iteration $t_0$&nbsp;<input id="p4t0" value="10" style="width:52px"></label>
   <span style="color:#94a3b8">freeze $Q$ &amp; residual at $t_0$; propagate $J_{s+1}=(I+\tfrac{\eta}{N}M_r)J_s$, $M_r=\sum_k r_kQ_k$ frozen</span>
 </div>
-<p class="cap">From iteration $t_0$ we freeze the function Hessian and residual to form $M_r=\sum_k r_kQ_k$, then propagate the Jacobian by $J_{s+1}=(I+\tfrac{\eta}{N}M_r)J_s$ and read its NTK spectrum $\lambda(JJ^\top)$. The two plots compare the <b>predicted</b> (lines) vs <b>actual</b> (dots) top-10 NTK eigenvalues over training — <b>left:</b> $\lambda_1$–$\lambda_5$, <b>right:</b> $\lambda_6$–$\lambda_{10}$ (log scale, matched colours per rank). They coincide at $t_0$ and drift as the frozen-$M_r$ linear model departs from the true nonlinear Jacobian evolution.</p>
+<p class="cap">From iteration $t_0$ we freeze the function Hessian and residual to form $M_r=\sum_k r_kQ_k$, then propagate the Jacobian by $J_{s+1}=(I+\tfrac{\eta}{N}M_r)J_s$ and read its NTK spectrum $\lambda(JJ^\top)$. <b>Left:</b> the <b>predicted</b> (lines) vs <b>actual</b> (dots) top-5 NTK eigenvalues $\lambda_1$–$\lambda_5$ over training (matched colours per rank). <b>Right:</b> the <b>absolute cosine similarity</b> $|\cos\angle(v_k)|$ between the actual and predicted top-5 NTK <b>eigenvectors</b> over training (1 = perfect direction match). Both coincide at $t_0$ and drift as the frozen-$M_r$ linear model departs from the true nonlinear Jacobian evolution.</p>
 <div class="plotrow row2"><div id="p_pd5" class="plot" style="height:320px"></div><div id="p_pd6" class="plot" style="height:320px"></div></div>
 </div>
 
@@ -332,6 +332,7 @@
   <label>pairs&nbsp;<input id="swpairs" value="16" style="width:46px"></label>
   <label>K (quad refreeze)&nbsp;<input id="swK" value="20" style="width:46px"></label>
   <label>T_start&nbsp;<input id="swTstart" value="0" style="width:46px"></label>
+  <label title="Run the sweep on a DIFFERENT fleet server/GPU port so it does NOT compete with the main run for the GPU (the sweep is a heavy separate run). Blank = this server (shares the GPU). Requires another fleet server listening on that port.">sweep on port&nbsp;<input id="swport" value="8757" style="width:52px"></label>
   <span id="sweepstatus" style="color:#6b7280"></span>
 </div>
 <p class="cap">Each pair runs a full-batch GD training (config below, but with that pair's lr &amp; init-std). <b>Prediction-1 (left):</b> the iteration $t^{\star}$ at which $d=\lVert J\dot r\rVert-\lVert\dot J r\rVert$ (jrd−jdr) first changes sign — <b>actual (y)</b> vs. <b>predicted (x)</b>. The prediction runs the cubic Eq-51 (§10) trajectory from $\theta(T_{\rm start})$ with the quadratic model <b>refrozen every K</b> steps, and reports its first predicted sign-change; points on the dotted $y=x$ line are perfect. Each point is labelled with its lr &amp; init-std; <b style="color:#ef4444">red</b> = censored (no sign-change within the run). <b>Prediction-2 (right):</b> $d$ at the <b>start</b> of training vs. the loss curve's <b>peak second time-derivative</b> — the value of $d^2\mathrm{loss}/dt^2$ (discrete central 2nd difference $L_{t+1}-2L_t+L_{t-1}$) with the <b>largest absolute magnitude</b> over the run, kept <b>with its sign</b> (no curve fitting). A strong Pearson correlation would confirm that early $(\lVert J\dot r\rVert-\lVert\dot J r\rVert)$ predicts loss concavity/convexity. Points stream in as each pair finishes (it can be slow).</p>
@@ -490,9 +491,9 @@
   <span id="s21_step" style="white-space:nowrap;color:#475569;font-size:13px;min-width:140px">—</span>
 </div>
 <h3 style="margin:10px 0 2px;font-size:14px;color:#475569">Panel 1 — residual $r$ onto the top-$K$ NTK eigenvectors $v_i$ ($\sigma_i$ = NTK eigenvalue; grey on the σ-weighted plots)</h3>
-<div class="plotrow row4"><div id="p_s21_b1" class="plot" style="height:330px"></div><div id="p_s21_b2" class="plot" style="height:330px"></div><div id="p_s21_b3" class="plot" style="height:330px"></div><div id="p_s21_b4" class="plot" style="height:330px"></div></div>
+<div class="plotrow row4"><div id="p_s21_b1" class="plot" style="height:360px"></div><div id="p_s21_b2" class="plot" style="height:360px"></div><div id="p_s21_b3" class="plot" style="height:360px"></div><div id="p_s21_b4" class="plot" style="height:360px"></div></div>
 <h3 style="margin:16px 0 2px;font-size:14px;color:#475569">Panel 2 — $J\!\cdot\!r$ onto the top-$K$ ⊕ bottom-$K$ eigenvectors $u_i$ of $M_r=\tfrac1N\sum_k r_kQ_k$ ($\lambda_i$ = signed eigenvalue, already $\div N$; grey on the λ-weighted plots)</h3>
-<div class="plotrow row4"><div id="p_s21_c1" class="plot" style="height:330px"></div><div id="p_s21_c2" class="plot" style="height:330px"></div><div id="p_s21_c3" class="plot" style="height:330px"></div><div id="p_s21_c4" class="plot" style="height:330px"></div></div>
+<div class="plotrow row4"><div id="p_s21_c1" class="plot" style="height:360px"></div><div id="p_s21_c2" class="plot" style="height:360px"></div><div id="p_s21_c3" class="plot" style="height:360px"></div><div id="p_s21_c4" class="plot" style="height:360px"></div></div>
 </div>
 
 <div id="sec_s22" style="display:none">
@@ -578,8 +579,40 @@ Each line “$i\!\cdot\!j$” is $\cos\angle(\text{vector }i,\text{vector }j)\in
 
 <div id="sec_s27" style="display:none">
 <h2>6 · $\nabla_\theta$-vector 3D subspace projection over a sliding $[t\!-\!50,\,t\!+\!50]$ window</h2>
+<p class="cap"><b>What this shows:</b> the trajectory of six $\nabla_\theta$ metric vectors — $\nabla\lVert f\rVert^2$, $\nabla\lVert r\rVert^2$, $\nabla\lVert J\rVert_F^2$, $\nabla\lVert\nabla L\rVert^2$, and the discrete $\nabla\lVert\dot r\rVert^2$, $\nabla\lVert\dot J\rVert_F^2$ — in a local 3-D subspace. For each metric we stack its vectors over a sliding $[t\!-\!50,t\!+\!50]$ window, take the top-3 left singular directions, and project the $t$-th vector onto them; the curve is coloured by iteration (Viridis: <span style="color:#440154">dark = early</span> → <span style="color:#fde725;background:#333">yellow = late</span>). <b style="color:#7c3aed">Panels 1–2:</b> per-metric subspace. <b style="color:#7c3aed">Panels 3–4:</b> common subspace (all six metrics stacked). Emitted with a 50-step lag; GPU backend, small $N$/$p$, eig-every = 1.</p>
+<p class="cap" style="margin:8px 0 1px;color:#475569"><b>Panel 1 — magnitudes &amp; dynamics</b> (plots 1, 5, 6, 8, 9): the time-series, the ∇θ-vector norms, ‖d/dt(J·r)‖₁, the residual-direction drift cos(r_t, r_{t−k}), and the residual magnitude ⟨‖r_i‖⟩.</p>
+<div class="plotrow row5"><div id="p_s25" class="plot" style="height:240px"></div><div id="p_s25_norms" class="plot" style="height:240px"></div><div id="p_s25_sum" class="plot" style="height:240px"></div><div id="p_s25_rcos" class="plot" style="height:240px"></div><div id="p_s25_rnorm" class="plot" style="height:240px"></div></div>
+<p class="cap" style="margin:10px 0 1px;color:#475569"><b>Panel 2 — cosine alignments</b> (plots 2, 3, 4, 7): the pairwise cosines among vectors 1–5 (with the bold cos(J·ṙ, J̇·r) reference), cos(∇‖f‖², vᵢ), and cos(∇‖ġ‖², vᵢ).</p>
+<div class="plotrow row4"><div id="p_s25_cosA" class="plot" style="height:240px"></div><div id="p_s25_cosB" class="plot" style="height:240px"></div><div id="p_s25_cosF" class="plot" style="height:240px"></div><div id="p_s25_cosG" class="plot" style="height:240px"></div></div>
+</div>
+
+<div id="sec_s26" style="display:none">
+<h2>26 · eigenvector-direction drift — $|\cos(v_i(t),\,v_i(t\!-\!k))|$ for GN / NTK / $M_r$</h2>
+<p class="cap"><b>What this shows:</b> whether the leading eigen<b>vectors</b> of the key curvature operators keep pointing the same way as training proceeds. For an eigenvector $v_i$ (rank $i$) at step $t$ we take its <b>absolute cosine with the same-rank eigenvector $k$ steps earlier</b>, $|\cos(v_i(t),v_i(t\!-\!k))|\in[0,1]$ — <b>1 = the direction is frozen; dips = that eigenvector is rotating</b> in its space. (Absolute cosine because eigenvector signs are arbitrary.) Three operators:
+<br><b style="color:#2563eb">GN</b> $=J^\top J$ (Gauss–Newton, parameter space) &nbsp;·&nbsp; <b style="color:#16a34a">NTK</b> $=JJ^\top$ (function/sample space) &nbsp;·&nbsp; <b style="color:#db2777">$M_r$</b> $=\sum_k r_kQ_k$ ($Q_k=\nabla^2 f_k$, the residual-contracted function Hessian). GN &amp; NTK share eigenvalues but live in different spaces, so their eigenvector drifts differ.
+<br><b>Four panels × three plots × five lag-lines</b> ($k=10,20,30,50,100$, labelled $t\!\cdot\!(t\!-\!k)$). <b>Panels 1–3</b> = the top / 2nd / 3rd eigenvector, each panel showing GN, NTK, $M_r$ side by side. <b>Panel 4</b> = $M_r$'s three most-<b>negative</b> (bottom) eigenvectors. Each line starts once that lag exists. GPU backend, small $N$ (needs the $M\!\times\!p$ Jacobian + a matrix-free $M_r$ Lanczos); off in surrogate mode; use <b>eig-every = 1</b> (lags count diagnostic ticks).
+<br><b>Eigenvector continuation.</b> The three tracked eigenvectors are the top-3 (by eigenvalue) at the first step, then <b>followed as continuous modes</b>: at every step each track is matched to the previous step by maximum overlap. Without this, an eigenvalue <b>crossing</b> (two eigenvalues swapping rank) would flip the rank-$i$ label between modes and make $|\cos|$ jump discontinuously even though no direction actually changed. With continuation, a dip in $|\cos|$ means the mode <b>genuinely rotated</b>, not that the eigenvalue ordering reshuffled.
+<br><span style="color:#64748b"><b>Reading the $M_r$ panels.</b> GN &amp; NTK come from an exact eigendecomposition with well-separated eigenvalues, so their drift is robust. $M_r$ is more delicate: near <b>true degeneracies</b> (modes indistinguishable) the matching can't resolve which is which, so residual jumps can remain — heaviest at the edge of stability and on the fp32 GPU backend. And once the loss converges the residual $r\to 0$ so $M_r=\sum_k r_kQ_k\to 0$ and its directions become undefined — those eigenvectors are <b>blanked</b> (gaps, when $|\lambda_i(M_r)|\le 10^{-6}\lambda_{\max}(\mathrm{NTK})$) rather than plotted as noise. For the cleanest $M_r$ read, use the fp64 CPU backend.</span></p>
+<p class="cap" style="margin:8px 0 1px;color:#475569"><b>Panel 1 — top eigenvector</b> (rank 1):&nbsp; Gauss–Newton $J^\top J$ &nbsp;·&nbsp; NTK $JJ^\top$ &nbsp;·&nbsp; $M_r=\sum_k r_kQ_k$</p>
+<div class="plotrow row3"><div id="p_s26_gn1" class="plot" style="height:240px"></div><div id="p_s26_ntk1" class="plot" style="height:240px"></div><div id="p_s26_mr1" class="plot" style="height:240px"></div></div>
+<p class="cap" style="margin:10px 0 1px;color:#475569"><b>Panel 2 — 2nd eigenvector</b> (rank 2):&nbsp; GN &nbsp;·&nbsp; NTK &nbsp;·&nbsp; $M_r$</p>
+<div class="plotrow row3"><div id="p_s26_gn2" class="plot" style="height:240px"></div><div id="p_s26_ntk2" class="plot" style="height:240px"></div><div id="p_s26_mr2" class="plot" style="height:240px"></div></div>
+<p class="cap" style="margin:10px 0 1px;color:#475569"><b>Panel 3 — 3rd eigenvector</b> (rank 3):&nbsp; GN &nbsp;·&nbsp; NTK &nbsp;·&nbsp; $M_r$</p>
+<div class="plotrow row3"><div id="p_s26_gn3" class="plot" style="height:240px"></div><div id="p_s26_ntk3" class="plot" style="height:240px"></div><div id="p_s26_mr3" class="plot" style="height:240px"></div></div>
+<p class="cap" style="margin:10px 0 1px;color:#475569"><b>Panel 4 — $M_r$ bottom eigenvectors</b> (three most-negative): bottom-1 &nbsp;·&nbsp; bottom-2 &nbsp;·&nbsp; bottom-3</p>
+<div class="plotrow row3"><div id="p_s26_mrb1" class="plot" style="height:240px"></div><div id="p_s26_mrb2" class="plot" style="height:240px"></div><div id="p_s26_mrb3" class="plot" style="height:240px"></div></div>
+</div>
+
+<div id="sec_s27" style="display:none">
+<h2>6 · $\nabla_\theta$-vector 3D subspace projection over a sliding $[t\!-\!50,\,t\!+\!50]$ window</h2>
 <p class="cap"><b>What this shows:</b> where each of six parameter-gradient vectors <b>moves</b> in a local low-dimensional subspace as training proceeds. At every iteration $t$ we form six $p$-dimensional vectors — <b style="color:#2563eb">$\nabla\lVert f\rVert^2$</b>, <b style="color:#2563eb">$\nabla\lVert r\rVert^2$</b>, <b style="color:#2563eb">$\nabla\lVert J\rVert_F^2$</b>, <b style="color:#2563eb">$\nabla\lVert\nabla L\rVert^2$</b>, and the two <b>discrete</b> step-difference ones <b style="color:#db2777">$\nabla\lVert\dot r\rVert^2=-2J^\top(r_t-r_{t-1})$</b> and <b style="color:#db2777">$\nabla\lVert\dot J\rVert_F^2=\nabla\lVert J\rVert_F^2-2\nabla\langle J,J_{t-1}\rangle_F$</b> (both $0$ at $t\!=\!0$). For a given metric we <b>stack its vectors over the window $[t\!-\!50,t\!+\!50]$</b> (whatever is available — clipped at the run's ends) into a $p\times W$ matrix, take its <b>top-3 left singular directions</b>, and <b>project the $t$-th vector onto that 3-D subspace</b>. Plotting this projected point for every $t$ gives a curve <b>coloured by iteration</b> (Viridis: <span style="color:#440154">dark = early</span> → <span style="color:#fde725;background:#333">yellow = late</span>), so you can see the direction of travel.
 <br><b style="color:#7c3aed">Panels 1–2</b> use a <b>per-metric</b> subspace (each metric gets its own top-3 window directions). <b style="color:#7c3aed">Panels 3–4</b> use a <b>common</b> subspace: all six metrics' windows are stacked into one $p\times 6W$ matrix, its top-3 singular directions are taken once, and every metric's $t$-th vector is projected onto that <b>shared</b> 3-D space (so cross-metric geometry is comparable). Because the $+50$ half-window needs <b>future</b> iterations, §6 is emitted with a <b>50-step lag</b> (iteration $t$ appears at step $t\!+\!50$; the final 50 are flushed at the end with right-clipped windows). Sign continuity aligns each window's directions to the previous iteration's (windows overlap in 100/101 columns) so the curves don't flip. GPU backend, small $N$/$p$ (stores $6\times101$ $p$-vectors + a per-step Gram eigendecomposition); off in surrogate mode; use <b>eig-every = 1</b>.</p>
+<div style="display:flex;gap:10px;align-items:center;margin:8px 0 6px;font-size:13px;color:#374151">
+  <b>highlight iteration:</b>
+  <input type="range" id="s27slider" min="0" max="0" value="0" step="1" style="flex:1;max-width:560px;vertical-align:middle">
+  <span id="s27iterval" style="color:#dc2626;font-weight:700;min-width:66px">iter 0</span>
+  <span style="color:#94a3b8">one common slider — marks that iteration's point (red ◆) on all 12 plots</span>
+</div>
 <p class="cap" style="margin:8px 0 1px;color:#475569"><b>Panel 1 — per-metric subspace:</b>&nbsp; $\nabla\lVert f\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert r\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert J\rVert_F^2$</p>
 <div class="plotrow row3"><div id="p_s27_f" class="plot" style="height:300px"></div><div id="p_s27_r" class="plot" style="height:300px"></div><div id="p_s27_J" class="plot" style="height:300px"></div></div>
 <p class="cap" style="margin:10px 0 1px;color:#475569"><b>Panel 2 — per-metric subspace:</b>&nbsp; $\nabla\lVert\nabla L\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert\dot r\rVert^2$ &nbsp;·&nbsp; $\nabla\lVert\dot J\rVert_F^2$</p>
@@ -760,7 +793,7 @@ Each line “$i\!\cdot\!j$” is $\cos\angle(\text{vector }i,\text{vector }j)\in
 <h2>4 · $J$ projected onto eigenvectors of $H$</h2>
 <p class="cap">Three phases of the projection onto the top-$n$ (1st of each pair) and bottom-$n$ (2nd) eigenvectors $u$ of $H=\sum_a Q_a=\sum_a\nabla^2 f_a$ (the summed function Hessian); $\sigma$ is the corresponding eigenvalue, <b>divided by $N$</b> (per-sample scale, as in §2). <b>Phase 1 · alignment</b>: $|\langle J,u\rangle|/\lVert J\rVert=|\cos\angle(J,u)|$. <b>Phase 2 · power iteration</b>: $|\langle J,u\rangle|\,\sigma$ (eigenvalue-scaled), with $J=\sum_a\nabla f_a$ (summed gradient). <b>Phase 3 · residual dominance</b>: $|\langle J\!\cdot\!r,u\rangle|\,\sigma$ with $J$ <i>contracted with the residual</i>, $J\!\cdot\!r=\sum_a r_a\nabla f_a$ (cf. §4b, $r=y-f$); for a <b>single sample</b> the residual factors out and is kept <i>signed</i> — $r\,|\langle J,u\rangle|\,\sigma$.</p>
 <div id="s4_legend" style="display:flex;justify-content:center;gap:26px;flex-wrap:wrap;margin:2px 0 8px;font-size:12px;color:#475569"></div>
-<div class="plotrow row6"><div id="p_Jtopn" class="plot" style="height:290px"></div><div id="p_Jbotn" class="plot" style="height:290px"></div><div id="p_Jtop" class="plot" style="height:290px"></div><div id="p_Jbot" class="plot" style="height:290px"></div><div id="p_Jrt" class="plot" style="height:290px"></div><div id="p_Jrb" class="plot" style="height:290px"></div></div>
+<div class="plotrow row6"><div id="p_Jtopn" class="plot" style="height:350px"></div><div id="p_Jbotn" class="plot" style="height:350px"></div><div id="p_Jtop" class="plot" style="height:350px"></div><div id="p_Jbot" class="plot" style="height:350px"></div><div id="p_Jrt" class="plot" style="height:350px"></div><div id="p_Jrb" class="plot" style="height:350px"></div></div>
 </div>
 
 <div id="sec_9">
@@ -2746,8 +2779,8 @@ function s21BarDraw(id,eig,q,qLabel,color,signed,runMax,runMin){const div=docume
   traces.push({x:x,y:Q.slice(),type:'bar',name:qLabel,marker:{color:color}});
   const yr=signed?[-A*1.06,A*1.06]:[0,A*1.06];
   const title=qLabel+(E?'  vs  eigenvalue':'')+'<br>max '+fmtMu(isFinite(curMax)?curMax:null)+' ⟨run '+fmtMu(runMax)+'⟩'+(signed?('  ·  min '+fmtMu(isFinite(curMin)?curMin:null)+' ⟨run '+fmtMu(runMin)+'⟩'):'');
-  Plotly.react(id,traces,{title:{text:title,font:{size:10,color:'#475569'},x:0.04,xanchor:'left',y:0.985},
-    barmode:'overlay',bargap:0.12,margin:{l:46,r:8,t:34,b:30},paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{size:9,color:'#374151'},
+  Plotly.react(id,traces,{title:{text:title,font:{size:9,color:'#475569'},x:0.04,xanchor:'left',y:0.985,yanchor:'top'},
+    barmode:'overlay',bargap:0.12,margin:{l:46,r:8,t:46,b:30},paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{size:9,color:'#374151'},
     xaxis:{title:{text:'eigenvalue rank: topmost → bottommost',font:{size:9}},showticklabels:false,gridcolor:'#eef0f3',zeroline:false},
     yaxis:{title:{text:'value',font:{size:9}},range:yr,zeroline:true,zerolinecolor:'#94a3b8',zerolinewidth:1.5,gridcolor:'#eef0f3'},
     showlegend:true,legend:{font:{size:8},x:0.99,xanchor:'right',y:0.99,yanchor:'top',bgcolor:'rgba(255,255,255,0.65)'}},
@@ -3244,13 +3277,13 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_eSRB',emptyN(n,i=>`λ-${i+1}`),withZero(baseLayout(dis('residual term S — bottom-n eigenvalues'),'eigenvalue',false)));
   // §4 projections — one shared horizontal legend bar above the row (#s4_legend); per-plot legends off
   {const s4tr=namer=>Array.from({length:n},(_,i)=>({x:[],y:[],mode:'lines',name:namer(i),line:{width:1.8,color:PALETTE[i%PALETTE.length]}}));   // lines only (markers on up to PLOT_DECIM pts × 18 traces tanked render perf); zero-line + shared legend keep the §12 look
-   const s4lay=(t,yl)=>{const L=withZero(baseLayout(t,yl,false));L.showlegend=false;return L;};   // per-plot legend off → shared bar above the row
+   const s4lay=(t,yl)=>{const L=withZero(baseLayout(t,yl,false));L.showlegend=false;L.title.font.size=9;L.title.y=0.99;L.margin.t=50;return L;};   // per-plot legend off → shared bar above the row; smaller title font + taller top margin for the 2-line phase labels
    newP('p_Jtopn',s4tr(i=>`top-${i+1}`),s4lay(`phase 1: alignment — top-${n}`,'|⟨J,u⟩|/‖J‖'));
    newP('p_Jbotn',s4tr(i=>`bot-${i+1}`),s4lay(`phase 1: alignment — bottom-${n}`,'|⟨J,u⟩|/‖J‖'));
-   newP('p_Jtop',s4tr(i=>`top-${i+1}`),s4lay(`phase 2: power iteration — top-${n}`,'|⟨J,u⟩|·σ'));
-   newP('p_Jbot',s4tr(i=>`bot-${i+1}`),s4lay(`phase 2: power iteration — bottom-${n}`,'|⟨J,u⟩|·σ'));
-   newP('p_Jrt',s4tr(i=>`top-${i+1}`),s4lay(`phase 3: residual dominance — top-${n}`,'|⟨J·r,u⟩|·σ'));
-   newP('p_Jrb',s4tr(i=>`bot-${i+1}`),s4lay(`phase 3: residual dominance — bottom-${n}`,'|⟨J·r,u⟩|·σ'));
+   newP('p_Jtop',s4tr(i=>`top-${i+1}`),s4lay(`phase 2 (Power Iteration) · top-${n}<br>subphase 1: Super Power Iteration`,'|⟨J,u⟩|·σ'));
+   newP('p_Jbot',s4tr(i=>`bot-${i+1}`),s4lay(`phase 2 (Power Iteration) · bottom-${n}<br>subphase 1: Super Power Iteration`,'|⟨J,u⟩|·σ'));
+   newP('p_Jrt',s4tr(i=>`top-${i+1}`),s4lay(`phase 2 (Power Iteration) · top-${n}<br>subphase 2: Residual Dominance`,'|⟨J·r,u⟩|·σ'));
+   newP('p_Jrb',s4tr(i=>`bot-${i+1}`),s4lay(`phase 2 (Power Iteration) · bottom-${n}<br>subphase 2: Residual Dominance`,'|⟨J·r,u⟩|·σ'));
    {const lb=document.getElementById('s4_legend');   // shared legend: rank-i colour (PALETTE); top vs bottom is conveyed by each plot's title
     if(lb)lb.innerHTML=Array.from({length:n},(_,i)=>{const c=PALETTE[i%PALETTE.length];return `<span style="display:inline-flex;align-items:center;gap:6px"><svg width="30" height="12"><line x1="1" y1="6" x2="29" y2="6" stroke="${c}" stroke-width="2.4"></line><circle cx="15" cy="6" r="2.6" fill="${c}"></circle></svg>rank-${i+1}</span>`;}).join('');}}
   // §24 — 1st/2nd-order Δf alignment: A=JJᵀr (blue) vs B=(η/2N)JrᵀQ_kJr (pink dashed), onto residual r and top-4 NTK eigvecs u_i
@@ -3300,7 +3333,8 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   {s27P('p_s27_f','∇‖f‖²  (per-metric)'); s27P('p_s27_r','∇‖r‖²  (per-metric)'); s27P('p_s27_J','∇‖J‖²_F  (per-metric)');
    s27P('p_s27_g','∇‖∇L‖²  (per-metric)'); s27P('p_s27_rd','∇‖ṙ‖²  (per-metric)'); s27P('p_s27_Jd','∇‖J̇‖²_F  (per-metric)');
    s27P('p_s27c_f','∇‖f‖²  (common)'); s27P('p_s27c_r','∇‖r‖²  (common)'); s27P('p_s27c_J','∇‖J‖²_F  (common)');
-   s27P('p_s27c_g','∇‖∇L‖²  (common)'); s27P('p_s27c_rd','∇‖ṙ‖²  (common)'); s27P('p_s27c_Jd','∇‖J̇‖²_F  (common)');}
+   s27P('p_s27c_g','∇‖∇L‖²  (common)'); s27P('p_s27c_rd','∇‖ṙ‖²  (common)'); s27P('p_s27c_Jd','∇‖J̇‖²_F  (common)');
+   {const sl=document.getElementById('s27slider');if(sl){sl.max='0';sl.value='0';}const rd=document.getElementById('s27iterval');if(rd)rd.textContent='iter 0';}}   // reset the §6 common highlight slider for the new run
   // §5 SLQ
   const slqT=c=>[{x:[],y:[],mode:'lines',fill:'tozeroy',line:{color:c,width:1.6},fillcolor:c+'22',name:'density'}];
   newP('p_sH',slqT('#2563eb'),slqLayout('SLQ density — function Hessian H'));
@@ -3419,8 +3453,10 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   // ★ prediction-4: top-10 NTK eigenvalues — predicted (frozen-M_r Jacobian, lines) vs actual (dots); 2 plots λ1–5 & λ6–10
   {const cols=['#2563eb','#16a34a','#db2777','#ea580c','#7c3aed'];
    const mk=(lo)=>{const tr=[];for(let i=0;i<5;i++){tr.push({x:[],y:[],mode:'lines',name:'λ'+(lo+i+1)+' pred',line:{color:cols[i],width:1.9}});tr.push({x:[],y:[],mode:'markers',name:'λ'+(lo+i+1)+' actual',marker:{color:cols[i],size:4.5,symbol:'circle',line:{color:'#111',width:0.4}}});}return tr;};
-   {const L=baseLayout('Prediction-4 — top-5 NTK eigenvalues (λ1–λ5)','λ (log)',false);L.yaxis.type='log';newP('p_pd5',mk(0),L);}
-   {const L=baseLayout('Prediction-4 — NTK eigenvalues λ6–λ10','λ (log)',false);L.yaxis.type='log';newP('p_pd6',mk(5),L);}}
+   {const L=baseLayout('Prediction-4 — top-5 NTK eigenvalues (λ1–λ5)','λ',false);newP('p_pd5',mk(0),L);}
+   {const L=baseLayout('Prediction-4 — |cos| of actual vs predicted top-5 J-eigenvectors','|cos∠(vₖ)|',false);L.yaxis.range=[-0.02,1.05];
+    const cosTr=[];for(let i=0;i<5;i++)cosTr.push({x:[],y:[],mode:'lines',name:'v'+(i+1),line:{color:cols[i],width:1.9}});
+    newP('p_pd6',cosTr,L);}}
   // ★ trace statistics: 4 plots {quad,cubic}×{live,self}; traces [pred Tr(NTK), pred+PSD, actual Tr(∇²L), actual Tr(JᵀJ)]
   {const tt=()=>[{x:[],y:[],mode:'lines',name:'pred Tr(NTK)',line:{color:'#2563eb',width:1.9}},
                  {x:[],y:[],mode:'lines',name:'pred + PSD',line:{color:'#16a34a',width:1.6}},
@@ -3433,7 +3469,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   {const L=baseLayout('Prediction-1 — predicted vs actual (jrd−jdr) sign-change t*','actual t* (iters)',false);L.xaxis.title='predicted t*';L.showlegend=false;L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
    newP('p_sw1',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:[],line:{color:'#1e293b',width:0.5}}},{x:[0,1],y:[0,1],mode:'lines',line:{color:'#94a3b8',dash:'dot',width:1},hoverinfo:'skip'}],L);}
   {const L=baseLayout('Prediction-2 — start (jrd−jdr) vs peak d²loss/dt²  (Pearson r = —)','peak d²loss/dt² (signed)',false);L.xaxis.title='(jrd−jdr) at t=0';L.showlegend=false;L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
-   newP('p_sw2',[{x:[],y:[],mode:'markers',type:'scatter',marker:{size:9,color:'#7c3aed',line:{color:'#1e293b',width:0.5}}}],L);}
+   newP('p_sw2',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:'#7c3aed',line:{color:'#1e293b',width:0.5}}}],L);}
   attachHover();
   resizeAllPlots();
 }
@@ -3749,7 +3785,8 @@ function pushPoint(t,D,n,kth,nResid){
     const push=(lo,id)=>{const xs=[],ys=[],ids=[];for(let i=lo;i<lo+5&&i<ka.length;i++){const j=i-lo;
       xs.push([t]);ys.push([kp[i]]);ids.push(2*j); xs.push([t]);ys.push([ka[i]]);ids.push(2*j+1);}
       if(ids.length)extP(id,{x:xs,y:ys},ids);};
-    push(0,'p_pd5'); push(5,'p_pd6');
+    push(0,'p_pd5');
+    const cs=D.g_pred4.cos5; if(cs&&cs.length){const xs=[],ys=[],ids=[];for(let i=0;i<cs.length&&i<5;i++){if(cs[i]!=null){xs.push([t]);ys.push([cs[i]]);ids.push(i);}} if(ids.length)extP('p_pd6',{x:xs,y:ys},ids);}   // 2nd plot: |cos| of actual vs predicted top-5 eigenvectors
   }
   if(D.g_trace){const g=D.g_trace,sh=g.trHess,gn=g.trGN;   // ★ trace stats: traces [predNo(blue), predWith(green), Tr(∇²L)(red), Tr(JᵀJ)(orange)]
     const pt=(key,id)=>{const a=g[key]; if(a)extP(id,{x:[[t],[t],[t],[t]],y:[[a[1]],[a[0]],[sh],[gn]]},[0,1,2,3]);};
@@ -4663,13 +4700,15 @@ const SEC_TOGGLE_MAP=[['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5',
 // One scatter3d trace per plot; points accumulate over the run, coloured by iteration (Viridis gradient).
 function s27P(id,title){
   window.S27DATA=window.S27DATA||{};
-  const tr={type:'scatter3d',mode:'lines+markers',x:[],y:[],z:[],
+  const tr={type:'scatter3d',mode:'lines+markers',x:[],y:[],z:[],text:[],
+    hovertemplate:'iteration %{text}<br>PC1 %{x:.3f} · PC2 %{y:.3f} · PC3 %{z:.3f}<extra></extra>',   // show the iteration number on hover
     marker:{size:2.6,color:[],colorscale:'Viridis',opacity:0.9,
       colorbar:{thickness:8,len:0.68,tickfont:{size:8},title:{text:'iter',font:{size:9},side:'right'}}},
     line:{color:[],colorscale:'Viridis',width:2}};
   const lay={title:{text:title,font:{size:11.5}},margin:{l:0,r:0,t:24,b:0},uirevision:'s27',showlegend:false,
     scene:{xaxis:{title:'PC1'},yaxis:{title:'PC2'},zaxis:{title:'PC3'},aspectmode:'cube',camera:{eye:{x:1.6,y:1.6,z:1.3}}}};
-  Plotly.newPlot(id,[tr],lay,{responsive:false,displaylogo:false});
+  const hi={type:'scatter3d',mode:'markers',x:[],y:[],z:[],marker:{size:9,color:'#dc2626',symbol:'diamond',line:{color:'#111',width:1}},hoverinfo:'skip',showlegend:false};   // common-slider iteration highlight (trace 1)
+  Plotly.newPlot(id,[tr,hi],lay,{responsive:false,displaylogo:false});
   window.S27DATA[id]={x:[],y:[],z:[],c:[]};
 }
 function applyG27(pts){
@@ -4682,7 +4721,19 @@ function applyG27(pts){
       if(dc&&pt.common&&pt.common[m]){dc.x.push(pt.common[m][0]);dc.y.push(pt.common[m][1]);dc.z.push(pt.common[m][2]);dc.c.push(t);touched.add('p_s27c_'+m);}
     }}
   for(const id of touched){const d=D[id];   // full-array restyle ⇒ the Viridis colour range auto-tracks [0, current max t]
-    Plotly.restyle(id,{x:[d.x],y:[d.y],z:[d.z],'marker.color':[d.c],'line.color':[d.c]},[0]);}
+    Plotly.restyle(id,{x:[d.x],y:[d.y],z:[d.z],text:[d.c],'marker.color':[d.c],'line.color':[d.c]},[0]);}   // text=iteration → shown on hover
+  {const sl=document.getElementById('s27slider');   // keep the common highlight slider's range in sync with the iterations seen
+   if(sl){let mx=0;for(const id in D){const c=D[id]&&D[id].c;if(c&&c.length)mx=Math.max(mx,c[c.length-1]);} if((+sl.max)<mx)sl.max=String(mx);
+     if(!sl._wired){sl._wired=true; sl.oninput=e=>s27Highlight(+e.target.value);}}}
+}
+function s27Highlight(iter){   // move the red ◆ to the iteration nearest `iter` on all 12 §6 plots
+  const D=window.S27DATA||{}; const rd=document.getElementById('s27iterval'); if(rd)rd.textContent='iter '+iter;
+  for(const m of ['f','r','J','g','rd','Jd'])for(const pre of ['p_s27_','p_s27c_']){
+    const id=pre+m, d=D[id], gd=document.getElementById(id);
+    if(!d||!gd||!gd._fullLayout)continue;
+    let bi=-1,bd=Infinity; for(let i=0;i<d.c.length;i++){const dd=Math.abs(d.c[i]-iter); if(dd<bd){bd=dd;bi=i;}}
+    try{if(bi<0)Plotly.restyle(id,{x:[[]],y:[[]],z:[[]]},[1]); else Plotly.restyle(id,{x:[[d.x[bi]]],y:[[d.y[bi]]],z:[[d.z[bi]]]},[1]);}catch(e){}
+  }
 }
 function currentQueryParams(){   // the exact query-style param dict the backend receives (also stored in a browser-saved capture)
   const o={};
@@ -4719,14 +4770,14 @@ function addSweepPt(m){
   Plotly.restyle('p_sw1',{x:[SW1.x],y:[SW1.y],text:[SW1.text],'marker.color':[SW1.col]},[0]);
   const mx=Math.max(SWEEP_STEPS,Math.max.apply(null,SW1.x.concat(SW1.y).concat([1])));
   Plotly.restyle('p_sw1',{x:[[0,mx]],y:[[0,mx]]},[1]);            // y=x reference line
-  Plotly.restyle('p_sw2',{x:[SW2.x],y:[SW2.y]},[0]);
+  Plotly.restyle('p_sw2',{x:[SW2.x],y:[SW2.y],text:[SW1.text]},[0]);   // same lr/σ labels as Prediction-1
   const r=sweepPearson();
   try{Plotly.relayout('p_sw2',{'title.text':'Prediction-2 — start (jrd−jdr) vs peak d²loss/dt²  (Pearson r = '+(isFinite(r)?r.toFixed(3):'—')+')'});}catch(e){}
 }
 function startSweep(){
   if(SWEEP_ES){SWEEP_ES.close();SWEEP_ES=null;}
   SW1.x.length=SW1.y.length=SW1.text.length=SW1.col.length=0; SW2.x.length=SW2.y.length=0;
-  try{Plotly.restyle('p_sw1',{x:[[]],y:[[]],text:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw2',{x:[[]],y:[[]]},[0]);}catch(e){}
+  try{Plotly.restyle('p_sw1',{x:[[]],y:[[]],text:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw2',{x:[[]],y:[[]],text:[[]]},[0]);}catch(e){}
   try{Plotly.relayout('p_sw1',{annotations:[]});Plotly.relayout('p_sw2',{annotations:[]});}catch(e){}   // drop the "click Run sweep" placeholder once the sweep starts
   const st=document.getElementById('sweepstatus'); if(st)st.textContent='starting…';
   const q=currentQueryParams(); const ps=new URLSearchParams(); for(const k in q)ps.set(k,q[k]);
@@ -4734,7 +4785,8 @@ function startSweep(){
   ps.set('swpairs',(document.getElementById('swpairs').value||'16'));
   ps.set('swK',(document.getElementById('swK').value||'20'));
   ps.set('swTstart',(document.getElementById('swTstart').value||'0'));
-  let es; try{es=new EventSource('/run?'+ps.toString());}catch(e){if(st)st.textContent='cannot reach backend';return;}
+  let base='';{const pe=document.getElementById('swport'),pp=pe&&pe.value.trim();if(pp&&pp!==(location.port||''))base=location.protocol+'//'+location.hostname+':'+pp;}   // route the sweep to a separate fleet GPU port so it doesn't starve the main run's GPU
+  let es; try{es=new EventSource(base+'/run?'+ps.toString());}catch(e){if(st)st.textContent='cannot reach backend';return;}
   SWEEP_ES=es;
   es.onmessage=ev=>{let m;try{m=JSON.parse(ev.data);}catch(e){return;}
     if(m.type==='meta'){if(m.error){if(st)st.textContent='error: '+m.error;es.close();SWEEP_ES=null;return;}SWEEP_N=m.npairs;SWEEP_STEPS=m.steps;if(st)st.textContent='0/'+SWEEP_N+' pairs…';}

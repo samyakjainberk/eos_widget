@@ -3651,12 +3651,19 @@ def run_stream(P):
                 if p4_J is None and t >= p4t0:                                   # freeze Q & residual at t0
                     p4_J = Jm4.detach().clone(); p4_th0 = th.detach().clone(); p4_r0 = rr[:M].reshape(N, outD).detach().clone()
                 if p4_J is not None:
-                    K4 = min(10, M)
-                    ka = _safe_eigvalsh(Jm4 @ Jm4.t())                           # actual NTK eigenvalues (ascending)
-                    kp = _safe_eigvalsh(p4_J @ p4_J.t())                         # predicted NTK eigenvalues
-                    g_pred4 = {"t0": p4t0,
-                               "kAct": [max(0.0, float(ka[-1 - i])) for i in range(K4)],   # top-K NTK eigvals, descending (clamp ≥0 for the log axis)
-                               "kPred": [max(0.0, float(kp[-1 - i])) for i in range(K4)]}
+                    K4 = min(10, M); K5 = min(5, M)
+                    try:                                                          # eigh → eigenvalues AND eigenvectors (top-5 for the cosine plot)
+                        Wa, Va = torch.linalg.eigh(Jm4 @ Jm4.t())                 # actual NTK: eigvals asc, eigvecs = columns
+                        Wp, Vp = torch.linalg.eigh(p4_J @ p4_J.t())              # predicted NTK
+                        kAct4 = [max(0.0, float(Wa[-1 - i])) for i in range(K4)]
+                        kPred4 = [max(0.0, float(Wp[-1 - i])) for i in range(K4)]
+                        cos5 = [abs(float(Va[:, -1 - i] @ Vp[:, -1 - i])) for i in range(K5)]   # |cos| of rank-i actual vs predicted eigvec
+                    except Exception:                                             # fp32-GPU eigh hiccup ⇒ fall back to eigenvalues only
+                        ka = _safe_eigvalsh(Jm4 @ Jm4.t()); kp = _safe_eigvalsh(p4_J @ p4_J.t())
+                        kAct4 = [max(0.0, float(ka[-1 - i])) for i in range(K4)]
+                        kPred4 = [max(0.0, float(kp[-1 - i])) for i in range(K4)]
+                        cos5 = []
+                    g_pred4 = {"t0": p4t0, "kAct": kAct4, "kPred": kPred4, "cos5": cos5}   # top-K eigvals (descending) + top-5 eigvec |cos|
                     for _ in range(max(1, ee)):                                  # advance ONE GD step per actual step (ee GD steps between diagnostic ticks)
                         if not torch.isfinite(p4_J).all():                       # diverged ⇒ stop advancing (render tolerates the gap)
                             break
@@ -5218,6 +5225,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "keep-alive")
         self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Access-Control-Allow-Origin", "*")   # allow the prediction widget to run the sweep on a DIFFERENT fleet port (separate GPU) via a cross-origin EventSource
         self.end_headers()
         P = _parse_params(q)
         dev, tok = acquire_device()                 # auto least-busy GPU; concurrent tabs land on different devices
