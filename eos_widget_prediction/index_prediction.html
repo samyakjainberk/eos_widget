@@ -196,6 +196,7 @@
       <div class="ctl"><label>subspace energy %</label><input id="energyp" type="number" value="99" min="50" max="100" step="1"></div>
       <div class="ctl"><label>G &amp; S spectra</label><select id="gson"><option value="1" selected>on</option><option value="0">off</option></select></div>
       <div class="ctl"><label>every_iter_quadric_approx</label><input id="qapprox" type="number" value="25" min="10" max="2000" step="10"></div>
+      <div class="ctl"><label title="Prediction 5.1 (Trace): the CUBIC trajectories re-anchor Q, residual &amp; J at the actual state every this many steps (the QUADRATIC ones re-anchor every every_iter_quadric_approx). Smaller = tracks the run more tightly.">every_iter_cubic_approx</label><input id="evcubic" type="number" value="25" min="1" max="2000" step="5"></div>
       <div class="ctl"><label>qmode (legacy, unused)</label><input id="qmode" type="number" value="1" min="1" max="8" step="1"></div>
       <div class="ctl"><label>Eq-29 set-T size |T|</label><input id="tset" type="number" value="3" min="1" max="8" step="1"></div>
     </div>
@@ -302,8 +303,8 @@
 <div id="sec_trace" style="border:2px solid #9333ea;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#faf5ff">
 <h2 style="color:#7e22ce;margin-top:4px">★ Prediction 5.1 (Trace) — predicted Tr(NTK) vs. actual Tr($\nabla^2 L$) &amp; Tr($J^\top J$)</h2>
 <div style="display:flex;gap:12px;align-items:center;margin:4px 0 8px;font-size:13px;color:#374151">
-  <label>freeze iteration $t_0$&nbsp;<input id="p5t0" value="10" style="width:52px"></label>
-  <span style="color:#94a3b8">freeze $Q$, residual &amp; $J$ at $t_0$; propagate $\Delta J=\tfrac{\eta}{N}Q_t[J^\top r]+\tfrac12(\tfrac{\eta}{N})^2 T[J^\top r,J^\top r]$</span>
+  <label>start iteration $t_0$&nbsp;<input id="p5t0" value="10" style="width:52px"></label>
+  <span style="color:#94a3b8">start at $t_0$, then <b>re-anchor</b> $Q$, residual &amp; $J$ at the actual state every window — quadratic every <b>every_iter_quadric_approx</b>, cubic every <b>every_iter_cubic_approx</b> (config panel)</span>
 </div>
 <p class="cap">The same four predictions as the $\sigma_1$ panel, but tracking the <b>trace</b> $\mathrm{Tr(NTK)}=\mathrm{Tr}(J^\top J)=\lVert J\rVert_F^2$ instead of the top eigenvalue. From $t_0$ we propagate the Jacobian and accumulate $\mathrm{Tr}(\Delta\mathrm{NTK})$. Each plot shows the predicted Tr(NTK) <b style="color:#2563eb">without</b> and <b style="color:#16a34a">with</b> the PSD term, overlaid on the actual <b style="color:#dc2626">Tr($\nabla^2 L$)</b> (full loss Hessian, Hutchinson) and <b style="color:#ea580c">Tr($J^\top J$)</b> (Gauss–Newton, exact) — all $\div N$. The four plots (left→right) are <b>quadratic</b> ($T=0$) and <b>cubic</b> (with $T$), each driven by the <b>live</b> residual (measured from the run) or a <b>self</b> residual self-computed from the frozen quadratic model.</p>
 <div class="plotrow row4"><div id="p_pt1" class="plot" style="height:300px"></div><div id="p_pt2" class="plot" style="height:300px"></div><div id="p_pt3" class="plot" style="height:300px"></div><div id="p_pt4" class="plot" style="height:300px"></div></div>
@@ -4691,7 +4692,7 @@ async function downloadPlots(){
 // shared by backendURL (live stream) and the capture save/load (Compute → "Load saved run").
 // QUERY_IDS: plain value controls; SEC_TOGGLE_MAP: query-key ↔ checkbox-id for every section toggle.
 const QUERY_IDS=['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
-   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','qmode','tset','cubicapprox','grid3dcap','sec12ncap','cubeevery','s24warm','s24iter','s24grid','s24ares','s24k','s28k','s29k','s30t','s31r','s31scale',
+   'neig','kth','steps','eigevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','evcubic','qmode','tset','cubicapprox','grid3dcap','sec12ncap','cubeevery','s24warm','s24iter','s24grid','s24ares','s24k','s28k','s29k','s30t','s31r','s31scale',
    'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','vocab','degree','cvar','divreg','ksparse','angle','norm1','norm2','lab1','lab2','saddlesep','agfratio'];
 const SEC_TOGGLE_MAP=[['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
    ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base'],['s26','en26'],['s27','en27'],['s28','en28'],['s29','en29'],['s30','en30'],['s31','en31'],['s32','en32'],['s33','en33'],['s34','en34'],['s35','en35']];

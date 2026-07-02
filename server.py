@@ -3337,6 +3337,7 @@ def run_stream(P):
     prevQ9t = [None] * n
     prevQ9b = [None] * n
     qapprox = max(1, P["qapprox"]); qmode = P["qmode"]; tset = P["tset"]   # §9 window + (legacy qmode) + Eq-29 |T|
+    evcubic = max(1, int(P.get("evcubic", 25)))   # prediction-5 (trace): cubic trajectories re-anchor every this many steps; quad ones re-anchor every qapprox (= every_iter_quadric_approx)
     thT0 = -1; thTh0 = None; thBase = 0.0; thJp = None; thJ = None; thFroz = None
     thAcc1 = 0.0; thAcc2 = 0.0; thProd3 = 1.0; thProd4 = 1.0; thProd5 = 1.0
     thAccPSD = 0.0; thAccPSD1 = 0.0     # §9b: accumulated 2nd-order PSD term ‖ΔJᵀu₁‖² (≥0), single/multi
@@ -3678,16 +3679,14 @@ def run_stream(P):
             g_trace = None
             if s38 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 Jm5 = Jc[:M]
-                if tr5 is None and t >= p5t0:                                    # freeze at t0
-                    Yf5 = Y.reshape(-1)[:M].detach().clone(); r0 = rr[:M].detach().clone()
-                    tr5 = {"th0": th.detach().clone(), "J0": Jm5.detach().clone(), "f0": (Yf5 - r0), "Yf": Yf5,
-                           "tr0": float((Jm5 * Jm5).sum()),
-                           "traj": [{"cubic": c, "self": s_, "J": Jm5.detach().clone(),
-                                     "HistG": [], "Dth": torch.zeros(p, dtype=DTYPE, device=_dev()), "trNo": 0.0}
+                if tr5 is None and t >= p5t0:                                    # START the trace prediction at t0; each trajectory then RE-ANCHORS at the actual state every window (no longer frozen once)
+                    tr5 = {"traj": [{"cubic": c, "self": s_, "K": (evcubic if c else qapprox),   # quad → every_iter_quadric_approx, cubic → every_iter_cubic_approx
+                                     "th0": None, "J0": None, "f0": None, "tr0": 0.0,
+                                     "J": None, "HistG": [], "Dth": None, "trNo": 0.0, "sc": 1 << 30}   # sc huge ⇒ anchor on the first tick
                                     for c in (False, True) for s_ in (False, True)]}
                 if tr5 is not None:
-                    etaN5 = lr / max(N, 1); th0 = tr5["th0"]; J0 = tr5["J0"]; f0 = tr5["f0"]; Yf5 = tr5["Yf"]
-                    def _T2m5(a, b):                                              # T[a,b]=∇³f(θ0)[a,b] (M,p) via central diff of Q[b]
+                    etaN5 = lr / max(N, 1); Yf5 = Y.reshape(-1)[:M]; f_cur = Yf5 - rr[:M]   # current ACTUAL output f(θ_t)
+                    def _T2m5(th0, a, b):                                          # T[a,b]=∇³f(θ0)[a,b] (M,p) at this trajectory's anchor θ0
                         an = float(a.norm())
                         if an < 1e-30:
                             return torch.zeros(M, p, dtype=DTYPE, device=_dev())
@@ -3700,26 +3699,30 @@ def run_stream(P):
                         v = _randn_vec(p, (0x7EAC5 + kp * 0x9E3779B1) & 0xFFFFFFFF).sign()
                         thut += float(v @ hvpL(th, X, Y, v))
                     trHess = thut / NP5
-                    tr_out = []                                                    # renamed from `out` — must NOT shadow the live model outputs (feeds cubic_step)
+                    tr_out = []
                     for dtr in tr5["traj"]:
-                        Jc5 = dtr["J"]
-                        tr_out.append([float((Jc5 * Jc5).sum()) / N,               # predicted Tr(NTK) WITH PSD = ‖J‖²_F ÷N (current J, at the tick)
-                                    (tr5["tr0"] + dtr["trNo"]) / N])              # ... WITHOUT PSD (drop the per-step ‖ΔJ‖²)
-                        for _ in range(max(1, ee)):                               # advance ee GD steps to the next diagnostic tick
-                            Jtr = dtr["J"]                                         # renamed from `J` — must NOT shadow the live Jacobian (feeds cubic_step)
+                        if dtr["sc"] >= dtr["K"]:                                 # (re-)anchor at the CURRENT ACTUAL θ_t/J_t/residual every K steps → the prediction re-syncs and tracks the run (mirrors 5.2's §9/§10 windows)
+                            dtr["th0"] = th.detach().clone(); dtr["J0"] = Jm5.detach().clone(); dtr["f0"] = f_cur.detach().clone()
+                            dtr["tr0"] = float((Jm5 * Jm5).sum()); dtr["J"] = Jm5.detach().clone()
+                            dtr["Dth"] = torch.zeros(p, dtype=DTYPE, device=_dev()); dtr["HistG"] = []; dtr["trNo"] = 0.0; dtr["sc"] = 0
+                        th0 = dtr["th0"]; J0 = dtr["J0"]; f0 = dtr["f0"]; Jc5 = dtr["J"]
+                        tr_out.append([float((Jc5 * Jc5).sum()) / N,               # predicted Tr(NTK) WITH PSD = ‖J‖²_F ÷N
+                                    (dtr["tr0"] + dtr["trNo"]) / N])              # ... WITHOUT PSD (drop the per-step ‖ΔJ‖²)
+                        for _ in range(max(1, ee)):                               # advance ee GD steps of the frozen-Q trajectory
+                            Jtr = dtr["J"]
                             if not torch.isfinite(Jtr).all():                      # diverged ⇒ stop advancing this trajectory
                                 break
                             if dtr["self"]:
                                 dth = dtr["Dth"]; HzD = jac_hvp(th0, X, dth)[:M]
-                                r = Yf5 - (f0 + J0 @ dth + 0.5 * (HzD @ dth))       # quadratic-model self-residual
+                                r = Yf5 - (f0 + J0 @ dth + 0.5 * (HzD @ dth))       # quadratic-model self-residual (= actual residual at each anchor)
                             else:
                                 r = rr[:M]                                         # live-run residual
                             g = Jtr.t() @ r
                             Qg = jac_hvp(th0, X, g)[:M]
                             if dtr["cubic"]:
                                 for gk in dtr["HistG"]:
-                                    Qg = Qg + etaN5 * _T2m5(gk, g)                  # Q_t propagated (Eq-3 history)
-                                dJ = etaN5 * Qg + 0.5 * (etaN5 ** 2) * _T2m5(g, g)  # ΔJ = (η/N)Q_t[g] + ½(η/N)²T[g,g]
+                                    Qg = Qg + etaN5 * _T2m5(th0, gk, g)            # Q_t propagated (Eq-3 history)
+                                dJ = etaN5 * Qg + 0.5 * (etaN5 ** 2) * _T2m5(th0, g, g)   # ΔJ = (η/N)Q_t[g] + ½(η/N)²T[g,g]
                             else:
                                 dJ = etaN5 * Qg                                     # quadratic: T=0, Q frozen ⇒ ΔJ=(η/N)Q0[g]
                             dtr["trNo"] += 2.0 * float((Jtr * dJ).sum()); dtr["J"] = Jtr + dJ
@@ -3727,6 +3730,7 @@ def run_stream(P):
                                 dtr["HistG"].append(g)
                             if dtr["self"]:
                                 dtr["Dth"] = dth + etaN5 * g
+                            dtr["sc"] += 1
                     g_trace = {"t0": p5t0, "trGN": trGN, "trHess": trHess,
                                "qLive": tr_out[0], "qSelf": tr_out[1], "cLive": tr_out[2], "cSelf": tr_out[3]}
 
@@ -4970,7 +4974,7 @@ def _parse_params(q):
         "s37": g("s37", "0") == "1",     # prediction-4: frozen-M_r Jacobian propagation NTK-eigenvalue prediction (prediction widget)
         "p4t0": fi("p4t0", 10),          # prediction-4: iteration t0 at which Q & residual are frozen
         "s38": g("s38", "0") == "1",     # prediction-5: trace-statistic Tr(NTK) prediction (prediction widget)
-        "p5t0": fi("p5t0", 10),          # prediction-5: freeze iteration t0 for the trace propagation
+        "p5t0": fi("p5t0", 10), "evcubic": max(1, fi("evcubic", 25)),          # prediction-5: START iteration + cubic re-anchor window (quad uses qapprox)
         "s30t": max(0, fi("s30t", 0)),   # §22: freeze iteration t
         "s31r": max(1, fi("s31r", 200)), # §23: rank R of the random function Hessian
         "s31scale": ff("s31scale", 1.0), # §23: random-Hessian spectral-norm scale (× real fn-Hessian λmax)
