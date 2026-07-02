@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>EoS Prediction Demo — σ₁ forecasts vs. the actual edge of stability</title>
+<title>Predictions related to Progressive Sharpening</title>
 <script src="https://cdn.plot.ly/plotly-2.30.0.min.js" charset="utf-8"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
@@ -89,20 +89,7 @@
 <body>
 <div class="wrap">
 
-<h1>EoS Prediction Demo — forecasting the edge of stability</h1>
-<p class="subtitle">An interactive companion to <b>Understanding Progressive Sharpening</b> — full-batch gradient descent on a small network, with every panel tied to the paper's equations <span style="color:#16a34a;font-weight:600">· build: theory-v5</span></p>
-
-<div class="intro">
-  <p>Full-batch GD at rate $\eta$ on $f(x)\in\mathbb{R}^{d_{\text{out}}}$. <b>Sharpness</b> $\sigma_1=\lambda_{\max}(\nabla^2_\theta\mathcal L)$
-  rises (<i>progressive sharpening</i>) until it pins near $2/\eta$ at the <i>edge of stability</i>, where the loss oscillates with period&nbsp;2.</p>
-  <p>Following <b>Understanding Progressive Sharpening</b>, over a window we freeze $J_{\theta_t}=\tfrac{df}{d\theta}$ and the function Hessian
-  $Q_{\theta_t}=\tfrac{d^2f}{d\theta^2}$ ($Q_{\theta_{t+\Delta t}}=Q_{\theta_t}$) and predict from the Taylor surrogate</p>
-  <p class="eq">$$f_{\theta_{t+\Delta t}}=f_{\theta_t}+J_{\theta_t}^{\top}\Delta\theta+\Delta\theta^{\top}Q_{\theta_t}\Delta\theta .$$</p>
-  <p>Assumptions: <b>(1)</b> Gauss–Newton $G$ sets the top Hessian eigenvalues; <b>(2)</b> the surrogate holds for a few steps;
-  <b>(3)</b> the residual $r=y-f$ (or its top-NTK projection) keeps its sign. For MSE,
-  $\nabla^2_\theta\mathcal L=\underbrace{\tfrac1N\sum_i\nabla f_i\nabla f_i^{\top}}_{G}+\underbrace{\tfrac1N\sum_i(f_i-y_i)\nabla^2 f_i}_{S}$.
-  Panels track $J$ on the eigenvectors of $H=\nabla^2_\theta\sum_i f$, the SLQ spectra, and how $H$'s eigenspaces rotate.</p>
-</div>
+<h1>Predictions related to Progressive Sharpening</h1>
 
 <hr>
 
