@@ -3789,9 +3789,9 @@ def run_stream(P):
                         if torch.isfinite(p4_J).all():
                             MrJ = torch.stack([hvpS(p4_th0, X, p4_J[k], p4_r0) for k in range(M)])   # frozen M_r·J rows (M,p), Q & r frozen at t0
                             p4_J = p4_J + (lr / max(N, 1)) * MrJ                  # advance frozen-residual predicted J for the NEXT step
-                        if torch.isfinite(p4_Je).all() and torch.isfinite(p4_re).all():   # EVOLVING-Qr (self-contained: only the anchor + targets; re-anchored to the live run every p4rep): r̂ decays via the PSD NTK ĴĴᵀ; Ĵ grows via the THROTTLED frozen-Q0 contraction M_r=Σ_k r̂_k Q0_k every s steps
+                        if torch.isfinite(p4_Je).all() and torch.isfinite(p4_re).all():   # EVOLVING-Qr (self-contained; re-anchored to the live run every p4rep — LOWER p4rep to re-sync more often and track the actual NTK closely): r̂ decays via the PSD NTK ĴĴᵀ; Ĵ grows via the THROTTLED frozen-Q0 contraction M_r=Σ_k r̂_k Q0_k every s steps
                             lam_e = max(kPredE[0], 1e-12) if kPredE else 1e-12                 # λmax(ĴĴᵀ) from the eigendecomp above
-                            alpha_e = min(lr / max(N, 1), 1.9 / lam_e)                          # ★ CLAMP the residual-decay step so α·λmax(ĴĴᵀ)<2 ⇒ r̂ decays STABLY past EoS (can't overshoot/blow up), which stops the Ĵ co-explosion — keeps kPredE bounded for every config
+                            alpha_e = min(lr / max(N, 1), 1.9 / lam_e)                          # ★ CLAMP the residual step so α·λmax(ĴĴᵀ)<2 ⇒ r̂ (and Ĵ) stay bounded past EoS. WITHOUT this the evolving-Qr blows up to ~1e19 at strong EoS (verified) — far worse than the frozen baseline
                             p4_re = p4_re - alpha_e * (p4_Je @ (p4_Je.t() @ p4_re))             # r̂ ← (I−α·ĴĴᵀ)r̂
                             p4_qsc += 1
                             if p4_qsc % p4s == 0:
@@ -3827,9 +3827,9 @@ def run_stream(P):
                             if torch.isfinite(fz["J"]).all():
                                 MrJm = torch.stack([hvpS(fz["th0"], X, fz["J"][k], fz["r0"]) for k in range(M)])
                                 fz["J"] = fz["J"] + (lr / max(N, 1)) * MrJm
-                            if torch.isfinite(fz["Je"]).all() and torch.isfinite(fz["re"]).all():   # evolving-Qr: r̂ decays via the PSD NTK ĴĴᵀ (step CLAMPED so α·λmax<2 ⇒ bounded); Ĵ grows via the throttled frozen-Q0 contraction every s steps
+                            if torch.isfinite(fz["Je"]).all() and torch.isfinite(fz["re"]).all():   # evolving-Qr: r̂ decays via the PSD NTK ĴĴᵀ (step CLAMPED so α·λmax<2 ⇒ bounded past EoS); Ĵ grows via the throttled frozen-Q0 contraction every s steps
                                 lam_e = max(kpmE[fi4][0], 1e-12) if kpmE[fi4] else 1e-12
-                                alpha_e = min(lr / max(N, 1), 1.9 / lam_e)   # ★ clamp ⇒ r̂ can't blow up past EoS ⇒ Ĵ stays bounded
+                                alpha_e = min(lr / max(N, 1), 1.9 / lam_e)
                                 fz["re"] = fz["re"] - alpha_e * (fz["Je"] @ (fz["Je"].t() @ fz["re"]))
                                 fz["qsc"] += 1
                                 if fz["qsc"] % p4s == 0:

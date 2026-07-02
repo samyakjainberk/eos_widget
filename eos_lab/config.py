@@ -220,17 +220,17 @@ PRESETS = {
                       bias=0, fixedx=0, nsamp=128, lr=0.02, init=0.5, steps=300, eigevery=2,
                       slqprobes=3),
     # 2-class SCALAR CIFAR (classes c2a,c2b → ±1, d_out=1) — small M=N so EVERY section incl the per-sample §16/§17 runs
-    "cifar2_mlp": dict(dataset="cifar2", arch="mlp", loss="mse", act="tanh", bias=0, fixedx=0, depth=1,
+    "cifar2_mlp": dict(dataset="cifar2", arch="mlp", loss="mse", act="tanh", bias=1, fixedx=0, depth=1,
                        width=64, nsamp=16, lr=0.02, init=0.5, steps=300, eigevery=2, slqprobes=3,
                        s18=1, s19=1, s20=1, s21=1, s22=1, s23=1, s24=1, s25=1),
     # MNIST 10-class one-hot (padded to 3×32×32 → drop-in for cifar-shaped nets). Small N + small width so the
     # per-sample §11–§16 sections fit (their batched Lanczos costs ~M·mV·p, and M=N·10 inflates it). §17 needs
     # M=N·d_out ≤ 64 (so N ≤ 6) — use the scalar mnist2 preset for §17.
-    "mnist_mlp": dict(dataset="mnist", arch="mlp", loss="mse", act="tanh", bias=0, fixedx=0, depth=1,
+    "mnist_mlp": dict(dataset="mnist", arch="mlp", loss="mse", act="tanh", bias=1, fixedx=0, depth=1,
                       width=48, nsamp=8, lr=0.02, init=0.5, steps=300, eigevery=2, slqprobes=3,
                       s18=1, s19=1, s20=1, s21=1, s22=1, s23=1, s24=1),
     # 2-class SCALAR MNIST (classes c2a,c2b → ±1, d_out=1) — small M=N so every section incl §16/§17 runs
-    "mnist2_mlp": dict(dataset="mnist2", arch="mlp", loss="mse", act="tanh", bias=0, fixedx=0, depth=1,
+    "mnist2_mlp": dict(dataset="mnist2", arch="mlp", loss="mse", act="tanh", bias=1, fixedx=0, depth=1,
                        width=64, nsamp=16, lr=0.02, init=0.5, steps=300, eigevery=2, slqprobes=3,
                        s18=1, s19=1, s20=1, s21=1, s22=1, s23=1, s24=1, s25=1),
     "cifar_cnn": dict(dataset="cifar10", arch="cnn", loss="mse", act="tanh", nsamp=128, lr=0.05, init=0.5,
@@ -248,9 +248,9 @@ PRESETS = {
                       vocab=50257),
     # Chebyshev regression (Cohen et al. EoS): nsamp points on [-1,1] labeled by T_degree; a 6-hidden-layer
     # width-50 tanh MLP (≈12.9k params). Sharpens to the 2/η edge of stability.
-    "chebyshev": dict(dataset="chebyshev", arch="mlp", loss="mse", act="tanh", depth=6, width=50, bias=0,
+    "chebyshev": dict(dataset="chebyshev", arch="mlp", loss="mse", act="tanh", depth=6, width=50, bias=1,
                       fixedx=0, indim=1, outdim=1, nsamp=20, degree=3, lr=0.1, init=0.5, steps=5000),
     # Chebyshev-2: same as chebyshev but the target T_k is built from the closed form cos(k·arccos x).
-    "chebyshev2": dict(dataset="chebyshev2", arch="mlp", loss="mse", act="tanh", depth=6, width=50, bias=0,
+    "chebyshev2": dict(dataset="chebyshev2", arch="mlp", loss="mse", act="tanh", depth=6, width=50, bias=1,
                        fixedx=0, indim=1, outdim=1, nsamp=20, degree=3, lr=0.1, init=0.5, steps=5000),
 }
