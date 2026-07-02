@@ -108,7 +108,6 @@
     <option value="chebyshev2">Chebyshev cosine</option>
     <option value="ksparse_mlp">sparse parity MLP</option>
     <option value="ksparse_gpt">parity transformer</option>
-    <option value="saddle">saddle to saddle</option>
     <option value="custom">custom</option>
   </select>
   <span class="hint">picking a preset auto-runs it · edit any control and press <b>Run</b> · hover any plot for a shared cursor</span>
@@ -118,7 +117,7 @@
   <div class="panel">
     <div class="panel-title">Dataset &amp; architecture <span style="color:#94a3b8;font-weight:400;text-transform:none">· GPU backend only</span></div>
     <div class="grid">
-      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="const">const target (iid x → fixed +y)</option><option value="cifar2">CIFAR-2 (2-class scalar ±1)</option><option value="mnist2">MNIST-2 (2-class scalar ±1)</option><option value="chebyshev">Chebyshev</option><option value="chebyshev2">Chebyshev-2 (T_k = cos(k·arccos x))</option><option value="ksparse">k-sparse parity (±1 bits → ±1)</option><option value="anglepair">angle pair (2 samples · controllable norm/angle · ±1)</option><option value="saddle">saddle-to-saddle (linear regression · diagonal teacher · staircase loss)</option></select></div>
+      <div class="ctl"><label>dataset</label><select id="dataset"><option value="synthetic" selected>synthetic</option><option value="const">const target (iid x → fixed +y)</option><option value="cifar2">CIFAR-2 (2-class scalar ±1)</option><option value="mnist2">MNIST-2 (2-class scalar ±1)</option><option value="chebyshev">Chebyshev</option><option value="chebyshev2">Chebyshev-2 (T_k = cos(k·arccos x))</option><option value="ksparse">k-sparse parity (±1 bits → ±1)</option><option value="anglepair">angle pair (2 samples · controllable norm/angle · ±1)</option></select></div>
       <div class="ctl"><label>architecture</label><select id="arch"><option value="mlp" selected>MLP</option><option value="cnn">CNN</option><option value="vgg11">VGG11</option><option value="gpt">mini-GPT</option><option value="diaglin">diagonal linear (β=u⊙v · AGF)</option></select></div>
       <div class="ctl"><label>loss</label><select id="loss"><option value="mse" selected>MSE</option><option value="ce">cross-entropy</option></select></div>
       <div class="ctl"><label>CNN/VGG channel mult</label><input id="chmul" type="number" value="0.25" min="0.05" max="2" step="0.05"></div>
@@ -141,7 +140,7 @@
       <div class="ctl"><label>depth (hidden layers)</label><input id="depth" type="number" value="4" min="1" max="12" step="1"></div>
       <div class="ctl"><label>width</label><input id="width" type="number" value="100" min="1" max="256" step="1"></div>
       <div class="ctl"><label>activation</label><select id="act"><option value="linear" selected>linear</option><option value="tanh">tanh</option><option value="elu">elu</option><option value="quadratic">quadratic (x²)</option></select></div>
-      <div class="ctl"><label>bias</label><select id="bias"><option value="1">on</option><option value="0" selected>off</option></select></div>
+      <div class="ctl"><label>bias</label><select id="bias"><option value="1" selected>on</option><option value="0">off</option></select></div>
       <div class="ctl"><label>data sampling</label><select id="fixedx"><option value="1" selected>fixed sample (x=1)</option><option value="0">iid Gaussian</option></select></div>
       <div class="ctl"><label>input std (iid)</label><input id="inputstd" type="number" value="1.0" min="0" step="0.1"></div>
       <div class="ctl"><label>init residual sign</label><select id="ssign"><option value="off" selected>off</option><option value="pos">all positive</option><option value="neg">all negative</option></select></div>
@@ -1174,6 +1173,11 @@ const emptyN=(cnt,namer,dash)=>Array.from({length:cnt},(_,i)=>({x:[],y:[],mode:'
 const SLQ_PLOTS=['p_sH','p_sG','p_sS','p_sHL'];
 const TIME_PLOTS=['p_loss','p_sharp','p_resid','p_eHfX','p_eHfT','p_eHLT','p_eGNT','p_eSRT','p_eHfB','p_eHLB','p_eGNB','p_eSRB','p_Jtop','p_Jbot','p_Jtopn','p_Jbotn','p_Jrt','p_Jrb','p_paPos','p_paNeg','p_ntkR','p_ntkGs','p_ntkGl','p_ntkH','p_fhEvT','p_fhEvB','p_jhe1','p_jhe2','p_jhe1b','p_jhe2b','p_jh2e1','p_jh2e2','p_jh2e1b','p_jh2e2b','p_g2J','p_g2Jn','p_q9t','p_q9b','p_q9tN','p_q9bN','p_q9tR','p_q9bR','p_q9gt','p_q9gb','p_q10','p_q10N','p_d4Ht','p_d4Hb','p_d4Qt','p_d4Qb','p_pred1','p_pred2','p_pred3','p_pred4','p_pred5','p_predp1','p_predp2','p_predp3','p_predp4','p_predp5','p_predh1','p_predh2','p_predh3','p_predh4','p_predh5','p_predd1','p_predd2','p_predd3','p_predd4','p_predd5','p_preddh1','p_preddh2','p_preddh3','p_preddh4','p_preddh5','p_c10_47','p_c10_51','p_c10_51n','p_c10_dQ','p_c10h_47','p_c10h_51','p_c10h_51n','p_c10h_dJ'];
 const PLOT_IDS=TIME_PLOTS.concat(SLQ_PLOTS);
+// The synchronized hover cursor must also cover the prediction-widget's own time-series panels (pred-3/4/5),
+// which aren't in TIME_PLOTS (that list feeds PLOT_IDS = purge/resize). Separate list so the cursor spans them
+// without altering purge/resize behaviour. (The master time-scrubber already auto-detects every 'GD step' plot.)
+const PRED_TIME_PLOTS=['p_pd1','p_pd2','p_pd3','p_pd4','p_pt1','p_pt2','p_pt3','p_pt4','p_pd5','p_pd6','p_pd7','p_pd4m_1','p_pd4m_2','p_pd4m_3','p_p3_diff','p_p3_rnorm','p_p3_cos','p_p3m_1','p_p3m_2','p_p3m_3'];
+const CURSOR_PLOTS=TIME_PLOTS.concat(PRED_TIME_PLOTS);
 function newP(id,traces,layout){Plotly.newPlot(id,traces,layout,CFG);const gd=document.getElementById(id);gd._baseShapes=layout.shapes?JSON.parse(JSON.stringify(layout.shapes)):[];}
 // Live-plot DECIMATION — fixes the progressive hang. Without it, every diagnostic tick re-renders the full,
 // ever-growing trace across ~dozens of panels, so per-tick render cost (and DOM/memory) climbs with the step
@@ -3782,7 +3786,7 @@ function pushPoint(t,D,n,kth,nResid){
     extP('p_p3_diff',{x:[[t],[t],[t]],y:[[g.jrd],[g.jdr],[g.diff]]},[0,1,2]);
     if(g.tstar!=null){
       if(!window._P3_CLEARED){window._P3_CLEARED=true;try{Plotly.relayout('p_p3_rnorm',{annotations:[]});Plotly.relayout('p_p3_cos',{annotations:[]});}catch(e){}}   // t* reached → drop the placeholder
-      extP('p_p3_rnorm',{x:[[t],[t],[t],[t]],y:[[g.rAct],[g.rThy],[g.rThy2],[g.rThy3]]},[0,1,2,3]);
+      extP('p_p3_rnorm',{x:[[t],[t],[t],[t]],y:[[g.rAct],[_capPred(g.rThy,g.rAct)],[_capPred(g.rThy2,g.rAct)],[_capPred(g.rThy3,g.rAct)]]},[0,1,2,3]);   // cap theory ‖r‖ at 20× actual (prevent overshoot from blowing the axis)
       if(g.cos!=null)extP('p_p3_cos',{x:[[t]],y:[[g.cos]]},[0]);
       if(g.cos2!=null)extP('p_p3_cos',{x:[[t]],y:[[g.cos2]]},[1]);
       if(g.cos3!=null)extP('p_p3_cos',{x:[[t]],y:[[g.cos3]]},[2]);
@@ -3790,8 +3794,8 @@ function pushPoint(t,D,n,kth,nResid){
   }
   if(D.g_pred4&&D.g_pred4.kAct){const ka=D.g_pred4.kAct,kp=D.g_pred4.kPred,ke=D.g_pred4.kPredE;   // ★ prediction-4 top-3: frozen-r pred (solid, 3k) / evolving-r pred (dash, 3k+1) / actual (dots, 3k+2)
     {const xs=[],ys=[],ids=[];for(let k=0;k<3&&k<ka.length;k++){
-       xs.push([t]);ys.push([kp[k]]);ids.push(3*k);
-       xs.push([t]);ys.push([ke?ke[k]:null]);ids.push(3*k+1);
+       xs.push([t]);ys.push([_capPred(kp[k],ka[k])]);ids.push(3*k);          // frozen-r pred capped at 20× actual λ
+       xs.push([t]);ys.push([_capPred(ke?ke[k]:null,ka[k])]);ids.push(3*k+1);// evolving-Qr pred capped too
        xs.push([t]);ys.push([ka[k]]);ids.push(3*k+2);}
      if(ids.length)extP('p_pd5',{x:xs,y:ys},ids);}
     const cs=D.g_pred4.cos5,ce=D.g_pred4.cos5E;   // NTK eigvec |cos| — frozen r (2k) / evolving Qr (2k+1)
@@ -3800,10 +3804,10 @@ function pushPoint(t,D,n,kth,nResid){
     {const xs=[],ys=[],ids=[];for(let k=0;k<3;k++){if(gs&&gs[k]!=null){xs.push([t]);ys.push([gs[k]]);ids.push(2*k);}if(ge&&ge[k]!=null){xs.push([t]);ys.push([ge[k]]);ids.push(2*k+1);}} if(ids.length)extP('p_pd7',{x:xs,y:ys},ids);}
   }
   if(D.g_pred3m){const g=D.g_pred3m;const mids=['p_p3m_1','p_p3m_2','p_p3m_3'];   // ★ prediction-3 multi-freeze (actual / 1st-order / 2nd-order)
-    if(g.backfill)for(const bf of g.backfill)extP('p_p3m_1',{x:[[bf[0]],[bf[0]],[bf[0]],[bf[0]]],y:[[bf[1]],[bf[2]],[bf[3]],[bf[4]]]},[0,1,2,3]);
-    for(let k=0;k<3;k++){if(g.thy[k]!=null)extP(mids[k],{x:[[t],[t],[t],[t]],y:[[g.rAct],[g.thy[k]],[g.thy2?g.thy2[k]:null],[g.thy3?g.thy3[k]:null]]},[0,1,2,3]);}}
+    if(g.backfill)for(const bf of g.backfill)extP('p_p3m_1',{x:[[bf[0]],[bf[0]],[bf[0]],[bf[0]]],y:[[bf[1]],[_capPred(bf[2],bf[1])],[_capPred(bf[3],bf[1])],[_capPred(bf[4],bf[1])]]},[0,1,2,3]);   // backfill: cap theory ‖r‖ at 20× actual (bf[1])
+    for(let k=0;k<3;k++){if(g.thy[k]!=null)extP(mids[k],{x:[[t],[t],[t],[t]],y:[[g.rAct],[_capPred(g.thy[k],g.rAct)],[_capPred(g.thy2?g.thy2[k]:null,g.rAct)],[_capPred(g.thy3?g.thy3[k]:null,g.rAct)]]},[0,1,2,3]);}}   // cap multi-freeze theory ‖r‖ at 20× actual
   if(D.g_pred4m){const g=D.g_pred4m,ka=g.kAct,mids=['p_pd4m_1','p_pd4m_2','p_pd4m_3'];   // ★ prediction-4 multi-freeze: frozen-r (3k) / evolving-r (3k+1) / actual (3k+2)
-    for(let m=0;m<3;m++){const kp=g.kPred[m],ke=g.kPredE?g.kPredE[m]:null;if(!kp)continue;const xs=[],ys=[],ti=[];for(let k=0;k<3&&k<ka.length;k++){xs.push([t]);ys.push([kp[k]]);ti.push(3*k);xs.push([t]);ys.push([ke?ke[k]:null]);ti.push(3*k+1);xs.push([t]);ys.push([ka[k]]);ti.push(3*k+2);}if(ti.length)extP(mids[m],{x:xs,y:ys},ti);}}
+    for(let m=0;m<3;m++){const kp=g.kPred[m],ke=g.kPredE?g.kPredE[m]:null;if(!kp)continue;const xs=[],ys=[],ti=[];for(let k=0;k<3&&k<ka.length;k++){xs.push([t]);ys.push([_capPred(kp[k],ka[k])]);ti.push(3*k);xs.push([t]);ys.push([_capPred(ke?ke[k]:null,ka[k])]);ti.push(3*k+1);xs.push([t]);ys.push([ka[k]]);ti.push(3*k+2);}if(ti.length)extP(mids[m],{x:xs,y:ys},ti);}}   // cap multi-freeze predicted eigvals at 20× actual
   if(D.g_trace){const g=D.g_trace,sh=g.trHess,gn=g.trGN;   // ★ trace stats: traces [predNo(blue), predWith(green), Tr(∇²L)(red), Tr(JᵀJ)(orange)]
     const pt=(key,id)=>{const a=g[key],pv=(a?a[1]:null),pp=(a?a[0]:null);   // actual Tr(∇²L)/Tr(JᵀJ) shown throughout; forecasts (pv,pp) gated by stat_init (null → gap)
       if(pv!=null||pp!=null||sh!=null||gn!=null)extP(id,{x:[[t],[t],[t],[t]],y:[[pv],[pp],[sh],[gn]]},[0,1,2,3]);};
@@ -3815,14 +3819,14 @@ function pushPoint(t,D,n,kth,nResid){
 let cursorRAF=null,cursorX=null;
 function applyCursor(){
   cursorRAF=null;
-  TIME_PLOTS.forEach(id=>{const gd=document.getElementById(id);if(!gd||!gd._fullLayout||gd.offsetParent===null)return;
+  CURSOR_PLOTS.forEach(id=>{const gd=document.getElementById(id);if(!gd||!gd._fullLayout||gd.offsetParent===null)return;   // include the prediction panels so the shared cursor sweeps ALL time-series plots
     const base=gd._baseShapes||[];
     const shapes=cursorX==null?base.slice():base.concat([{type:'line',xref:'x',x0:cursorX,x1:cursorX,yref:'paper',y0:0,y1:1,line:{color:'#64748b',width:1,dash:'dot'}}]);
     Plotly.relayout(gd,{shapes});});
 }
 function setCursor(x){cursorX=x;if(!cursorRAF)cursorRAF=requestAnimationFrame(applyCursor);}
 function attachHover(){
-  TIME_PLOTS.forEach(id=>{const gd=document.getElementById(id);if(!gd||!gd.on)return;   // skip divs Plotly hasn't initialized (multi-only plots in single-sample mode)
+  CURSOR_PLOTS.forEach(id=>{const gd=document.getElementById(id);if(!gd||!gd.on)return;   // skip divs Plotly hasn't initialized (multi-only plots in single-sample mode)
     if(gd.removeAllListeners){gd.removeAllListeners('plotly_hover');gd.removeAllListeners('plotly_unhover');}
     gd.on('plotly_hover',ev=>{if(ev.points&&ev.points.length)setCursor(ev.points[0].x);});
     gd.on('plotly_unhover',()=>setCursor(null));});
@@ -4785,27 +4789,44 @@ window.addEventListener('load',()=>{try{
 }catch(e){}});
 // ★ prediction-1 & 2 sweep: stream (lr,std) pairs from /run?mode=sweep and scatter them live
 let SWEEP_ES=null, SWEEP_N=0, SWEEP_STEPS=100;
-const SW1={x:[],y:[],text:[],col:[]}, SW2={x:[],y:[],jx:[],jy:[],ok:[]}, SW3={x:[],y:[],jx:[],jy:[],ok:[]};
-function sweepPearson(S){S=S||SW2;const xs=[],ys=[];for(let i=0;i<S.x.length;i++){if((!S.ok||S.ok[i]!==false)&&isFinite(S.x[i])&&isFinite(S.y[i])){xs.push(S.x[i]);ys.push(S.y[i]);}}   // skip diverged/degenerate pairs (ok===false) so one bad point can't poison r
-  const n=xs.length;if(n<2)return NaN;   // skip diverged/non-finite pairs so one bad point can't poison r
+const SW1={x:[],y:[],text:[],col:[]}, SW2={x:[],y:[],jx:[],jy:[],ok:[],rx:[],ry:[]}, SW3={x:[],y:[],jx:[],jy:[],ok:[],rx:[],ry:[]};
+function _pear(xs,ys){const n=xs.length;if(n<2)return NaN;
   let mx=0,my=0;for(let i=0;i<n;i++){mx+=xs[i];my+=ys[i];}mx/=n;my/=n;
   let sxy=0,sx=0,sy=0;for(let i=0;i<n;i++){const dx=xs[i]-mx,dy=ys[i]-my;sxy+=dx*dy;sx+=dx*dx;sy+=dy*dy;}
   return (sx>0&&sy>0)?sxy/Math.sqrt(sx*sy):NaN;}
+function sweepPearson(S){S=S||SW2;const xs=[],ys=[];for(let i=0;i<S.x.length;i++){if((!S.ok||S.ok[i]!==false)&&isFinite(S.x[i])&&isFinite(S.y[i])){xs.push(S.x[i]);ys.push(S.y[i]);}}   // Pearson on the ±1 SIGNS (skip diverged/degenerate pairs)
+  return _pear(xs,ys);}
+function _ranks(v){const idx=v.map((x,i)=>i).sort((a,b)=>v[a]-v[b]);const r=new Array(v.length);   // fractional (average) ranks so ties don't bias Spearman
+  let i=0;while(i<idx.length){let j=i;while(j+1<idx.length&&v[idx[j+1]]===v[idx[i]])j++;const avg=(i+j)/2;for(let k=i;k<=j;k++)r[idx[k]]=avg;i=j+1;}return r;}
+function sweepSpearman(S){S=S||SW3;const xs=[],ys=[];for(let i=0;i<S.rx.length;i++){if(isFinite(S.rx[i])&&isFinite(S.ry[i])){xs.push(S.rx[i]);ys.push(S.ry[i]);}}   // rank corr on the RAW magnitudes: defined even when the ±1 signs are constant; ranking already tames wild-scale outliers (e.g. 1e19 on divergence) so keep EVERY finite pair ⇒ ρ is visible whenever ≥2 pairs exist
+  if(xs.length<2)return NaN;return _pear(_ranks(xs),_ranks(ys));}
+function sweepSignSpread(S,axis){let pos=0,neg=0;const a=(axis==='y')?S.y:S.x;for(let i=0;i<a.length;i++){if(S.ok&&S.ok[i]===false)continue;if(a[i]>0)pos++;else if(a[i]<0)neg++;}return {pos:pos,neg:neg};}   // to explain WHY sign-Pearson is undefined (which axis is one-signed)
+// Title for a sign-scatter: prefer sign-Pearson r; if it is undefined (a ±1 axis never varies, or <2 pairs), fall back to the rank ρ on the raw magnitudes and say why.
+function sweepCorrLabel(S){const r=sweepPearson(S),rho=sweepSpearman(S);   // ALWAYS report the rank ρ (Spearman on the raw magnitudes): it is defined even when the ±1 signs never vary, and reveals the strong monotonic relationship the sign-scatter hides
+  const rhs=isFinite(rho)?'rank ρ='+rho.toFixed(3):'rank ρ=—';
+  if(isFinite(r))return 'r='+r.toFixed(3)+' · '+rhs;
+  const sx=sweepSignSpread(S,'x'),sy=sweepSignSpread(S,'y');
+  let why='<2 pairs';if(sy.pos===0||sy.neg===0)why=(S===SW3?'Σ∇‖J‖':'Σcurv')+' all '+(sy.pos?'+':'−');else if(sx.pos===0||sx.neg===0)why='Σd all '+(sx.pos?'+':'−');
+  return 'sign-r —('+why+') · '+rhs;}
+// ---- prediction overshoot cap: a diverging FROZEN-r prediction can shoot to ~1e19 and dominate the (linear) axis,
+// hiding the actual + the well-behaved evolving-Qr curve. Cap each predicted value at PRED_CAP_F × the ACTUAL it is
+// being compared against (pin non-finite / overshoot at that ceiling) so the plot stays readable. The actual dots
+// and the re-anchored curves are never capped. ‖r‖ / eigenvalues are ≥0, so this is a high-side cap only.
+const PRED_CAP_F=20;
+function _capPred(v,ref,f){if(v==null)return null;const c=(f||PRED_CAP_F)*Math.abs(ref);if(!isFinite(v))return c>0?c:null;return (c>0&&v>c)?c:v;}
 function addSweepPt(m){
   SW1.x.push(m.tPred);SW1.y.push(m.tAct);
   SW1.text.push('lr='+(+m.lr).toPrecision(2)+'  σ='+(+m.std).toPrecision(2));
   SW1.col.push((m.censA||m.censP)?'#ef4444':'#2563eb');
-  {const sx=(m.sumD<0?-1:1),sy=(m.sumCurv<0?-1:1);SW2.x.push(sx);SW2.y.push(sy);SW2.ok.push(!m.diverged);SW2.jx.push(sx+(Math.random()-0.5)*0.44);SW2.jy.push(sy+(Math.random()-0.5)*0.44);}   // ±1 sign of Σd and of Σ(d²loss/dt²) over first N; jittered for display so overlapping pairs are all visible (Pearson r uses the exact ±1)
-  {const sx=(m.sumD2<0?-1:1),sy=(m.sumJgrad<0?-1:1);SW3.x.push(sx);SW3.y.push(sy);SW3.ok.push(!m.diverged&&m.sumJgrad!==0);SW3.jx.push(sx+(Math.random()-0.5)*0.44);SW3.jy.push(sy+(Math.random()-0.5)*0.44);}   // ±1 sign of Σd and of Σ∇‖J‖ over first N₂ (‖J‖ rose +1 / fell −1); jittered for display; diverged / Σ∇‖J‖==0 excluded from Pearson r
+  {const sx=(m.sumD<0?-1:1),sy=(m.sumCurv<0?-1:1);SW2.x.push(sx);SW2.y.push(sy);SW2.ok.push(!m.diverged);SW2.rx.push(m.sumD);SW2.ry.push(m.sumCurv);SW2.jx.push(sx+(Math.random()-0.5)*0.44);SW2.jy.push(sy+(Math.random()-0.5)*0.44);}   // ±1 sign of Σd and of Σ(d²loss/dt²) over first N; also keep the RAW sums for the rank-ρ fallback; jittered for display (Pearson uses the exact ±1)
+  {const sx=(m.sumD2<0?-1:1),sy=(m.sumJgrad<0?-1:1);SW3.x.push(sx);SW3.y.push(sy);SW3.ok.push(!m.diverged&&m.sumJgrad!==0);SW3.rx.push(m.sumD2);SW3.ry.push(m.sumJgrad);SW3.jx.push(sx+(Math.random()-0.5)*0.44);SW3.jy.push(sy+(Math.random()-0.5)*0.44);}   // ±1 sign of Σd and of Σ∇‖J‖ over first N₂; also keep RAW sums for the rank-ρ fallback (‖J‖ almost always rises ⇒ y-sign constant ⇒ sign-Pearson undefined)
   Plotly.restyle('p_sw1',{x:[SW1.x],y:[SW1.y],text:[SW1.text],'marker.color':[SW1.col]},[0]);
   const mx=Math.max(SWEEP_STEPS,Math.max.apply(null,SW1.x.concat(SW1.y).concat([1])));
   Plotly.restyle('p_sw1',{x:[[0,mx]],y:[[0,mx]]},[1]);            // y=x reference line
   Plotly.restyle('p_sw2',{x:[SW2.jx],y:[SW2.jy],text:[SW1.text],'marker.opacity':[0.75]},[0]);   // jittered ±1 signs so all overlapping (lr,σ) pairs are visible near each corner (Pearson r uses the exact SW2.x/y)
-  const r=sweepPearson(SW2);
-  try{Plotly.relayout('p_sw2',{'title.text':'Prediction-2 — sign(Σd) vs sign(Σd²L/dt²) · N='+(m.swsumn!=null?m.swsumn:'')+'  (r = '+(isFinite(r)?r.toFixed(3):'—')+')'});}catch(e){}
+  try{Plotly.relayout('p_sw2',{'title.text':'Prediction-2 — sign(Σd) vs sign(Σd²L/dt²) · N='+(m.swsumn!=null?m.swsumn:'')+'  ('+sweepCorrLabel(SW2)+')'});}catch(e){}
   Plotly.restyle('p_sw3',{x:[SW3.jx],y:[SW3.jy],text:[SW1.text],'marker.opacity':[0.75]},[0]);   // 3rd plot: jittered ±1 signs so overlapping pairs are visible; y = sign of Σ∇‖J‖ over first N₂
-  const r3=sweepPearson(SW3);
-  try{Plotly.relayout('p_sw3',{'title.text':'Prediction-2b — sign(Σd) vs sign(Σ∇‖J‖) · N₂='+(m.swsumn2!=null?m.swsumn2:'')+'  (r = '+(isFinite(r3)?r3.toFixed(3):'—')+')'});}catch(e){}
+  try{Plotly.relayout('p_sw3',{'title.text':'Prediction-2b — sign(Σd) vs sign(Σ∇‖J‖) · N₂='+(m.swsumn2!=null?m.swsumn2:'')+'  ('+sweepCorrLabel(SW3)+')'});}catch(e){}
 }
 function ensureSweepPlots(){   // build the pred-1&2 sweep scatter plots on demand — the sweep can run WITHOUT a prior main run (which is otherwise the only thing that creates them, via initLivePlots)
   const g=document.getElementById('p_sw1'); if(g&&g._fullData)return;   // already built
@@ -4820,7 +4841,7 @@ function startSweep(){ _runSweep(false); }   // ★ prediction-1&2 sweep entry (
 function _runSweep(forceSame){   // forceSame=true ⇒ ignore the swport box and run on THIS server (same-origin fallback)
   if(SWEEP_ES){SWEEP_ES.close();SWEEP_ES=null;}
   ensureSweepPlots();   // make sure p_sw1/p_sw2 exist even if no main run has been started yet
-  SW1.x.length=SW1.y.length=SW1.text.length=SW1.col.length=0; SW2.x.length=SW2.y.length=SW2.jx.length=SW2.jy.length=SW2.ok.length=0; SW3.x.length=SW3.y.length=SW3.jx.length=SW3.jy.length=SW3.ok.length=0;
+  SW1.x.length=SW1.y.length=SW1.text.length=SW1.col.length=0; SW2.x.length=SW2.y.length=SW2.jx.length=SW2.jy.length=SW2.ok.length=SW2.rx.length=SW2.ry.length=0; SW3.x.length=SW3.y.length=SW3.jx.length=SW3.jy.length=SW3.ok.length=SW3.rx.length=SW3.ry.length=0;
   try{Plotly.restyle('p_sw1',{x:[[]],y:[[]],text:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw2',{x:[[]],y:[[]],text:[[]]},[0]);Plotly.restyle('p_sw3',{x:[[]],y:[[]],text:[[]]},[0]);}catch(e){}
   try{Plotly.relayout('p_sw1',{annotations:[]});Plotly.relayout('p_sw2',{annotations:[]});Plotly.relayout('p_sw3',{annotations:[]});}catch(e){}   // drop the "click Run sweep" placeholder once the sweep starts
   const st=document.getElementById('sweepstatus'); if(st)st.textContent='starting…';
@@ -5125,14 +5146,14 @@ function resumeRun(){ curMode()==='gpu'?resumeGPU():resumeLocal(); }
 // ================= presets =================
 const PRESETS={
   // default: wide deep-linear net, single sample, fixed input x=1 (p≈31k); multi-only panels auto-hidden
-  linear:{depth:4,width:100,act:'linear',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.3,init:0.1,nsamp:1,indim:10,outdim:1,angle:90,norm1:1,norm2:1,lab1:1,lab2:-1,tgt:1.0,neig:3,kth:1,steps:400,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,dataset:'anglepair',arch:'mlp',loss:'mse',compute:'gpu'},
+  linear:{depth:4,width:100,act:'linear',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.3,init:0.1,nsamp:1,indim:10,outdim:1,angle:90,norm1:1,norm2:1,lab1:1,lab2:-1,tgt:1.0,neig:3,kth:1,steps:400,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,dataset:'anglepair',arch:'mlp',loss:'mse',compute:'gpu'},
   // multi-sample tanh MLP (wide, iid Gaussian); NTK / function-Hessian panels (1,4,7,4b,4c) on
-  msample:{depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.3,init:0.1,nsamp:10,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:800,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,dataset:'synthetic',arch:'mlp',loss:'mse',compute:'gpu'},
+  msample:{depth:4,width:100,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.3,init:0.1,nsamp:10,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:800,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,dataset:'synthetic',arch:'mlp',loss:'mse',compute:'gpu'},
   // large multi-sample run intended for the GPU backend: 100 samples, 4000 steps, panels 1/4/7/4b/4c/4d on
-  gpu_run:{depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.5,init:0.1,nsamp:25,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,dataset:'synthetic',arch:'mlp',loss:'mse',compute:'gpu'},
-  gpu_const:{depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.2,init:0.2,nsamp:25,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,cvar:0,dataset:'const',arch:'mlp',loss:'mse',compute:'gpu'},   // = gpu_run but every target is the constant +|tgt| (+ optional N(0,cvar) noise)
+  gpu_run:{depth:4,width:100,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.2,init:0.2,nsamp:25,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,dataset:'synthetic',arch:'mlp',loss:'mse',compute:'gpu'},
+  gpu_const:{depth:4,width:100,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.2,init:0.2,nsamp:25,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,cvar:0,dataset:'const',arch:'mlp',loss:'mse',compute:'gpu'},   // = gpu_run but every target is the constant +|tgt| (+ optional N(0,cvar) noise)
   // CIFAR-10 (MSE on one-hot) — fully-connected net on flattened 3072-dim images (GPU backend)
-  cifar_mlp:{dataset:'cifar10',arch:'mlp',loss:'mse',depth:2,width:128,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:128,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,compute:'gpu'},
+  cifar_mlp:{dataset:'cifar10',arch:'mlp',loss:'mse',depth:2,width:128,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:128,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,compute:'gpu'},
   // CIFAR-2 (2-class SCALAR ±1) — small N so the per-sample §16/§17 sections also run; en24/en25 on
   cifar2_mlp:{dataset:'cifar2',arch:'mlp',loss:'mse',depth:1,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:16,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en18:1,en19:1,en20:1,en21:1,en22:1,en23:1,en24:1,en25:1,s24iter:200,s24warm:5,qapprox:100,qmode:1,tset:3,compute:'gpu'},
   cifar2_cnn:{dataset:'cifar2',arch:'cnn',loss:'mse',depth:2,width:128,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:12,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:200,eigevery:4,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:1.0,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,compute:'gpu'},
@@ -5142,9 +5163,9 @@ const PRESETS={
   // MNIST-2 (2-class SCALAR ±1) — small N so §16/§17 run; en24/en25 on
   mnist2_mlp:{dataset:'mnist2',arch:'mlp',loss:'mse',depth:1,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:16,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en18:1,en19:1,en20:1,en21:1,en22:1,en23:1,en24:1,en25:1,s24iter:200,s24warm:5,qapprox:100,qmode:1,tset:3,compute:'gpu'},
   // CIFAR-10 (MSE) — small 3-block conv net (avg-pool, tanh) on a CIFAR subset (GPU backend)
-  cifar_cnn:{dataset:'cifar10',arch:'cnn',loss:'mse',depth:2,width:128,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:128,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:1.0,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,compute:'gpu'},
+  cifar_cnn:{dataset:'cifar10',arch:'cnn',loss:'mse',depth:2,width:128,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:128,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:1.0,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,compute:'gpu'},
   // CIFAR-10 (MSE) — VGG11 (avg-pool, no BN). chmul=0.25→~0.6M (fast); set chmul=1 for the full ~9.4M VGG11
-  cifar_vgg:{dataset:'cifar10',arch:'vgg11',loss:'mse',depth:2,width:128,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:128,batch:128,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'0',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,compute:'gpu'},
+  cifar_vgg:{dataset:'cifar10',arch:'vgg11',loss:'mse',depth:2,width:128,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:128,batch:128,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'0',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,compute:'gpu'},
   // sorting task — mini-GPT transformer (full self-attention), MSE regression to the sorted sequence
   // OpenWebText next-token LM — GPT-2 BPE, cross-entropy. nsamp sequences form the pool; each step
   // samples a `batch` minibatch used for BOTH the GD step and that step's diagnostics. CE keeps §1/§2/§3.
@@ -5161,13 +5182,13 @@ const PRESETS={
   ksparse_gpt:{dataset:'ksparse',arch:'gpt',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.005,init:0.5,nsamp:24,batch:0,indim:10,outdim:1,ksparse:3,tgt:1.0,neig:3,kth:1,steps:1000,eigevery:1,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:48,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,en24:1,en25:1,qapprox:100,qmode:1,tset:3,compute:'gpu'},
   // angle-pair: 2 iid-Gaussian samples with controllable ‖x₁‖,‖x₂‖ and the angle between them; ±1 labels (default +1/−1).
   // tanh MLP, MSE, runs in-browser. N=2 is the point, so the per-sample structure sections (§11/§12/§13 + §18) are on.
-  anglepair:{dataset:'anglepair',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:2,batch:0,indim:8,outdim:1,angle:90,norm1:1,norm2:1,lab1:1,lab2:-1,tgt:1.0,neig:3,kth:1,steps:600,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:1,en12:1,en13:1,en18:1,en19:1,en22:1,en26:1,en27:1,en28:1,s28k:40,en24:0,en25:0,qapprox:100,qmode:1,tset:3,compute:'gpu'},
-  anglepair_gpu:{dataset:'anglepair',arch:'mlp',loss:'mse',depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.1,init:0.3,nsamp:2,batch:0,indim:100,outdim:1,angle:90,norm1:1,norm2:1,lab1:1,lab2:-1,tgt:1.0,neig:3,kth:1,steps:1000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:0,en13:0,en14:0,en15:0,en16:0,en17:0,en18:0,en19:0,en20:0,en21:0,en22:0,en23:0,en24:0,en25:0,en26:1,en27:0,en28:1,s28k:40,qapprox:100,qmode:1,tset:3,compute:'gpu'},   // §1-4 + §18 + §20 on GPU backend; en26/en28 self-produce their data
+  anglepair:{dataset:'anglepair',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:2,batch:0,indim:8,outdim:1,angle:90,norm1:1,norm2:1,lab1:1,lab2:-1,tgt:1.0,neig:3,kth:1,steps:600,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:1,en12:1,en13:1,en18:1,en19:1,en22:1,en26:1,en27:1,en28:1,s28k:40,en24:0,en25:0,qapprox:100,qmode:1,tset:3,compute:'gpu'},
+  anglepair_gpu:{dataset:'anglepair',arch:'mlp',loss:'mse',depth:4,width:100,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.1,init:0.3,nsamp:2,batch:0,indim:100,outdim:1,angle:90,norm1:1,norm2:1,lab1:1,lab2:-1,tgt:1.0,neig:3,kth:1,steps:1000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:0,en13:0,en14:0,en15:0,en16:0,en17:0,en18:0,en19:0,en20:0,en21:0,en22:0,en23:0,en24:0,en25:0,en26:1,en27:0,en28:1,s28k:40,qapprox:100,qmode:1,tset:3,compute:'gpu'},   // §1-4 + §18 + §20 on GPU backend; en26/en28 self-produce their data
   // saddle-to-saddle: multi-output LINEAR regression with a diagonal teacher whose singular values σ_j=sep^j are
   // well separated. A small-init tanh MLP (quasi-linear) learns the r=min(in,out) modes ONE AT A TIME → the loss
   // descends a STAIRCASE (a sequence of saddle escapes). Tuned to show it robustly: init=0.05, lr=0.2, sep=0.4,
   // 4 modes (in=out=4), full-batch GD on N=128 whitened samples. In-browser; watch §1 loss & sharpness.
-  saddle:{dataset:'saddle',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.2,init:0.05,nsamp:32,batch:0,indim:4,outdim:4,saddlesep:0.4,tgt:1.0,neig:3,kth:1,steps:1500,eigevery:2,cubeevery:4,grid3dcap:150,sec12ncap:150,s28k:30,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:0,en13:0,en28:1,qapprox:100,qmode:1,tset:3,compute:'gpu'},
+  saddle:{dataset:'saddle',arch:'mlp',loss:'mse',depth:2,width:64,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.2,init:0.05,nsamp:32,batch:0,indim:4,outdim:4,saddlesep:0.4,tgt:1.0,neig:3,kth:1,steps:1500,eigevery:2,cubeevery:4,grid3dcap:150,sec12ncap:150,s28k:30,slqprobes:4,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:0,en13:0,en28:1,qapprox:100,qmode:1,tset:3,compute:'gpu'},
   // alternating gradient flows (Kunin et al. 2025, arXiv:2506.06489): a DIAGONAL LINEAR NETWORK β=u⊙v from SMALL
   // init on a scalar linear teacher y=β*·x with geometrically-separated coordinates β*_i=ratio^i. The coordinates
   // activate ONE AT A TIME (largest first) → a clean MULTI-STEP saddle-to-saddle staircase (the loss steps down to
@@ -5258,7 +5279,7 @@ const SEC = {};
 // the surrogate materializes the full M×p Jacobian (M = nsamp·out_dim) for a whole window, so the
 // CIFAR/sorting presets use modest sample counts to stay fast and within GPU memory.
 const CMP_BASE = { c1:1, c2:1, c3:1, c4:1, c5:1, c6:1, c7:0, c8:1, c9:1, eigevery:1, every_iter:20, slqprobes:3,
-  qmode:1, tset:3, seed:0, tgt:1.0, inputstd:1.0, ssign:'off', bias:'0', neig:3, loss:'mse', initscheme:'default',
+  qmode:1, tset:3, seed:0, tgt:1.0, inputstd:1.0, ssign:'off', bias:'1', neig:3, loss:'mse', initscheme:'default',
   chmul:0.25, dmodel:64, nhead:4, nlayer:2, seqlen:16 };
 // The model + optimisation hyperparameters here are kept IDENTICAL to the matching main-widget PRESETS
 // (depth/width/act/lr/init/steps/nsamp/arch knobs) so a given preset is the *same run* in the main
@@ -5266,13 +5287,13 @@ const CMP_BASE = { c1:1, c2:1, c3:1, c4:1, c5:1, c6:1, c7:0, c8:1, c9:1, eigever
 const CMP_PRESETS = {
   // Kept IDENTICAL to the main-widget PRESETS — same names, same hyperparameter values — so a given preset
   // is the same run in §1 and in the surrogate sections (only the surrogate-specific c1–c9 / every_iter differ).
-  linear:   { ...CMP_BASE, dataset:'anglepair', arch:'mlp', loss:'mse', depth:4, width:100, act:'linear', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:1, angle:90, norm1:1, norm2:1, lab1:1, lab2:-1, lr:0.3, init:0.1, steps:400, eigevery:1, neig:3, slqprobes:4 },
-  msample:  { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:10, lr:0.3, init:0.1, steps:800, eigevery:1, neig:3, slqprobes:4 },
-  gpu_run:  { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:25, lr:0.5, init:0.1, steps:2000, eigevery:1, neig:3, slqprobes:4 },
-  gpu_const:{ ...CMP_BASE, dataset:'const',     arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:25, lr:0.2, init:0.2, steps:2000, eigevery:1, neig:3, slqprobes:4, cvar:0 },
-  cifar_mlp:{ ...CMP_BASE, dataset:'cifar10', arch:'mlp', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.02, init:0.5, steps:300, eigevery:2, chmul:0.25 },
-  cifar_cnn:{ ...CMP_BASE, dataset:'cifar10', arch:'cnn', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.05, init:0.5, steps:300, eigevery:2, chmul:1.0 },
-  cifar_vgg:{ ...CMP_BASE, dataset:'cifar10', arch:'vgg11', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.05, init:0.5, steps:300, eigevery:2, chmul:0.25 },
+  linear:   { ...CMP_BASE, dataset:'anglepair', arch:'mlp', loss:'mse', depth:4, width:100, act:'linear', bias:'1', fixedx:'0', indim:10, outdim:1, nsamp:1, angle:90, norm1:1, norm2:1, lab1:1, lab2:-1, lr:0.3, init:0.1, steps:400, eigevery:1, neig:3, slqprobes:4 },
+  msample:  { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'1', fixedx:'0', indim:10, outdim:1, nsamp:10, lr:0.3, init:0.1, steps:800, eigevery:1, neig:3, slqprobes:4 },
+  gpu_run:  { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'1', fixedx:'0', indim:10, outdim:1, nsamp:25, lr:0.5, init:0.1, steps:2000, eigevery:1, neig:3, slqprobes:4 },
+  gpu_const:{ ...CMP_BASE, dataset:'const',     arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'1', fixedx:'0', indim:10, outdim:1, nsamp:25, lr:0.2, init:0.2, steps:2000, eigevery:1, neig:3, slqprobes:4, cvar:0 },
+  cifar_mlp:{ ...CMP_BASE, dataset:'cifar10', arch:'mlp', loss:'mse', depth:2, width:128, act:'tanh', bias:'1', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.02, init:0.5, steps:300, eigevery:2, chmul:0.25 },
+  cifar_cnn:{ ...CMP_BASE, dataset:'cifar10', arch:'cnn', loss:'mse', depth:2, width:128, act:'tanh', bias:'1', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.05, init:0.5, steps:300, eigevery:2, chmul:1.0 },
+  cifar_vgg:{ ...CMP_BASE, dataset:'cifar10', arch:'vgg11', loss:'mse', depth:2, width:128, act:'tanh', bias:'1', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.05, init:0.5, steps:300, eigevery:2, chmul:0.25 },
   chebyshev:{ ...CMP_BASE, dataset:'chebyshev', arch:'mlp', loss:'mse', depth:6, width:50, act:'tanh', bias:'1', fixedx:'0', indim:1, outdim:1, nsamp:20, degree:3, lr:0.1, init:0.5, steps:5000, slqprobes:4 },
   chebyshev2:{ ...CMP_BASE, dataset:'chebyshev2', arch:'mlp', loss:'mse', depth:6, width:50, act:'tanh', bias:'1', fixedx:'0', indim:1, outdim:1, nsamp:20, degree:3, lr:0.1, init:0.5, steps:5000, slqprobes:4 },
 };

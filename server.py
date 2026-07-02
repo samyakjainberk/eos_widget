@@ -3732,16 +3732,19 @@ def run_stream(P):
                         nadv = (p3m["buf"][j + 1][0] - p3m["buf"][j][0]) if j + 1 < len(p3m["buf"]) else max(1, ee)   # buffer points are eigevery GD-steps apart → advance that many (not 1); last point → ee to hand off to the ongoing per-tick advance
                         for _ in range(max(1, nadv)):
                             rth, r2th, r3th, J3th, sc3 = _adv3m(J0s, th0s, rth, r2th, r3th, J3th, sc3)
-                    p3m["th"][0] = {"J": J0s, "th": th0s, "r": rth, "r2": r2th, "r3": r3th, "J3": J3th, "sc3": sc3}; backfill = bf
+                    p3m["th"][0] = {"J": J0s, "th": th0s, "r": rth, "r2": r2th, "r3": r3th, "J3": J3th, "sc3": sc3, "anchor_t": t}; backfill = bf
                 for k in (1, 2):                                                 # theory-1/2 (t*+10, t*+20): freeze when the run reaches them
                     if p3_tstar is not None and p3m["th"][k] is None and t >= p3_tstar + offs[k]:   # >= (not ==): eigevery>1 skips the exact offset tick, so freeze at the first tick past t*+off
                         p3m["th"][k] = {"J": Jm3.detach().clone(), "th": th.detach().clone(), "r": rm3.detach().clone(),
-                                        "r2": rm3.detach().clone(), "r3": rm3.detach().clone(), "J3": Jm3.detach().clone(), "sc3": 0}
+                                        "r2": rm3.detach().clone(), "r3": rm3.detach().clone(), "J3": Jm3.detach().clone(), "sc3": 0, "anchor_t": t}
                 thy = [None, None, None]; thy2 = [None, None, None]; thy3 = [None, None, None]
                 for k in range(3):
                     if p3m["th"][k] is None or (k == 0 and backfill is not None):
                         continue                                                 # skip theory-0's single emit on the back-fill tick (the batch covers it)
                     d = p3m["th"][k]
+                    if p3rep > 0 and d.get("anchor_t") is not None and t >= d["anchor_t"] + p3rep:   # ★ repeat_iter: RE-anchor this frozen theory from the LIVE run every p3rep iters so the multi-freeze plot ALSO shows the periodic reset
+                        d["r"] = rm3.detach().clone(); d["r2"] = rm3.detach().clone(); d["r3"] = rm3.detach().clone()
+                        d["J"] = Jm3.detach().clone(); d["J3"] = Jm3.detach().clone(); d["th"] = th.detach().clone(); d["sc3"] = 0; d["anchor_t"] = t
                     thy[k] = float(d["r"].norm()); thy2[k] = float(d["r2"].norm()); thy3[k] = float(d["r3"].norm())
                     for _ in range(max(1, ee)):
                         d["r"], d["r2"], d["r3"], d["J3"], d["sc3"] = _adv3m(d["J"], d["th"], d["r"], d["r2"], d["r3"], d["J3"], d["sc3"])
@@ -3802,9 +3805,9 @@ def run_stream(P):
             if s37 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 Jm4m = Jc[:M]
                 if p4m is None:
-                    p4m = [{"tf": p4t0 - 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "f0": None, "qsc": 0},
-                           {"tf": p4t0 + 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "f0": None, "qsc": 0},
-                           {"tf": p4t0 + 20, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "f0": None, "qsc": 0}]
+                    p4m = [{"tf": p4t0 - 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "f0": None, "qsc": 0, "anchor_t": None},
+                           {"tf": p4t0 + 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "f0": None, "qsc": 0, "anchor_t": None},
+                           {"tf": p4t0 + 20, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "f0": None, "qsc": 0, "anchor_t": None}]
                 K5m = min(3, M)                                                   # top-3
                 try:
                     Wam = _safe_eigvalsh(Jm4m @ Jm4m.t()); ka4m = [max(0.0, float(Wam[-1 - i])) for i in range(K5m)]
@@ -3812,11 +3815,13 @@ def run_stream(P):
                     ka4m = None
                 kpm = [None, None, None]; kpmE = [None, None, None]
                 for fi4, fz in enumerate(p4m):
-                    if fz["tf"] >= 0 and t == fz["tf"] and fz["J"] is None:        # freeze M_r (θ, J, residual) at this offset iteration
+                    if (fz["tf"] >= 0 and t >= fz["tf"] and fz["J"] is None) or \
+                       (fz["J"] is not None and p4rep > 0 and fz["anchor_t"] is not None and t >= fz["anchor_t"] + p4rep):   # freeze M_r (θ, J, residual) at this offset iteration (>= so eigevery>1 can't skip the exact tick), then ★ repeat_iter: RE-anchor from the LIVE run every p4rep iters (so this multi-freeze plot ALSO shows the periodic reset, not just prediction-4's main plot)
                         fz["J"] = Jm4m.detach().clone(); fz["th0"] = th.detach().clone(); fz["r0"] = rr[:M].reshape(N, outD).detach().clone()
                         fz["Je"] = Jm4m.detach().clone(); fz["re"] = rr[:M].detach().clone()   # evolving-Qr seed
                         fz["the"] = th.detach().clone(); fz["thQ"] = th.detach().clone(); fz["qsc"] = 0   # self-computed θ̂ + θ for Q eval (refreshed every s)
                         fz["f0"] = (Y.reshape(-1)[:M] - rr[:M]).detach().clone()   # f(θ_freeze) for the bounded quadratic self-residual
+                        fz["anchor_t"] = t
                     if fz["J"] is not None:
                         try:
                             Wpm = _safe_eigvalsh(fz["J"] @ fz["J"].t()); kpm[fi4] = [max(0.0, float(Wpm[-1 - i])) for i in range(K5m)]
