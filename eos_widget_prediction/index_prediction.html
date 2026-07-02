@@ -3469,7 +3469,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   // ★ prediction-1 & 2 sweep scatter plots (populated by startSweep from /run?mode=sweep)
   {const L=baseLayout('Prediction-1 — predicted vs actual (jrd−jdr) sign-change t*','actual t* (iters)',false);L.xaxis.title='predicted t*';L.showlegend=false;L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
    newP('p_sw1',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:[],line:{color:'#1e293b',width:0.5}}},{x:[0,1],y:[0,1],mode:'lines',line:{color:'#94a3b8',dash:'dot',width:1},hoverinfo:'skip'}],L);}
-  {const L=baseLayout('Prediction-2 — start (jrd−jdr) vs peak d²loss/dt²  (Pearson r = —)','peak d²loss/dt² (signed)',false);L.xaxis.title='(jrd−jdr) at t=0';L.showlegend=false;L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
+  {const L=baseLayout('Prediction-2 — sign(d=jrd−jdr) vs sign(peak d²loss/dt²)  (Pearson r = —)','sign(peak d²loss/dt²)',false);L.xaxis.title='sign(d = jrd−jdr) at t=0';L.showlegend=false;L.xaxis.range=[-1.8,1.8];L.yaxis.range=[-1.8,1.8];L.xaxis.tickmode='array';L.xaxis.tickvals=[-1,1];L.yaxis.tickmode='array';L.yaxis.tickvals=[-1,1];L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
    newP('p_sw2',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:'#7c3aed',line:{color:'#1e293b',width:0.5}}}],L);}
   attachHover();
   resizeAllPlots();
@@ -4758,7 +4758,7 @@ window.addEventListener('load',()=>{try{
 }catch(e){}});
 // ★ prediction-1 & 2 sweep: stream (lr,std) pairs from /run?mode=sweep and scatter them live
 let SWEEP_ES=null, SWEEP_N=0, SWEEP_STEPS=100;
-const SW1={x:[],y:[],text:[],col:[]}, SW2={x:[],y:[]};
+const SW1={x:[],y:[],text:[],col:[]}, SW2={x:[],y:[],jx:[],jy:[]};
 function sweepPearson(){const xs=[],ys=[];for(let i=0;i<SW2.x.length;i++){if(isFinite(SW2.x[i])&&isFinite(SW2.y[i])){xs.push(SW2.x[i]);ys.push(SW2.y[i]);}}
   const n=xs.length;if(n<2)return NaN;   // skip diverged/non-finite pairs so one bad point can't poison r
   let mx=0,my=0;for(let i=0;i<n;i++){mx+=xs[i];my+=ys[i];}mx/=n;my/=n;
@@ -4768,17 +4768,17 @@ function addSweepPt(m){
   SW1.x.push(m.tPred);SW1.y.push(m.tAct);
   SW1.text.push('lr='+(+m.lr).toPrecision(2)+'  σ='+(+m.std).toPrecision(2));
   SW1.col.push((m.censA||m.censP)?'#ef4444':'#2563eb');
-  SW2.x.push(m.startDiff);SW2.y.push(m.curv);
+  {const sx=(m.startDiff<0?-1:1),sy=(m.curv<0?-1:1);SW2.x.push(sx);SW2.y.push(sy);SW2.jx.push(sx+(Math.random()-0.5)*0.44);SW2.jy.push(sy+(Math.random()-0.5)*0.44);}   // ±1 sign of d and of curvature
   Plotly.restyle('p_sw1',{x:[SW1.x],y:[SW1.y],text:[SW1.text],'marker.color':[SW1.col]},[0]);
   const mx=Math.max(SWEEP_STEPS,Math.max.apply(null,SW1.x.concat(SW1.y).concat([1])));
   Plotly.restyle('p_sw1',{x:[[0,mx]],y:[[0,mx]]},[1]);            // y=x reference line
-  Plotly.restyle('p_sw2',{x:[SW2.x],y:[SW2.y],text:[SW1.text]},[0]);   // same lr/σ labels as Prediction-1
+  Plotly.restyle('p_sw2',{x:[SW2.jx],y:[SW2.jy],text:[SW1.text]},[0]);   // jittered ±1 signs; same lr/σ labels
   const r=sweepPearson();
-  try{Plotly.relayout('p_sw2',{'title.text':'Prediction-2 — start (jrd−jdr) vs peak d²loss/dt²  (Pearson r = '+(isFinite(r)?r.toFixed(3):'—')+')'});}catch(e){}
+  try{Plotly.relayout('p_sw2',{'title.text':'Prediction-2 — sign(d=jrd−jdr) vs sign(peak d²loss/dt²)  (Pearson r = '+(isFinite(r)?r.toFixed(3):'—')+')'});}catch(e){}
 }
 function startSweep(){
   if(SWEEP_ES){SWEEP_ES.close();SWEEP_ES=null;}
-  SW1.x.length=SW1.y.length=SW1.text.length=SW1.col.length=0; SW2.x.length=SW2.y.length=0;
+  SW1.x.length=SW1.y.length=SW1.text.length=SW1.col.length=0; SW2.x.length=SW2.y.length=SW2.jx.length=SW2.jy.length=0;
   try{Plotly.restyle('p_sw1',{x:[[]],y:[[]],text:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw2',{x:[[]],y:[[]],text:[[]]},[0]);}catch(e){}
   try{Plotly.relayout('p_sw1',{annotations:[]});Plotly.relayout('p_sw2',{annotations:[]});}catch(e){}   // drop the "click Run sweep" placeholder once the sweep starts
   const st=document.getElementById('sweepstatus'); if(st)st.textContent='starting…';
