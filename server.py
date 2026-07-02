@@ -5007,14 +5007,20 @@ def _first_signchange(diffs, cap):
     return cap, True
 
 
-def _fit_quad_coeff(ys):
-    """Curvature = the t² coefficient a of the least-squares fit loss(t) ≈ a·t² + b·t + c."""
-    import numpy as _np
+def _max_abs_curvature(ys):
+    """Prediction-2 curvature: the second time-derivative of the loss, d²loss/dt², computed as the
+    discrete central 2nd difference L[t+1]−2L[t]+L[t−1] (unit time step) over the loss series; return the
+    single value of LARGEST ABSOLUTE magnitude, keeping its sign. (Replaces the old least-squares t²-coefficient
+    fit: no curve fitting — the reported number is the peak signed curvature the loss actually reaches.)"""
     n = len(ys)
     if n < 3:
         return 0.0
-    a = _np.polyfit(_np.arange(n, dtype=_np.float64), _np.asarray(ys, dtype=_np.float64), 2)[0]
-    return float(a)
+    best = 0.0
+    for t in range(1, n - 1):
+        d2 = float(ys[t + 1]) - 2.0 * float(ys[t]) + float(ys[t - 1])
+        if abs(d2) > abs(best):
+            best = d2
+    return float(best)
 
 
 def _pred_signchange(th_start, X, Y, N, outD, p, lr, K, max_steps):
@@ -5069,7 +5075,7 @@ def run_sweep(P):
       tAct  = first step d changes sign (censored at `steps` if none),
       tPred = the same sign-change PREDICTED from θ(Tstart) via cubic Eq-51 (§10) with the quad model
               refrozen every K steps (censored),
-      startDiff = d at step 0,  curv = the t² coefficient of the fit loss(t)≈a t²+b t+c.
+      startDiff = d at step 0,  curv = peak signed d²loss/dt² (the max-|·| central 2nd difference of loss(t)).
     Streams one point per pair on the fly (may be slow; the page plots as they arrive). Prediction widget only."""
     dataset = P.get("dataset", "synthetic"); arch = P.get("arch", "mlp")
     if dataset in ("chebyshev", "chebyshev2"):
@@ -5131,7 +5137,7 @@ def run_sweep(P):
             tPred = tPredRel + Tstart
         else:
             tPred, censP = steps, True
-        curv = _fit_quad_coeff(losses)                 # fitted on the finite prefix only
+        curv = _max_abs_curvature(losses)              # peak signed d²loss/dt² over the finite prefix
         yield {"type": "sweeppt", "i": pi, "lr": float(lr), "std": float(std),
                "tAct": tAct, "censA": censA or diverged, "tPred": tPred, "censP": censP,
                "startDiff": (diffs[0] if diffs else 0.0),

@@ -347,7 +347,7 @@
   <label>T_start&nbsp;<input id="swTstart" value="0" style="width:46px"></label>
   <span id="sweepstatus" style="color:#6b7280"></span>
 </div>
-<p class="cap">Each pair runs a full-batch GD training (config below, but with that pair's lr &amp; init-std). <b>Prediction-1 (left):</b> the iteration $t^{\star}$ at which $d=\lVert J\dot r\rVert-\lVert\dot J r\rVert$ (jrd−jdr) first changes sign — <b>actual (y)</b> vs. <b>predicted (x)</b>. The prediction runs the cubic Eq-51 (§10) trajectory from $\theta(T_{\rm start})$ with the quadratic model <b>refrozen every K</b> steps, and reports its first predicted sign-change; points on the dotted $y=x$ line are perfect. Each point is labelled with its lr &amp; init-std; <b style="color:#ef4444">red</b> = censored (no sign-change within the run). <b>Prediction-2 (right):</b> $d$ at the <b>start</b> of training vs. the loss curve's <b>curvature</b> (the $t^2$ coefficient of loss(t)) — a strong Pearson correlation would confirm that early $(\lVert J\dot r\rVert-\lVert\dot J r\rVert)$ predicts loss concavity/convexity. Points stream in as each pair finishes (it can be slow).</p>
+<p class="cap">Each pair runs a full-batch GD training (config below, but with that pair's lr &amp; init-std). <b>Prediction-1 (left):</b> the iteration $t^{\star}$ at which $d=\lVert J\dot r\rVert-\lVert\dot J r\rVert$ (jrd−jdr) first changes sign — <b>actual (y)</b> vs. <b>predicted (x)</b>. The prediction runs the cubic Eq-51 (§10) trajectory from $\theta(T_{\rm start})$ with the quadratic model <b>refrozen every K</b> steps, and reports its first predicted sign-change; points on the dotted $y=x$ line are perfect. Each point is labelled with its lr &amp; init-std; <b style="color:#ef4444">red</b> = censored (no sign-change within the run). <b>Prediction-2 (right):</b> $d$ at the <b>start</b> of training vs. the loss curve's <b>peak second time-derivative</b> — the value of $d^2\mathrm{loss}/dt^2$ (discrete central 2nd difference $L_{t+1}-2L_t+L_{t-1}$) with the <b>largest absolute magnitude</b> over the run, kept <b>with its sign</b> (no curve fitting). A strong Pearson correlation would confirm that early $(\lVert J\dot r\rVert-\lVert\dot J r\rVert)$ predicts loss concavity/convexity. Points stream in as each pair finishes (it can be slow).</p>
 <div class="plotrow row2"><div id="p_sw1" class="plot" style="height:380px"></div><div id="p_sw2" class="plot" style="height:380px"></div></div>
 </div>
 
@@ -493,7 +493,7 @@
 
 <div id="sec_s21" style="display:none">
 <h2>5 · residual ↔ spectrum alignment — NTK eigenvectors &amp; $M_r=\sum_k r_kQ_k$ eigenvectors</h2>
-<p class="cap"><b>What this shows:</b> how the <b>residual</b> $r$ and the <b>residual-contracted gradient</b> $J\!\cdot\!r=\sum_k r_k\nabla f_k$ align with the leading directions of three operators, evolving over training (drag the slider). Each panel projects one vector onto one operator's eigenvectors, four ways: the bare cosine $|\langle\cdot\rangle|/\lVert\cdot\rVert$, the raw inner product $|\langle\cdot\rangle|$, and each of those scaled by the eigenvalue. On the two eigenvalue-weighted plots a <b>grey bar</b> shows the bare eigenvalue behind the coloured one. x-axis = eigenvalue rank (topmost → bottommost).
+<p class="cap"><b>What this shows:</b> how the <b>residual</b> $r$ and the <b>residual-contracted gradient</b> $J\!\cdot\!r=\sum_k r_k\nabla f_k$ align with the leading directions of two operators, evolving over training (drag the slider). Each panel projects one vector onto one operator's eigenvectors, four ways: the bare cosine $|\langle\cdot\rangle|/\lVert\cdot\rVert$, the raw inner product $|\langle\cdot\rangle|$, and each of those scaled by the eigenvalue. On the two eigenvalue-weighted plots a <b>grey bar</b> shows the bare eigenvalue behind the coloured one. x-axis = eigenvalue rank (topmost → bottommost).
 <br><b>Panel 1</b> — the residual $r$ onto the top-$K$ <b>NTK</b> ($K=JJ^\top$) eigenvectors $v_i$ (eigenvalue $\sigma_i\div N$).
 <br><b>Panel 2</b> — $J\!\cdot\!r$ onto the top-$K$ ⊕ bottom-$K$ eigenvectors $u_i$ of $M_r=\tfrac1N\sum_k r_kQ_k$ (signed eigenvalue $\lambda_i$, $\div N$ as §20).
 <br>Small $N$; $K$ in the toggle box. <span style="color:#94a3b8">(Panel 1 needs $\ge K$ samples for a full top-$K$ NTK — use a multi-sample preset.)</span></p>
@@ -3445,7 +3445,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   // ★ prediction-1 & 2 sweep scatter plots (populated by startSweep from /run?mode=sweep)
   {const L=baseLayout('Prediction-1 — predicted vs actual (jrd−jdr) sign-change t*','actual t* (iters)',false);L.xaxis.title='predicted t*';L.showlegend=false;L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
    newP('p_sw1',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:[],line:{color:'#1e293b',width:0.5}}},{x:[0,1],y:[0,1],mode:'lines',line:{color:'#94a3b8',dash:'dot',width:1},hoverinfo:'skip'}],L);}
-  {const L=baseLayout('Prediction-2 — start (jrd−jdr) vs loss curvature  (Pearson r = —)','loss curvature (t² coef)',false);L.xaxis.title='(jrd−jdr) at t=0';L.showlegend=false;L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
+  {const L=baseLayout('Prediction-2 — start (jrd−jdr) vs peak d²loss/dt²  (Pearson r = —)','peak d²loss/dt² (signed)',false);L.xaxis.title='(jrd−jdr) at t=0';L.showlegend=false;L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
    newP('p_sw2',[{x:[],y:[],mode:'markers',type:'scatter',marker:{size:9,color:'#7c3aed',line:{color:'#1e293b',width:0.5}}}],L);}
   attachHover();
   resizeAllPlots();
@@ -4734,7 +4734,7 @@ function addSweepPt(m){
   Plotly.restyle('p_sw1',{x:[[0,mx]],y:[[0,mx]]},[1]);            // y=x reference line
   Plotly.restyle('p_sw2',{x:[SW2.x],y:[SW2.y]},[0]);
   const r=sweepPearson();
-  try{Plotly.relayout('p_sw2',{'title.text':'Prediction-2 — start (jrd−jdr) vs loss curvature  (Pearson r = '+(isFinite(r)?r.toFixed(3):'—')+')'});}catch(e){}
+  try{Plotly.relayout('p_sw2',{'title.text':'Prediction-2 — start (jrd−jdr) vs peak d²loss/dt²  (Pearson r = '+(isFinite(r)?r.toFixed(3):'—')+')'});}catch(e){}
 }
 function startSweep(){
   if(SWEEP_ES){SWEEP_ES.close();SWEEP_ES=null;}
