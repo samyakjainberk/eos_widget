@@ -5294,7 +5294,7 @@ const CMP_PRESETS = {
   // is the same run in §1 and in the surrogate sections (only the surrogate-specific c1–c9 / every_iter differ).
   linear:   { ...CMP_BASE, dataset:'anglepair', arch:'mlp', loss:'mse', depth:4, width:100, act:'linear', bias:'1', fixedx:'0', indim:10, outdim:1, nsamp:1, angle:90, norm1:1, norm2:1, lab1:1, lab2:-1, lr:0.3, init:0.1, steps:400, eigevery:1, neig:3, slqprobes:4 },
   msample:  { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'1', fixedx:'0', indim:10, outdim:1, nsamp:10, lr:0.3, init:0.1, steps:800, eigevery:1, neig:3, slqprobes:4 },
-  gpu_run:  { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'1', fixedx:'0', indim:10, outdim:1, nsamp:25, lr:0.5, init:0.1, steps:2000, eigevery:1, neig:3, slqprobes:4 },
+  gpu_run:  { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'1', fixedx:'0', indim:10, outdim:1, nsamp:25, lr:0.2, init:0.2, steps:2000, eigevery:1, neig:3, slqprobes:4 },
   gpu_const:{ ...CMP_BASE, dataset:'const',     arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'1', fixedx:'0', indim:10, outdim:1, nsamp:25, lr:0.2, init:0.2, steps:2000, eigevery:1, neig:3, slqprobes:4, cvar:0 },
   cifar_mlp:{ ...CMP_BASE, dataset:'cifar10', arch:'mlp', loss:'mse', depth:2, width:128, act:'tanh', bias:'1', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.02, init:0.5, steps:300, eigevery:2, chmul:0.25 },
   cifar_cnn:{ ...CMP_BASE, dataset:'cifar10', arch:'cnn', loss:'mse', depth:2, width:128, act:'tanh', bias:'1', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.05, init:0.5, steps:300, eigevery:2, chmul:1.0 },
