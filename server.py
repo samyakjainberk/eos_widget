@@ -3262,6 +3262,8 @@ def run_stream(P):
     p4t0 = max(0, int(P.get("p4t0", 10)))   # prediction-4: iteration t0 at which the function-Hessian Q & residual are frozen
     p4s = max(1, int(P.get("p4s", 10)))   # prediction-4: re-anchor interval s for the EVOLVING-residual variant (residual re-anchored to actual every s steps)
     p3k = max(1, int(P.get("p3k", 10)))   # prediction-3: evolving-Jacobian theory — update J3 every p3k steps
+    p3rep = max(0, int(P.get("p3rep", 100)))   # prediction-3: re-anchor ALL theories from the live run every p3rep iters (0 = never; freeze once at t*)
+    p4rep = max(0, int(P.get("p4rep", 100)))   # prediction-4: re-anchor frozen+evolving from the live run every p4rep iters (0 = never; freeze once at t0)
     s38 = P.get("s38", 0)                # prediction-5: trace-statistic prediction Tr(NTK) (quad/cubic × live/self, ±PSD) vs Tr(∇²L) & Tr(JᵀJ) (prediction widget)
     p5t0 = max(0, int(P.get("p5t0", 10)))   # prediction-5: iteration t0 at which Q, residual & J are frozen for the trace propagation
     stat_init = max(0, int(P.get("stat_init", 0)))   # prediction 5.1/5.2: iteration AFTER which the theoretical forecasts begin (0 = from the start)
@@ -3345,9 +3347,11 @@ def run_stream(P):
     sec27_last_t = None        # §27: last stepped iteration index (for the end-of-run flush of the trailing 50)
     p3_prev_sign = None; p3_tstar = None; p3_Jstar = None; p3_rtheory = None   # prediction-3: (jrd−jdr) sign tracker, sign-change t*, frozen J(t*), linear-theory residual
     p3_thstar = None; p3_r2 = None   # prediction-3: frozen θ(t*) (for Q*) + 2nd-order theory residual r₂
+    p3_anchor_t = None   # prediction-3: iteration of the last live re-anchor (repeat_iter); re-seed all theories from the live run every p3rep iters
     p3_J3 = None; p3_r3 = None; p3_j3sc = 0   # prediction-3: EVOLVING-Jacobian theory (STABLE & fully self-contained) — r3 decays via the PSD NTK J3J3ᵀ (monotone, bounded); J3 grows via the throttled frozen-Q* contraction M_r=Σ_k r3_k Q*_k every p3k steps (throttle keeps ‖J3‖ below the EoS threshold ⇒ no blow-up)
     p3m = None   # prediction-3 MULTI-FREEZE panel: rolling (t,J,r,‖r‖) buffer + 3 frozen-J residual theories (t*-10/+10/+20)
     p4_J = None; p4_th0 = None; p4_r0 = None   # prediction-4: frozen J(t0), θ(t0), residual(t0) for the frozen-M_r Jacobian propagation
+    p4_anchor_t = None   # prediction-4: iteration of the last live re-anchor (repeat_iter); re-seed frozen+evolving from the live run every p4rep iters
     p4_Je = None; p4_re = None; p4_the = None; p4_thQ = None; p4_f0 = None; p4_qsc = 0   # prediction-4: EVOLVING-Qr variant — propagated Ĵ, r̂ (BOUNDED quadratic self-residual), self-computed θ̂, frozen f(θ0); Q re-evaluated at θ̂ every s steps (nothing from the live run)
     p4m = None   # prediction-4 MULTI-FREEZE panel: 3 frozen-M_r states at t0-10/+10/+20
     tr5 = None                                 # prediction-5: frozen state {θ0,J0,f0,Yf,tr0,traj[4]} for the trace-statistic propagation
@@ -3671,6 +3675,12 @@ def run_stream(P):
                     p3_tstar = t; p3_Jstar = Jm3.detach().clone(); p3_rtheory = rm3.detach().clone()   # freeze J*, seed r_theory = r(t*)
                     p3_thstar = th.detach().clone(); p3_r2 = rm3.detach().clone()   # 2nd-order theory: freeze θ* (for Q*) and seed r₂ = r(t*)
                     p3_J3 = Jm3.detach().clone(); p3_r3 = rm3.detach().clone(); p3_j3sc = 0   # evolving-J theory: seed J3=J(t*), r3=r(t*)
+                    p3_anchor_t = t
+                elif p3_tstar is not None and p3rep > 0 and p3_anchor_t is not None and t >= p3_anchor_t + p3rep:   # ★ repeat_iter: RE-anchor ALL theories from the LIVE run every p3rep iters, then predict the next p3rep
+                    p3_Jstar = Jm3.detach().clone(); p3_rtheory = rm3.detach().clone()
+                    p3_thstar = th.detach().clone(); p3_r2 = rm3.detach().clone()
+                    p3_J3 = Jm3.detach().clone(); p3_r3 = rm3.detach().clone(); p3_j3sc = 0
+                    p3_anchor_t = t
                 if sgn3 != 0:
                     p3_prev_sign = sgn3
                 if p3_tstar is not None:
@@ -3744,11 +3754,12 @@ def run_stream(P):
             g_pred4 = None
             if s37 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 Jm4 = Jc[:M]
-                if p4_J is None and t >= p4t0:                                   # freeze Q & residual at t0
+                if (p4_J is None and t >= p4t0) or (p4_J is not None and p4rep > 0 and p4_anchor_t is not None and t >= p4_anchor_t + p4rep):   # freeze Q & residual at t0, then ★ repeat_iter: RE-anchor from the LIVE run every p4rep iters
                     p4_J = Jm4.detach().clone(); p4_th0 = th.detach().clone(); p4_r0 = rr[:M].reshape(N, outD).detach().clone()
                     p4_Je = Jm4.detach().clone(); p4_re = rr[:M].detach().clone()   # EVOLVING-Qr: seed Ĵ, r̂
                     p4_the = th.detach().clone(); p4_thQ = th.detach().clone(); p4_qsc = 0   # self-computed θ̂ (GD-propagated) + θ at which Q is evaluated (refreshed every s steps)
                     p4_f0 = (Y.reshape(-1)[:M] - rr[:M]).detach().clone()         # f(θ0) — anchor for the BOUNDED quadratic self-residual r̂=Y−(f0+J0Δθ̂+½Δθ̂ᵀQ0Δθ̂)
+                    p4_anchor_t = t
                 if p4_J is not None:
                     K4 = min(3, M); K5 = min(3, M)                                # top-3 everywhere
                     try:                                                          # eigh → eigenvalues AND eigenvectors (top-3 for the cosine plots)
@@ -3778,8 +3789,10 @@ def run_stream(P):
                         if torch.isfinite(p4_J).all():
                             MrJ = torch.stack([hvpS(p4_th0, X, p4_J[k], p4_r0) for k in range(M)])   # frozen M_r·J rows (M,p), Q & r frozen at t0
                             p4_J = p4_J + (lr / max(N, 1)) * MrJ                  # advance frozen-residual predicted J for the NEXT step
-                        if torch.isfinite(p4_Je).all() and torch.isfinite(p4_re).all():   # EVOLVING-Qr (STABLE & FULLY self-contained — only the t0 anchor + targets; NO live-run state): r̂ decays via the PSD NTK ĴĴᵀ (monotone, bounded); Ĵ grows via the THROTTLED frozen-Q0 contraction M_r=Σ_k r̂_k Q0_k every s steps (throttle keeps ‖Ĵ‖ below the EoS threshold ⇒ no blow-up)
-                            p4_re = p4_re - (lr / max(N, 1)) * (p4_Je @ (p4_Je.t() @ p4_re))   # r̂ ← (I−(η/N)ĴĴᵀ)r̂
+                        if torch.isfinite(p4_Je).all() and torch.isfinite(p4_re).all():   # EVOLVING-Qr (self-contained: only the anchor + targets; re-anchored to the live run every p4rep): r̂ decays via the PSD NTK ĴĴᵀ; Ĵ grows via the THROTTLED frozen-Q0 contraction M_r=Σ_k r̂_k Q0_k every s steps
+                            lam_e = max(kPredE[0], 1e-12) if kPredE else 1e-12                 # λmax(ĴĴᵀ) from the eigendecomp above
+                            alpha_e = min(lr / max(N, 1), 1.9 / lam_e)                          # ★ CLAMP the residual-decay step so α·λmax(ĴĴᵀ)<2 ⇒ r̂ decays STABLY past EoS (can't overshoot/blow up), which stops the Ĵ co-explosion — keeps kPredE bounded for every config
+                            p4_re = p4_re - alpha_e * (p4_Je @ (p4_Je.t() @ p4_re))             # r̂ ← (I−α·ĴĴᵀ)r̂
                             p4_qsc += 1
                             if p4_qsc % p4s == 0:
                                 p4_Je = p4_Je + (lr / max(N, 1)) * torch.stack([hvpS(p4_th0, X, p4_Je[k], p4_re.reshape(N, outD)) for k in range(M)])
@@ -3814,8 +3827,10 @@ def run_stream(P):
                             if torch.isfinite(fz["J"]).all():
                                 MrJm = torch.stack([hvpS(fz["th0"], X, fz["J"][k], fz["r0"]) for k in range(M)])
                                 fz["J"] = fz["J"] + (lr / max(N, 1)) * MrJm
-                            if torch.isfinite(fz["Je"]).all() and torch.isfinite(fz["re"]).all():   # evolving-Qr (STABLE & fully self-contained): r̂ decays via the PSD NTK ĴĴᵀ; Ĵ grows via the throttled frozen-Q0 contraction every s steps
-                                fz["re"] = fz["re"] - (lr / max(N, 1)) * (fz["Je"] @ (fz["Je"].t() @ fz["re"]))
+                            if torch.isfinite(fz["Je"]).all() and torch.isfinite(fz["re"]).all():   # evolving-Qr: r̂ decays via the PSD NTK ĴĴᵀ (step CLAMPED so α·λmax<2 ⇒ bounded); Ĵ grows via the throttled frozen-Q0 contraction every s steps
+                                lam_e = max(kpmE[fi4][0], 1e-12) if kpmE[fi4] else 1e-12
+                                alpha_e = min(lr / max(N, 1), 1.9 / lam_e)   # ★ clamp ⇒ r̂ can't blow up past EoS ⇒ Ĵ stays bounded
+                                fz["re"] = fz["re"] - alpha_e * (fz["Je"] @ (fz["Je"].t() @ fz["re"]))
                                 fz["qsc"] += 1
                                 if fz["qsc"] % p4s == 0:
                                     fz["Je"] = fz["Je"] + (lr / max(N, 1)) * torch.stack([hvpS(fz["th0"], X, fz["Je"][k], fz["re"].reshape(N, outD)) for k in range(M)])
@@ -5089,6 +5104,7 @@ def _parse_params(q):
         "swpairs": fi("swpairs", 12), "swK": fi("swK", 20), "swTstart": fi("swTstart", 0),   # prediction-widget sweep (Sections 1&2)
         "swlrmin": ff("swlrmin", 0.0), "swlrmax": ff("swlrmax", 0.0),   # 0 ⇒ auto range (base lr ×[1/4,4])
         "swstdmin": ff("swstdmin", 0.0), "swstdmax": ff("swstdmax", 0.0),
+        "swsumn": fi("swsumn", 20), "swsumn2": fi("swsumn2", 20),   # prediction-2/2b: sum windows N / N₂ (must be in P so the query values reach run_sweep)
         "s1": g("s1", "1") == "1", "s2": g("s2", "1") == "1", "s3": g("s3", "1") == "1",
         "s4": g("s4", "1") == "1", "s5": g("s5", "1") == "1", "s6": g("s6", "1") == "1",
         "s7": g("s7", "1") == "1", "s8": g("s8", "1") == "1", "s9": g("s9", "1") == "1",
@@ -5130,6 +5146,8 @@ def _parse_params(q):
         "p4t0": fi("p4t0", 10),          # prediction-4: iteration t0 at which Q & residual are frozen
         "p4s": fi("p4s", 10),            # prediction-4: re-anchor interval s for the evolving-residual variant
         "p3k": fi("p3k", 10),            # prediction-3: evolving-Jacobian J-update interval
+        "p3rep": fi("p3rep", 100),       # prediction-3: live re-anchor interval (repeat_iter)
+        "p4rep": fi("p4rep", 100),       # prediction-4: live re-anchor interval (repeat_iter)
         "s38": g("s38", "0") == "1",     # prediction-5: trace-statistic Tr(NTK) prediction (prediction widget)
         "p5t0": fi("p5t0", 10), "evcubic": max(1, fi("evcubic", 25)),          # prediction-5: START iteration + cubic re-anchor window (quad uses qapprox)
         "stat_init": fi("stat_init", 0),   # prediction 5.1/5.2: iteration after which the theoretical forecasts begin
@@ -5278,7 +5296,8 @@ def run_sweep(P):
     npairs = max(1, min(200, int(P.get("swpairs", 12))))
     K = max(1, int(P.get("swK", 20)))
     Tstart = max(0, min(steps - 2, int(P.get("swTstart", 0))))
-    swcurvt = max(1, int(P.get("swcurvt", 40)))   # prediction-2: iteration t at which sign(d²loss/dt²) is read (exact, not the peak)
+    swsumn = max(1, int(P.get("swsumn", 20)))   # prediction-2: SUM d and d²loss/dt² over the first swsumn iterations (from 0), then take the signs
+    swsumn2 = max(1, int(P.get("swsumn2", 20)))   # prediction-2b: SUM d and ∇‖J‖ over the first swsumn2 iterations (from 0), then take the signs (own window; less noisy)
     seed0 = int(P.get("seed", 0))
     base_lr = float(P.get("lr", 0.1)); base_std = float(P.get("init", 0.5))
     _lrmn = float(P.get("swlrmin", 0) or 0); _lrmx = float(P.get("swlrmax", 0) or 0)          # 0 ⇒ auto (base±4×)
@@ -5317,19 +5336,17 @@ def run_sweep(P):
             tPred = tPredRel + Tstart
         else:
             tPred, censP = steps, True
-        curv = _max_abs_curvature(losses)              # peak signed d²loss/dt² over the finite prefix
-        curvT = _curvature_at(losses, swcurvt)         # signed d²loss/dt² AT iteration swcurvt (prediction-2 exact-iteration variant)
-        Wj = min(len(jnorms), 20)                       # prediction-2b: is ‖J‖ RISING (+1) or FALLING (−1) at the START of training?
-        if Wj >= 2:                                     #   compare the mean of the last vs first half of the first Wj steps
-            hj = max(1, Wj // 2)
-            jnormSign = 1 if (sum(jnorms[Wj - hj:Wj]) / hj) >= (sum(jnorms[:hj]) / hj) else -1
-        else:
-            jnormSign = 0
+        curv = _max_abs_curvature(losses)              # peak signed d²loss/dt² over the finite prefix (legacy)
+        sumD = float(sum(diffs[:swsumn]))              # prediction-2: Σ d = Σ(jrd−jdr) over the first swsumn iterations (from 0)
+        sumCurv = float(sum(_curvature_at(losses, tt) for tt in range(min(swsumn, len(losses)))))   # prediction-2: Σ d²loss/dt² over the first swsumn iterations (from 0)
+        sumD2 = float(sum(diffs[:swsumn2]))            # prediction-2b: Σ d over the first swsumn2 iterations (own window)
+        nj2 = min(swsumn2, len(jnorms) - 1)            # prediction-2b: Σ ∇‖J‖ over the first swsumn2 iters = Σ(‖J‖_{i+1}−‖J‖_i) = ‖J‖_{swsumn2} − ‖J‖_0 (telescoping) — how much ‖J‖ rose/fell overall
+        sumJgrad = float(sum(jnorms[i + 1] - jnorms[i] for i in range(nj2))) if nj2 >= 1 else 0.0
         yield {"type": "sweeppt", "i": pi, "lr": float(lr), "std": float(std),
                "tAct": tAct, "censA": censA or diverged, "tPred": tPred, "censP": censP,
-               "startDiff": (diffs[0] if diffs else 0.0),
-               "curv": (curv if curv == curv else 0.0), "curvT": (curvT if curvT == curvT else 0.0),
-               "swcurvt": swcurvt, "jnormSign": jnormSign, "diverged": diverged}
+               "sumD": (sumD if sumD == sumD else 0.0), "sumCurv": (sumCurv if sumCurv == sumCurv else 0.0),
+               "sumD2": (sumD2 if sumD2 == sumD2 else 0.0), "sumJgrad": (sumJgrad if sumJgrad == sumJgrad else 0.0),
+               "curv": (curv if curv == curv else 0.0), "swsumn": swsumn, "swsumn2": swsumn2, "diverged": diverged}
     yield {"type": "done"}
 
 
