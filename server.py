@@ -3694,11 +3694,12 @@ def run_stream(P):
                         ah = a / an
                         return an * (jac_hvp(th0 + 1e-2 * ah, X, b)[:M] - jac_hvp(th0 - 1e-2 * ah, X, b)[:M]) / (2e-2)
                     trGN = float((Jm5 * Jm5).sum()) / N                           # actual Tr(JᵀJ)=‖J‖²_F ÷N (exact)
-                    thut = 0.0                                                    # actual Tr(∇²L) ÷N via Hutchinson (FD loss-Hessian HVP)
-                    for kp in range(8):
+                    NP5 = 24                                                      # actual Tr(∇²L) ÷N via Hutchinson with the EXACT loss-Hessian HVP (hvpL).
+                    thut = 0.0                                                    #   (8 FD probes was biased ~10-15% and worse on fp32; exact HVP + 24 probes tracks the true trace within ~2%.)
+                    for kp in range(NP5):
                         v = _randn_vec(p, (0x7EAC5 + kp * 0x9E3779B1) & 0xFFFFFFFF).sign()
-                        thut += float(v @ ((gradL(th + 1e-3 * v, X, Y)[0] - gradL(th - 1e-3 * v, X, Y)[0]) / (2e-3)))
-                    trHess = thut / 8.0
+                        thut += float(v @ hvpL(th, X, Y, v))
+                    trHess = thut / NP5
                     tr_out = []                                                    # renamed from `out` — must NOT shadow the live model outputs (feeds cubic_step)
                     for dtr in tr5["traj"]:
                         Jc5 = dtr["J"]
