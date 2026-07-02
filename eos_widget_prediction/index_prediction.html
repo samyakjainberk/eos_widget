@@ -296,10 +296,13 @@
 <style>
   /* Prediction demo: §9/§9c/§9d-c/§10 predictions are COMPUTED (forced in currentQueryParams) to feed the
      panel below, but their multi-column detail sections are hidden so the demo stays focused on the forecast. */
-  #sec_9,#sec_12,#sec_9c,#sec_9dc,#sec_cubic,#sec_9d{display:none!important}
+  #sec_9,#sec_12,#sec_9c,#sec_9dc,#sec_cubic,#sec_9d,#sec_7a{display:none!important}
   /* Prediction widget: show ONLY prediction-relevant section toggles. The other en* checkboxes stay in the
      DOM (hidden here) so chk() / SEC_TOGGLE_MAP still resolve every id and the forced computations are unchanged. */
   .toggles label:has(#en4),.toggles label:has(#en5),.toggles label:has(#en6),.toggles label:has(#en7),.toggles label:has(#en8),.toggles label:has(#en9),.toggles label:has(#en10),.toggles label:has(#en11),.toggles label:has(#en12),.toggles label:has(#en13),.toggles label:has(#en14),.toggles label:has(#en15),.toggles label:has(#en16),.toggles label:has(#en17),.toggles label:has(#en18),.toggles label:has(#en19),.toggles label:has(#en20),.toggles label:has(#en21),.toggles label:has(#en22),.toggles label:has(#en23),.toggles label:has(#en24),.toggles label:has(#en25),.toggles label:has(#en26),.toggles label:has(#en27),.toggles label:has(#en28),.toggles label:has(#en30),.toggles label:has(#en31),.toggles label:has(#en32),.toggles label:has(#en33),.toggles label:has(#en34){display:none!important}
+  /* Prediction widget: hide config controls for sections that aren't shown here (§7/§8, §11-§17, §5 SLQ,
+     legacy). Kept in the DOM (display:none, not removed) so the unguarded val()/chk() still read their defaults. */
+  .controls .ctl:has(#heavyevery),.controls .ctl:has(#divreg),.controls .ctl:has(#s24warm),.controls .ctl:has(#s24iter),.controls .ctl:has(#s24grid),.controls .ctl:has(#s24ares),.controls .ctl:has(#s24k),.controls .ctl:has(#en24base),.controls .ctl:has(#en25base),.controls .ctl:has(#sec12ncap),.controls .ctl:has(#cubeevery),.controls .ctl:has(#slqprobes),.controls .ctl:has(#energyp),.controls .ctl:has(#qmode),.controls .ctl:has(#tset){display:none!important}
   #sec_pred{border:2px solid #7c3aed;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#faf7ff}
   #sec_pred h2{color:#6d28d9;margin-top:4px}
 </style>
@@ -4706,6 +4709,7 @@ function currentQueryParams(){   // the exact query-style param dict the backend
   for(const id of QUERY_IDS){const el=document.getElementById(id);if(el)o[id]=val(id);}
   for(const [k,id] of SEC_TOGGLE_MAP)o[k]=chk(id)?'1':'0';
   for(const k of ['s1','s2','s3','s12','s14','s16','s17','s29','s36','s37','s38'])o[k]='1';   // prediction demo: always compute §1/2/3 + §9/§9c/§9d-c/§10 + §21 + prediction-3/4/5 to feed the panels
+  o['s13']='0';   // §7a (NTK alignment) removed from the prediction widget — neither computed nor shown
   {const e=document.getElementById('p4t0');if(e)o['p4t0']=e.value||'10';}   // prediction-4 freeze iteration t0
   {const e=document.getElementById('p5t0');if(e)o['p5t0']=e.value||'10';}   // prediction-5 (trace) freeze iteration t0
   return o;
