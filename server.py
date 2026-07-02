@@ -3314,7 +3314,9 @@ def run_stream(P):
     sec27_prev = None          # §27: previous step's {r, J} for the discrete ṙ/J̇ gradient vectors
     sec27_last_t = None        # §27: last stepped iteration index (for the end-of-run flush of the trailing 50)
     p3_prev_sign = None; p3_tstar = None; p3_Jstar = None; p3_rtheory = None   # prediction-3: (jrd−jdr) sign tracker, sign-change t*, frozen J(t*), linear-theory residual
+    p3m = None   # prediction-3 MULTI-FREEZE panel: rolling (t,J,r,‖r‖) buffer + 3 frozen-J residual theories (t*-10/+10/+20)
     p4_J = None; p4_th0 = None; p4_r0 = None   # prediction-4: frozen J(t0), θ(t0), residual(t0) for the frozen-M_r Jacobian propagation
+    p4m = None   # prediction-4 MULTI-FREEZE panel: 3 frozen-M_r states at t0-10/+10/+20
     tr5 = None                                 # prediction-5: frozen state {θ0,J0,f0,Yf,tr0,traj[4]} for the trace-statistic propagation
     sec15_th64 = None          # §15: float64 SHADOW GD trajectory (MLP only). D²=‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖² is a ~9-digit
                                #   catastrophic cancellation when the net is near-stationary (e.g. chebyshev init=0.2: ‖J‖²≈21,
@@ -3643,6 +3645,37 @@ def run_stream(P):
                     for _ in range(max(1, ee)):   # advance the linear theory ONE GD step per actual step — ee steps between diagnostic ticks (eigevery>1)
                         p3_rtheory = p3_rtheory - (lr / N) * (p3_Jstar @ (p3_Jstar.t() @ p3_rtheory))
 
+            # prediction-3 MULTI-FREEZE panel: ‖r‖ actual vs the frozen-J linear theory, J frozen at t*-10, t*+10, t*+20 (3 plots)
+            g_pred3m = None
+            if s36 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+                if p3m is None:
+                    p3m = {"buf": [], "th": [None, None, None]}                   # rolling (t,J,r,‖r‖) buffer + 3 frozen-J theories
+                p3m["buf"].append((t, Jm3.detach().clone(), rm3.detach().clone(), float(rm3.norm())))
+                if len(p3m["buf"]) > 30:
+                    p3m["buf"] = p3m["buf"][-30:]
+                offs = [-10, 10, 20]; backfill = None
+                if p3_tstar is not None and p3m["th"][0] is None:                # theory-0 (t*-10): freeze from the buffer and BACK-FILL t*-10 … t
+                    tgt = p3_tstar - 10
+                    bi = min(range(len(p3m["buf"])), key=lambda i: abs(p3m["buf"][i][0] - tgt))
+                    J0s = p3m["buf"][bi][1]; rth = p3m["buf"][bi][2].clone(); bf = []
+                    for j in range(bi, len(p3m["buf"])):
+                        bf.append([p3m["buf"][j][0], p3m["buf"][j][3], float(rth.norm())])   # (step, ‖r_actual‖, ‖r_theory‖)
+                        rth = rth - (lr / N) * (J0s @ (J0s.t() @ rth))
+                    p3m["th"][0] = {"J": J0s, "r": rth}; backfill = bf            # r advanced to just past the current tick
+                for k in (1, 2):                                                 # theory-1/2 (t*+10, t*+20): freeze when the run reaches them
+                    if p3_tstar is not None and p3m["th"][k] is None and t == p3_tstar + offs[k]:
+                        p3m["th"][k] = {"J": Jm3.detach().clone(), "r": rm3.detach().clone()}
+                thy = [None, None, None]
+                for k in range(3):
+                    if p3m["th"][k] is None or (k == 0 and backfill is not None):
+                        continue                                                 # skip theory-0's single emit on the back-fill tick (the batch covers it)
+                    thy[k] = float(p3m["th"][k]["r"].norm())
+                    Js = p3m["th"][k]["J"]
+                    for _ in range(max(1, ee)):
+                        p3m["th"][k]["r"] = p3m["th"][k]["r"] - (lr / N) * (Js @ (Js.t() @ p3m["th"][k]["r"]))
+                if p3_tstar is not None:
+                    g_pred3m = {"rAct": float(rm3.norm()), "thy": thy, "off": offs, "tstar": p3_tstar, "backfill": backfill}
+
             # prediction-4 (s37): frozen-M_r Jacobian propagation. At iteration t0 freeze θ0, J0=J(t0) and the
             #   residual r0; then propagate J_{s+1} = (I + (η/N)·M_r)·J_s with M_r = Σ_k r0_k Q_k(θ0) frozen
             #   (matrix-free via hvpS), and compare the top-10 NTK eigenvalues λ(JJᵀ) of the predicted vs actual J.
@@ -3658,18 +3691,53 @@ def run_stream(P):
                         Wp, Vp = torch.linalg.eigh(p4_J @ p4_J.t())              # predicted NTK
                         kAct4 = [max(0.0, float(Wa[-1 - i])) for i in range(K4)]
                         kPred4 = [max(0.0, float(Wp[-1 - i])) for i in range(K4)]
-                        cos5 = [abs(float(Va[:, -1 - i] @ Vp[:, -1 - i])) for i in range(K5)]   # |cos| of rank-i actual vs predicted eigvec
+                        cos5 = [abs(float(Va[:, -1 - i] @ Vp[:, -1 - i])) for i in range(K5)]   # |cos| of rank-i actual vs predicted NTK eigvec
+                        cosGN5 = []                                               # |cos| of the Gauss-Newton (JᵀJ) eigvecs = right-singular vectors z=Jᵀu/‖·‖ (parameter space)
+                        for i in range(K5):
+                            za = Jm4.t() @ Va[:, -1 - i]; za = za / max(float(za.norm()), 1e-30)
+                            zp = p4_J.t() @ Vp[:, -1 - i]; zp = zp / max(float(zp.norm()), 1e-30)
+                            cosGN5.append(abs(float(za @ zp)))
                     except Exception:                                             # fp32-GPU eigh hiccup ⇒ fall back to eigenvalues only
                         ka = _safe_eigvalsh(Jm4 @ Jm4.t()); kp = _safe_eigvalsh(p4_J @ p4_J.t())
                         kAct4 = [max(0.0, float(ka[-1 - i])) for i in range(K4)]
                         kPred4 = [max(0.0, float(kp[-1 - i])) for i in range(K4)]
-                        cos5 = []
-                    g_pred4 = {"t0": p4t0, "kAct": kAct4, "kPred": kPred4, "cos5": cos5}   # top-K eigvals (descending) + top-5 eigvec |cos|
+                        cos5 = []; cosGN5 = []
+                    g_pred4 = {"t0": p4t0, "kAct": kAct4, "kPred": kPred4, "cos5": cos5, "cosGN5": cosGN5}   # eigvals + NTK & Gauss-Newton eigvec |cos|
                     for _ in range(max(1, ee)):                                  # advance ONE GD step per actual step (ee GD steps between diagnostic ticks)
                         if not torch.isfinite(p4_J).all():                       # diverged ⇒ stop advancing (render tolerates the gap)
                             break
                         MrJ = torch.stack([hvpS(p4_th0, X, p4_J[k], p4_r0) for k in range(M)])   # M_r·J rows (M,p), Q & r frozen at t0
                         p4_J = p4_J + (lr / max(N, 1)) * MrJ                      # advance predicted J for the NEXT step (frozen M_r)
+
+            # prediction-4 MULTI-FREEZE panel: same frozen-M_r propagation but anchored at t0-10, t0+10, t0+20 (3 plots vs the actual top-5 NTK eigvals)
+            g_pred4m = None
+            if s37 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+                Jm4m = Jc[:M]
+                if p4m is None:
+                    p4m = [{"tf": p4t0 - 10, "J": None, "th0": None, "r0": None},
+                           {"tf": p4t0 + 10, "J": None, "th0": None, "r0": None},
+                           {"tf": p4t0 + 20, "J": None, "th0": None, "r0": None}]
+                K5m = min(5, M)
+                try:
+                    Wam = _safe_eigvalsh(Jm4m @ Jm4m.t()); ka4m = [max(0.0, float(Wam[-1 - i])) for i in range(K5m)]
+                except Exception:
+                    ka4m = None
+                kpm = [None, None, None]
+                for fi4, fz in enumerate(p4m):
+                    if fz["tf"] >= 0 and t == fz["tf"] and fz["J"] is None:        # freeze M_r (θ, J, residual) at this offset iteration
+                        fz["J"] = Jm4m.detach().clone(); fz["th0"] = th.detach().clone(); fz["r0"] = rr[:M].reshape(N, outD).detach().clone()
+                    if fz["J"] is not None:
+                        try:
+                            Wpm = _safe_eigvalsh(fz["J"] @ fz["J"].t()); kpm[fi4] = [max(0.0, float(Wpm[-1 - i])) for i in range(K5m)]
+                        except Exception:
+                            kpm[fi4] = None
+                        for _ in range(max(1, ee)):                              # advance the frozen-M_r Jacobian ee GD steps
+                            if not torch.isfinite(fz["J"]).all():
+                                break
+                            MrJm = torch.stack([hvpS(fz["th0"], X, fz["J"][k], fz["r0"]) for k in range(M)])
+                            fz["J"] = fz["J"] + (lr / max(N, 1)) * MrJm
+                if ka4m is not None:
+                    g_pred4m = {"kAct": ka4m, "off": [p4t0 - 10, p4t0 + 10, p4t0 + 20], "kPred": kpm}
 
             # prediction-5 (s38): TRACE-STATISTIC prediction (PDF Eq-1..5). At t0 freeze θ0, J0=J(t0), the frozen
             #   output f0 & residual r0, Q0 (jac_hvp) and T (central-diff). Propagate 4 Jacobian trajectories
@@ -4356,7 +4424,9 @@ def run_stream(P):
                 "g26": g26,                                    # §26: eigenvector-direction drift |cos(v_i(t),v_i(t−k))| for GN/NTK/M_r top-3 (+M_r bottom-3)
                 "g27": g27,                                    # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag)
                 "g_pred3": g_pred3,                            # prediction-3: (jrd−jdr) + post-sign-change linear residual theory ‖r‖/cos (prediction widget)
+                "g_pred3m": g_pred3m,                          # prediction-3 multi-freeze: ‖r‖ actual vs frozen-J theory at t*-10/+10/+20
                 "g_pred4": g_pred4,                            # prediction-4: top-10 NTK eigenvalues — frozen-M_r Jacobian propagation predicted vs actual (prediction widget)
+                "g_pred4m": g_pred4m,                          # prediction-4 multi-freeze: top-5 NTK eigvals predicted (M_r frozen at t0-10/+10/+20) vs actual
                 "g_trace": g_trace,                           # prediction-5: Tr(NTK) predictions (quad/cubic × live/self, ±PSD) vs Tr(∇²L) & Tr(JᵀJ) (prediction widget)
                 "sps": (t - start + 1) / max(time.time() - t0, 1e-9),
             }

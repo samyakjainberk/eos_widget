@@ -317,13 +317,25 @@
   <span style="color:#94a3b8">freeze $Q$ &amp; residual at $t_0$; propagate $J_{s+1}=(I+\tfrac{\eta}{N}M_r)J_s$, $M_r=\sum_k r_kQ_k$ frozen</span>
 </div>
 <p class="cap">From iteration $t_0$ we freeze the function Hessian and residual to form $M_r=\sum_k r_kQ_k$, then propagate the Jacobian by $J_{s+1}=(I+\tfrac{\eta}{N}M_r)J_s$ and read its NTK spectrum $\lambda(JJ^\top)$. <b>Left:</b> the <b>predicted</b> (lines) vs <b>actual</b> (dots) top-5 NTK eigenvalues $\lambda_1$–$\lambda_5$ over training (matched colours per rank). <b>Right:</b> the <b>absolute cosine similarity</b> $|\cos\angle(v_k)|$ between the actual and predicted top-5 NTK <b>eigenvectors</b> over training (1 = perfect direction match). Both coincide at $t_0$ and drift as the frozen-$M_r$ linear model departs from the true nonlinear Jacobian evolution.</p>
-<div class="plotrow row2"><div id="p_pd5" class="plot" style="height:320px"></div><div id="p_pd6" class="plot" style="height:320px"></div></div>
+<div class="plotrow row3"><div id="p_pd5" class="plot" style="height:320px"></div><div id="p_pd6" class="plot" style="height:320px"></div><div id="p_pd7" class="plot" style="height:320px"></div></div>
+</div>
+
+<div id="sec_pred4m" style="border:2px dashed #0d9488;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#f0fdfa">
+<h2 style="color:#0f766e;margin-top:4px">★ Prediction-4 (freeze sweep) — top-5 NTK eigenvalues with M_r frozen at t₀−10, t₀+10, t₀+20</h2>
+<p class="cap">The same frozen-$M_r$ Jacobian propagation, but freezing the function Hessian &amp; residual at three iterations around $t_0$ (the p4t0 control): 10 before, and 10 &amp; 20 after. Each plot: <b>predicted</b> (lines) vs <b>actual</b> (dots) top-5 NTK eigenvalues from that freeze point.</p>
+<div class="plotrow row3"><div id="p_pd4m_1" class="plot" style="height:300px"></div><div id="p_pd4m_2" class="plot" style="height:300px"></div><div id="p_pd4m_3" class="plot" style="height:300px"></div></div>
 </div>
 
 <div id="sec_pred3" style="border:2px solid #0891b2;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#f0fdff">
 <h2 style="color:#0e7490;margin-top:4px">★ Prediction-3 — linear residual theory after the ‖J·ṙ‖−‖J̇·r‖ sign-change</h2>
 <p class="cap">Track $d \equiv \lVert J\dot r\rVert - \lVert\dot J r\rVert$ (§25's jrd − jdr). At the first $t^{\star}$ where it changes sign, freeze $J^{\star}=J(t^{\star})$ and evolve the frozen-$J$ linear NTK theory $r_{t+1}=(I-\tfrac{\eta}{N}J^{\star}J^{\star\top})r_t$ from the actual residual $r(t^{\star})$, and compare to the ACTUAL residual thereafter. <b>Left:</b> the two norms + their difference (sign-change = where the red crosses 0 → $t^{\star}$). <b>Middle:</b> $\lVert r\rVert$ actual vs theory (log). <b>Right:</b> $\cos(r_{\rm actual}, r_{\rm theory})$ — 1 = perfect direction match, decaying as the frozen-$J$ linear theory drifts from the true nonlinear evolution.</p>
 <div class="plotrow row3"><div id="p_p3_diff" class="plot" style="height:270px"></div><div id="p_p3_rnorm" class="plot" style="height:270px"></div><div id="p_p3_cos" class="plot" style="height:270px"></div></div>
+</div>
+
+<div id="sec_pred3m" style="border:2px dashed #0891b2;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#f0fdff">
+<h2 style="color:#0e7490;margin-top:4px">★ Prediction-3 (freeze sweep) — ‖r‖ actual vs frozen-J theory, J frozen at t*−10, t*+10, t*+20</h2>
+<p class="cap">The same frozen-$J$ linear residual theory $r_{t+1}=(I-\tfrac{\eta}{N}J^{\star}J^{\star\top})r_t$, but with $J^{\star}$ frozen at three iterations around the sign-change $t^{\star}$: 10 before (back-filled from $t^{\star}\!-\!10$), and 10 &amp; 20 after. Each plot overlays $\lVert r\rVert$ <b style="color:#2563eb">actual</b> vs <b style="color:#ea580c">theory</b> (log).</p>
+<div class="plotrow row3"><div id="p_p3m_1" class="plot" style="height:270px"></div><div id="p_p3m_2" class="plot" style="height:270px"></div><div id="p_p3m_3" class="plot" style="height:270px"></div></div>
 </div>
 
 <div id="sec_sweep" style="border:2px solid #b45309;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#fffbeb">
@@ -3211,9 +3223,11 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_pred'); if(el)el.style.display=chk('enPd')?'':'none';}
   {const el=document.getElementById('sec_trace');if(el)el.style.display=chk('enPt')?'':'none';}
   {const el=document.getElementById('sec_pred4');if(el)el.style.display=chk('enP4')?'':'none';}
+  {const el=document.getElementById('sec_pred4m');if(el)el.style.display=chk('enP4')?'':'none';}
   {const el=document.getElementById('sec_pred3');if(el)el.style.display=chk('enP3')?'':'none';}
+  {const el=document.getElementById('sec_pred3m');if(el)el.style.display=chk('enP3')?'':'none';}
   {const el=document.getElementById('sec_sweep');if(el)el.style.display=chk('enPs')?'':'none';}
-  requestAnimationFrame(()=>{for(const id of ['p_pd1','p_pd2','p_pd3','p_pd4','p_pt1','p_pt2','p_pt3','p_pt4','p_pd5','p_pd6','p_p3_diff','p_p3_rnorm','p_p3_cos','p_sw1','p_sw2']){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});   // re-measure ★ prediction plots when shown
+  requestAnimationFrame(()=>{for(const id of ['p_pd1','p_pd2','p_pd3','p_pd4','p_pt1','p_pt2','p_pt3','p_pt4','p_pd5','p_pd6','p_pd7','p_p3_diff','p_p3_rnorm','p_p3_cos','p_sw1','p_sw2']){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});   // re-measure ★ prediction plots when shown
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
   if(typeof SCRUB_FRAC!=='undefined'&&SCRUB_FRAC<1)requestAnimationFrame(()=>applyTimeScrub(SCRUB_FRAC));   // keep a just-shown section's plots at the current rewound position
 }
@@ -3424,9 +3438,14 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   {const cols=['#2563eb','#16a34a','#db2777','#ea580c','#7c3aed'];
    const mk=(lo)=>{const tr=[];for(let i=0;i<5;i++){tr.push({x:[],y:[],mode:'lines',name:'λ'+(lo+i+1)+' pred',line:{color:cols[i],width:1.9}});tr.push({x:[],y:[],mode:'markers',name:'λ'+(lo+i+1)+' actual',marker:{color:cols[i],size:4.5,symbol:'circle',line:{color:'#111',width:0.4}}});}return tr;};
    {const L=baseLayout('Prediction-4 — top-5 NTK eigenvalues (λ1–λ5)','λ',false);newP('p_pd5',mk(0),L);}
-   {const L=baseLayout('Prediction-4 — |cos| of actual vs predicted top-5 J-eigenvectors','|cos∠(vₖ)|',false);L.yaxis.range=[-0.02,1.05];
+   {const L=baseLayout('Prediction-4 — |cos| of actual vs predicted top-5 NTK eigenvectors','|cos∠(vₖ)|',false);L.yaxis.range=[-0.02,1.05];
     const cosTr=[];for(let i=0;i<5;i++)cosTr.push({x:[],y:[],mode:'lines',name:'v'+(i+1),line:{color:cols[i],width:1.9}});
-    newP('p_pd6',cosTr,L);}}
+    newP('p_pd6',cosTr,L);}
+   {const L=baseLayout('Prediction-4 — |cos| of actual vs predicted top-5 Gauss-Newton eigenvectors','|cos∠(zₖ)|',false);L.yaxis.range=[-0.02,1.05];
+    const gnTr=[];for(let i=0;i<5;i++)gnTr.push({x:[],y:[],mode:'lines',name:'z'+(i+1),line:{color:cols[i],width:1.9}});
+    newP('p_pd7',gnTr,L);}}
+  ['p_p3m_1','p_p3m_2','p_p3m_3'].forEach((id,i)=>{const off=['t*−10','t*+10','t*+20'][i];const L=baseLayout('‖r‖ actual vs theory · J frozen at '+off,'‖r‖ (log)',false);L.yaxis.type='log';newP(id,[{x:[],y:[],mode:'lines',name:'‖r‖ actual',line:{color:'#2563eb',width:2}},{x:[],y:[],mode:'lines',name:'‖r‖ theory',line:{color:'#ea580c',width:1.9,dash:'dash'}}],L);});
+  {const cc=['#2563eb','#16a34a','#db2777','#ea580c','#7c3aed'];['p_pd4m_1','p_pd4m_2','p_pd4m_3'].forEach((id,i)=>{const off=['t₀−10','t₀+10','t₀+20'][i];const L=baseLayout('top-5 NTK eigvals · M_r frozen at '+off,'λ',false);const tr=[];for(let j=0;j<5;j++){tr.push({x:[],y:[],mode:'lines',name:'λ'+(j+1)+' pred',line:{color:cc[j],width:1.8}});tr.push({x:[],y:[],mode:'markers',name:'λ'+(j+1)+' act',marker:{color:cc[j],size:4.5,line:{color:'#111',width:0.4}}});}newP(id,tr,L);});}
   // ★ trace statistics: 4 plots {quad,cubic}×{live,self}; traces [pred Tr(NTK), pred+PSD, actual Tr(∇²L), actual Tr(JᵀJ)]
   {const tt=()=>[{x:[],y:[],mode:'lines',name:'pred Tr(NTK)',line:{color:'#2563eb',width:1.9}},
                  {x:[],y:[],mode:'lines',name:'pred + PSD',line:{color:'#16a34a',width:1.6}},
@@ -3756,8 +3775,14 @@ function pushPoint(t,D,n,kth,nResid){
       xs.push([t]);ys.push([kp[i]]);ids.push(2*j); xs.push([t]);ys.push([ka[i]]);ids.push(2*j+1);}
       if(ids.length)extP(id,{x:xs,y:ys},ids);};
     push(0,'p_pd5');
-    const cs=D.g_pred4.cos5; if(cs&&cs.length){const xs=[],ys=[],ids=[];for(let i=0;i<cs.length&&i<5;i++){if(cs[i]!=null){xs.push([t]);ys.push([cs[i]]);ids.push(i);}} if(ids.length)extP('p_pd6',{x:xs,y:ys},ids);}   // 2nd plot: |cos| of actual vs predicted top-5 eigenvectors
+    const cs=D.g_pred4.cos5; if(cs&&cs.length){const xs=[],ys=[],ids=[];for(let i=0;i<cs.length&&i<5;i++){if(cs[i]!=null){xs.push([t]);ys.push([cs[i]]);ids.push(i);}} if(ids.length)extP('p_pd6',{x:xs,y:ys},ids);}   // 2nd plot: NTK eigvec |cos|
+    const cg=D.g_pred4.cosGN5; if(cg&&cg.length){const xs=[],ys=[],ids=[];for(let i=0;i<cg.length&&i<5;i++){if(cg[i]!=null){xs.push([t]);ys.push([cg[i]]);ids.push(i);}} if(ids.length)extP('p_pd7',{x:xs,y:ys},ids);}   // 3rd plot: Gauss-Newton eigvec |cos|
   }
+  if(D.g_pred3m){const g=D.g_pred3m;const mids=['p_p3m_1','p_p3m_2','p_p3m_3'];   // ★ prediction-3 multi-freeze
+    if(g.backfill)for(const bf of g.backfill)extP('p_p3m_1',{x:[[bf[0]],[bf[0]]],y:[[bf[1]],[bf[2]]]},[0,1]);
+    for(let k=0;k<3;k++){if(g.thy[k]!=null)extP(mids[k],{x:[[t],[t]],y:[[g.rAct],[g.thy[k]]]},[0,1]);}}
+  if(D.g_pred4m){const g=D.g_pred4m,ka=g.kAct,mids=['p_pd4m_1','p_pd4m_2','p_pd4m_3'];   // ★ prediction-4 multi-freeze
+    for(let k=0;k<3;k++){const kp=g.kPred[k];if(!kp)continue;const xs=[],ys=[],ti=[];for(let j=0;j<5&&j<ka.length;j++){xs.push([t]);ys.push([kp[j]]);ti.push(2*j);xs.push([t]);ys.push([ka[j]]);ti.push(2*j+1);}if(ti.length)extP(mids[k],{x:xs,y:ys},ti);}}
   if(D.g_trace){const g=D.g_trace,sh=g.trHess,gn=g.trGN;   // ★ trace stats: traces [predNo(blue), predWith(green), Tr(∇²L)(red), Tr(JᵀJ)(orange)]
     const pt=(key,id)=>{const a=g[key]; if(a)extP(id,{x:[[t],[t],[t],[t]],y:[[a[1]],[a[0]],[sh],[gn]]},[0,1,2,3]);};
     pt('qLive','p_pt1'); pt('qSelf','p_pt2'); pt('cLive','p_pt3'); pt('cSelf','p_pt4');
@@ -5590,7 +5615,7 @@ function makeCompareSection(pre, kind) {
 }
 
 function reorderPredictionLayout(){   // base panels §1-6 on top, then Prediction-1&2 → 3 → 4 → 5(trace) → σ₁ demo
-  const order=['sec_1','sec_2','sec_3','sec_4','sec_s21','sec_s27','sec_sweep','sec_pred3','sec_pred4','sec_trace','sec_pred'];
+  const order=['sec_1','sec_2','sec_3','sec_4','sec_s21','sec_s27','sec_sweep','sec_pred3','sec_pred3m','sec_pred4','sec_pred4m','sec_trace','sec_pred'];
   const anchor=document.getElementById('sec_pred'); if(!anchor)return; const parent=anchor.parentNode; if(!parent)return;
   for(const id of order){const e=document.getElementById(id); if(e&&e.parentNode===parent)parent.insertBefore(e,anchor);}   // insert each before sec_pred (σ₁ ends last)
 }
