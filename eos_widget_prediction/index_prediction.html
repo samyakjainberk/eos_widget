@@ -226,8 +226,8 @@
 
 <div class="toggles">
   <span class="tt">Prediction panels</span>
-  <label title="★ σ₁ one-step forecasts (Eq-21 & cubic Eq-51; live + self residual) vs the actual NTK / ∇²L edges"><input type="checkbox" id="enPd" checked> ★ σ₁ forecasts</label>
-  <label title="★ Trace statistics — predicted Tr(NTK) vs Tr(∇²L) & Tr(JᵀJ) (Prediction-5)"><input type="checkbox" id="enPt" checked> ★ Trace stats</label>
+  <label title="★ Prediction 5.2 (Sharpness) — predicted σ₁ (Eq-21 quadratic & Eq-51 cubic; live + self residual) vs the actual λmax(∇²L) & λmax(NTK) edges"><input type="checkbox" id="enPd" checked> ★ Pred 5.2 (Sharpness)</label>
+  <label title="★ Prediction 5.1 (Trace) — predicted Tr(NTK) vs actual Tr(∇²L) & Tr(JᵀJ)"><input type="checkbox" id="enPt" checked> ★ Pred 5.1 (Trace)</label>
   <label title="★ Prediction-4 — frozen-M_r Jacobian propagation → top-10 NTK spectrum"><input type="checkbox" id="enP4" checked> ★ Prediction-4</label>
   <label title="★ Prediction-3 — frozen-J linear residual theory after the ‖J·ṙ‖−‖J̇·r‖ sign-change"><input type="checkbox" id="enP3" checked> ★ Prediction-3</label>
   <label title="★ Prediction-1 & 2 — sweep over (lr, init-std): predicted vs actual sign-change + start-d vs loss curvature"><input type="checkbox" id="enPs" checked> ★ Prediction-1&2 (sweep)</label>
@@ -294,18 +294,18 @@
   #sec_pred h2{color:#6d28d9;margin-top:4px}
 </style>
 <div id="sec_pred">
-<h2>★ Prediction demo — one-step $\sigma_1$ forecasts vs. the actual edge of stability</h2>
-<p class="cap">Each plot forecasts the top eigenvalue $\sigma_1$ and overlays it on the <b>actual</b> evolution of the two edges — the <b style="color:#ea580c">NTK</b> $\lambda_{\max}(JJ^\top)$ and the loss-Hessian <b style="color:#dc2626">sharpness</b> $\lambda_{\max}(\nabla^2 L)$. <b>Plot 1:</b> the frozen-$Q$ first-order prediction (Eq-21) driven by the <b>live</b> residual. <b>Plot 2:</b> the same Eq-21 prediction but the residual is <b>self-computed</b> from the frozen quadratic model — no live-run residual needed (the harder, fully-closed forecast). <b>Plot 3:</b> the <b>cubic</b> prediction (Eq-51) driven by the <b>live</b> residual. <b>Plot 4:</b> the cubic prediction with the residual <b>self-computed</b> from the quadratic model. A good forecast hugs the dashed actual curves; the extra gap on plots&nbsp;2&nbsp;&amp;&nbsp;4 is the price of needing no live residual.</p>
+<h2>★ Prediction 5.2 (Sharpness) — predicted $\sigma_1$ vs. actual $\lambda_{\max}(\nabla^2 L)$ &amp; $\lambda_{\max}(\mathrm{NTK})$</h2>
+<p class="cap">Each plot forecasts the sharpness $\sigma_1=\lambda_{\max}(\nabla^2 L)$ and overlays it on the two <b>actual</b> edges — the loss-Hessian sharpness <b style="color:#dc2626">$\lambda_{\max}(\nabla^2 L)$</b> (red dashed) and the <b style="color:#ea580c">NTK</b> $\lambda_{\max}(JJ^\top)$ (orange dotted). The four plots (left→right) are the <b>quadratic</b> (frozen-$Q$, Eq-21) and <b>cubic</b> (Eq-51) forecasts, each driven by the <b>live</b> residual (measured from the run) or a <b>self</b> residual self-computed from the frozen quadratic model — no live residual needed (the harder, fully-closed forecast). A good forecast hugs the red-dashed sharpness curve; the extra gap on the <b>self</b>-residual plots is the price of needing no live residual.</p>
 <div class="plotrow row4"><div id="p_pd1" class="plot" style="height:270px"></div><div id="p_pd2" class="plot" style="height:270px"></div><div id="p_pd3" class="plot" style="height:270px"></div><div id="p_pd4" class="plot" style="height:270px"></div></div>
 </div>
 
 <div id="sec_trace" style="border:2px solid #9333ea;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#faf5ff">
-<h2 style="color:#7e22ce;margin-top:4px">★ Trace statistics — predicted Tr(NTK) vs Tr($\nabla^2 L$) &amp; Tr($J^\top J$)</h2>
+<h2 style="color:#7e22ce;margin-top:4px">★ Prediction 5.1 (Trace) — predicted Tr(NTK) vs. actual Tr($\nabla^2 L$) &amp; Tr($J^\top J$)</h2>
 <div style="display:flex;gap:12px;align-items:center;margin:4px 0 8px;font-size:13px;color:#374151">
   <label>freeze iteration $t_0$&nbsp;<input id="p5t0" value="10" style="width:52px"></label>
   <span style="color:#94a3b8">freeze $Q$, residual &amp; $J$ at $t_0$; propagate $\Delta J=\tfrac{\eta}{N}Q_t[J^\top r]+\tfrac12(\tfrac{\eta}{N})^2 T[J^\top r,J^\top r]$</span>
 </div>
-<p class="cap">The same four predictions as the $\sigma_1$ panel, but tracking the <b>trace</b> $\mathrm{Tr(NTK)}=\mathrm{Tr}(J^\top J)=\lVert J\rVert_F^2$ instead of the top eigenvalue. From $t_0$ we propagate the Jacobian (Eq-2/3) and accumulate $\mathrm{Tr}(\Delta\mathrm{NTK})$ (Eq-4). Each plot shows the predicted Tr(NTK) <b style="color:#2563eb">without</b> and <b style="color:#16a34a">with</b> the PSD term (Eq-5), overlaid on the actual <b style="color:#dc2626">Tr($\nabla^2 L$)</b> (full loss Hessian, Hutchinson) and <b style="color:#ea580c">Tr($J^\top J$)</b> (Gauss–Newton, exact) — all $\div N$. <b>Top row:</b> quadratic ($T=0$). <b>Bottom row:</b> cubic. <b>Left:</b> residual from the live run. <b>Right:</b> residual self-computed from the frozen quadratic model.</p>
+<p class="cap">The same four predictions as the $\sigma_1$ panel, but tracking the <b>trace</b> $\mathrm{Tr(NTK)}=\mathrm{Tr}(J^\top J)=\lVert J\rVert_F^2$ instead of the top eigenvalue. From $t_0$ we propagate the Jacobian (Eq-2/3) and accumulate $\mathrm{Tr}(\Delta\mathrm{NTK})$ (Eq-4). Each plot shows the predicted Tr(NTK) <b style="color:#2563eb">without</b> and <b style="color:#16a34a">with</b> the PSD term (Eq-5), overlaid on the actual <b style="color:#dc2626">Tr($\nabla^2 L$)</b> (full loss Hessian, Hutchinson) and <b style="color:#ea580c">Tr($J^\top J$)</b> (Gauss–Newton, exact) — all $\div N$. The four plots (left→right) are <b>quadratic</b> ($T=0$) and <b>cubic</b> (with $T$), each driven by the <b>live</b> residual (measured from the run) or a <b>self</b> residual self-computed from the frozen quadratic model.</p>
 <div class="plotrow row4"><div id="p_pt1" class="plot" style="height:300px"></div><div id="p_pt2" class="plot" style="height:300px"></div><div id="p_pt3" class="plot" style="height:300px"></div><div id="p_pt4" class="plot" style="height:300px"></div></div>
 </div>
 
@@ -3406,10 +3406,10 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
                                {x:[],y:[],mode:'lines',name:p2,line:{color:'#16a34a',width:1.6}},
                                {x:[],y:[],mode:'lines',name:r1,line:{color:'#dc2626',width:1.8,dash:'dash'}},
                                {x:[],y:[],mode:'lines',name:r2,line:{color:'#ea580c',width:1.8,dash:'dot'}}];
-  newP('p_pd1',tvPred('predicted (Eq-21, live r)','+ PSD','actual λmax(∇²L)','actual λmax(NTK)'),baseLayout('Plot 1 — frozen-Q Eq-21 · LIVE residual','σ₁',false));
-  newP('p_pd2',tvPred('predicted (Eq-21, self r_q)','+ PSD','actual λmax(∇²L)','actual λmax(NTK)'),baseLayout('Plot 2 — frozen-Q Eq-21 · quadratic SELF residual','σ₁',false));
-  newP('p_pd3',tvPred('cubic (Eq-51, live r)','+ PSD','actual λmax(NTK)','actual λmax(∇²L)'),baseLayout('Plot 3 — cubic Eq-51 · LIVE residual','σ₁',false));
-  newP('p_pd4',tvPred('cubic (Eq-51, self r_q)','+ PSD','actual λmax(NTK)','actual λmax(∇²L)'),baseLayout('Plot 4 — cubic Eq-51 · quadratic SELF residual','σ₁',false));
+  newP('p_pd1',tvPred('pred σ₁','pred + PSD','actual λmax(∇²L)','actual λmax(NTK)'),baseLayout('Quadratic (Eq-21) · live residual','σ₁',false));
+  newP('p_pd2',tvPred('pred σ₁','pred + PSD','actual λmax(∇²L)','actual λmax(NTK)'),baseLayout('Quadratic (Eq-21) · self residual','σ₁',false));
+  newP('p_pd3',tvPred('pred σ₁','pred + PSD','actual λmax(∇²L)','actual λmax(NTK)'),baseLayout('Cubic (Eq-51) · live residual','σ₁',false));
+  newP('p_pd4',tvPred('pred σ₁','pred + PSD','actual λmax(∇²L)','actual λmax(NTK)'),baseLayout('Cubic (Eq-51) · self residual','σ₁',false));
   // ★ prediction-3 panel: (jrd,jdr,diff) sign-change, then frozen-J linear residual theory vs actual
   newP('p_p3_diff',[{x:[],y:[],mode:'lines',name:'‖J·ṙ‖ (jrd)',line:{color:'#2563eb',width:1.7}},{x:[],y:[],mode:'lines',name:'‖J̇·r‖ (jdr)',line:{color:'#16a34a',width:1.7}},{x:[],y:[],mode:'lines',name:'diff = jrd−jdr',line:{color:'#dc2626',width:2}}],baseLayout('‖J·ṙ‖, ‖J̇·r‖ and their difference (crosses 0 ⇒ t*)','value',false));
   window._P3_CLEARED=false;   // reset the pred-3 "waiting for t*" placeholder each run
@@ -3427,8 +3427,8 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
                  {x:[],y:[],mode:'lines',name:'actual Tr(∇²L)',line:{color:'#dc2626',width:1.7,dash:'dash'}},
                  {x:[],y:[],mode:'lines',name:'actual Tr(JᵀJ)',line:{color:'#ea580c',width:1.7,dash:'dot'}}];
    const mkT=(id,ti)=>newP(id,tt(),baseLayout(ti,'trace ÷N',false));
-   mkT('p_pt1','Trace — quadratic (T=0) · live residual'); mkT('p_pt2','Trace — quadratic (T=0) · self residual');
-   mkT('p_pt3','Trace — cubic · live residual'); mkT('p_pt4','Trace — cubic · self residual');}
+   mkT('p_pt1','Quadratic (T=0) · live residual'); mkT('p_pt2','Quadratic (T=0) · self residual');
+   mkT('p_pt3','Cubic (with T) · live residual'); mkT('p_pt4','Cubic (with T) · self residual');}
   // ★ prediction-1 & 2 sweep scatter plots (populated by startSweep from /run?mode=sweep)
   {const L=baseLayout('Prediction-1 — predicted vs actual (jrd−jdr) sign-change t*','actual t* (iters)',false);L.xaxis.title='predicted t*';L.showlegend=false;L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
    newP('p_sw1',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:[],line:{color:'#1e293b',width:0.5}}},{x:[0,1],y:[0,1],mode:'lines',line:{color:'#94a3b8',dash:'dot',width:1},hoverinfo:'skip'}],L);}
@@ -3734,8 +3734,8 @@ function pushPoint(t,D,n,kth,nResid){
     if(D.thP){const pv=D.thP[1],pp=D.thPpsd?D.thPpsd[1]:null;if(pv!=null||pp!=null||sh!=null||aN!=null)extP('p_pd1',{x:[[t],[t],[t],[t]],y:[[pv],[pp],[sh],[aN]]},[0,1,2,3]);}
     if(D.thP_d){const pv=D.thP_d[1],pp=D.thPpsd_d?D.thPpsd_d[1]:null;if(pv!=null||pp!=null||sh!=null||aN!=null)extP('p_pd2',{x:[[t],[t],[t],[t]],y:[[pv],[pp],[sh],[aN]]},[0,1,2,3]);}
     const cN=(D.cActN==null?null:D.cActN),cH=(D.cActH==null?null:D.cActH);
-    if(D.c51!=null||D.c51p!=null||cN!=null||cH!=null)extP('p_pd3',{x:[[t],[t],[t],[t]],y:[[D.c51],[D.c51p],[cN],[cH]]},[0,1,2,3]);
-    if(D.c51d!=null||D.c51dp!=null||cN!=null||cH!=null)extP('p_pd4',{x:[[t],[t],[t],[t]],y:[[D.c51d],[D.c51dp],[cN],[cH]]},[0,1,2,3]);
+    if(D.c51!=null||D.c51p!=null||cN!=null||cH!=null)extP('p_pd3',{x:[[t],[t],[t],[t]],y:[[D.c51],[D.c51p],[cH],[cN]]},[0,1,2,3]);   // trace2(red dash)=∇²L, trace3(orange dot)=NTK — consistent with p_pd1/2
+    if(D.c51d!=null||D.c51dp!=null||cN!=null||cH!=null)extP('p_pd4',{x:[[t],[t],[t],[t]],y:[[D.c51d],[D.c51dp],[cH],[cN]]},[0,1,2,3]);
   }
   if(D.g_pred3){const g=D.g_pred3;   // ★ prediction-3: (jrd,jdr,diff) always; ‖r‖ actual/theory + cos once t* is reached
     extP('p_p3_diff',{x:[[t],[t],[t]],y:[[g.jrd],[g.jdr],[g.diff]]},[0,1,2]);
