@@ -802,7 +802,7 @@ def _two_class_test_raw(raw, N, P):
     idx = np.concatenate([ia[:na], ib[:nb]])
     lab = np.concatenate([np.ones(min(na, len(ia)), np.float32), -np.ones(min(nb, len(ib)), np.float32)])
     perm = rng.permutation(len(idx)); idx = idx[perm]; lab = lab[perm]
-    return (torch.tensor(Xa[idx], dtype=torch.float64, device=dev),
+    return (_downsample_img_t(torch.tensor(Xa[idx], dtype=torch.float64, device=dev)),   # 3072 → CIFAR_DIM (match compressed train)
             torch.tensor(lab, dtype=torch.float64, device=dev).reshape(-1, 1))
 
 
@@ -822,7 +822,7 @@ def _sec16_holdout(dataset, N, P, inD, outD):
         idx = rng.permutation(Xa.shape[0])[:int(N)]
         Yt = torch.zeros(len(idx), 10, dtype=torch.float64, device=dev)
         Yt[torch.arange(len(idx)), torch.tensor(Ya[idx], dtype=torch.long, device=dev)] = 1.0
-        return torch.tensor(Xa[idx], dtype=torch.float64, device=dev), Yt
+        return _downsample_img_t(torch.tensor(Xa[idx], dtype=torch.float64, device=dev)), Yt   # 3072 → CIFAR_DIM
     if dataset in ("mnist", "mnist2"):
         try:
             raw = _load_mnist_raw("test")
@@ -834,7 +834,7 @@ def _sec16_holdout(dataset, N, P, inD, outD):
         idx = rng.permutation(Xa.shape[0])[:int(N)]
         Yt = torch.zeros(len(idx), 10, dtype=torch.float64, device=dev)
         Yt[torch.arange(len(idx)), torch.tensor(Ya[idx], dtype=torch.long, device=dev)] = 1.0
-        return torch.tensor(Xa[idx], dtype=torch.float64, device=dev), Yt
+        return _downsample_img_t(torch.tensor(Xa[idx], dtype=torch.float64, device=dev)), Yt   # 3072 → CIFAR_DIM
     if dataset == "ksparse":
         return _ksparse_testset(int(N), int(inD), int(P.get("ksparse", 3)), int(P["seed"]), torch.float64)
     if dataset not in ("synthetic", "const") or P.get("ssign", "off") != "off":
@@ -1476,8 +1476,10 @@ class CnnModel(AutogradModel):
     Average (not max) pooling keeps the network smooth so the loss Hessian / sharpness are well defined."""
     def __init__(self, inDim, outDim, P):
         super().__init__()
-        assert inDim == 3 * 32 * 32, "CNN expects CIFAR-shaped input (3×32×32 = 3072)"
-        self.in_shape, self.oc = (3, 32, 32), outDim
+        side = int(round((inDim / 3.0) ** 0.5))
+        assert 3 * side * side == inDim, f"CNN expects a 3-channel SQUARE image (got inDim={inDim}); CIFAR/MNIST are compressed to 3×{CIFAR_SIDE}×{CIFAR_SIDE}={CIFAR_DIM}"
+        self.side = side                                          # compressed side (CIFAR_SIDE); global-avg-pool head ⇒ size-agnostic
+        self.in_shape, self.oc = (3, side, side), outDim
         self.act = P.get("act", "tanh")
         m = max(0.1, float(P.get("chmul", 1.0)))
         cin, self._convs = 3, []
@@ -1490,9 +1492,11 @@ class CnnModel(AutogradModel):
         self._add("fcb", (outDim,), init="0")
 
     def _net(self, p, X):
-        h = X.view(X.shape[0], 3, 32, 32)
+        h = X.view(X.shape[0], 3, self.side, self.side)
         for wn, bn in self._convs:
-            h = F.avg_pool2d(actf(self.act, F.conv2d(h, p[wn], p[bn], padding=1)), 2)
+            h = actf(self.act, F.conv2d(h, p[wn], p[bn], padding=1))
+            if h.shape[-1] >= 2:                                  # skip the pool once the map is 1×1 (small compressed inputs)
+                h = F.avg_pool2d(h, 2)
         return h.mean(dim=(2, 3)) @ p["fcw"].t() + p["fcb"]        # global avg pool → (N, oc)
 
 
@@ -1504,8 +1508,10 @@ class Vgg11Model(AutogradModel):
 
     def __init__(self, inDim, outDim, P):
         super().__init__()
-        assert inDim == 3 * 32 * 32, "VGG11 expects CIFAR-shaped input (3×32×32 = 3072)"
-        self.in_shape, self.oc = (3, 32, 32), outDim
+        side = int(round((inDim / 3.0) ** 0.5))
+        assert 3 * side * side == inDim, f"VGG11 expects a 3-channel SQUARE image (got inDim={inDim}); CIFAR/MNIST are compressed to 3×{CIFAR_SIDE}×{CIFAR_SIDE}={CIFAR_DIM}"
+        self.side = side                                        # compressed side (CIFAR_SIDE); global-avg-pool head + guarded pools ⇒ size-agnostic
+        self.in_shape, self.oc = (3, side, side), outDim
         self.act = P.get("act", "tanh")
         m = max(0.05, float(P.get("chmul", 0.25)))
         cin, j, self._layers = 3, 0, []
@@ -1518,14 +1524,18 @@ class Vgg11Model(AutogradModel):
                 self._add(f"c{j}b", (c,), init="0")
                 self._layers.append(("C", f"c{j}w", f"c{j}b"))
                 cin, j = c, j + 1
-        self._add("fcw", (outDim, cin), fan_in=cin)              # 5 maxpools: 32→1, so feature = cin
+        self._add("fcw", (outDim, cin), fan_in=cin)              # global-avg-pool head ⇒ feature = cin (any input size)
         self._add("fcb", (outDim,), init="0")
 
     def _net(self, p, X):
-        h = X.view(X.shape[0], 3, 32, 32)
+        h = X.view(X.shape[0], 3, self.side, self.side)
         for L in self._layers:
-            h = F.avg_pool2d(h, 2) if L[0] == "M" else actf(self.act, F.conv2d(h, p[L[1]], p[L[2]], padding=1))
-        return h.view(h.shape[0], -1) @ p["fcw"].t() + p["fcb"]
+            if L[0] == "M":
+                if h.shape[-1] >= 2:                             # skip pooling once the map is 1×1 (compressed 13×13 hits 1 before the 5th pool)
+                    h = F.avg_pool2d(h, 2)
+            else:
+                h = actf(self.act, F.conv2d(h, p[L[1]], p[L[2]], padding=1))
+        return h.mean(dim=(2, 3)) @ p["fcw"].t() + p["fcb"]      # global avg pool → (N, cin) → head (size-agnostic)
 
 
 class GptModel(AutogradModel):
@@ -2734,6 +2744,23 @@ def _find_cifar_dir():
     return None
 
 
+# ── CIFAR/MNIST input compression ───────────────────────────────────────────────────────────
+# The 3×32×32 = 3072-dim flattened image is the dominant cost for CIFAR/MNIST: it sets the MLP's
+# first-layer width and hence the parameter count p that EVERY Jacobian / Hessian-vector product
+# scales with. Downsample each image to CIFAR_SIDE×CIFAR_SIDE (≈500 dims) with a fixed adaptive
+# average pool BEFORE it enters any model. Unlike a random projection this KEEPS the spatial layout,
+# so the CNN/VGG conv stacks still convolve a genuine (smaller) image. Applied uniformly to train
+# subsets AND held-out test sets so their input dimensions always match.
+CIFAR_SIDE = 13                              # 32 → 13  ⇒  3·13·13 = 507 ≈ 500 input dims
+CIFAR_DIM  = 3 * CIFAR_SIDE * CIFAR_SIDE     # 507
+
+
+def _downsample_img_t(Xt, side=CIFAR_SIDE):
+    """(n, 3072) channel-major 3×32×32 → (n, 3·side·side) via adaptive avg-pool (dtype & device preserved)."""
+    t = F.adaptive_avg_pool2d(Xt.view(-1, 3, 32, 32), (side, side))
+    return t.reshape(t.shape[0], -1).contiguous()
+
+
 def _load_cifar_raw():
     """Load all 5 CIFAR-10 train batches, normalized per-channel, as (50000, 3072) + int labels.
     Pure pickle+numpy (no torchvision). Cached per directory."""
@@ -2787,7 +2814,7 @@ def load_cifar(n, seed):
     X, Y = _load_cifar_raw()
     rng = np.random.RandomState(seed & 0x7FFFFFFF)
     idx = rng.permutation(X.shape[0])[:n]
-    Xt = torch.tensor(X[idx], dtype=DTYPE, device=_dev())
+    Xt = _downsample_img_t(torch.tensor(X[idx], dtype=DTYPE, device=_dev()))   # 3072 → CIFAR_DIM (≈500)
     Yt = torch.zeros(n, 10, dtype=DTYPE, device=_dev())
     Yt[torch.arange(n), torch.tensor(Y[idx], dtype=torch.long, device=_dev())] = 1.0
     return Xt, Yt
@@ -2807,7 +2834,7 @@ def load_cifar2(n, seed, ca=0, cb=1):
     idx = np.concatenate([ia[:na], ib[:nb]])
     lab = np.concatenate([np.ones(min(na, len(ia)), np.float32), -np.ones(min(nb, len(ib)), np.float32)])
     perm = rng.permutation(len(idx)); idx = idx[perm]; lab = lab[perm]
-    Xt = torch.tensor(X[idx], dtype=DTYPE, device=_dev())
+    Xt = _downsample_img_t(torch.tensor(X[idx], dtype=DTYPE, device=_dev()))   # 3072 → CIFAR_DIM (≈500)
     Yt = torch.tensor(lab, dtype=DTYPE, device=_dev()).reshape(-1, 1)
     return Xt, Yt
 
@@ -2856,7 +2883,7 @@ def load_mnist(n, seed):
     X, Y = _load_mnist_raw("train")
     rng = np.random.RandomState(seed & 0x7FFFFFFF)
     idx = rng.permutation(X.shape[0])[:n]
-    Xt = torch.tensor(X[idx], dtype=DTYPE, device=_dev())
+    Xt = _downsample_img_t(torch.tensor(X[idx], dtype=DTYPE, device=_dev()))   # 3072 → CIFAR_DIM (≈500)
     Yt = torch.zeros(n, 10, dtype=DTYPE, device=_dev())
     Yt[torch.arange(n), torch.tensor(Y[idx], dtype=torch.long, device=_dev())] = 1.0
     return Xt, Yt
@@ -2874,7 +2901,7 @@ def load_mnist2(n, seed, ca=0, cb=1):
     idx = np.concatenate([ia[:na], ib[:nb]])
     lab = np.concatenate([np.ones(min(na, len(ia)), np.float32), -np.ones(min(nb, len(ib)), np.float32)])
     perm = rng.permutation(len(idx)); idx = idx[perm]; lab = lab[perm]
-    Xt = torch.tensor(X[idx], dtype=DTYPE, device=_dev())
+    Xt = _downsample_img_t(torch.tensor(X[idx], dtype=DTYPE, device=_dev()))   # 3072 → CIFAR_DIM (≈500)
     Yt = torch.tensor(lab, dtype=DTYPE, device=_dev()).reshape(-1, 1)
     return Xt, Yt
 
@@ -3177,13 +3204,13 @@ def run_stream(P):
     dataset = P.get("dataset", "synthetic")
     arch = P.get("arch", "mlp")
     if dataset == "cifar10":
-        inDimE, outDimE = 3072, 10
+        inDimE, outDimE = CIFAR_DIM, 10
     elif dataset == "cifar2":
-        inDimE, outDimE = 3072, 1                             # 2-class CIFAR cast as SCALAR regression (±1)
+        inDimE, outDimE = CIFAR_DIM, 1                             # 2-class CIFAR cast as SCALAR regression (±1)
     elif dataset == "mnist":
-        inDimE, outDimE = 3072, 10                            # MNIST padded to 3×32×32 (drop-in for cifar-shaped MLP/CNN/VGG)
+        inDimE, outDimE = CIFAR_DIM, 10                            # MNIST padded to 3×32×32 (drop-in for cifar-shaped MLP/CNN/VGG)
     elif dataset == "mnist2":
-        inDimE, outDimE = 3072, 1                             # 2-class MNIST cast as SCALAR regression (±1)
+        inDimE, outDimE = CIFAR_DIM, 1                             # 2-class MNIST cast as SCALAR regression (±1)
     elif dataset == "sorting":
         inDimE = outDimE = int(P["seqlen"])
     elif dataset == "owt":
@@ -3233,8 +3260,11 @@ def run_stream(P):
     s36 = P.get("s36", 0)                # prediction-3: linear residual theory r_{t+1}=(I−η̃JJᵀ)r_t after the ‖J·ṙ‖−‖J̇·r‖ sign-change (prediction widget)
     s37 = P.get("s37", 0)                # prediction-4: frozen-M_r Jacobian propagation J_{s+1}=(I+(η/N)M_r)J_s → top-10 NTK eigvals predicted vs actual (prediction widget)
     p4t0 = max(0, int(P.get("p4t0", 10)))   # prediction-4: iteration t0 at which the function-Hessian Q & residual are frozen
+    p4s = max(1, int(P.get("p4s", 10)))   # prediction-4: re-anchor interval s for the EVOLVING-residual variant (residual re-anchored to actual every s steps)
+    p3k = max(1, int(P.get("p3k", 10)))   # prediction-3: evolving-Jacobian theory — update J3 every p3k steps
     s38 = P.get("s38", 0)                # prediction-5: trace-statistic prediction Tr(NTK) (quad/cubic × live/self, ±PSD) vs Tr(∇²L) & Tr(JᵀJ) (prediction widget)
     p5t0 = max(0, int(P.get("p5t0", 10)))   # prediction-5: iteration t0 at which Q, residual & J are frozen for the trace propagation
+    stat_init = max(0, int(P.get("stat_init", 0)))   # prediction 5.1/5.2: iteration AFTER which the theoretical forecasts begin (0 = from the start)
     s30t = max(0, int(P.get("s30t", 0)))      # §22: iteration t at which to freeze the 2nd-order Taylor (θ_t, J_t, Q_t)
     s31r = max(1, int(P.get("s31r", 200)))    # §23: rank R of the random symmetric function Hessian
     s31scale = float(P.get("s31scale", 1.0))  # §23: random-Hessian spectral norm = (real function-Hessian λmax at θ₀)·s31scale
@@ -3287,7 +3317,7 @@ def run_stream(P):
     ee = P["eigevery"]
     nProbe = max(1, P["slqprobes"])
     efrac = min(1.0, max(0.5, P["energyp"] / 100.0))
-    slqStride = max(1, math.ceil((steps // ee + 1) / 50))
+    slqStride = max(1, round(max(1, P.get("slqevery", 10)) / ee))   # SLQ density every slqevery iterations (default 10; eigTick stride = slqevery/eigevery)
     heavyevery = max(1, P.get("heavyevery", 4))   # §7-proj + §8 compute every heavyevery-th tick (responsiveness)
     # §11-§14 cube/grid cadence: emit on every `cubeevery`-th diagnostic tick. Heavy at large M (M HVPs + M³ work
     #   each emission) and the N³ cubes dominate the capture file size, so raise `cubeevery` for long all-sections
@@ -3314,8 +3344,11 @@ def run_stream(P):
     sec27_prev = None          # §27: previous step's {r, J} for the discrete ṙ/J̇ gradient vectors
     sec27_last_t = None        # §27: last stepped iteration index (for the end-of-run flush of the trailing 50)
     p3_prev_sign = None; p3_tstar = None; p3_Jstar = None; p3_rtheory = None   # prediction-3: (jrd−jdr) sign tracker, sign-change t*, frozen J(t*), linear-theory residual
+    p3_thstar = None; p3_r2 = None   # prediction-3: frozen θ(t*) (for Q*) + 2nd-order theory residual r₂
+    p3_J3 = None; p3_r3 = None; p3_j3sc = 0   # prediction-3: EVOLVING-Jacobian theory (STABLE & fully self-contained) — r3 decays via the PSD NTK J3J3ᵀ (monotone, bounded); J3 grows via the throttled frozen-Q* contraction M_r=Σ_k r3_k Q*_k every p3k steps (throttle keeps ‖J3‖ below the EoS threshold ⇒ no blow-up)
     p3m = None   # prediction-3 MULTI-FREEZE panel: rolling (t,J,r,‖r‖) buffer + 3 frozen-J residual theories (t*-10/+10/+20)
     p4_J = None; p4_th0 = None; p4_r0 = None   # prediction-4: frozen J(t0), θ(t0), residual(t0) for the frozen-M_r Jacobian propagation
+    p4_Je = None; p4_re = None; p4_the = None; p4_thQ = None; p4_f0 = None; p4_qsc = 0   # prediction-4: EVOLVING-Qr variant — propagated Ĵ, r̂ (BOUNDED quadratic self-residual), self-computed θ̂, frozen f(θ0); Q re-evaluated at θ̂ every s steps (nothing from the live run)
     p4m = None   # prediction-4 MULTI-FREEZE panel: 3 frozen-M_r states at t0-10/+10/+20
     tr5 = None                                 # prediction-5: frozen state {θ0,J0,f0,Yf,tr0,traj[4]} for the trace-statistic propagation
     sec15_th64 = None          # §15: float64 SHADOW GD trajectory (MLP only). D²=‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖² is a ~9-digit
@@ -3636,45 +3669,74 @@ def run_stream(P):
                 g_pred3 = {"jrd": jrd3, "jdr": jdr3, "diff": diff3}
                 if p3_tstar is None and p3_prev_sign is not None and sgn3 != 0 and sgn3 != p3_prev_sign:
                     p3_tstar = t; p3_Jstar = Jm3.detach().clone(); p3_rtheory = rm3.detach().clone()   # freeze J*, seed r_theory = r(t*)
+                    p3_thstar = th.detach().clone(); p3_r2 = rm3.detach().clone()   # 2nd-order theory: freeze θ* (for Q*) and seed r₂ = r(t*)
+                    p3_J3 = Jm3.detach().clone(); p3_r3 = rm3.detach().clone(); p3_j3sc = 0   # evolving-J theory: seed J3=J(t*), r3=r(t*)
                 if sgn3 != 0:
                     p3_prev_sign = sgn3
                 if p3_tstar is not None:
-                    na3 = float(rm3.norm()); nt3 = float(p3_rtheory.norm())
+                    na3 = float(rm3.norm()); nt3 = float(p3_rtheory.norm()); nt3b = float(p3_r2.norm()); nt3c = float(p3_r3.norm())
                     cos3 = (float(rm3 @ p3_rtheory) / (na3 * nt3)) if (na3 > 1e-30 and nt3 > 1e-30) else None
-                    g_pred3.update({"tstar": p3_tstar, "rAct": na3, "rThy": nt3, "cos": cos3})
-                    for _ in range(max(1, ee)):   # advance the linear theory ONE GD step per actual step — ee steps between diagnostic ticks (eigevery>1)
-                        p3_rtheory = p3_rtheory - (lr / N) * (p3_Jstar @ (p3_Jstar.t() @ p3_rtheory))
+                    cos3b = (float(rm3 @ p3_r2) / (na3 * nt3b)) if (na3 > 1e-30 and nt3b > 1e-30) else None
+                    cos3c = (float(rm3 @ p3_r3) / (na3 * nt3c)) if (na3 > 1e-30 and nt3c > 1e-30) else None   # evolving-J theory direction cosine
+                    g_pred3.update({"tstar": p3_tstar, "rAct": na3, "rThy": nt3, "cos": cos3, "rThy2": nt3b, "cos2": cos3b, "rThy3": nt3c, "cos3": cos3c})
+                    for _ in range(max(1, ee)):   # advance the linear + 2nd-order theories ONE GD step per actual step
+                        p3_rtheory = p3_rtheory - (lr / N) * (p3_Jstar @ (p3_Jstar.t() @ p3_rtheory))   # 1st order: r=(I−(η/N)J*J*ᵀ)r
+                        g2 = p3_Jstar.t() @ p3_r2                                                        # 2nd order (J*,Q* frozen at t*): g=J*ᵀr₂
+                        quad2 = 0.5 * (lr / N) ** 2 * (jac_hvp(p3_thstar, X, g2)[:M] * g2).sum(dim=1)    # +½(η/N)²·(gᵀQ*_k g)_k  (M-dim)
+                        p3_r2 = p3_r2 - (lr / N) * (p3_Jstar @ (p3_Jstar.t() @ p3_r2)) + quad2
+                        if torch.isfinite(p3_J3).all():   # 3rd theory (J EVOLVING; STABLE & self-contained): r3 decays via the CURRENT J3 (PSD, bounded); every p3k steps J3 grows via the throttled frozen-Q* contraction J3 += (η/N)·[Σ_k r3_k Q*_k]·J3
+                            p3_r3 = p3_r3 - (lr / N) * (p3_J3 @ (p3_J3.t() @ p3_r3))
+                            p3_j3sc += 1
+                            if p3_j3sc % p3k == 0:
+                                p3_J3 = p3_J3 + (lr / N) * torch.stack([hvpS(p3_thstar, X, p3_J3[k], p3_r3.reshape(N, outD)) for k in range(M)])
 
-            # prediction-3 MULTI-FREEZE panel: ‖r‖ actual vs the frozen-J linear theory, J frozen at t*-10, t*+10, t*+20 (3 plots)
+            # prediction-3 MULTI-FREEZE panel: ‖r‖ actual vs frozen theory (1st- AND 2nd-order), J & Q frozen at t*-10, t*+10, t*+20 (3 plots)
             g_pred3m = None
             if s36 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 if p3m is None:
-                    p3m = {"buf": [], "th": [None, None, None]}                   # rolling (t,J,r,‖r‖) buffer + 3 frozen-J theories
-                p3m["buf"].append((t, Jm3.detach().clone(), rm3.detach().clone(), float(rm3.norm())))
+                    p3m = {"buf": [], "th": [None, None, None]}                   # rolling (t,J,r,‖r‖,θ) buffer + 3 frozen-(J,Q) theories
+                p3m["buf"].append((t, Jm3.detach().clone(), rm3.detach().clone(), float(rm3.norm()), th.detach().clone()))
                 if len(p3m["buf"]) > 30:
                     p3m["buf"] = p3m["buf"][-30:]
                 offs = [-10, 10, 20]; backfill = None
+                def _adv3m(Js, ths, r1, r2, r3, J3, sc3):                         # one GD step: 1st & 2nd (frozen J*) + 3rd (evolving-J, STABLE), Q frozen at ths=θ*
+                    r1n = r1 - (lr / N) * (Js @ (Js.t() @ r1))                    # 1st: r=(I−(η/N)J*J*ᵀ)r
+                    g2 = Js.t() @ r2
+                    quad2 = 0.5 * (lr / N) ** 2 * (jac_hvp(ths, X, g2)[:M] * g2).sum(dim=1)   # +½(η/N)²·(gᵀQ*_k g)_k
+                    r2n = r2 - (lr / N) * (Js @ (Js.t() @ r2)) + quad2
+                    r3n = r3                                                       # 3rd: r3 decays via the CURRENT J3 (PSD, bounded); every p3k steps J3 grows via the throttled frozen-Q* contraction
+                    if torch.isfinite(J3).all():
+                        r3n = r3 - (lr / N) * (J3 @ (J3.t() @ r3))
+                        sc3 += 1
+                        if sc3 % p3k == 0:
+                            J3 = J3 + (lr / N) * torch.stack([hvpS(ths, X, J3[k], r3n.reshape(N, outD)) for k in range(M)])
+                    return r1n, r2n, r3n, J3, sc3
                 if p3_tstar is not None and p3m["th"][0] is None:                # theory-0 (t*-10): freeze from the buffer and BACK-FILL t*-10 … t
                     tgt = p3_tstar - 10
                     bi = min(range(len(p3m["buf"])), key=lambda i: abs(p3m["buf"][i][0] - tgt))
-                    J0s = p3m["buf"][bi][1]; rth = p3m["buf"][bi][2].clone(); bf = []
+                    J0s = p3m["buf"][bi][1]; th0s = p3m["buf"][bi][4]
+                    rth = p3m["buf"][bi][2].clone(); r2th = p3m["buf"][bi][2].clone()
+                    r3th = p3m["buf"][bi][2].clone(); J3th = J0s.detach().clone(); sc3 = 0; bf = []
                     for j in range(bi, len(p3m["buf"])):
-                        bf.append([p3m["buf"][j][0], p3m["buf"][j][3], float(rth.norm())])   # (step, ‖r_actual‖, ‖r_theory‖)
-                        rth = rth - (lr / N) * (J0s @ (J0s.t() @ rth))
-                    p3m["th"][0] = {"J": J0s, "r": rth}; backfill = bf            # r advanced to just past the current tick
+                        bf.append([p3m["buf"][j][0], p3m["buf"][j][3], float(rth.norm()), float(r2th.norm()), float(r3th.norm())])   # (step, ‖r_act‖, 1st, 2nd, 3rd/evolving-J)
+                        nadv = (p3m["buf"][j + 1][0] - p3m["buf"][j][0]) if j + 1 < len(p3m["buf"]) else max(1, ee)   # buffer points are eigevery GD-steps apart → advance that many (not 1); last point → ee to hand off to the ongoing per-tick advance
+                        for _ in range(max(1, nadv)):
+                            rth, r2th, r3th, J3th, sc3 = _adv3m(J0s, th0s, rth, r2th, r3th, J3th, sc3)
+                    p3m["th"][0] = {"J": J0s, "th": th0s, "r": rth, "r2": r2th, "r3": r3th, "J3": J3th, "sc3": sc3}; backfill = bf
                 for k in (1, 2):                                                 # theory-1/2 (t*+10, t*+20): freeze when the run reaches them
-                    if p3_tstar is not None and p3m["th"][k] is None and t == p3_tstar + offs[k]:
-                        p3m["th"][k] = {"J": Jm3.detach().clone(), "r": rm3.detach().clone()}
-                thy = [None, None, None]
+                    if p3_tstar is not None and p3m["th"][k] is None and t >= p3_tstar + offs[k]:   # >= (not ==): eigevery>1 skips the exact offset tick, so freeze at the first tick past t*+off
+                        p3m["th"][k] = {"J": Jm3.detach().clone(), "th": th.detach().clone(), "r": rm3.detach().clone(),
+                                        "r2": rm3.detach().clone(), "r3": rm3.detach().clone(), "J3": Jm3.detach().clone(), "sc3": 0}
+                thy = [None, None, None]; thy2 = [None, None, None]; thy3 = [None, None, None]
                 for k in range(3):
                     if p3m["th"][k] is None or (k == 0 and backfill is not None):
                         continue                                                 # skip theory-0's single emit on the back-fill tick (the batch covers it)
-                    thy[k] = float(p3m["th"][k]["r"].norm())
-                    Js = p3m["th"][k]["J"]
+                    d = p3m["th"][k]
+                    thy[k] = float(d["r"].norm()); thy2[k] = float(d["r2"].norm()); thy3[k] = float(d["r3"].norm())
                     for _ in range(max(1, ee)):
-                        p3m["th"][k]["r"] = p3m["th"][k]["r"] - (lr / N) * (Js @ (Js.t() @ p3m["th"][k]["r"]))
+                        d["r"], d["r2"], d["r3"], d["J3"], d["sc3"] = _adv3m(d["J"], d["th"], d["r"], d["r2"], d["r3"], d["J3"], d["sc3"])
                 if p3_tstar is not None:
-                    g_pred3m = {"rAct": float(rm3.norm()), "thy": thy, "off": offs, "tstar": p3_tstar, "backfill": backfill}
+                    g_pred3m = {"rAct": float(rm3.norm()), "thy": thy, "thy2": thy2, "thy3": thy3, "off": offs, "tstar": p3_tstar, "backfill": backfill}
 
             # prediction-4 (s37): frozen-M_r Jacobian propagation. At iteration t0 freeze θ0, J0=J(t0) and the
             #   residual r0; then propagate J_{s+1} = (I + (η/N)·M_r)·J_s with M_r = Σ_k r0_k Q_k(θ0) frozen
@@ -3684,60 +3746,81 @@ def run_stream(P):
                 Jm4 = Jc[:M]
                 if p4_J is None and t >= p4t0:                                   # freeze Q & residual at t0
                     p4_J = Jm4.detach().clone(); p4_th0 = th.detach().clone(); p4_r0 = rr[:M].reshape(N, outD).detach().clone()
+                    p4_Je = Jm4.detach().clone(); p4_re = rr[:M].detach().clone()   # EVOLVING-Qr: seed Ĵ, r̂
+                    p4_the = th.detach().clone(); p4_thQ = th.detach().clone(); p4_qsc = 0   # self-computed θ̂ (GD-propagated) + θ at which Q is evaluated (refreshed every s steps)
+                    p4_f0 = (Y.reshape(-1)[:M] - rr[:M]).detach().clone()         # f(θ0) — anchor for the BOUNDED quadratic self-residual r̂=Y−(f0+J0Δθ̂+½Δθ̂ᵀQ0Δθ̂)
                 if p4_J is not None:
-                    K4 = min(10, M); K5 = min(5, M)
-                    try:                                                          # eigh → eigenvalues AND eigenvectors (top-5 for the cosine plot)
+                    K4 = min(3, M); K5 = min(3, M)                                # top-3 everywhere
+                    try:                                                          # eigh → eigenvalues AND eigenvectors (top-3 for the cosine plots)
                         Wa, Va = torch.linalg.eigh(Jm4 @ Jm4.t())                 # actual NTK: eigvals asc, eigvecs = columns
-                        Wp, Vp = torch.linalg.eigh(p4_J @ p4_J.t())              # predicted NTK
+                        Wp, Vp = torch.linalg.eigh(p4_J @ p4_J.t())              # predicted NTK (frozen residual)
+                        We, Ve = torch.linalg.eigh(p4_Je @ p4_Je.t())            # predicted NTK (evolving residual)
                         kAct4 = [max(0.0, float(Wa[-1 - i])) for i in range(K4)]
                         kPred4 = [max(0.0, float(Wp[-1 - i])) for i in range(K4)]
-                        cos5 = [abs(float(Va[:, -1 - i] @ Vp[:, -1 - i])) for i in range(K5)]   # |cos| of rank-i actual vs predicted NTK eigvec
-                        cosGN5 = []                                               # |cos| of the Gauss-Newton (JᵀJ) eigvecs = right-singular vectors z=Jᵀu/‖·‖ (parameter space)
+                        kPredE = [max(0.0, float(We[-1 - i])) for i in range(K4)]
+                        cos5 = [abs(float(Va[:, -1 - i] @ Vp[:, -1 - i])) for i in range(K5)]    # |cos| actual vs frozen-residual NTK eigvec
+                        cos5E = [abs(float(Va[:, -1 - i] @ Ve[:, -1 - i])) for i in range(K5)]   # |cos| actual vs evolving-residual NTK eigvec
+                        cosGN5 = []; cosGN5E = []                                 # |cos| of the Gauss-Newton (JᵀJ) eigvecs = right-singular vectors z=Jᵀu/‖·‖ (parameter space)
                         for i in range(K5):
                             za = Jm4.t() @ Va[:, -1 - i]; za = za / max(float(za.norm()), 1e-30)
                             zp = p4_J.t() @ Vp[:, -1 - i]; zp = zp / max(float(zp.norm()), 1e-30)
-                            cosGN5.append(abs(float(za @ zp)))
+                            ze = p4_Je.t() @ Ve[:, -1 - i]; ze = ze / max(float(ze.norm()), 1e-30)
+                            cosGN5.append(abs(float(za @ zp))); cosGN5E.append(abs(float(za @ ze)))
                     except Exception:                                             # fp32-GPU eigh hiccup ⇒ fall back to eigenvalues only
-                        ka = _safe_eigvalsh(Jm4 @ Jm4.t()); kp = _safe_eigvalsh(p4_J @ p4_J.t())
+                        ka = _safe_eigvalsh(Jm4 @ Jm4.t()); kp = _safe_eigvalsh(p4_J @ p4_J.t()); kpe = _safe_eigvalsh(p4_Je @ p4_Je.t())
                         kAct4 = [max(0.0, float(ka[-1 - i])) for i in range(K4)]
                         kPred4 = [max(0.0, float(kp[-1 - i])) for i in range(K4)]
-                        cos5 = []; cosGN5 = []
-                    g_pred4 = {"t0": p4t0, "kAct": kAct4, "kPred": kPred4, "cos5": cos5, "cosGN5": cosGN5}   # eigvals + NTK & Gauss-Newton eigvec |cos|
+                        kPredE = [max(0.0, float(kpe[-1 - i])) for i in range(K4)]
+                        cos5 = []; cos5E = []; cosGN5 = []; cosGN5E = []
+                    g_pred4 = {"t0": p4t0, "s": p4s, "kAct": kAct4, "kPred": kPred4, "kPredE": kPredE,
+                               "cos5": cos5, "cos5E": cos5E, "cosGN5": cosGN5, "cosGN5E": cosGN5E}   # frozen- & evolving-residual eigvals + NTK & GN eigvec |cos|
                     for _ in range(max(1, ee)):                                  # advance ONE GD step per actual step (ee GD steps between diagnostic ticks)
-                        if not torch.isfinite(p4_J).all():                       # diverged ⇒ stop advancing (render tolerates the gap)
-                            break
-                        MrJ = torch.stack([hvpS(p4_th0, X, p4_J[k], p4_r0) for k in range(M)])   # M_r·J rows (M,p), Q & r frozen at t0
-                        p4_J = p4_J + (lr / max(N, 1)) * MrJ                      # advance predicted J for the NEXT step (frozen M_r)
+                        if torch.isfinite(p4_J).all():
+                            MrJ = torch.stack([hvpS(p4_th0, X, p4_J[k], p4_r0) for k in range(M)])   # frozen M_r·J rows (M,p), Q & r frozen at t0
+                            p4_J = p4_J + (lr / max(N, 1)) * MrJ                  # advance frozen-residual predicted J for the NEXT step
+                        if torch.isfinite(p4_Je).all() and torch.isfinite(p4_re).all():   # EVOLVING-Qr (STABLE & FULLY self-contained — only the t0 anchor + targets; NO live-run state): r̂ decays via the PSD NTK ĴĴᵀ (monotone, bounded); Ĵ grows via the THROTTLED frozen-Q0 contraction M_r=Σ_k r̂_k Q0_k every s steps (throttle keeps ‖Ĵ‖ below the EoS threshold ⇒ no blow-up)
+                            p4_re = p4_re - (lr / max(N, 1)) * (p4_Je @ (p4_Je.t() @ p4_re))   # r̂ ← (I−(η/N)ĴĴᵀ)r̂
+                            p4_qsc += 1
+                            if p4_qsc % p4s == 0:
+                                p4_Je = p4_Je + (lr / max(N, 1)) * torch.stack([hvpS(p4_th0, X, p4_Je[k], p4_re.reshape(N, outD)) for k in range(M)])
 
             # prediction-4 MULTI-FREEZE panel: same frozen-M_r propagation but anchored at t0-10, t0+10, t0+20 (3 plots vs the actual top-5 NTK eigvals)
             g_pred4m = None
             if s37 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 Jm4m = Jc[:M]
                 if p4m is None:
-                    p4m = [{"tf": p4t0 - 10, "J": None, "th0": None, "r0": None},
-                           {"tf": p4t0 + 10, "J": None, "th0": None, "r0": None},
-                           {"tf": p4t0 + 20, "J": None, "th0": None, "r0": None}]
-                K5m = min(5, M)
+                    p4m = [{"tf": p4t0 - 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "f0": None, "qsc": 0},
+                           {"tf": p4t0 + 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "f0": None, "qsc": 0},
+                           {"tf": p4t0 + 20, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "f0": None, "qsc": 0}]
+                K5m = min(3, M)                                                   # top-3
                 try:
                     Wam = _safe_eigvalsh(Jm4m @ Jm4m.t()); ka4m = [max(0.0, float(Wam[-1 - i])) for i in range(K5m)]
                 except Exception:
                     ka4m = None
-                kpm = [None, None, None]
+                kpm = [None, None, None]; kpmE = [None, None, None]
                 for fi4, fz in enumerate(p4m):
                     if fz["tf"] >= 0 and t == fz["tf"] and fz["J"] is None:        # freeze M_r (θ, J, residual) at this offset iteration
                         fz["J"] = Jm4m.detach().clone(); fz["th0"] = th.detach().clone(); fz["r0"] = rr[:M].reshape(N, outD).detach().clone()
+                        fz["Je"] = Jm4m.detach().clone(); fz["re"] = rr[:M].detach().clone()   # evolving-Qr seed
+                        fz["the"] = th.detach().clone(); fz["thQ"] = th.detach().clone(); fz["qsc"] = 0   # self-computed θ̂ + θ for Q eval (refreshed every s)
+                        fz["f0"] = (Y.reshape(-1)[:M] - rr[:M]).detach().clone()   # f(θ_freeze) for the bounded quadratic self-residual
                     if fz["J"] is not None:
                         try:
                             Wpm = _safe_eigvalsh(fz["J"] @ fz["J"].t()); kpm[fi4] = [max(0.0, float(Wpm[-1 - i])) for i in range(K5m)]
+                            Wpe = _safe_eigvalsh(fz["Je"] @ fz["Je"].t()); kpmE[fi4] = [max(0.0, float(Wpe[-1 - i])) for i in range(K5m)]
                         except Exception:
-                            kpm[fi4] = None
-                        for _ in range(max(1, ee)):                              # advance the frozen-M_r Jacobian ee GD steps
-                            if not torch.isfinite(fz["J"]).all():
-                                break
-                            MrJm = torch.stack([hvpS(fz["th0"], X, fz["J"][k], fz["r0"]) for k in range(M)])
-                            fz["J"] = fz["J"] + (lr / max(N, 1)) * MrJm
+                            kpm[fi4] = None; kpmE[fi4] = None
+                        for _ in range(max(1, ee)):                              # advance the frozen- & evolving-residual Jacobians ee GD steps
+                            if torch.isfinite(fz["J"]).all():
+                                MrJm = torch.stack([hvpS(fz["th0"], X, fz["J"][k], fz["r0"]) for k in range(M)])
+                                fz["J"] = fz["J"] + (lr / max(N, 1)) * MrJm
+                            if torch.isfinite(fz["Je"]).all() and torch.isfinite(fz["re"]).all():   # evolving-Qr (STABLE & fully self-contained): r̂ decays via the PSD NTK ĴĴᵀ; Ĵ grows via the throttled frozen-Q0 contraction every s steps
+                                fz["re"] = fz["re"] - (lr / max(N, 1)) * (fz["Je"] @ (fz["Je"].t() @ fz["re"]))
+                                fz["qsc"] += 1
+                                if fz["qsc"] % p4s == 0:
+                                    fz["Je"] = fz["Je"] + (lr / max(N, 1)) * torch.stack([hvpS(fz["th0"], X, fz["Je"][k], fz["re"].reshape(N, outD)) for k in range(M)])
                 if ka4m is not None:
-                    g_pred4m = {"kAct": ka4m, "off": [p4t0 - 10, p4t0 + 10, p4t0 + 20], "kPred": kpm}
+                    g_pred4m = {"kAct": ka4m, "off": [p4t0 - 10, p4t0 + 10, p4t0 + 20], "kPred": kpm, "kPredE": kpmE}
 
             # prediction-5 (s38): TRACE-STATISTIC prediction (PDF Eq-1..5). At t0 freeze θ0, J0=J(t0), the frozen
             #   output f0 & residual r0, Q0 (jac_hvp) and T (central-diff). Propagate 4 Jacobian trajectories
@@ -3747,11 +3830,19 @@ def run_stream(P):
             g_trace = None
             if s38 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 Jm5 = Jc[:M]
-                if tr5 is None and t >= p5t0:                                    # START the trace prediction at t0; each trajectory then RE-ANCHORS at the actual state every window (no longer frozen once)
+                trGN = float((Jm5 * Jm5).sum()) / N                               # actual Tr(JᵀJ)=‖J‖²_F ÷N (exact) — shown THROUGHOUT, not gated by stat_init
+                NP5 = 24                                                          # actual Tr(∇²L) ÷N via Hutchinson with the EXACT loss-Hessian HVP (hvpL).
+                thut = 0.0                                                        #   (8 FD probes was biased ~10-15% and worse on fp32; exact HVP + 24 probes tracks the true trace within ~2%.)
+                for kp in range(NP5):
+                    v = _randn_vec(p, (0x7EAC5 + kp * 0x9E3779B1) & 0xFFFFFFFF).sign()
+                    thut += float(v @ hvpL(th, X, Y, v))
+                trHess = thut / NP5
+                if tr5 is None and t >= stat_init:                               # START the trace FORECAST at stat_init; each trajectory then RE-ANCHORS at the actual state every window (no longer frozen once)
                     tr5 = {"traj": [{"cubic": c, "self": s_, "K": (evcubic if c else qapprox),   # quad → every_iter_quadric_approx, cubic → every_iter_cubic_approx
                                      "th0": None, "J0": None, "f0": None, "tr0": 0.0,
                                      "J": None, "HistG": [], "Dth": None, "trNo": 0.0, "sc": 1 << 30}   # sc huge ⇒ anchor on the first tick
                                     for c in (False, True) for s_ in (False, True)]}
+                qL5 = qS5 = cL5 = cS5 = None                                      # forecasts (None before stat_init; the actual trGN/trHess above are always shown)
                 if tr5 is not None:
                     etaN5 = lr / max(N, 1); Yf5 = Y.reshape(-1)[:M]; f_cur = Yf5 - rr[:M]   # current ACTUAL output f(θ_t)
                     def _T2m5(th0, a, b):                                          # T[a,b]=∇³f(θ0)[a,b] (M,p) at this trajectory's anchor θ0
@@ -3760,13 +3851,6 @@ def run_stream(P):
                             return torch.zeros(M, p, dtype=DTYPE, device=_dev())
                         ah = a / an
                         return an * (jac_hvp(th0 + 1e-2 * ah, X, b)[:M] - jac_hvp(th0 - 1e-2 * ah, X, b)[:M]) / (2e-2)
-                    trGN = float((Jm5 * Jm5).sum()) / N                           # actual Tr(JᵀJ)=‖J‖²_F ÷N (exact)
-                    NP5 = 24                                                      # actual Tr(∇²L) ÷N via Hutchinson with the EXACT loss-Hessian HVP (hvpL).
-                    thut = 0.0                                                    #   (8 FD probes was biased ~10-15% and worse on fp32; exact HVP + 24 probes tracks the true trace within ~2%.)
-                    for kp in range(NP5):
-                        v = _randn_vec(p, (0x7EAC5 + kp * 0x9E3779B1) & 0xFFFFFFFF).sign()
-                        thut += float(v @ hvpL(th, X, Y, v))
-                    trHess = thut / NP5
                     tr_out = []
                     for dtr in tr5["traj"]:
                         if dtr["sc"] >= dtr["K"]:                                 # (re-)anchor at the CURRENT ACTUAL θ_t/J_t/residual every K steps → the prediction re-syncs and tracks the run (mirrors 5.2's §9/§10 windows)
@@ -3799,8 +3883,9 @@ def run_stream(P):
                             if dtr["self"]:
                                 dtr["Dth"] = dth + etaN5 * g
                             dtr["sc"] += 1
-                    g_trace = {"t0": p5t0, "trGN": trGN, "trHess": trHess,
-                               "qLive": tr_out[0], "qSelf": tr_out[1], "cLive": tr_out[2], "cSelf": tr_out[3]}
+                    qL5, qS5, cL5, cS5 = tr_out[0], tr_out[1], tr_out[2], tr_out[3]
+                g_trace = {"t0": stat_init, "trGN": trGN, "trHess": trHess,       # actual Tr(JᵀJ)/Tr(∇²L) shown throughout; forecasts are None before stat_init
+                           "qLive": qL5, "qSelf": qS5, "cLive": cL5, "cSelf": cS5}
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None
@@ -4525,13 +4610,13 @@ def run_surrogate_compare(P):
                "which fully supports both CE and MSE."}
         return
     if dataset == "cifar10":
-        inDimE, outDimE = 3072, 10
+        inDimE, outDimE = CIFAR_DIM, 10
     elif dataset == "cifar2":
-        inDimE, outDimE = 3072, 1                         # 2-class CIFAR cast as SCALAR regression (±1)
+        inDimE, outDimE = CIFAR_DIM, 1                         # 2-class CIFAR cast as SCALAR regression (±1)
     elif dataset == "mnist":
-        inDimE, outDimE = 3072, 10                        # MNIST padded to 3×32×32 (drop-in for cifar-shaped nets)
+        inDimE, outDimE = CIFAR_DIM, 10                        # MNIST padded to 3×32×32 (drop-in for cifar-shaped nets)
     elif dataset == "mnist2":
-        inDimE, outDimE = 3072, 1                         # 2-class MNIST cast as SCALAR regression (±1)
+        inDimE, outDimE = CIFAR_DIM, 1                         # 2-class MNIST cast as SCALAR regression (±1)
     elif dataset == "sorting":
         inDimE = outDimE = int(P["seqlen"])
     elif dataset in ("chebyshev", "chebyshev2"):
@@ -4590,7 +4675,7 @@ def run_surrogate_compare(P):
     mytok = P.get("_token", 0)                          # per-device token claimed in _sse via acquire_device()
     _devkey = str(_dev())
     start = max(0, min(int(P.get("start", 0)), steps))
-    slqStride = max(1, math.ceil((steps // ee + 1) / 50))
+    slqStride = max(1, round(max(1, P.get("slqevery", 10)) / ee))   # SLQ density every slqevery iterations (default 10; eigTick stride = slqevery/eigevery)
     heavyevery = max(1, P.get("heavyevery", 4))   # §7-proj + §8 throttle (mirror run_stream)
     t0 = time.time()
     eigTick = 0
@@ -4977,7 +5062,7 @@ def _parse_params(q):
         "lr": ff("lr", 0.36), "init": ff("init", 0.4),
         "nsamp": fi("nsamp", 1), "batch": fi("batch", 0), "indim": fi("indim", 1), "outdim": fi("outdim", 1),
         "tgt": ff("tgt", 1.0), "neig": fi("neig", 3), "kth": fi("kth", 1),
-        "steps": fi("steps", 400), "eigevery": fi("eigevery", 1),
+        "steps": fi("steps", 400), "eigevery": fi("eigevery", 1), "slqevery": max(1, fi("slqevery", 10)),
         "heavyevery": max(1, fi("heavyevery", 4)),   # cadence for the heaviest panels §7-proj/§8 (keeps runs responsive)
         "slqprobes": fi("slqprobes", 4), "energyp": ff("energyp", 99),
         "seed": fi("seed", 0), "start": fi("start", 0), "inputstd": ff("inputstd", 1.0),
@@ -5043,8 +5128,11 @@ def _parse_params(q):
         "s36": g("s36", "0") == "1",     # prediction-3: linear residual theory after the ‖J·ṙ‖−‖J̇·r‖ sign-change (prediction widget)
         "s37": g("s37", "0") == "1",     # prediction-4: frozen-M_r Jacobian propagation NTK-eigenvalue prediction (prediction widget)
         "p4t0": fi("p4t0", 10),          # prediction-4: iteration t0 at which Q & residual are frozen
+        "p4s": fi("p4s", 10),            # prediction-4: re-anchor interval s for the evolving-residual variant
+        "p3k": fi("p3k", 10),            # prediction-3: evolving-Jacobian J-update interval
         "s38": g("s38", "0") == "1",     # prediction-5: trace-statistic Tr(NTK) prediction (prediction widget)
         "p5t0": fi("p5t0", 10), "evcubic": max(1, fi("evcubic", 25)),          # prediction-5: START iteration + cubic re-anchor window (quad uses qapprox)
+        "stat_init": fi("stat_init", 0),   # prediction 5.1/5.2: iteration after which the theoretical forecasts begin
         "s30t": max(0, fi("s30t", 0)),   # §22: freeze iteration t
         "s31r": max(1, fi("s31r", 200)), # §23: rank R of the random function Hessian
         "s31scale": ff("s31scale", 1.0), # §23: random-Hessian spectral-norm scale (× real fn-Hessian λmax)
@@ -5105,6 +5193,15 @@ def _max_abs_curvature(ys):
     return float(best)
 
 
+def _curvature_at(ys, t):
+    """Prediction-2 (iteration-t variant): the discrete central 2nd difference L[t+1]−2L[t]+L[t−1] of the
+    loss AT a specific iteration t (its exact sign), NOT the peak. 0.0 if t is outside the finite range [1, len−2]."""
+    n = len(ys)
+    if n < 3 or t < 1 or t > n - 2:
+        return 0.0
+    return float(ys[t + 1]) - 2.0 * float(ys[t]) + float(ys[t - 1])
+
+
 def _pred_signchange(th_start, X, Y, N, outD, p, lr, K, max_steps):
     """PREDICTED first sign-change of d = ‖J·ṙ‖−‖J̇·r‖ along the cubic Eq-51 (§10) trajectory from th_start,
     with the quadratic model refrozen every K steps. Returns (t, censored). The residual is the frozen-quad
@@ -5163,9 +5260,9 @@ def run_sweep(P):
     if dataset in ("chebyshev", "chebyshev2"):
         inD = outD = 1
     elif dataset in ("cifar2", "mnist2"):
-        inD, outD = 3072, 1
+        inD, outD = CIFAR_DIM, 1
     elif dataset in ("cifar10", "cifar_mlp", "cifar_cnn", "cifar_vgg", "mnist", "mnist_mlp"):
-        inD, outD = 3072, 10
+        inD, outD = CIFAR_DIM, 10
     else:
         inD, outD = int(P.get("indim", 10)), int(P.get("outdim", 1))
     _TL.model = build_model(arch, inD, outD, P)
@@ -5181,6 +5278,7 @@ def run_sweep(P):
     npairs = max(1, min(200, int(P.get("swpairs", 12))))
     K = max(1, int(P.get("swK", 20)))
     Tstart = max(0, min(steps - 2, int(P.get("swTstart", 0))))
+    swcurvt = max(1, int(P.get("swcurvt", 40)))   # prediction-2: iteration t at which sign(d²loss/dt²) is read (exact, not the peak)
     seed0 = int(P.get("seed", 0))
     base_lr = float(P.get("lr", 0.1)); base_std = float(P.get("init", 0.5))
     _lrmn = float(P.get("swlrmin", 0) or 0); _lrmx = float(P.get("swlrmax", 0) or 0)          # 0 ⇒ auto (base±4×)
@@ -5197,13 +5295,13 @@ def run_sweep(P):
         lr = _math.exp(rng.uniform(_math.log(lrmin), _math.log(lrmax)))
         std = _math.exp(rng.uniform(_math.log(stdmin), _math.log(stdmax)))
         th = _TL.model.init_theta(seed0 + 1, std)
-        diffs = []; losses = []; th_at_T = None; diverged = False
+        diffs = []; losses = []; jnorms = []; th_at_T = None; diverged = False
         for t in range(steps):
             out = _TL.model.forward(th, X)
             lv = float(_TL.loss.value(out, Y, N))
             if not (lv < 1e12):                       # NaN or blow-up ⇒ stop this pair, keep only the finite history
                 diverged = True; break
-            Jc, _ = jac_cols(th, X); Jm = Jc[:M]
+            Jc, _ = jac_cols(th, X); Jm = Jc[:M]; jnorms.append(float(Jm.norm()))   # ‖J‖_F per step → start-of-training trend (prediction-2b)
             cS = _TL.loss.resid_cotangent(out.reshape(N, outD), Y, N)
             rr = (-N * cS).reshape(-1)[:M]
             gL = gradL(th, X, Y)[0]
@@ -5220,10 +5318,18 @@ def run_sweep(P):
         else:
             tPred, censP = steps, True
         curv = _max_abs_curvature(losses)              # peak signed d²loss/dt² over the finite prefix
+        curvT = _curvature_at(losses, swcurvt)         # signed d²loss/dt² AT iteration swcurvt (prediction-2 exact-iteration variant)
+        Wj = min(len(jnorms), 20)                       # prediction-2b: is ‖J‖ RISING (+1) or FALLING (−1) at the START of training?
+        if Wj >= 2:                                     #   compare the mean of the last vs first half of the first Wj steps
+            hj = max(1, Wj // 2)
+            jnormSign = 1 if (sum(jnorms[Wj - hj:Wj]) / hj) >= (sum(jnorms[:hj]) / hj) else -1
+        else:
+            jnormSign = 0
         yield {"type": "sweeppt", "i": pi, "lr": float(lr), "std": float(std),
                "tAct": tAct, "censA": censA or diverged, "tPred": tPred, "censP": censP,
                "startDiff": (diffs[0] if diffs else 0.0),
-               "curv": (curv if curv == curv else 0.0), "diverged": diverged}
+               "curv": (curv if curv == curv else 0.0), "curvT": (curvT if curvT == curvT else 0.0),
+               "swcurvt": swcurvt, "jnormSign": jnormSign, "diverged": diverged}
     yield {"type": "done"}
 
 

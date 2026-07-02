@@ -109,7 +109,7 @@
 <div class="presetbar">
   <label for="preset">Preset</label>
   <select id="preset">
-    <option value="linear" selected>Wide deep-linear net — single sample (fixed input)</option>
+    <option value="linear" selected>single sample run</option>
     <option value="msample">Multi-sample tanh MLP — NTK / function-Hessian analysis</option>
     <option value="gpu_run">GPU run — large multi-sample net, 100 samples (server.py backend)</option>
     <option value="gpu_const">GPU run — large net, constant +target (server.py backend)</option>
@@ -3815,7 +3815,7 @@ async function runLocal(preview){                       // BROWSER mode: fresh s
   const posIdx=[],negIdx=[];{const f0=forward(th,spec,X,N,inDim).out;for(let i=0;i<N;i++){let s=0;for(let c=0;c<outDim;c++)s+=Y[i*outDim+c]-f0[i*outDim+c];(s>=0?posIdx:negIdx).push(i);}}
   const needVecs=opt.s4||opt.s6||opt.s11, needVals=opt.s1||opt.s2||opt.s3||needVecs;
   const mF=Math.min(p,Math.max(2*nSub+24,44)), mV=Math.min(p,Math.max(2*n+16,28)), mSLQ=Math.min(p,40);
-  const slqStride=Math.max(1,Math.ceil((Math.floor(steps/eigEvery)+1)/50));
+  const slqStride=Math.max(1,Math.round(10/eigEvery));   // SLQ density every 10 iterations
   const heavyEvery=Math.max(1,+val('heavyevery')||4);   // §7-proj + §8 throttle (mirror server.run_stream)
   const grid3dcap=Math.max(1,+val('grid3dcap')||30);    // §11 3D-grid cap (skip when M>this)
   const g3dStride=Math.max(1,+val('cubeevery')||1);   // §11-§14 cube cadence: emit every k-th tick (mirror server cubeevery/g3dstride); §15/§1-9/§16-17 stay per-tick
@@ -4895,12 +4895,12 @@ function resumeRun(){ curMode()==='gpu'?resumeGPU():resumeLocal(); }
 // ================= presets =================
 const PRESETS={
   // default: wide deep-linear net, single sample, fixed input x=1 (p≈31k); multi-only panels auto-hidden
-  linear:{depth:4,width:100,act:'linear',bias:'0',fixedx:'1',inputstd:1.0,ssign:'off',lr:0.3,init:0.1,nsamp:1,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:400,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,dataset:'synthetic',arch:'mlp',loss:'mse',compute:'browser'},
+  linear:{depth:4,width:100,act:'linear',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.3,init:0.1,nsamp:1,indim:10,outdim:1,angle:90,norm1:1,norm2:1,lab1:1,lab2:-1,tgt:1.0,neig:3,kth:1,steps:400,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,dataset:'anglepair',arch:'mlp',loss:'mse',compute:'browser'},
   // multi-sample tanh MLP (wide, iid Gaussian); NTK / function-Hessian panels (1,4,7,4b,4c) on
   msample:{depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.3,init:0.1,nsamp:10,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:800,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,dataset:'synthetic',arch:'mlp',loss:'mse',compute:'browser'},
   // large multi-sample run intended for the GPU backend: 100 samples, 4000 steps, panels 1/4/7/4b/4c/4d on
   gpu_run:{depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.5,init:0.1,nsamp:25,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,dataset:'synthetic',arch:'mlp',loss:'mse',compute:'gpu'},
-  gpu_const:{depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.5,init:0.1,nsamp:25,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,cvar:0,dataset:'const',arch:'mlp',loss:'mse',compute:'gpu'},   // = gpu_run but every target is the constant +|tgt| (+ optional N(0,cvar) noise)
+  gpu_const:{depth:4,width:100,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.2,init:0.2,nsamp:25,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:2000,eigevery:1,slqprobes:4,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,cvar:0,dataset:'const',arch:'mlp',loss:'mse',compute:'gpu'},   // = gpu_run but every target is the constant +|tgt| (+ optional N(0,cvar) noise)
   // CIFAR-10 (MSE on one-hot) — fully-connected net on flattened 3072-dim images (GPU backend)
   cifar_mlp:{dataset:'cifar10',arch:'mlp',loss:'mse',depth:2,width:128,act:'tanh',bias:'0',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:128,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:25,qmode:1,tset:3,compute:'gpu'},
   // CIFAR-2 (2-class SCALAR ±1) — small N so the per-sample §16/§17 sections also run; en24/en25 on
@@ -5028,10 +5028,10 @@ const CMP_BASE = { c1:1, c2:1, c3:1, c4:1, c5:1, c6:1, c7:0, c8:1, c9:1, eigever
 const CMP_PRESETS = {
   // Kept IDENTICAL to the main-widget PRESETS — same names, same hyperparameter values — so a given preset
   // is the same run in §1 and in the surrogate sections (only the surrogate-specific c1–c9 / every_iter differ).
-  linear:   { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'linear', bias:'0', fixedx:'1', indim:10, outdim:1, nsamp:1, lr:0.3, init:0.1, steps:400, eigevery:1, neig:3, slqprobes:4 },
+  linear:   { ...CMP_BASE, dataset:'anglepair', arch:'mlp', loss:'mse', depth:4, width:100, act:'linear', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:1, angle:90, norm1:1, norm2:1, lab1:1, lab2:-1, lr:0.3, init:0.1, steps:400, eigevery:1, neig:3, slqprobes:4 },
   msample:  { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:10, lr:0.3, init:0.1, steps:800, eigevery:1, neig:3, slqprobes:4 },
   gpu_run:  { ...CMP_BASE, dataset:'synthetic', arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:25, lr:0.5, init:0.1, steps:2000, eigevery:1, neig:3, slqprobes:4 },
-  gpu_const:{ ...CMP_BASE, dataset:'const',     arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:25, lr:0.5, init:0.1, steps:2000, eigevery:1, neig:3, slqprobes:4, cvar:0 },
+  gpu_const:{ ...CMP_BASE, dataset:'const',     arch:'mlp', loss:'mse', depth:4, width:100, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:25, lr:0.2, init:0.2, steps:2000, eigevery:1, neig:3, slqprobes:4, cvar:0 },
   cifar_mlp:{ ...CMP_BASE, dataset:'cifar10', arch:'mlp', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.02, init:0.5, steps:300, eigevery:2, chmul:0.25 },
   cifar_cnn:{ ...CMP_BASE, dataset:'cifar10', arch:'cnn', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.05, init:0.5, steps:300, eigevery:2, chmul:1.0 },
   cifar_vgg:{ ...CMP_BASE, dataset:'cifar10', arch:'vgg11', loss:'mse', depth:2, width:128, act:'tanh', bias:'0', fixedx:'0', indim:10, outdim:1, nsamp:128, lr:0.05, init:0.5, steps:300, eigevery:2, chmul:0.25 },
@@ -5070,7 +5070,7 @@ function cmpHTML(pre, kind) {
   <div class="presetbar" style="background:#f0fdf4;border-color:#bbf7d0">
     <label style="color:#15803d" for="${pre}_preset">Preset</label>
     <select id="${pre}_preset">
-      <option value="linear" selected>Wide deep-linear net — single sample (fixed input)</option>
+      <option value="linear" selected>single sample run</option>
       <option value="msample">Multi-sample tanh MLP — NTK / function-Hessian analysis</option>
       <option value="gpu_run">GPU run — large multi-sample net, 100 samples (server.py backend)</option>
       <option value="gpu_const">GPU run — large net, constant +target (server.py backend)</option>

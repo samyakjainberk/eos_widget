@@ -23,7 +23,7 @@ Module map (each ↔ server.py + index.html):
 from .config import Config, PRESETS
 from .train import run_job, resolve_device
 from .models import build_model, build_loss
-from . import diagnostics, linalg, data, models, plots
+from . import diagnostics, linalg, data, models, plots, prediction
 
 __all__ = ["Config", "PRESETS", "run_job", "resolve_device",
-           "build_model", "build_loss", "diagnostics", "linalg", "data", "models", "plots"]
+           "build_model", "build_loss", "diagnostics", "linalg", "data", "models", "plots", "prediction"]

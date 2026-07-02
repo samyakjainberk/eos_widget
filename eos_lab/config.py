@@ -209,8 +209,9 @@ class Config:
 # Mirrors index.html PRESETS. Section flags are inherited from the all-on Config defaults
 # (every panel renders); set e.g. s5=0 here or via --set to skip SLQ on a heavy preset.
 PRESETS = {
-    "linear":    dict(dataset="synthetic", arch="mlp", act="linear", depth=4, width=100, bias=0,
-                      fixedx=1, indim=10, outdim=1, nsamp=1, lr=0.3, init=0.1, steps=400),
+    "linear":    dict(dataset="anglepair", arch="mlp", act="linear", depth=4, width=100, bias=0,
+                      fixedx=0, indim=10, outdim=1, nsamp=1, angle=90, norm1=1, norm2=1, lab1=1, lab2=-1,
+                      lr=0.3, init=0.1, steps=400),   # "single sample run": anglepair setup, one sample (norm1/lab1; angle/norm2/lab2 ignored)
     "msample":   dict(dataset="synthetic", arch="mlp", act="tanh", depth=4, width=100, bias=0,
                       fixedx=0, indim=10, outdim=1, nsamp=10, lr=0.3, init=0.1, steps=800),
     "gpu_run":   dict(dataset="synthetic", arch="mlp", act="tanh", depth=4, width=100, bias=0,
