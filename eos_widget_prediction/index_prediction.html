@@ -4784,7 +4784,7 @@ window.addEventListener('load',()=>{try{
   const cm=document.getElementById('compute'); if(cm&&cm.value!=='gpu'){cm.value='gpu'; cm.dispatchEvent(new Event('change'));}
   const ns=document.getElementById('nsamp'); if(ns&&!(+ns.value>1)){ns.value='10';}
   for(const id of ['en1','en2','en3','en29']){const el=document.getElementById(id); if(el)el.checked=true;}   // show §1/§2/§3/§21 (the §9/§10 detail stays CSS-hidden)
-  const _rs=document.getElementById('runsweep'); if(_rs)_rs.onclick=startSweep;   // prediction-1&2 sweep button
+  const _rs=document.getElementById('runsweep'); if(_rs)_rs.onclick=()=>{SWEEP_THEN_RUN=false;startSweep();};   // prediction-1&2 sweep button: manual sweep only, never chains into a main run
   if(typeof syncSectionVis==='function')syncSectionVis();
 }catch(e){}});
 // ★ prediction-1 & 2 sweep: stream (lr,std) pairs from /run?mode=sweep and scatter them live
