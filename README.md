@@ -43,13 +43,17 @@ Seven base panels (§1–§7) feed the ★ **forecasts**, each scored against th
 | Panel | Forecast | vs. the actual run |
 |---|---|---|
 | **1 / 2 / 2b** | `(lr, init)` **sweep** (`Run sweep`) | sign-change timing `t*`; `sign(d)` vs. loss-curvature at iter `t`; vs. start-of-training `‖J‖` trend |
-| **3** | frozen-`J` residual (1st + 2nd order) **and evolving-`J`** | `‖r‖` decay and its direction |
-| **4** | frozen- vs. **evolving-`Qr`** NTK propagation from `t₀` | top-3 NTK eigenvalues + eigenvectors |
+| **3** | frozen-`J` residual (1st + 2nd order) **and evolving-`J`** — exact `Ĵ += (η/N)·Q·(Ĵᵀr̂)`, `J` updated as a step-function every `k` iters | `‖r‖` decay and its direction |
+| **4** | frozen- vs. **evolving-`Qr`** — `Ĵ += (η/N)·M_r·Ĵ` every step, `rQ` fixed per `s`-iter window — NTK propagation from `t₀` | top-3 NTK eigenvalues + eigenvectors |
 | **5.1 / 5.2** | quad / cubic × live / self | `Tr(NTK)` and sharpness `σ₁` vs. the actual `Tr(∇²L)`, `λmax` |
 
 - **Prediction-3 & 4 are fully self-contained:** seeded once at the freeze point, then propagated with
-  **no further information from the live run**. Their evolving curves stay bounded past the edge of
-  stability (PSD residual decay + a throttled residual-weighted-Hessian Jacobian update).
+  **no further information from the live run**. The evolving curves follow the *true* recurrence — Pred-3
+  the exact Jacobian update `Ĵ += (η/N)·Q·(Ĵᵀr̂)` (step-function, `J` refreshed every `k` iters), Pred-4
+  the residual-weighted-Hessian power iteration `Ĵ += (η/N)·M_r·Ĵ` (`rQ` held fixed per `s`-iter window).
+  Both **track the actual well before the edge of stability, then diverge past it** (the linear / `M_r`
+  recurrence is expansive there) — the plots cap the displayed value at 20× the actual so a divergence
+  stays readable rather than blowing the axis.
 - **§4** is the SLQ spectral density of the function Hessian `H`, Gauss-Newton `G`, residual term `S`, and
   the full loss Hessian `∇²L` — refreshed every *SLQ-every* iterations (a control in the bar).
 - Base-panel and forecast toggles live in the top bar; turn one off to hide it.
@@ -64,7 +68,7 @@ Each preset auto-tunes `lr` / `init` / `N` and the sections that fit that size.
 
 `synthetic` (in-browser MLP) · **CIFAR-10 / MNIST** (10-class) · **CIFAR-2 / MNIST-2** (2-class **scalar**
 ±1, `d_out=1`) · **Chebyshev / Chebyshev-2** (Cohen et al. EoS toy) · **k-sparse parity** · **angle-pair**
-(single- or multi-sample) · **saddle-to-saddle**.
+(single- or multi-sample).
 
 > CIFAR/MNIST images are compressed to **≈500 input dims** (`3×13×13`, a fixed average-pool) so the
 > Jacobian / Hessian-vector work stays feasible; the CNN and VGG stacks convolve the smaller image.

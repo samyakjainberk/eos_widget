@@ -289,7 +289,7 @@
   #sec_pred h2{color:#6d28d9;margin-top:4px}
 </style>
 <div id="sec_pred">
-<h2>★ Prediction 5.2 (Sharpness) — predicted $\sigma_1$ vs. actual $\lambda_{\max}(\nabla^2 L)$ &amp; $\lambda_{\max}(\mathrm{NTK})$</h2>
+<h2>★ Prediction 5.2 · sharpness</h2>
 <div style="display:flex;gap:12px;align-items:center;margin:4px 0 6px;font-size:13px;color:#374151">
   <label title="Prediction 5.1 &amp; 5.2 (shared): the theoretical forecasts begin only AFTER this iteration (0 = from the start). The actual σ₁/λmax curves are shown throughout.">forecasts begin after $t=$&nbsp;<input id="stat_init2" value="0" style="width:52px"></label>
 </div>
@@ -298,7 +298,7 @@
 </div>
 
 <div id="sec_trace" style="border:2px solid #9333ea;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#faf5ff">
-<h2 style="color:#7e22ce;margin-top:4px">★ Prediction 5.1 (Trace) — predicted Tr(NTK) vs. actual Tr($\nabla^2 L$) &amp; Tr($J^\top J$)</h2>
+<h2 style="color:#7e22ce;margin-top:4px">★ Prediction 5.1 · trace</h2>
 <div style="display:flex;gap:12px;align-items:center;margin:4px 0 8px;font-size:13px;color:#374151">
   <input type="hidden" id="p5t0" value="10">
   <label title="Prediction 5.1 &amp; 5.2: the theoretical forecasts begin only AFTER this iteration (0 = from the start). 5.2's actual σ₁/λmax curves are shown throughout.">forecasts begin after $t=$&nbsp;<input id="stat_init" value="0" style="width:52px"></label>
@@ -311,7 +311,7 @@
 <div id="sec_pred4_box" style="border:3px solid #0d9488;border-radius:12px;padding:8px 14px 4px;margin:12px 0 24px;background:#e4faf5">
 <h2 style="color:#0f766e;margin:2px 0 8px;font-size:21px">★ Prediction-4</h2>
 <div id="sec_pred4" style="border:1px solid #9ae3d8;border-radius:8px;padding:6px 14px 12px;margin:0 0 12px;background:#f7fffd">
-<h2 style="color:#0f766e;margin-top:4px">★ Prediction-4 — residuals fixed, Jacobian evolving</h2>
+<h2 style="color:#0f766e;margin-top:4px">fixed r · evolving J</h2>
 <div style="display:flex;gap:12px;align-items:center;margin:4px 0 8px;font-size:13px;color:#374151">
   <label>freeze iteration $t_0$&nbsp;<input id="p4t0" value="40" style="width:52px"></label>
   <label title="Prediction-4 evolving-Qr: from the anchor, r̂ decays via the PSD NTK ĴĴᵀ every step; Ĵ grows via the throttled residual-weighted-Hessian contraction M_r=Σ_k r̂_k Q_k (Q frozen at the anchor) every s steps. Re-anchored to the live run every repeat_iter iters (see 'recalc from live every').">evolving-Qr: update $\hat J$ every $s$&nbsp;<input id="p4s" value="10" style="width:46px"></label>
@@ -330,7 +330,7 @@
 <div id="sec_pred3_box" style="border:3px solid #0891b2;border-radius:12px;padding:8px 14px 4px;margin:12px 0 24px;background:#e6faff">
 <h2 style="color:#0e7490;margin:2px 0 8px;font-size:21px">★ Prediction-3</h2>
 <div id="sec_pred3" style="border:1px solid #9fdcec;border-radius:8px;padding:6px 14px 12px;margin:0 0 12px;background:#f9feff">
-<h2 style="color:#0e7490;margin-top:4px">★ Prediction-3 — Jacobian fixed, residual evolving</h2>
+<h2 style="color:#0e7490;margin-top:4px">fixed J · evolving r</h2>
 <p class="cap">Track $d \equiv \lVert J\dot r\rVert - \lVert\dot J r\rVert$ (§25's jrd − jdr). At the first $t^{\star}$ where it changes sign, freeze $J^{\star}=J(t^{\star})$ and evolve the frozen-$J$ linear NTK theory $r_{t+1}=(I-\tfrac{\eta}{N}J^{\star}J^{\star\top})r_t$ from the actual residual $r(t^{\star})$, and compare to the ACTUAL residual thereafter. All three theories <b>RE-ANCHOR to the live run every repeat_iter iters</b> (default 100; 0 = freeze once at $t^{\star}$), predicting each window afresh. <b>Left:</b> the two norms + their difference (sign-change = where the red crosses 0 → $t^{\star}$). <b>Middle:</b> $\lVert r\rVert$ actual vs theory (log). <b>Right:</b> $\cos(r_{\rm actual}, r_{\rm theory})$ — 1 = perfect direction match, decaying as the frozen-$J$ linear theory drifts from the true nonlinear evolution.</p>
 <div style="display:flex;gap:12px;align-items:center;margin:4px 0 6px;font-size:13px;color:#374151"><label title="Prediction-3 evolving-Jacobian theory: update J every k steps via J += (η/N)·[Σ_k r_k Q*_k]·J (Q frozen at the anchor); r decays via the current J.">evolving-J: update J every k=&nbsp;<input id="p3k" value="10" style="width:46px"></label>&nbsp;&nbsp;<label title="repeat_iter — RE-anchor ALL three prediction-3 theories (1st, 2nd, evolving-J) from the LIVE run every this-many iterations, then predict the next window afresh (0 = freeze once at t*, never re-sync).">recalc from live every&nbsp;<input id="p3rep" value="100" style="width:52px"></label></div>
 <div class="plotrow row3"><div id="p_p3_diff" class="plot" style="height:270px"></div><div id="p_p3_rnorm" class="plot" style="height:270px"></div><div id="p_p3_cos" class="plot" style="height:270px"></div></div>
@@ -342,7 +342,7 @@
 </div>
 
 <div id="sec_sweep" style="border:2px solid #b45309;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#fffbeb">
-<h2 style="color:#b45309;margin-top:4px">★ Prediction-1 &amp; 2 — sweep over (lr, init-std)</h2>
+<h2 style="color:#b45309;margin-top:4px">★ Prediction-1 &amp; 2</h2>
 <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:4px 0 8px;font-size:13px;color:#374151">
   <button id="runsweep" class="btn-run" style="background:#b45309">Run sweep</button>
   <label>pairs&nbsp;<input id="swpairs" value="16" style="width:46px"></label>
@@ -3445,28 +3445,28 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
                                {x:[],y:[],mode:'lines',name:p2,line:{color:'#16a34a',width:1.6}},
                                {x:[],y:[],mode:'lines',name:r1,line:{color:'#dc2626',width:1.8,dash:'dash'}},
                                {x:[],y:[],mode:'lines',name:r2,line:{color:'#ea580c',width:1.8,dash:'dot'}}];
-  newP('p_pd1',tvPred('pred σ₁','pred + PSD','actual λmax(∇²L)','actual λmax(NTK)'),baseLayout('Quadratic · live residual','σ₁',false));
-  newP('p_pd2',tvPred('pred σ₁','pred + PSD','actual λmax(∇²L)','actual λmax(NTK)'),baseLayout('Quadratic · self residual','σ₁',false));
-  newP('p_pd3',tvPred('pred σ₁','pred + PSD','actual λmax(∇²L)','actual λmax(NTK)'),baseLayout('Cubic · live residual','σ₁',false));
-  newP('p_pd4',tvPred('pred σ₁','pred + PSD','actual λmax(∇²L)','actual λmax(NTK)'),baseLayout('Cubic · self residual','σ₁',false));
+  newP('p_pd1',tvPred('pred σ₁','pred + PSD','actual λmax(∇²L)','actual λmax(NTK)'),baseLayout('quad · live','σ₁',false));
+  newP('p_pd2',tvPred('pred σ₁','pred + PSD','actual λmax(∇²L)','actual λmax(NTK)'),baseLayout('quad · self','σ₁',false));
+  newP('p_pd3',tvPred('pred σ₁','pred + PSD','actual λmax(∇²L)','actual λmax(NTK)'),baseLayout('cubic · live','σ₁',false));
+  newP('p_pd4',tvPred('pred σ₁','pred + PSD','actual λmax(∇²L)','actual λmax(NTK)'),baseLayout('cubic · self','σ₁',false));
   // ★ prediction-3 panel: (jrd,jdr,diff) sign-change, then frozen-J linear residual theory vs actual
-  newP('p_p3_diff',[{x:[],y:[],mode:'lines',name:'‖J·ṙ‖ (jrd)',line:{color:'#2563eb',width:1.7}},{x:[],y:[],mode:'lines',name:'‖J̇·r‖ (jdr)',line:{color:'#16a34a',width:1.7}},{x:[],y:[],mode:'lines',name:'diff = jrd−jdr',line:{color:'#dc2626',width:2}}],baseLayout('‖J·ṙ‖, ‖J̇·r‖ and their difference (crosses 0 ⇒ t*)','value',false));
+  newP('p_p3_diff',[{x:[],y:[],mode:'lines',name:'‖J·ṙ‖ (jrd)',line:{color:'#2563eb',width:1.7}},{x:[],y:[],mode:'lines',name:'‖J̇·r‖ (jdr)',line:{color:'#16a34a',width:1.7}},{x:[],y:[],mode:'lines',name:'diff = jrd−jdr',line:{color:'#dc2626',width:2}}],baseLayout('jrd, jdr & diff → t*','value',false));
   window._P3_CLEARED=false;   // reset the pred-3 "waiting for t*" placeholder each run
   const _p3note=[{text:'activates at the ‖J·ṙ‖−‖J̇·r‖<br>sign-change t* (none yet in this run)',xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,align:'center',font:{size:11,color:'#94a3b8'}}];
-  {const L=baseLayout('‖r‖ — actual vs theory (from t*)','‖r‖ (log)',false);L.yaxis.type='log';L.annotations=_p3note;newP('p_p3_rnorm',[{x:[],y:[],mode:'lines',name:'‖r‖ actual',line:{color:'#2563eb',width:2}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (1st-order)',line:{color:'#ea580c',width:1.9,dash:'dash'}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (2nd-order)',line:{color:'#059669',width:1.9,dash:'dot'}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (evolving-J)',line:{color:'#db2777',width:1.9,dash:'dashdot'}}],L);}
-  {const L=baseLayout('cos(r_actual, r_theory) from t*','cos',false);L.yaxis.range=[-1.05,1.05];L.annotations=_p3note;newP('p_p3_cos',[{x:[],y:[],mode:'lines',name:'cos (1st-order)',line:{color:'#7c3aed',width:2}},{x:[],y:[],mode:'lines',name:'cos (2nd-order)',line:{color:'#059669',width:1.9,dash:'dot'}},{x:[],y:[],mode:'lines',name:'cos (evolving-J)',line:{color:'#db2777',width:1.9,dash:'dashdot'}}],L);}
+  {const L=baseLayout('‖r‖ actual vs theory','‖r‖ (log)',false);L.yaxis.type='log';L.annotations=_p3note;newP('p_p3_rnorm',[{x:[],y:[],mode:'lines',name:'‖r‖ actual',line:{color:'#2563eb',width:2}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (1st-order)',line:{color:'#ea580c',width:1.9,dash:'dash'}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (2nd-order)',line:{color:'#059669',width:1.9,dash:'dot'}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (evolving-J)',line:{color:'#db2777',width:1.9,dash:'dashdot'}}],L);}
+  {const L=baseLayout('cos(r_act, r_thy)','cos',false);L.yaxis.range=[-1.05,1.05];L.annotations=_p3note;newP('p_p3_cos',[{x:[],y:[],mode:'lines',name:'cos (1st-order)',line:{color:'#7c3aed',width:2}},{x:[],y:[],mode:'lines',name:'cos (2nd-order)',line:{color:'#059669',width:1.9,dash:'dot'}},{x:[],y:[],mode:'lines',name:'cos (evolving-J)',line:{color:'#db2777',width:1.9,dash:'dashdot'}}],L);}
   // ★ prediction-4: top-10 NTK eigenvalues — predicted (frozen-M_r Jacobian, lines) vs actual (dots); 2 plots λ1–5 & λ6–10
   {const cols=['#2563eb','#16a34a','#db2777','#ea580c','#7c3aed'];
    const mk3=()=>{const tr=[];for(let k=0;k<3;k++){tr.push({x:[],y:[],mode:'lines',name:'λ'+(k+1)+' pred (frozen r)',line:{color:cols[k],width:1.9}});tr.push({x:[],y:[],mode:'lines',name:'λ'+(k+1)+' pred (evolving Qr)',line:{color:cols[k],width:1.7,dash:'dash'}});tr.push({x:[],y:[],mode:'markers',name:'λ'+(k+1)+' actual',marker:{color:cols[k],size:4.5,symbol:'circle',line:{color:'#111',width:0.4}}});}return tr;};
-   {const L=baseLayout('Prediction-4 — top-3 NTK eigenvalues','λ (log)',true);newP('p_pd5',mk3(),L);}   // LOG y: eigenvalues grow ~exponentially under progressive sharpening; on a linear axis the (capped) frozen-r dominated and squished the actual + evolving-Qr so the evolving-Qr looked flat
-   {const L=baseLayout('Prediction-4 — |cos| actual vs predicted top-3 NTK eigenvectors','|cos∠(vₖ)|',false);L.yaxis.range=[-0.02,1.05];
+   {const L=baseLayout('NTK λ₁–₃','λ (log)',true);newP('p_pd5',mk3(),L);}   // LOG y: eigenvalues grow ~exponentially under progressive sharpening; on a linear axis the (capped) frozen-r dominated and squished the actual + evolving-Qr so the evolving-Qr looked flat
+   {const L=baseLayout('NTK eigvec |cos|','|cos∠(vₖ)|',false);L.yaxis.range=[-0.02,1.05];
     const cosTr=[];for(let k=0;k<3;k++){cosTr.push({x:[],y:[],mode:'lines',name:'v'+(k+1)+' (frozen r)',line:{color:cols[k],width:1.9}});cosTr.push({x:[],y:[],mode:'lines',name:'v'+(k+1)+' (evolving Qr)',line:{color:cols[k],width:1.7,dash:'dash'}});}
     newP('p_pd6',cosTr,L);}
-   {const L=baseLayout('Prediction-4 — |cos| actual vs predicted top-3 Gauss-Newton eigenvectors','|cos∠(zₖ)|',false);L.yaxis.range=[-0.02,1.05];
+   {const L=baseLayout('GN eigvec |cos|','|cos∠(zₖ)|',false);L.yaxis.range=[-0.02,1.05];
     const gnTr=[];for(let k=0;k<3;k++){gnTr.push({x:[],y:[],mode:'lines',name:'z'+(k+1)+' (frozen r)',line:{color:cols[k],width:1.9}});gnTr.push({x:[],y:[],mode:'lines',name:'z'+(k+1)+' (evolving Qr)',line:{color:cols[k],width:1.7,dash:'dash'}});}
     newP('p_pd7',gnTr,L);}}
-  ['p_p3m_1','p_p3m_2','p_p3m_3'].forEach((id,i)=>{const off=['t*−10','t*+10','t*+20'][i];const L=baseLayout('‖r‖ actual vs theory (1st, 2nd &amp; evolving-J) · Q frozen at '+off,'‖r‖ (log)',false);L.yaxis.type='log';newP(id,[{x:[],y:[],mode:'lines',name:'‖r‖ actual',line:{color:'#2563eb',width:2}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (1st-order)',line:{color:'#ea580c',width:1.9,dash:'dash'}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (2nd-order)',line:{color:'#059669',width:1.9,dash:'dot'}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (evolving-J)',line:{color:'#db2777',width:1.9,dash:'dashdot'}}],L);});
-  {const cc=['#2563eb','#16a34a','#db2777','#ea580c','#7c3aed'];['p_pd4m_1','p_pd4m_2','p_pd4m_3'].forEach((id,i)=>{const off=['t₀−10','t₀+10','t₀+20'][i];const L=baseLayout('top-3 NTK eigenvalues · M_r frozen at '+off,'λ (log)',true);/* LOG y so the evolving-Qr's growth is visible (linear was dominated by the capped frozen-r) */const tr=[];for(let k=0;k<3;k++){tr.push({x:[],y:[],mode:'lines',name:'λ'+(k+1)+' pred (frozen r)',line:{color:cc[k],width:1.8}});tr.push({x:[],y:[],mode:'lines',name:'λ'+(k+1)+' pred (evolving Qr)',line:{color:cc[k],width:1.6,dash:'dash'}});tr.push({x:[],y:[],mode:'markers',name:'λ'+(k+1)+' act',marker:{color:cc[k],size:4.5,line:{color:'#111',width:0.4}}});}newP(id,tr,L);});}
+  ['p_p3m_1','p_p3m_2','p_p3m_3'].forEach((id,i)=>{const off=['t*−10','t*+10','t*+20'][i];const L=baseLayout('‖r‖ · '+off,'‖r‖ (log)',false);L.yaxis.type='log';newP(id,[{x:[],y:[],mode:'lines',name:'‖r‖ actual',line:{color:'#2563eb',width:2}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (1st-order)',line:{color:'#ea580c',width:1.9,dash:'dash'}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (2nd-order)',line:{color:'#059669',width:1.9,dash:'dot'}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (evolving-J)',line:{color:'#db2777',width:1.9,dash:'dashdot'}}],L);});
+  {const cc=['#2563eb','#16a34a','#db2777','#ea580c','#7c3aed'];['p_pd4m_1','p_pd4m_2','p_pd4m_3'].forEach((id,i)=>{const off=['t₀−10','t₀+10','t₀+20'][i];const L=baseLayout('NTK λ · '+off,'λ (log)',true);/* LOG y so the evolving-Qr's growth is visible (linear was dominated by the capped frozen-r) */const tr=[];for(let k=0;k<3;k++){tr.push({x:[],y:[],mode:'lines',name:'λ'+(k+1)+' pred (frozen r)',line:{color:cc[k],width:1.8}});tr.push({x:[],y:[],mode:'lines',name:'λ'+(k+1)+' pred (evolving Qr)',line:{color:cc[k],width:1.6,dash:'dash'}});tr.push({x:[],y:[],mode:'markers',name:'λ'+(k+1)+' act',marker:{color:cc[k],size:4.5,line:{color:'#111',width:0.4}}});}newP(id,tr,L);});}
   // ★ trace statistics: 4 plots {quad,cubic}×{live,self}; traces [pred Tr(NTK), pred+PSD, actual Tr(∇²L), actual Tr(JᵀJ)]
   {const tt=()=>[{x:[],y:[],mode:'lines',name:'pred Tr(NTK)',line:{color:'#2563eb',width:1.9}},
                  {x:[],y:[],mode:'lines',name:'pred + PSD',line:{color:'#16a34a',width:1.6}},
@@ -4848,9 +4848,9 @@ function addSweepPt(m){
   Plotly.restyle('p_sw0',{x:[SW0.x],y:[SW0.y],text:[SW0.text],'marker.color':[SW0.col]},[0]);Plotly.restyle('p_sw0',{x:[[0,mx]],y:[[0,mx]]},[1]);
   Plotly.restyle('p_sw1',{x:[SW1.x],y:[SW1.y],text:[SW1.text],'marker.color':[SW1.col]},[0]);Plotly.restyle('p_sw1',{x:[[0,mx]],y:[[0,mx]]},[1]);   // y=x reference line
   Plotly.restyle('p_sw2',{x:[SW2.jx],y:[SW2.jy],text:[SW1.text],customdata:[SW2.align],'marker.color':[SW2.align],'marker.opacity':[0.9]},[0]);   // tick colour = residual↔top-3-NTK alignment; value shown on hover
-  try{Plotly.relayout('p_sw2',{'title.text':'Prediction-2 — Σd vs Σd²L/dt² · N='+(m.swsumn!=null?m.swsumn:'')+'  ('+sweepCorrLabel(SW2)+')'});}catch(e){}
+  try{Plotly.relayout('p_sw2',{'title.text':'Σd vs Σd²L/dt² · N='+(m.swsumn!=null?m.swsumn:'')+'  ('+sweepCorrLabel(SW2)+')'});}catch(e){}
   Plotly.restyle('p_sw3',{x:[SW3.jx],y:[SW3.jy],text:[SW1.text],customdata:[SW3.align],'marker.color':[SW3.align],'marker.opacity':[0.9]},[0]);
-  try{Plotly.relayout('p_sw3',{'title.text':'Prediction-2b — Σd vs Σ∇‖J‖ · N₂='+(m.swsumn2!=null?m.swsumn2:'')+'  ('+sweepCorrLabel(SW3)+')'});}catch(e){}
+  try{Plotly.relayout('p_sw3',{'title.text':'Σd vs Σ∇‖J‖ · N₂='+(m.swsumn2!=null?m.swsumn2:'')+'  ('+sweepCorrLabel(SW3)+')'});}catch(e){}
 }
 const _PH=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
 function _tstarTr(){return [{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:[],line:{color:'#1e293b',width:0.5}}},{x:[0,1],y:[0,1],mode:'lines',line:{color:'#94a3b8',dash:'dot',width:1},hoverinfo:'skip'}];}   // predicted-vs-actual t* scatter + y=x line
@@ -4860,10 +4860,10 @@ function _corrTr(){return [{x:[],y:[],mode:'markers+text',type:'scatter',text:[]
    marker:{size:9,color:[],colorscale:'Viridis',cauto:true,showscale:true,colorbar:{thickness:7,len:0.82,x:1.0,xpad:2,title:{text:'Σ|⟨r̂,vₖ⟩|',side:'right',font:{size:7.5}},tickfont:{size:7}},line:{color:'#1e293b',width:0.5}}}];}
 function ensureSweepPlots(){   // build the pred-1&2 sweep scatter plots on demand — the sweep can run WITHOUT a prior main run (which is otherwise the only thing that creates them, via initLivePlots)
   const g=document.getElementById('p_sw0'); if(g&&g._fullData)return;   // already built
-  {const L=baseLayout('Prediction-1 (quadratic) — predicted vs actual t*','actual t*',false);L.xaxis.title='predicted t* (quadratic)';L.showlegend=false;L.annotations=_PH.slice();newP('p_sw0',_tstarTr(),L);}
-  {const L=baseLayout('Prediction-1 (cubic) — predicted vs actual t*','actual t*',false);L.xaxis.title='predicted t* (cubic)';L.showlegend=false;L.annotations=_PH.slice();newP('p_sw1',_tstarTr(),L);}
-  {const L=baseLayout('Prediction-2 — Σd vs Σd²L/dt² · N','signed log₁₀(Σ d²L/dt²)',false);L.xaxis.title='signed log₁₀(Σ d)';L.showlegend=false;L.margin.r=46;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=_PH.slice();newP('p_sw2',_corrTr(),L);}
-  {const L=baseLayout('Prediction-2b — Σd vs Σ∇‖J‖ · N₂','signed log₁₀(Σ ∇‖J‖)',false);L.xaxis.title='signed log₁₀(Σ d)';L.showlegend=false;L.margin.r=46;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=_PH.slice();newP('p_sw3',_corrTr(),L);}
+  {const L=baseLayout('quad · t*','actual t*',false);L.xaxis.title='predicted t* (quadratic)';L.showlegend=false;L.annotations=_PH.slice();newP('p_sw0',_tstarTr(),L);}
+  {const L=baseLayout('cubic · t*','actual t*',false);L.xaxis.title='predicted t* (cubic)';L.showlegend=false;L.annotations=_PH.slice();newP('p_sw1',_tstarTr(),L);}
+  {const L=baseLayout('Σd vs Σd²L/dt²','signed log₁₀(Σ d²L/dt²)',false);L.xaxis.title='signed log₁₀(Σ d)';L.showlegend=false;L.margin.r=46;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=_PH.slice();newP('p_sw2',_corrTr(),L);}
+  {const L=baseLayout('Σd vs Σ∇‖J‖','signed log₁₀(Σ ∇‖J‖)',false);L.xaxis.title='signed log₁₀(Σ d)';L.showlegend=false;L.margin.r=46;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=_PH.slice();newP('p_sw3',_corrTr(),L);}
 }
 let SWEEP_THEN_RUN=false;   // set by the main Run button: run the sweep FIRST, then auto-start the main run when it ends. On one GPU a concurrent sweep would cancel the main run (per-device token) and a deferred sweep (after a long run) looks like it never fires — so sweep-first makes it visibly run the moment Run is clicked.
 function _sweepBtns(sweeping){const rb=document.getElementById('run'),sb=document.getElementById('stop');   // during a sweep with NO main run yet: block a 2nd Run, allow Stop to abort the sweep
