@@ -354,8 +354,8 @@
   <label style="display:none" title="Blank (default): the sweep auto-runs on THIS server/GPU right after the main run finishes — no extra port needed. (Hidden 'for now'; a concurrent sweep on the same GPU would cancel the main run via the per-device token, so it defers.) Set a fleet GPU port here to instead run the sweep concurrently on that GPU.">sweep on port&nbsp;<input id="swport" value="" style="width:52px"></label>
   <span id="sweepstatus" style="color:#6b7280"></span>
 </div>
-<p class="cap">Each pair runs a full-batch GD training (config below, but with that pair's lr &amp; init-std). <b>Prediction-1 (left):</b> the iteration $t^{\star}$ at which $d=\lVert J\dot r\rVert-\lVert\dot J r\rVert$ (jrd−jdr) first changes sign — <b>actual (y)</b> vs. <b>predicted (x)</b>. The prediction runs the cubic Eq-51 (§10) trajectory from $\theta(T_{\rm start})$ with the quadratic model <b>refrozen every K</b> steps, and reports its first predicted sign-change; points on the dotted $y=x$ line are perfect. Each point is labelled with its lr &amp; init-std; <b style="color:#ef4444">red</b> = censored (no sign-change within the run). <b>Prediction-2 (right):</b> $d$ at the <b>start</b> of training vs. the loss curve's <b>peak second time-derivative</b> — the value of $d^2\mathrm{loss}/dt^2$ (discrete central 2nd difference $L_{t+1}-2L_t+L_{t-1}$) with the <b>largest absolute magnitude</b> over the run, kept <b>with its sign</b> (no curve fitting). A strong Pearson correlation would confirm that early $(\lVert J\dot r\rVert-\lVert\dot J r\rVert)$ predicts loss concavity/convexity. Points stream in as each pair finishes (it can be slow).</p>
-<div class="plotrow row3"><div id="p_sw1" class="plot" style="height:360px"></div><div id="p_sw2" class="plot" style="height:360px"></div><div id="p_sw3" class="plot" style="height:360px"></div></div>
+<p class="cap">Each pair runs a full-batch GD training (config below, with that pair's lr &amp; init-std); four plots. <b>Prediction-1</b> — the iteration $t^{\star}$ at which $d=\lVert J\dot r\rVert-\lVert\dot J r\rVert$ (jrd−jdr) first changes sign, <b>actual (y)</b> vs. <b>predicted (x)</b> from the §10 self-trajectory at $\theta(T_{\rm start})$, model <b>refrozen every K</b> steps; on the dotted $y=x$ line = perfect, <b style="color:#ef4444">red</b> = censored. <b>Plot 1 (quadratic):</b> the prediction uses the <b>quadratic</b> approximation — $T=0$ and $Q$ fixed, so $\hat J\!+\!=\!\tfrac{\eta}{N}Q_0 g$. <b>Plot 2 (cubic):</b> the full cubic Eq-51 (adds the 3rd-derivative $T$ corrections). Comparing the two shows what the cubic term buys. <b>Prediction-2 (plot 3):</b> $\operatorname{sign\text{-}log}\,\Sigma d$ vs. $\operatorname{sign\text{-}log}\,\Sigma\,d^2\mathrm{loss}/dt^2$, both <b>summed over the first $N$ iterations</b> — a diagonal cloud ⇒ strong (rank) correlation between early $d$ and loss concavity/convexity. <b>Prediction-2b (plot 4):</b> $\Sigma d$ vs. $\Sigma\nabla\lVert J\rVert$ over the first $N_2$ iters. In plots 3–4 each tick is <b>coloured by</b> $\sum_{k\le3}\lvert\langle\hat r,v_k\rangle\rvert$ — the residual's alignment with the top-3 NTK eigenvectors (windowed mean); <b>hover</b> shows that value. Points stream in as each pair finishes (it can be slow).</p>
+<div class="plotrow row4"><div id="p_sw0" class="plot" style="height:340px"></div><div id="p_sw1" class="plot" style="height:340px"></div><div id="p_sw2" class="plot" style="height:340px"></div><div id="p_sw3" class="plot" style="height:340px"></div></div>
 </div>
 
 <div id="sec_1">
@@ -3244,7 +3244,7 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_pred4_box');if(el)el.style.display=chk('enP4')?'':'none';}   // toggle the whole Prediction-4 box (both panels)
   {const el=document.getElementById('sec_pred3_box');if(el)el.style.display=chk('enP3')?'':'none';}   // toggle the whole Prediction-3 box (both panels)
   {const el=document.getElementById('sec_sweep');if(el)el.style.display=chk('enPs')?'':'none';}
-  requestAnimationFrame(()=>{for(const id of ['p_pd1','p_pd2','p_pd3','p_pd4','p_pt1','p_pt2','p_pt3','p_pt4','p_pd5','p_pd6','p_pd7','p_p3_diff','p_p3_rnorm','p_p3_cos','p_sw1','p_sw2','p_sw3']){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});   // re-measure ★ prediction plots when shown
+  requestAnimationFrame(()=>{for(const id of ['p_pd1','p_pd2','p_pd3','p_pd4','p_pt1','p_pt2','p_pt3','p_pt4','p_pd5','p_pd6','p_pd7','p_p3_diff','p_p3_rnorm','p_p3_cos','p_sw0','p_sw1','p_sw2','p_sw3']){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});   // re-measure ★ prediction plots when shown
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
   if(typeof SCRUB_FRAC!=='undefined'&&SCRUB_FRAC<1)requestAnimationFrame(()=>applyTimeScrub(SCRUB_FRAC));   // keep a just-shown section's plots at the current rewound position
 }
@@ -4789,7 +4789,7 @@ window.addEventListener('load',()=>{try{
 }catch(e){}});
 // ★ prediction-1 & 2 sweep: stream (lr,std) pairs from /run?mode=sweep and scatter them live
 let SWEEP_ES=null, SWEEP_N=0, SWEEP_STEPS=100;
-const SW1={x:[],y:[],text:[],col:[]}, SW2={x:[],y:[],jx:[],jy:[],ok:[],rx:[],ry:[]}, SW3={x:[],y:[],jx:[],jy:[],ok:[],rx:[],ry:[]};
+const SW0={x:[],y:[],text:[],col:[]}, SW1={x:[],y:[],text:[],col:[]}, SW2={x:[],y:[],jx:[],jy:[],ok:[],rx:[],ry:[],align:[]}, SW3={x:[],y:[],jx:[],jy:[],ok:[],rx:[],ry:[],align:[]};   // SW0 = quadratic (T=0,Q-fixed) predicted t*; align = Σ|⟨r̂,vₖ⟩| top-3 NTK (tick colour for 2/2b)
 function _pear(xs,ys){const n=xs.length;if(n<2)return NaN;
   let mx=0,my=0;for(let i=0;i<n;i++){mx+=xs[i];my+=ys[i];}mx/=n;my/=n;
   let sxy=0,sx=0,sy=0;for(let i=0;i<n;i++){const dx=xs[i]-mx,dy=ys[i]-my;sxy+=dx*dy;sx+=dx*dx;sy+=dy*dy;}
@@ -4819,27 +4819,32 @@ function _capPred(v,ref,f){if(v==null)return null;const c=(f||PRED_CAP_F)*Math.a
 // quadrant still reads as a sign combo. slog(v)=sign(v)·log10(1+|v|).
 function slog(v){return (v==null||!isFinite(v))?null:(v<0?-1:1)*Math.log10(1+Math.abs(v));}
 function addSweepPt(m){
-  SW1.x.push(m.tPred);SW1.y.push(m.tAct);
-  SW1.text.push('lr='+(+m.lr).toPrecision(2)+'  σ='+(+m.std).toPrecision(2));
-  SW1.col.push((m.censA||m.censP)?'#ef4444':'#2563eb');
-  {const sx=(m.sumD<0?-1:1),sy=(m.sumCurv<0?-1:1);SW2.x.push(sx);SW2.y.push(sy);SW2.ok.push(!m.diverged);SW2.rx.push(m.sumD);SW2.ry.push(m.sumCurv);SW2.jx.push(slog(m.sumD));SW2.jy.push(slog(m.sumCurv));}   // plot the CONTINUOUS signed-log Σd vs Σ(d²loss/dt²) so a high correlation shows as a diagonal; sign x/y kept for the sign-Pearson, raw rx/ry for the rank ρ
-  {const sx=(m.sumD2<0?-1:1),sy=(m.sumJgrad<0?-1:1);SW3.x.push(sx);SW3.y.push(sy);SW3.ok.push(!m.diverged&&m.sumJgrad!==0);SW3.rx.push(m.sumD2);SW3.ry.push(m.sumJgrad);SW3.jx.push(slog(m.sumD2));SW3.jy.push(slog(m.sumJgrad));}   // continuous signed-log Σd vs Σ∇‖J‖
-  Plotly.restyle('p_sw1',{x:[SW1.x],y:[SW1.y],text:[SW1.text],'marker.color':[SW1.col]},[0]);
-  const mx=Math.max(SWEEP_STEPS,Math.max.apply(null,SW1.x.concat(SW1.y).concat([1])));
-  Plotly.restyle('p_sw1',{x:[[0,mx]],y:[[0,mx]]},[1]);            // y=x reference line
-  Plotly.restyle('p_sw2',{x:[SW2.jx],y:[SW2.jy],text:[SW1.text],'marker.opacity':[0.75]},[0]);   // jittered ±1 signs so all overlapping (lr,σ) pairs are visible near each corner (Pearson r uses the exact SW2.x/y)
+  const lbl='lr='+(+m.lr).toPrecision(2)+'  σ='+(+m.std).toPrecision(2);
+  SW0.x.push(m.tPredQ!=null?m.tPredQ:m.tPred);SW0.y.push(m.tAct);SW0.text.push(lbl);SW0.col.push((m.censA||m.censPQ)?'#ef4444':'#2563eb');   // plot 1: QUADRATIC (T=0, Q fixed) predicted t* vs actual
+  SW1.x.push(m.tPred);SW1.y.push(m.tAct);SW1.text.push(lbl);SW1.col.push((m.censA||m.censP)?'#ef4444':'#2563eb');                            // plot 2: CUBIC predicted t* vs actual
+  const al=(m.alignNTK!=null&&isFinite(m.alignNTK))?m.alignNTK:0;   // Σ|⟨r̂,vₖ⟩| over the top-3 NTK eigenvectors (windowed mean)
+  {const sx=(m.sumD<0?-1:1),sy=(m.sumCurv<0?-1:1);SW2.x.push(sx);SW2.y.push(sy);SW2.ok.push(!m.diverged);SW2.rx.push(m.sumD);SW2.ry.push(m.sumCurv);SW2.jx.push(slog(m.sumD));SW2.jy.push(slog(m.sumCurv));SW2.align.push(al);}   // continuous signed-log Σd vs Σ(d²loss/dt²); ticks coloured by residual↔NTK-eigvec alignment
+  {const sx=(m.sumD2<0?-1:1),sy=(m.sumJgrad<0?-1:1);SW3.x.push(sx);SW3.y.push(sy);SW3.ok.push(!m.diverged&&m.sumJgrad!==0);SW3.rx.push(m.sumD2);SW3.ry.push(m.sumJgrad);SW3.jx.push(slog(m.sumD2));SW3.jy.push(slog(m.sumJgrad));SW3.align.push(al);}
+  const mx=Math.max(SWEEP_STEPS,Math.max.apply(null,SW0.x.concat(SW1.x).concat(SW0.y).concat([1])));
+  Plotly.restyle('p_sw0',{x:[SW0.x],y:[SW0.y],text:[SW0.text],'marker.color':[SW0.col]},[0]);Plotly.restyle('p_sw0',{x:[[0,mx]],y:[[0,mx]]},[1]);
+  Plotly.restyle('p_sw1',{x:[SW1.x],y:[SW1.y],text:[SW1.text],'marker.color':[SW1.col]},[0]);Plotly.restyle('p_sw1',{x:[[0,mx]],y:[[0,mx]]},[1]);   // y=x reference line
+  Plotly.restyle('p_sw2',{x:[SW2.jx],y:[SW2.jy],text:[SW1.text],customdata:[SW2.align],'marker.color':[SW2.align],'marker.opacity':[0.9]},[0]);   // tick colour = residual↔top-3-NTK alignment; value shown on hover
   try{Plotly.relayout('p_sw2',{'title.text':'Prediction-2 — Σd vs Σd²L/dt² (signed-log) · N='+(m.swsumn!=null?m.swsumn:'')+'  ('+sweepCorrLabel(SW2)+')'});}catch(e){}
-  Plotly.restyle('p_sw3',{x:[SW3.jx],y:[SW3.jy],text:[SW1.text],'marker.opacity':[0.75]},[0]);   // 3rd plot: jittered ±1 signs so overlapping pairs are visible; y = sign of Σ∇‖J‖ over first N₂
+  Plotly.restyle('p_sw3',{x:[SW3.jx],y:[SW3.jy],text:[SW1.text],customdata:[SW3.align],'marker.color':[SW3.align],'marker.opacity':[0.9]},[0]);
   try{Plotly.relayout('p_sw3',{'title.text':'Prediction-2b — Σd vs Σ∇‖J‖ (signed-log) · N₂='+(m.swsumn2!=null?m.swsumn2:'')+'  ('+sweepCorrLabel(SW3)+')'});}catch(e){}
 }
+const _PH=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
+function _tstarTr(){return [{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:[],line:{color:'#1e293b',width:0.5}}},{x:[0,1],y:[0,1],mode:'lines',line:{color:'#94a3b8',dash:'dot',width:1},hoverinfo:'skip'}];}   // predicted-vs-actual t* scatter + y=x line
+// Prediction-2/2b: continuous signed-log scatter, ticks coloured by Σ|⟨r̂,vₖ⟩| (residual ↔ top-3 NTK eigvecs); hover shows that alignment + lr/σ
+function _corrTr(){return [{x:[],y:[],mode:'markers+text',type:'scatter',text:[],customdata:[],textposition:'top center',textfont:{size:7,color:'#64748b'},
+   hovertemplate:'Σ|⟨r̂,vₖ⟩| (top-3 NTK) = %{customdata:.3f}<br>%{text}<extra></extra>',
+   marker:{size:9,color:[],colorscale:'Viridis',cauto:true,showscale:true,colorbar:{thickness:7,len:0.82,x:1.0,xpad:2,title:{text:'Σ|⟨r̂,vₖ⟩|',side:'right',font:{size:7.5}},tickfont:{size:7}},line:{color:'#1e293b',width:0.5}}}];}
 function ensureSweepPlots(){   // build the pred-1&2 sweep scatter plots on demand — the sweep can run WITHOUT a prior main run (which is otherwise the only thing that creates them, via initLivePlots)
-  const g=document.getElementById('p_sw1'); if(g&&g._fullData)return;   // already built
-  {const L=baseLayout('Prediction-1 — predicted vs actual (jrd−jdr) sign-change t*','actual t* (iters)',false);L.xaxis.title='predicted t*';L.showlegend=false;L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
-   newP('p_sw1',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:[],line:{color:'#1e293b',width:0.5}}},{x:[0,1],y:[0,1],mode:'lines',line:{color:'#94a3b8',dash:'dot',width:1},hoverinfo:'skip'}],L);}
-  {const L=baseLayout('Prediction-2 — Σd vs Σd²L/dt² (signed-log) · N','signed log₁₀(Σ d²L/dt²)',false);L.xaxis.title='signed log₁₀(Σ d)';L.showlegend=false;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
-   newP('p_sw2',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:'#7c3aed',line:{color:'#1e293b',width:0.5}}}],L);}
-  {const L=baseLayout('Prediction-2b — Σd vs Σ∇‖J‖ (signed-log) · N₂','signed log₁₀(Σ ∇‖J‖)',false);L.xaxis.title='signed log₁₀(Σ d)';L.showlegend=false;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
-   newP('p_sw3',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:'#0891b2',line:{color:'#1e293b',width:0.5}}}],L);}
+  const g=document.getElementById('p_sw0'); if(g&&g._fullData)return;   // already built
+  {const L=baseLayout('Prediction-1 (quadratic) — pred vs actual t* · T=0, Q fixed','actual t* (iters)',false);L.xaxis.title='predicted t* (quadratic)';L.showlegend=false;L.annotations=_PH.slice();newP('p_sw0',_tstarTr(),L);}
+  {const L=baseLayout('Prediction-1 (cubic) — pred vs actual t* · Eq-51 §10','actual t* (iters)',false);L.xaxis.title='predicted t* (cubic)';L.showlegend=false;L.annotations=_PH.slice();newP('p_sw1',_tstarTr(),L);}
+  {const L=baseLayout('Prediction-2 — Σd vs Σd²L/dt² (signed-log) · N','signed log₁₀(Σ d²L/dt²)',false);L.xaxis.title='signed log₁₀(Σ d)';L.showlegend=false;L.margin.r=46;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=_PH.slice();newP('p_sw2',_corrTr(),L);}
+  {const L=baseLayout('Prediction-2b — Σd vs Σ∇‖J‖ (signed-log) · N₂','signed log₁₀(Σ ∇‖J‖)',false);L.xaxis.title='signed log₁₀(Σ d)';L.showlegend=false;L.margin.r=46;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=_PH.slice();newP('p_sw3',_corrTr(),L);}
 }
 let SWEEP_THEN_RUN=false;   // set by the main Run button: run the sweep FIRST, then auto-start the main run when it ends. On one GPU a concurrent sweep would cancel the main run (per-device token) and a deferred sweep (after a long run) looks like it never fires — so sweep-first makes it visibly run the moment Run is clicked.
 function _sweepDoneThenRun(){ if(SWEEP_THEN_RUN){SWEEP_THEN_RUN=false; if(typeof run==='function') run(); } }   // hand off to the main run once the (Run-triggered) sweep terminates, however it ends
@@ -4847,9 +4852,9 @@ function startSweep(){ _runSweep(false); }   // ★ prediction-1&2 sweep entry (
 function _runSweep(forceSame){   // forceSame=true ⇒ ignore the swport box and run on THIS server (same-origin fallback)
   if(SWEEP_ES){SWEEP_ES.close();SWEEP_ES=null;}
   ensureSweepPlots();   // make sure p_sw1/p_sw2 exist even if no main run has been started yet
-  SW1.x.length=SW1.y.length=SW1.text.length=SW1.col.length=0; SW2.x.length=SW2.y.length=SW2.jx.length=SW2.jy.length=SW2.ok.length=SW2.rx.length=SW2.ry.length=0; SW3.x.length=SW3.y.length=SW3.jx.length=SW3.jy.length=SW3.ok.length=SW3.rx.length=SW3.ry.length=0;
-  try{Plotly.restyle('p_sw1',{x:[[]],y:[[]],text:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw2',{x:[[]],y:[[]],text:[[]]},[0]);Plotly.restyle('p_sw3',{x:[[]],y:[[]],text:[[]]},[0]);}catch(e){}
-  try{Plotly.relayout('p_sw1',{annotations:[]});Plotly.relayout('p_sw2',{annotations:[]});Plotly.relayout('p_sw3',{annotations:[]});}catch(e){}   // drop the "click Run sweep" placeholder once the sweep starts
+  SW0.x.length=SW0.y.length=SW0.text.length=SW0.col.length=0; SW1.x.length=SW1.y.length=SW1.text.length=SW1.col.length=0; SW2.x.length=SW2.y.length=SW2.jx.length=SW2.jy.length=SW2.ok.length=SW2.rx.length=SW2.ry.length=SW2.align.length=0; SW3.x.length=SW3.y.length=SW3.jx.length=SW3.jy.length=SW3.ok.length=SW3.rx.length=SW3.ry.length=SW3.align.length=0;
+  try{Plotly.restyle('p_sw0',{x:[[]],y:[[]],text:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw1',{x:[[]],y:[[]],text:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw2',{x:[[]],y:[[]],text:[[]],customdata:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw3',{x:[[]],y:[[]],text:[[]],customdata:[[]],'marker.color':[[]]},[0]);}catch(e){}
+  try{Plotly.relayout('p_sw0',{annotations:[]});Plotly.relayout('p_sw1',{annotations:[]});Plotly.relayout('p_sw2',{annotations:[]});Plotly.relayout('p_sw3',{annotations:[]});}catch(e){}   // drop the "click Run sweep" placeholder once the sweep starts
   const st=document.getElementById('sweepstatus'); if(st)st.textContent='starting…';
   const q=currentQueryParams(); const ps=new URLSearchParams(); for(const k in q)ps.set(k,q[k]);
   ps.set('mode','sweep');

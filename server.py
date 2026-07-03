@@ -3692,8 +3692,8 @@ def run_stream(P):
                     for _ in range(max(1, ee)):   # advance the linear + 2nd-order theories ONE GD step per actual step
                         p3_rtheory = p3_rtheory - (lr / N) * (p3_Jstar @ (p3_Jstar.t() @ p3_rtheory))   # 1st order: r=(I−(η/N)J*J*ᵀ)r
                         g2 = p3_Jstar.t() @ p3_r2                                                        # 2nd order (J*,Q* frozen at t*): g=J*ᵀr₂
-                        quad2 = 0.5 * (lr / N) ** 2 * (jac_hvp(p3_thstar, X, g2)[:M] * g2).sum(dim=1)    # +½(η/N)²·(gᵀQ*_k g)_k  (M-dim)
-                        p3_r2 = p3_r2 - (lr / N) * (p3_Jstar @ (p3_Jstar.t() @ p3_r2)) + quad2
+                        quad2 = 0.5 * (lr / N) ** 2 * (jac_hvp(p3_thstar, X, g2)[:M] * g2).sum(dim=1)    # ½(η/N)²·(gᵀQ*_k g)_k  (M-dim)
+                        p3_r2 = p3_r2 - (lr / N) * (p3_Jstar @ (p3_Jstar.t() @ p3_r2)) - quad2    # r=Y−f ⇒ 2nd-order Taylor curvature enters with a MINUS (Δr=−Δf, Δf's ½-order term is +½(η/N)²gᵀQg)
                         if torch.isfinite(p3_J3).all():   # 3rd theory (J EVOLVING; STABLE & self-contained): r3 decays via the CURRENT J3 (PSD, bounded); every p3k steps J3 grows via the throttled frozen-Q* contraction J3 += (η/N)·[Σ_k r3_k Q*_k]·J3
                             p3_r3 = p3_r3 - (lr / N) * (p3_J3 @ (p3_J3.t() @ p3_r3))
                             p3_j3sc += 1
@@ -3712,8 +3712,8 @@ def run_stream(P):
                 def _adv3m(Js, ths, r1, r2, r3, J3, sc3):                         # one GD step: 1st & 2nd (frozen J*) + 3rd (evolving-J, STABLE), Q frozen at ths=θ*
                     r1n = r1 - (lr / N) * (Js @ (Js.t() @ r1))                    # 1st: r=(I−(η/N)J*J*ᵀ)r
                     g2 = Js.t() @ r2
-                    quad2 = 0.5 * (lr / N) ** 2 * (jac_hvp(ths, X, g2)[:M] * g2).sum(dim=1)   # +½(η/N)²·(gᵀQ*_k g)_k
-                    r2n = r2 - (lr / N) * (Js @ (Js.t() @ r2)) + quad2
+                    quad2 = 0.5 * (lr / N) ** 2 * (jac_hvp(ths, X, g2)[:M] * g2).sum(dim=1)   # ½(η/N)²·(gᵀQ*_k g)_k
+                    r2n = r2 - (lr / N) * (Js @ (Js.t() @ r2)) - quad2    # curvature enters the residual with a MINUS (Δr=−Δf)
                     r3n = r3                                                       # 3rd: r3 decays via the CURRENT J3 (PSD, bounded); every p3k steps J3 grows via the throttled frozen-Q* contraction
                     if torch.isfinite(J3).all():
                         r3n = r3 - (lr / N) * (J3 @ (J3.t() @ r3))
@@ -5225,11 +5225,13 @@ def _curvature_at(ys, t):
     return float(ys[t + 1]) - 2.0 * float(ys[t]) + float(ys[t - 1])
 
 
-def _pred_signchange(th_start, X, Y, N, outD, p, lr, K, max_steps):
-    """PREDICTED first sign-change of d = ‖J·ṙ‖−‖J̇·r‖ along the cubic Eq-51 (§10) trajectory from th_start,
+def _pred_signchange(th_start, X, Y, N, outD, p, lr, K, max_steps, cubic=True):
+    """PREDICTED first sign-change of d = ‖J·ṙ‖−‖J̇·r‖ along the Eq-51 (§10) trajectory from th_start,
     with the quadratic model refrozen every K steps. Returns (t, censored). The residual is the frozen-quad
-    self-residual r_q (like §9d / cubic_self); jrd/jdr use the cubic-propagated J and r_q with Q frozen at
-    the current anchor. Sign only ⇒ ∇L magnitude is irrelevant."""
+    self-residual r_q (like §9d / cubic_self); jrd/jdr use the propagated J and r_q with Q frozen at the
+    current anchor. Sign only ⇒ ∇L magnitude is irrelevant.
+    cubic=True  ⇒ full §10 cubic: J += (η/N)·Qg + ½(η/N)²·T[g,g], Qg carries the 3rd-derivative T corrections.
+    cubic=False ⇒ QUADRATIC approximation (prediction-1 plot 1): T=0 and Q FIXED ⇒ J += (η/N)·Q₀·g only."""
     etaN = lr / max(N, 1); M = N * outD; eps = 1e-2; dev, dt = _dev(), DTYPE
     Yf = Y.reshape(-1)[:M]
 
@@ -5261,12 +5263,16 @@ def _pred_signchange(th_start, X, Y, N, outD, p, lr, K, max_steps):
             return s, False
         if sg != 0:
             prev = sg
-        g = Jc.t() @ r_q                                  # advance the cubic-self trajectory (Eq-51)
+        g = Jc.t() @ r_q                                  # advance the self trajectory (Eq-51)
         Qg = jac_hvp(th0, X, g)[:M]
-        for gk in st["HistG"]:
-            Qg = Qg + etaN * T2m(th0, gk, g)
-        dJ = etaN * Qg + 0.5 * (etaN ** 2) * T2m(th0, g, g)
-        st["HistG"].append(g); st["J"] = Jc + dJ
+        if cubic:
+            for gk in st["HistG"]:
+                Qg = Qg + etaN * T2m(th0, gk, g)
+            dJ = etaN * Qg + 0.5 * (etaN ** 2) * T2m(th0, g, g)   # full cubic (3rd-derivative T corrections)
+            st["HistG"].append(g)
+        else:
+            dJ = etaN * Qg                                # QUADRATIC: T=0, Q fixed ⇒ J += (η/N)·Q₀·g
+        st["J"] = Jc + dJ
         st["Dth"] = dth + etaN * g
     return max_steps, True
 
@@ -5319,7 +5325,7 @@ def run_sweep(P):
         lr = _math.exp(rng.uniform(_math.log(lrmin), _math.log(lrmax)))
         std = _math.exp(rng.uniform(_math.log(stdmin), _math.log(stdmax)))
         th = _TL.model.init_theta(seed0 + 1, std)
-        diffs = []; losses = []; jnorms = []; th_at_T = None; diverged = False
+        diffs = []; losses = []; jnorms = []; th_at_T = None; diverged = False; align_acc = 0.0; align_cnt = 0
         for t in range(steps):
             out = _TL.model.forward(th, X)
             lv = float(_TL.loss.value(out, Y, N))
@@ -5328,6 +5334,13 @@ def run_sweep(P):
             Jc, _ = jac_cols(th, X); Jm = Jc[:M]; jnorms.append(float(Jm.norm()))   # ‖J‖_F per step → start-of-training trend (prediction-2b)
             cS = _TL.loss.resid_cotangent(out.reshape(N, outD), Y, N)
             rr = (-N * cS).reshape(-1)[:M]
+            if t < swsumn:                                # prediction-2/2b tick colour: Σ_{k≤3} |⟨r̂, v_k⟩| (top-3 NTK eigenvectors), averaged over the window
+                try:
+                    _Wv, _Vv = torch.linalg.eigh(Jm @ Jm.t())
+                    _rn = rr / max(float(rr.norm()), 1e-30)
+                    align_acc += float(sum(abs(float(_rn @ _Vv[:, -1 - _k])) for _k in range(min(3, M)))); align_cnt += 1
+                except Exception:
+                    pass
             gL = gradL(th, X, Y)[0]
             jrd = float((Jm.t() @ (Jm @ gL)).norm())
             jdr = float(hvpS(th, X, gL, rr.reshape(N, outD)).norm())
@@ -5337,10 +5350,13 @@ def run_sweep(P):
             th = th - lr * gL
         tAct, censA = _first_signchange(diffs, steps)
         if th_at_T is not None:                       # predict only if θ(Tstart) was reached before any divergence
-            tPredRel, censP = _pred_signchange(th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart)
+            tPredRel, censP = _pred_signchange(th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart, cubic=True)
             tPred = tPredRel + Tstart
+            tPredQRel, censPQ = _pred_signchange(th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart, cubic=False)   # prediction-1 plot 1: quadratic prediction (T=0, Q fixed)
+            tPredQ = tPredQRel + Tstart
         else:
-            tPred, censP = steps, True
+            tPred, censP = steps, True; tPredQ, censPQ = steps, True
+        alignNTK = float(align_acc / align_cnt) if align_cnt else 0.0   # residual↔top-3-NTK-eigvec alignment (tick colour for prediction-2/2b)
         curv = _max_abs_curvature(losses)              # peak signed d²loss/dt² over the finite prefix (legacy)
         sumD = float(sum(diffs[:swsumn]))              # prediction-2: Σ d = Σ(jrd−jdr) over the first swsumn iterations (from 0)
         sumCurv = float(sum(_curvature_at(losses, tt) for tt in range(min(swsumn, len(losses)))))   # prediction-2: Σ d²loss/dt² over the first swsumn iterations (from 0)
@@ -5349,6 +5365,8 @@ def run_sweep(P):
         sumJgrad = float(sum(jnorms[i + 1] - jnorms[i] for i in range(nj2))) if nj2 >= 1 else 0.0
         yield {"type": "sweeppt", "i": pi, "lr": float(lr), "std": float(std),
                "tAct": tAct, "censA": censA or diverged, "tPred": tPred, "censP": censP,
+               "tPredQ": tPredQ, "censPQ": censPQ,                                   # prediction-1 plot 1: quadratic (T=0, Q fixed) predicted t*
+               "alignNTK": (alignNTK if alignNTK == alignNTK else 0.0),             # Σ|⟨r̂,v_k⟩| top-3 NTK — prediction-2/2b tick colour
                "sumD": (sumD if sumD == sumD else 0.0), "sumCurv": (sumCurv if sumCurv == sumCurv else 0.0),
                "sumD2": (sumD2 if sumD2 == sumD2 else 0.0), "sumJgrad": (sumJgrad if sumJgrad == sumJgrad else 0.0),
                "curv": (curv if curv == curv else 0.0), "swsumn": swsumn, "swsumn2": swsumn2, "diverged": diverged}
