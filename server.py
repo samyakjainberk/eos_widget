@@ -3352,7 +3352,7 @@ def run_stream(P):
     p3_prev_sign = None; p3_tstar = None; p3_Jstar = None; p3_rtheory = None   # prediction-3: (jrd−jdr) sign tracker, sign-change t*, frozen J(t*), linear-theory residual
     p3_thstar = None; p3_r2 = None   # prediction-3: frozen θ(t*) (for Q*) + 2nd-order theory residual r₂
     p3_anchor_t = None   # prediction-3: iteration of the last live re-anchor (repeat_iter); re-seed all theories from the live run every p3rep iters
-    p3_J3 = None; p3_r3 = None; p3_j3sc = 0   # prediction-3: EVOLVING-Jacobian theory (STABLE & fully self-contained) — r3 decays via the PSD NTK J3J3ᵀ (monotone, bounded); J3 grows via the throttled frozen-Q* contraction M_r=Σ_k r3_k Q*_k every p3k steps (throttle keeps ‖J3‖ below the EoS threshold ⇒ no blow-up)
+    p3_J3 = None; p3_r3 = None; p3_the3 = None; p3_j3sc = 0   # prediction-3: EVOLVING-Jacobian theory — r3 decays via the current J3; J3 grows via the TRUE Jacobian dynamics ΔJ3_k=(η/N)Q_k(θ̂3)(J3ᵀr3) with Q re-evaluated at the self-propagated θ̂3 (re-anchored to the live run every p3rep)
     p3m = None   # prediction-3 MULTI-FREEZE panel: rolling (t,J,r,‖r‖) buffer + 3 frozen-J residual theories (t*-10/+10/+20)
     p4_J = None; p4_th0 = None; p4_r0 = None   # prediction-4: frozen J(t0), θ(t0), residual(t0) for the frozen-M_r Jacobian propagation
     p4_anchor_t = None   # prediction-4: iteration of the last live re-anchor (repeat_iter); re-seed frozen+evolving from the live run every p4rep iters
@@ -3679,12 +3679,12 @@ def run_stream(P):
                 if p3_tstar is None and p3_prev_sign is not None and sgn3 != 0 and sgn3 != p3_prev_sign:
                     p3_tstar = t; p3_Jstar = Jm3.detach().clone(); p3_rtheory = rm3.detach().clone()   # freeze J*, seed r_theory = r(t*)
                     p3_thstar = th.detach().clone(); p3_r2 = rm3.detach().clone()   # 2nd-order theory: freeze θ* (for Q*) and seed r₂ = r(t*)
-                    p3_J3 = Jm3.detach().clone(); p3_r3 = rm3.detach().clone(); p3_j3sc = 0   # evolving-J theory: seed J3=J(t*), r3=r(t*)
+                    p3_J3 = Jm3.detach().clone(); p3_r3 = rm3.detach().clone(); p3_the3 = th.detach().clone(); p3_j3sc = 0   # evolving-J theory: seed J3=J(t*), r3=r(t*), θ̂3=θ(t*)
                     p3_anchor_t = t
                 elif p3_tstar is not None and p3rep > 0 and p3_anchor_t is not None and t >= p3_anchor_t + p3rep:   # ★ repeat_iter: RE-anchor ALL theories from the LIVE run every p3rep iters, then predict the next p3rep
                     p3_Jstar = Jm3.detach().clone(); p3_rtheory = rm3.detach().clone()
                     p3_thstar = th.detach().clone(); p3_r2 = rm3.detach().clone()
-                    p3_J3 = Jm3.detach().clone(); p3_r3 = rm3.detach().clone(); p3_j3sc = 0
+                    p3_J3 = Jm3.detach().clone(); p3_r3 = rm3.detach().clone(); p3_the3 = th.detach().clone(); p3_j3sc = 0
                     p3_anchor_t = t
                 if sgn3 != 0:
                     p3_prev_sign = sgn3
@@ -3699,11 +3699,13 @@ def run_stream(P):
                         g2 = p3_Jstar.t() @ p3_r2                                                        # 2nd order (J*,Q* frozen at t*): g=J*ᵀr₂
                         quad2 = 0.5 * (lr / N) ** 2 * (jac_hvp(p3_thstar, X, g2)[:M] * g2).sum(dim=1)    # ½(η/N)²·(gᵀQ*_k g)_k  (M-dim)
                         p3_r2 = p3_r2 - (lr / N) * (p3_Jstar @ (p3_Jstar.t() @ p3_r2)) - quad2    # r=Y−f ⇒ 2nd-order Taylor curvature enters with a MINUS (Δr=−Δf, Δf's ½-order term is +½(η/N)²gᵀQg)
-                        if torch.isfinite(p3_J3).all():   # 3rd theory (J EVOLVING; STABLE & self-contained): r3 decays via the CURRENT J3 (PSD, bounded); every p3k steps J3 grows via the throttled frozen-Q* contraction J3 += (η/N)·[Σ_k r3_k Q*_k]·J3
-                            p3_r3 = p3_r3 - (lr / N) * (p3_J3 @ (p3_J3.t() @ p3_r3))
+                        if torch.isfinite(p3_J3).all() and torch.isfinite(p3_the3).all():   # 3rd theory (J EVOLVING): r3 decays via the CURRENT J3; J3 grows via the TRUE Jacobian dynamics ΔJ3_k=(η/N)Q_k(θ̂3)·(J3ᵀr3)=jac_hvp(θ̂3,X,J3ᵀr3)[k] with Q re-evaluated at the self-propagated θ̂3. (Was the WRONG operator M_r·J3_k=hvpS(θ*,X,J3_k,r3) — 87% error vs the exact ΔJ — with Q frozen at the pre-sharpening t*.)
+                            g3e = p3_J3.t() @ p3_r3                                          # g = J3ᵀ r3
+                            p3_r3 = p3_r3 - (lr / N) * (p3_J3 @ g3e)                         # r3 decays via the evolving J3
+                            p3_the3 = p3_the3 + (lr / N) * g3e                               # θ̂3 self-trajectory (the point at which Q is re-evaluated)
                             p3_j3sc += 1
-                            if p3_j3sc % p3k == 0:
-                                p3_J3 = p3_J3 + (lr / N) * torch.stack([hvpS(p3_thstar, X, p3_J3[k], p3_r3.reshape(N, outD)) for k in range(M)])
+                            if p3_j3sc % p3k == 0:                                           # grow J3 via the TRUE operator, Q at θ̂3; coarse ×p3k step (stable)
+                                p3_J3 = p3_J3 + (p3k * lr / N) * jac_hvp(p3_the3, X, p3_J3.t() @ p3_r3)[:M]
 
             # prediction-3 MULTI-FREEZE panel: ‖r‖ actual vs frozen theory (1st- AND 2nd-order), J & Q frozen at t*-10, t*+10, t*+20 (3 plots)
             g_pred3m = None
@@ -3724,7 +3726,7 @@ def run_stream(P):
                         r3n = r3 - (lr / N) * (J3 @ (J3.t() @ r3))
                         sc3 += 1
                         if sc3 % p3k == 0:
-                            J3 = J3 + (lr / N) * torch.stack([hvpS(ths, X, J3[k], r3n.reshape(N, outD)) for k in range(M)])
+                            J3 = J3 + (p3k * lr / N) * jac_hvp(ths, X, J3.t() @ r3n)[:M]   # TRUE ΔJ3_k=(η/N)Q_k(ths)(J3ᵀr3) (Q frozen at the freeze point, by multi-freeze design); M_r·J3_k was the wrong operator
                     return r1n, r2n, r3n, J3, sc3
                 if p3_tstar is not None and p3m["th"][0] is None:                # theory-0 (t*-10): freeze from the buffer and BACK-FILL t*-10 … t
                     tgt = p3_tstar - 10
@@ -3778,14 +3780,14 @@ def run_stream(P):
                         kAct4 = [max(0.0, float(Wa[-1 - i])) for i in range(K4)]
                         kPred4 = [max(0.0, float(Wp[-1 - i])) for i in range(K4)]
                         kPredE = [max(0.0, float(We[-1 - i])) for i in range(K4)]
-                        cos5 = [abs(float(Va[:, -1 - i] @ Vp[:, -1 - i])) for i in range(K5)]    # |cos| actual vs frozen-residual NTK eigvec
-                        cos5E = [abs(float(Va[:, -1 - i] @ Ve[:, -1 - i])) for i in range(K5)]   # |cos| actual vs evolving-residual NTK eigvec
+                        cos5 = [min(1.0, abs(float(Va[:, -1 - i] @ Vp[:, -1 - i]))) for i in range(K5)]    # |cos| actual vs frozen-residual NTK eigvec (clamp: fp32 can give 1+2⁻²¹)
+                        cos5E = [min(1.0, abs(float(Va[:, -1 - i] @ Ve[:, -1 - i]))) for i in range(K5)]   # |cos| actual vs evolving-residual NTK eigvec
                         cosGN5 = []; cosGN5E = []                                 # |cos| of the Gauss-Newton (JᵀJ) eigvecs = right-singular vectors z=Jᵀu/‖·‖ (parameter space)
                         for i in range(K5):
                             za = Jm4.t() @ Va[:, -1 - i]; za = za / max(float(za.norm()), 1e-30)
                             zp = p4_J.t() @ Vp[:, -1 - i]; zp = zp / max(float(zp.norm()), 1e-30)
                             ze = p4_Je.t() @ Ve[:, -1 - i]; ze = ze / max(float(ze.norm()), 1e-30)
-                            cosGN5.append(abs(float(za @ zp))); cosGN5E.append(abs(float(za @ ze)))
+                            cosGN5.append(min(1.0, abs(float(za @ zp)))); cosGN5E.append(min(1.0, abs(float(za @ ze))))
                     except Exception:                                             # fp32-GPU eigh hiccup ⇒ fall back to eigenvalues only
                         ka = _safe_eigvalsh(Jm4 @ Jm4.t()); kp = _safe_eigvalsh(p4_J @ p4_J.t()); kpe = _safe_eigvalsh(p4_Je @ p4_Je.t())
                         kAct4 = [max(0.0, float(ka[-1 - i])) for i in range(K4)]
@@ -3867,7 +3869,7 @@ def run_stream(P):
                 Jm5 = Jc[:M]
                 trGN = float((Jm5 * Jm5).sum()) / N                               # actual Tr(JᵀJ)=‖J‖²_F ÷N (exact) — shown THROUGHOUT, not gated by stat_init
                 NP5 = 24                                                          # actual Tr(∇²L) ÷N via Hutchinson with the EXACT loss-Hessian HVP (hvpL).
-                thut = 0.0                                                        #   (8 FD probes was biased ~10-15% and worse on fp32; exact HVP + 24 probes tracks the true trace within ~2%.)
+                thut = 0.0                                                        #   (8 FD probes was biased ~10-15% and worse on fp32; exact HVP + 24 Rademacher probes is UNBIASED — single-shot rel-err ~10%, but the running/re-anchored estimate averages down.)
                 for kp in range(NP5):
                     v = _randn_vec(p, (0x7EAC5 + kp * 0x9E3779B1) & 0xFFFFFFFF).sign()
                     thut += float(v @ hvpL(th, X, Y, v))
