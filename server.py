@@ -3352,11 +3352,11 @@ def run_stream(P):
     p3_prev_sign = None; p3_tstar = None; p3_Jstar = None; p3_rtheory = None   # prediction-3: (jrd−jdr) sign tracker, sign-change t*, frozen J(t*), linear-theory residual
     p3_thstar = None; p3_r2 = None   # prediction-3: frozen θ(t*) (for Q*) + 2nd-order theory residual r₂
     p3_anchor_t = None   # prediction-3: iteration of the last live re-anchor (repeat_iter); re-seed all theories from the live run every p3rep iters
-    p3_J3 = None; p3_r3 = None; p3_the3 = None; p3_j3sc = 0   # prediction-3: EVOLVING-Jacobian theory — r3 decays via the current J3; J3 grows via the TRUE Jacobian dynamics ΔJ3_k=(η/N)Q_k(θ̂3)(J3ᵀr3) with Q re-evaluated at the self-propagated θ̂3 (re-anchored to the live run every p3rep)
+    p3_J3 = None; p3_J3adv = None; p3_r3 = None; p3_the3 = None; p3_j3sc = 0   # prediction-3: EVOLVING-Jacobian theory — r3 decays via the CONSTANT window-J3; a shadow J3adv advances every step via the TRUE QJr ΔJ3_k=(η/N)Q_k(θ̂3)(J3advᵀr3); every p3k steps window-J3 JUMPS to the shadow (J held fixed for p3k iters, then updated by running the QJr recurrence for p3k iters). Re-anchored to the live run every p3rep.
     p3m = None   # prediction-3 MULTI-FREEZE panel: rolling (t,J,r,‖r‖) buffer + 3 frozen-J residual theories (t*-10/+10/+20)
     p4_J = None; p4_th0 = None; p4_r0 = None   # prediction-4: frozen J(t0), θ(t0), residual(t0) for the frozen-M_r Jacobian propagation
     p4_anchor_t = None   # prediction-4: iteration of the last live re-anchor (repeat_iter); re-seed frozen+evolving from the live run every p4rep iters
-    p4_Je = None; p4_re = None; p4_the = None; p4_thQ = None; p4_J0e = None; p4_f0 = None; p4_qsc = 0   # prediction-4: EVOLVING-Qr variant — propagated Ĵ, r̂ (BOUNDED quadratic self-residual), self-computed θ̂, θ̂Q (Q-eval point, refreshed every s), frozen J(θ0) & f(θ0) (nothing from the live run)
+    p4_Je = None; p4_re = None; p4_the = None; p4_thQ = None; p4_reQ = None; p4_J0e = None; p4_f0 = None; p4_qsc = 0   # prediction-4: EVOLVING-Qr — Ĵ (updated EVERY step), r̂ (bounded quadratic self-residual), θ̂; θ̂Q/r̂Q = the FIXED (θ̂,r̂) that define rQ=M_r for the current s-step window; frozen J0/f0 (nothing from the live run)
     p4m = None   # prediction-4 MULTI-FREEZE panel: 3 frozen-M_r states at t0-10/+10/+20
     tr5 = None                                 # prediction-5: frozen state {θ0,J0,f0,Yf,tr0,traj[4]} for the trace-statistic propagation
     sec15_th64 = None          # §15: float64 SHADOW GD trajectory (MLP only). D²=‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖² is a ~9-digit
@@ -3679,12 +3679,12 @@ def run_stream(P):
                 if p3_tstar is None and p3_prev_sign is not None and sgn3 != 0 and sgn3 != p3_prev_sign:
                     p3_tstar = t; p3_Jstar = Jm3.detach().clone(); p3_rtheory = rm3.detach().clone()   # freeze J*, seed r_theory = r(t*)
                     p3_thstar = th.detach().clone(); p3_r2 = rm3.detach().clone()   # 2nd-order theory: freeze θ* (for Q*) and seed r₂ = r(t*)
-                    p3_J3 = Jm3.detach().clone(); p3_r3 = rm3.detach().clone(); p3_the3 = th.detach().clone(); p3_j3sc = 0   # evolving-J theory: seed J3=J(t*), r3=r(t*), θ̂3=θ(t*)
+                    p3_J3 = Jm3.detach().clone(); p3_J3adv = None; p3_r3 = rm3.detach().clone(); p3_the3 = th.detach().clone(); p3_j3sc = 0   # evolving-J theory: seed J3=J(t*), r3=r(t*), θ̂3=θ(t*); shadow J3adv seeded lazily from J3
                     p3_anchor_t = t
                 elif p3_tstar is not None and p3rep > 0 and p3_anchor_t is not None and t >= p3_anchor_t + p3rep:   # ★ repeat_iter: RE-anchor ALL theories from the LIVE run every p3rep iters, then predict the next p3rep
                     p3_Jstar = Jm3.detach().clone(); p3_rtheory = rm3.detach().clone()
                     p3_thstar = th.detach().clone(); p3_r2 = rm3.detach().clone()
-                    p3_J3 = Jm3.detach().clone(); p3_r3 = rm3.detach().clone(); p3_the3 = th.detach().clone(); p3_j3sc = 0
+                    p3_J3 = Jm3.detach().clone(); p3_J3adv = None; p3_r3 = rm3.detach().clone(); p3_the3 = th.detach().clone(); p3_j3sc = 0
                     p3_anchor_t = t
                 if sgn3 != 0:
                     p3_prev_sign = sgn3
@@ -3699,13 +3699,17 @@ def run_stream(P):
                         g2 = p3_Jstar.t() @ p3_r2                                                        # 2nd order (J*,Q* frozen at t*): g=J*ᵀr₂
                         quad2 = 0.5 * (lr / N) ** 2 * (jac_hvp(p3_thstar, X, g2)[:M] * g2).sum(dim=1)    # ½(η/N)²·(gᵀQ*_k g)_k  (M-dim)
                         p3_r2 = p3_r2 - (lr / N) * (p3_Jstar @ (p3_Jstar.t() @ p3_r2)) - quad2    # r=Y−f ⇒ 2nd-order Taylor curvature enters with a MINUS (Δr=−Δf, Δf's ½-order term is +½(η/N)²gᵀQg)
-                        if torch.isfinite(p3_J3).all() and torch.isfinite(p3_the3).all():   # 3rd theory (J EVOLVING): r3 decays via the CURRENT J3; J3 grows via the TRUE Jacobian dynamics ΔJ3_k=(η/N)Q_k(θ̂3)·(J3ᵀr3)=jac_hvp(θ̂3,X,J3ᵀr3)[k] with Q re-evaluated at the self-propagated θ̂3. (Was the WRONG operator M_r·J3_k=hvpS(θ*,X,J3_k,r3) — 87% error vs the exact ΔJ — with Q frozen at the pre-sharpening t*.)
-                            g3e = p3_J3.t() @ p3_r3                                          # g = J3ᵀ r3
-                            p3_r3 = p3_r3 - (lr / N) * (p3_J3 @ g3e)                         # r3 decays via the evolving J3
+                        if torch.isfinite(p3_J3).all() and torch.isfinite(p3_the3).all():   # 3rd theory (J EVOLVING as a STEP function): r3 decays EVERY step via the CONSTANT window-J3; a shadow J3adv advances EVERY step via the TRUE QJr ΔJ3_k=(η/N)Q_k(θ̂3)·(J3advᵀr3)=jac_hvp(θ̂3,X,J3advᵀr3)[k]; every p3k steps the window-J3 JUMPS to the p3k-step-advanced shadow. i.e. J is held FIXED for p3k iters (r3 changing), then updated by RUNNING the QJr recurrence for p3k iters — the true (I+(η/N)Q·(·ᵀr))^p3k, NOT a single coarse ×p3k step.
+                            if p3_J3adv is None:
+                                p3_J3adv = p3_J3.detach().clone()                            # shadow J: starts each window at the committed window-J3
+                            p3_J3adv = p3_J3adv + (lr / N) * jac_hvp(p3_the3, X, p3_J3adv.t() @ p3_r3)[:M]   # ★ QJr EVERY step (Q at θ̂3), using r3 at the start of this step (r_t)
+                            g3e = p3_J3.t() @ p3_r3                                          # g = J3ᵀ r3 with the CONSTANT window-J3
+                            p3_r3 = p3_r3 - (lr / N) * (p3_J3 @ g3e)                         # r3 decays via the CONSTANT window-J3: r_{t+1}=(I−(η/N)J3J3ᵀ)r3
                             p3_the3 = p3_the3 + (lr / N) * g3e                               # θ̂3 self-trajectory (the point at which Q is re-evaluated)
                             p3_j3sc += 1
-                            if p3_j3sc % p3k == 0:                                           # grow J3 via the TRUE operator, Q at θ̂3; coarse ×p3k step (stable)
-                                p3_J3 = p3_J3 + (p3k * lr / N) * jac_hvp(p3_the3, X, p3_J3.t() @ p3_r3)[:M]
+                            if p3_j3sc % p3k == 0:                                           # COMMIT: window-J3 jumps to the p3k-step-advanced shadow, then held fixed for the next p3k iters
+                                p3_J3 = p3_J3adv.detach().clone()
+                                p3_J3adv = p3_J3.detach().clone()                            # restart the shadow from the newly committed window-J3
 
             # prediction-3 MULTI-FREEZE panel: ‖r‖ actual vs frozen theory (1st- AND 2nd-order), J & Q frozen at t*-10, t*+10, t*+20 (3 plots)
             g_pred3m = None
@@ -3716,34 +3720,37 @@ def run_stream(P):
                 if len(p3m["buf"]) > 30:
                     p3m["buf"] = p3m["buf"][-30:]
                 offs = [-10, 10, 20]; backfill = None
-                def _adv3m(Js, ths, r1, r2, r3, J3, sc3):                         # one GD step: 1st & 2nd (frozen J*) + 3rd (evolving-J, STABLE), Q frozen at ths=θ*
-                    r1n = r1 - (lr / N) * (Js @ (Js.t() @ r1))                    # 1st: r=(I−(η/N)J*J*ᵀ)r
+                def _adv3m(Js, ths, r1, r2, r3, J3, J3adv, sc3):                  # one GD step: 1st & 2nd (frozen J*) + 3rd (evolving-J as a STEP function), Q frozen at ths=θ*
+                    r1n = r1 - (lr / N) * (Js @ (Js.t() @ r1))                    # 1st: r=(I−(η/N)J*J*ᵀ)r   [UNCHANGED — frozen-J]
                     g2 = Js.t() @ r2
                     quad2 = 0.5 * (lr / N) ** 2 * (jac_hvp(ths, X, g2)[:M] * g2).sum(dim=1)   # ½(η/N)²·(gᵀQ*_k g)_k
-                    r2n = r2 - (lr / N) * (Js @ (Js.t() @ r2)) - quad2    # curvature enters the residual with a MINUS (Δr=−Δf)
-                    r3n = r3                                                       # 3rd: r3 decays via the CURRENT J3 (PSD, bounded); every p3k steps J3 grows via the throttled frozen-Q* contraction
+                    r2n = r2 - (lr / N) * (Js @ (Js.t() @ r2)) - quad2    # 2nd: curvature enters with a MINUS (Δr=−Δf)   [UNCHANGED — frozen-J]
+                    r3n = r3; J3adv_n = J3adv                                      # 3rd (evolving-J STEP function): r3 decays every step via the CONSTANT window-J3; shadow J3adv advances every step via QJr (Q frozen at ths=θ*); every p3k steps window-J3 jumps to the shadow
                     if torch.isfinite(J3).all():
-                        r3n = r3 - (lr / N) * (J3 @ (J3.t() @ r3))
+                        if J3adv_n is None:
+                            J3adv_n = J3.detach().clone()
+                        J3adv_n = J3adv_n + (lr / N) * jac_hvp(ths, X, J3adv_n.t() @ r3)[:M]   # ★ QJr EVERY step (Q frozen at ths): the true (I+(η/N)Q·(·ᵀr))^p3k power iteration using r_t
+                        r3n = r3 - (lr / N) * (J3 @ (J3.t() @ r3))                 # r3 decays via the CONSTANT window-J3
                         sc3 += 1
                         if sc3 % p3k == 0:
-                            J3 = J3 + (p3k * lr / N) * jac_hvp(ths, X, J3.t() @ r3n)[:M]   # TRUE ΔJ3_k=(η/N)Q_k(ths)(J3ᵀr3) (Q frozen at the freeze point, by multi-freeze design); M_r·J3_k was the wrong operator
-                    return r1n, r2n, r3n, J3, sc3
+                            J3 = J3adv_n.detach().clone(); J3adv_n = J3.detach().clone()   # COMMIT window-J3 to the p3k-step shadow, restart the shadow
+                    return r1n, r2n, r3n, J3, J3adv_n, sc3
                 if p3_tstar is not None and p3m["th"][0] is None:                # theory-0 (t*-10): freeze from the buffer and BACK-FILL t*-10 … t
                     tgt = p3_tstar - 10
                     bi = min(range(len(p3m["buf"])), key=lambda i: abs(p3m["buf"][i][0] - tgt))
                     J0s = p3m["buf"][bi][1]; th0s = p3m["buf"][bi][4]
                     rth = p3m["buf"][bi][2].clone(); r2th = p3m["buf"][bi][2].clone()
-                    r3th = p3m["buf"][bi][2].clone(); J3th = J0s.detach().clone(); sc3 = 0; bf = []
+                    r3th = p3m["buf"][bi][2].clone(); J3th = J0s.detach().clone(); J3adv_th = None; sc3 = 0; bf = []
                     for j in range(bi, len(p3m["buf"])):
                         bf.append([p3m["buf"][j][0], p3m["buf"][j][3], float(rth.norm()), float(r2th.norm()), float(r3th.norm())])   # (step, ‖r_act‖, 1st, 2nd, 3rd/evolving-J)
                         nadv = (p3m["buf"][j + 1][0] - p3m["buf"][j][0]) if j + 1 < len(p3m["buf"]) else max(1, ee)   # buffer points are eigevery GD-steps apart → advance that many (not 1); last point → ee to hand off to the ongoing per-tick advance
                         for _ in range(max(1, nadv)):
-                            rth, r2th, r3th, J3th, sc3 = _adv3m(J0s, th0s, rth, r2th, r3th, J3th, sc3)
-                    p3m["th"][0] = {"J": J0s, "th": th0s, "r": rth, "r2": r2th, "r3": r3th, "J3": J3th, "sc3": sc3, "anchor_t": t}; backfill = bf
+                            rth, r2th, r3th, J3th, J3adv_th, sc3 = _adv3m(J0s, th0s, rth, r2th, r3th, J3th, J3adv_th, sc3)
+                    p3m["th"][0] = {"J": J0s, "th": th0s, "r": rth, "r2": r2th, "r3": r3th, "J3": J3th, "J3adv": J3adv_th, "sc3": sc3, "anchor_t": t}; backfill = bf
                 for k in (1, 2):                                                 # theory-1/2 (t*+10, t*+20): freeze when the run reaches them
                     if p3_tstar is not None and p3m["th"][k] is None and t >= p3_tstar + offs[k]:   # >= (not ==): eigevery>1 skips the exact offset tick, so freeze at the first tick past t*+off
                         p3m["th"][k] = {"J": Jm3.detach().clone(), "th": th.detach().clone(), "r": rm3.detach().clone(),
-                                        "r2": rm3.detach().clone(), "r3": rm3.detach().clone(), "J3": Jm3.detach().clone(), "sc3": 0, "anchor_t": t}
+                                        "r2": rm3.detach().clone(), "r3": rm3.detach().clone(), "J3": Jm3.detach().clone(), "J3adv": None, "sc3": 0, "anchor_t": t}
                 thy = [None, None, None]; thy2 = [None, None, None]; thy3 = [None, None, None]
                 for k in range(3):
                     if p3m["th"][k] is None or (k == 0 and backfill is not None):
@@ -3751,10 +3758,10 @@ def run_stream(P):
                     d = p3m["th"][k]
                     if p3rep > 0 and d.get("anchor_t") is not None and t >= d["anchor_t"] + p3rep:   # ★ repeat_iter: RE-anchor this frozen theory from the LIVE run every p3rep iters so the multi-freeze plot ALSO shows the periodic reset
                         d["r"] = rm3.detach().clone(); d["r2"] = rm3.detach().clone(); d["r3"] = rm3.detach().clone()
-                        d["J"] = Jm3.detach().clone(); d["J3"] = Jm3.detach().clone(); d["th"] = th.detach().clone(); d["sc3"] = 0; d["anchor_t"] = t
+                        d["J"] = Jm3.detach().clone(); d["J3"] = Jm3.detach().clone(); d["J3adv"] = None; d["th"] = th.detach().clone(); d["sc3"] = 0; d["anchor_t"] = t
                     thy[k] = float(d["r"].norm()); thy2[k] = float(d["r2"].norm()); thy3[k] = float(d["r3"].norm())
                     for _ in range(max(1, ee)):
-                        d["r"], d["r2"], d["r3"], d["J3"], d["sc3"] = _adv3m(d["J"], d["th"], d["r"], d["r2"], d["r3"], d["J3"], d["sc3"])
+                        d["r"], d["r2"], d["r3"], d["J3"], d["J3adv"], d["sc3"] = _adv3m(d["J"], d["th"], d["r"], d["r2"], d["r3"], d["J3"], d.get("J3adv"), d["sc3"])
                 if p3_tstar is not None:
                     g_pred3m = {"rAct": float(rm3.norm()), "thy": thy, "thy2": thy2, "thy3": thy3, "off": offs, "tstar": p3_tstar, "backfill": backfill}
 
@@ -3768,7 +3775,7 @@ def run_stream(P):
                     p4_J = Jm4.detach().clone(); p4_th0 = th.detach().clone(); p4_r0 = rr[:M].reshape(N, outD).detach().clone()
                     p4_Je = Jm4.detach().clone(); p4_re = rr[:M].detach().clone()   # EVOLVING-Qr: seed Ĵ, r̂
                     p4_J0e = Jm4.detach().clone()                                   # frozen J(θ0) for the bounded quadratic self-residual
-                    p4_the = th.detach().clone(); p4_thQ = th.detach().clone(); p4_qsc = 0   # self-computed θ̂ (GD-propagated) + θ̂Q (point at which Q is evaluated, refreshed every s steps)
+                    p4_the = th.detach().clone(); p4_thQ = th.detach().clone(); p4_reQ = None; p4_qsc = 0   # θ̂ (GD-propagated); θ̂Q/r̂Q = FIXED (θ̂,r̂) for the s-step rQ window (re-snapshotted below)
                     p4_f0 = (Y.reshape(-1)[:M] - rr[:M]).detach().clone()         # f(θ0) — anchor for the BOUNDED quadratic self-residual r̂=Y−(f0+J0Δθ̂+½Δθ̂ᵀQ0Δθ̂)
                     p4_anchor_t = t
                 if p4_J is not None:
@@ -3800,26 +3807,26 @@ def run_stream(P):
                         if torch.isfinite(p4_J).all():
                             MrJ = torch.stack([hvpS(p4_th0, X, p4_J[k], p4_r0) for k in range(M)])   # frozen M_r·J rows (M,p), Q & r frozen at t0
                             p4_J = p4_J + (lr / max(N, 1)) * MrJ                  # advance frozen-residual predicted J for the NEXT step
-                        if torch.isfinite(p4_Je).all() and torch.isfinite(p4_re).all() and torch.isfinite(p4_the).all():   # EVOLVING-Qr (self-contained; re-anchored to the live run every p4rep). r̂ = BOUNDED quadratic self-residual of the frozen-Taylor model at θ0 (NOT a linear decay — that collapsed r̂→0 and flat-lined Ĵ); θ̂ GD-propagated; Ĵ grows via M_r=Σ_k r̂_k Q_k with Q RE-evaluated at θ̂ (every s steps, scaled by s to keep the per-step growth rate)
+                        if torch.isfinite(p4_Je).all() and torch.isfinite(p4_re).all() and torch.isfinite(p4_the).all():   # EVOLVING-Qr (self-contained; re-anchored to the live run every p4rep). Ĵ is updated EVERY step by the rQJ recurrence Ĵ_{t+1}=Ĵ_t+(η/N)·M_r·Ĵ_t, where rQ=M_r(r̂Q,θ̂Q)=Σ_a r̂Q_a Q_a(θ̂Q) is FIXED for s steps then refreshed. r̂=bounded quadratic self-residual; θ̂=GD-propagated self-trajectory (both evolve every step so the NEXT rQ refresh differs). Prediction-4 DELIBERATELY uses this rQJ approximation of the true dĴ_k=(η/N)Q_k·(Ĵᵀr̂) — the panel shows how well it tracks the ACTUAL NTK (pred-3 uses the exact QJr).
                             Yf = Y.reshape(-1)[:M]
-                            g_e = p4_Je.t() @ p4_re                                             # ∇L̂ direction = Ĵᵀ r̂
+                            if p4_reQ is None or p4_qsc % p4s == 0:                              # refresh the FIXED rQ = M_r(r̂Q, θ̂Q) at each s-step window boundary; hold it constant in between (p4s=1 ⇒ refresh every step)
+                                p4_thQ = p4_the.detach().clone(); p4_reQ = p4_re.detach().clone()
+                            p4_Je = p4_Je + (lr / max(N, 1)) * torch.stack([hvpS(p4_thQ, X, p4_Je[k], p4_reQ.reshape(N, outD)) for k in range(M)])   # ★ Ĵ EVERY step: Ĵ_{t+1}=Ĵ_t+(η/N)·M_r(r̂Q,θ̂Q)·Ĵ_t (rQ fixed for this window ⇒ true (I+(η/N)M_r)^s power iteration, not one coarse ×s jump)
+                            g_e = p4_Je.t() @ p4_re                                             # advance the self-model (θ̂, r̂) every step for the NEXT rQ refresh
                             p4_the = p4_the + (lr / max(N, 1)) * g_e                             # θ̂ self-trajectory (GD on the quadratic model)
                             dth_e = p4_the - p4_th0
                             HzD_e = jac_hvp(p4_th0, X, dth_e)[:M]                                # Q0·Δθ̂ (M,p)
-                            p4_re = Yf - (p4_f0 + p4_J0e @ dth_e + 0.5 * (HzD_e @ dth_e))        # r̂ = Y − (f0 + J0Δθ̂ + ½Δθ̂ᵀQ0Δθ̂) — bounded, follows the training; no α-clamp needed
+                            p4_re = Yf - (p4_f0 + p4_J0e @ dth_e + 0.5 * (HzD_e @ dth_e))        # r̂ = Y − (f0 + J0Δθ̂ + ½Δθ̂ᵀQ0Δθ̂) — bounded
                             p4_qsc += 1
-                            if p4_qsc % p4s == 0:                                                # grow Ĵ via M_r=Σ_k r̂_k Q(θ̂)_k, Q RE-evaluated at θ̂; ONE coarse step of size s·η/N every s steps. Coarse Euler is deliberately MORE stable than every-step: the fine per-step version over-compounds and blows up past EoS (verified); this tracks the growth phase within ~20% and diverges only well past the peak (bounded by the display cap + re-anchoring)
-                                p4_thQ = p4_the.detach().clone()
-                                p4_Je = p4_Je + (p4s * lr / max(N, 1)) * torch.stack([hvpS(p4_thQ, X, p4_Je[k], p4_re.reshape(N, outD)) for k in range(M)])   # rQJ: Ĵ_k += (η/N)·M_r(r̂)·Ĵ_k, M_r=Σ_a r̂_a Q_a(θ̂). Prediction-4 DELIBERATELY uses this residual-weighted-Hessian approximation of the true dJ_k=(η/N)Q_k·(Ĵᵀr̂) — the panel shows how well rQJ tracks the ACTUAL NTK. (Prediction-3 uses the exact QJr instead.)
 
             # prediction-4 MULTI-FREEZE panel: same frozen-M_r propagation but anchored at t0-10, t0+10, t0+20 (3 plots vs the actual top-5 NTK eigvals)
             g_pred4m = None
             if s37 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 Jm4m = Jc[:M]
                 if p4m is None:
-                    p4m = [{"tf": p4t0 - 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "J0e": None, "f0": None, "qsc": 0, "anchor_t": None},
-                           {"tf": p4t0 + 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "J0e": None, "f0": None, "qsc": 0, "anchor_t": None},
-                           {"tf": p4t0 + 20, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "J0e": None, "f0": None, "qsc": 0, "anchor_t": None}]
+                    p4m = [{"tf": p4t0 - 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "reQ": None, "J0e": None, "f0": None, "qsc": 0, "anchor_t": None},
+                           {"tf": p4t0 + 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "reQ": None, "J0e": None, "f0": None, "qsc": 0, "anchor_t": None},
+                           {"tf": p4t0 + 20, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "reQ": None, "J0e": None, "f0": None, "qsc": 0, "anchor_t": None}]
                 K5m = min(3, M)                                                   # top-3
                 try:
                     Wam = _safe_eigvalsh(Jm4m @ Jm4m.t()); ka4m = [max(0.0, float(Wam[-1 - i])) for i in range(K5m)]
@@ -3832,7 +3839,7 @@ def run_stream(P):
                         fz["J"] = Jm4m.detach().clone(); fz["th0"] = th.detach().clone(); fz["r0"] = rr[:M].reshape(N, outD).detach().clone()
                         fz["Je"] = Jm4m.detach().clone(); fz["re"] = rr[:M].detach().clone()   # evolving-Qr seed
                         fz["J0e"] = Jm4m.detach().clone()                          # frozen J(θ_freeze) for the bounded quadratic self-residual
-                        fz["the"] = th.detach().clone(); fz["thQ"] = th.detach().clone(); fz["qsc"] = 0   # self-computed θ̂ + θ̂Q for Q eval (refreshed every s)
+                        fz["the"] = th.detach().clone(); fz["thQ"] = th.detach().clone(); fz["reQ"] = None; fz["qsc"] = 0   # θ̂ + θ̂Q/r̂Q (the FIXED rQ for the s-step window, re-snapshotted below)
                         fz["f0"] = (Y.reshape(-1)[:M] - rr[:M]).detach().clone()   # f(θ_freeze) for the bounded quadratic self-residual
                         fz["anchor_t"] = t
                     if fz["J"] is not None:
@@ -3845,17 +3852,17 @@ def run_stream(P):
                             if torch.isfinite(fz["J"]).all():
                                 MrJm = torch.stack([hvpS(fz["th0"], X, fz["J"][k], fz["r0"]) for k in range(M)])
                                 fz["J"] = fz["J"] + (lr / max(N, 1)) * MrJm
-                            if torch.isfinite(fz["Je"]).all() and torch.isfinite(fz["re"]).all() and torch.isfinite(fz["the"]).all():   # evolving-Qr: r̂ = BOUNDED quadratic self-residual (was a clamped linear decay that collapsed r̂→0 and flat-lined Ĵ); θ̂ GD-propagated; Ĵ grows via M_r(r̂) with Q re-evaluated at θ̂ (coarse step every s)
+                            if torch.isfinite(fz["Je"]).all() and torch.isfinite(fz["re"]).all() and torch.isfinite(fz["the"]).all():   # evolving-Qr: Ĵ updated EVERY step via Ĵ_{t+1}=Ĵ_t+(η/N)·M_r·Ĵ, where rQ=M_r(r̂Q,θ̂Q) is FIXED for s steps then refreshed; θ̂/r̂ evolve every step
                                 Yf = Y.reshape(-1)[:M]
-                                g_e = fz["Je"].t() @ fz["re"]                                   # ∇L̂ = Ĵᵀ r̂
+                                if fz["reQ"] is None or fz["qsc"] % p4s == 0:                  # refresh the FIXED rQ = M_r(r̂Q, θ̂Q) at each s-step window boundary (p4s=1 ⇒ refresh every step)
+                                    fz["thQ"] = fz["the"].detach().clone(); fz["reQ"] = fz["re"].detach().clone()
+                                fz["Je"] = fz["Je"] + (lr / max(N, 1)) * torch.stack([hvpS(fz["thQ"], X, fz["Je"][k], fz["reQ"].reshape(N, outD)) for k in range(M)])   # ★ Ĵ EVERY step via the FIXED rQJ = M_r(r̂Q,θ̂Q)·Ĵ (true (I+(η/N)M_r)^s power iteration)
+                                g_e = fz["Je"].t() @ fz["re"]                                   # advance the self-model (θ̂, r̂) every step for the NEXT rQ refresh
                                 fz["the"] = fz["the"] + (lr / max(N, 1)) * g_e                   # θ̂ self-trajectory
                                 dth_e = fz["the"] - fz["th0"]
                                 HzD_e = jac_hvp(fz["th0"], X, dth_e)[:M]                         # Q0·Δθ̂
                                 fz["re"] = Yf - (fz["f0"] + fz["J0e"] @ dth_e + 0.5 * (HzD_e @ dth_e))   # r̂ = Y − (f0 + J0Δθ̂ + ½Δθ̂ᵀQ0Δθ̂)
                                 fz["qsc"] += 1
-                                if fz["qsc"] % p4s == 0:                                        # grow Ĵ via M_r(r̂), Q re-evaluated at θ̂ (coarse step ×s ⇒ stable)
-                                    fz["thQ"] = fz["the"].detach().clone()
-                                    fz["Je"] = fz["Je"] + (p4s * lr / max(N, 1)) * torch.stack([hvpS(fz["thQ"], X, fz["Je"][k], fz["re"].reshape(N, outD)) for k in range(M)])   # rQJ = M_r(r̂)·Ĵ_k — pred-4 studies this approximation of the true QJr
                 if ka4m is not None:
                     g_pred4m = {"kAct": ka4m, "off": [p4t0 - 10, p4t0 + 10, p4t0 + 20], "kPred": kpm, "kPredE": kpmE}
 
