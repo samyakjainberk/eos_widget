@@ -4531,6 +4531,7 @@ async function loop(){                                   // drives ST forward; r
 }
 function resetSim(){
   ABORT=true;PAUSED=false;ST=null;cursorX=null;
+  if(typeof _abortSweep==='function')_abortSweep();   // kill any in-flight sweep-first sweep + clear its flags so Reset doesn't auto-launch a main run
   if(typeof resetScrub==='function')resetScrub();            // drop any rewound view
   if(ES){ES.close();ES=null;} lastT=-1;META=null;            // also drop any GPU stream
   document.getElementById('sps').textContent='steps/sec: —';
@@ -4805,8 +4806,12 @@ function sweepSignSpread(S,axis){let pos=0,neg=0;const a=(axis==='y')?S.y:S.x;fo
 function sweepCorrLabel(S){const r=sweepPearson(S),rho=sweepSpearman(S);   // ALWAYS report the rank ρ (Spearman on the raw magnitudes): it is defined even when the ±1 signs never vary, and reveals the strong monotonic relationship the sign-scatter hides
   const rhs=isFinite(rho)?'rank ρ='+rho.toFixed(3):'rank ρ=—';
   if(isFinite(r))return 'r='+r.toFixed(3)+' · '+rhs;
-  const sx=sweepSignSpread(S,'x'),sy=sweepSignSpread(S,'y');
-  let why='<2 pairs';if(sy.pos===0||sy.neg===0)why=(S===SW3?'Σ∇‖J‖':'Σcurv')+' all '+(sy.pos?'+':'−');else if(sx.pos===0||sx.neg===0)why='Σd all '+(sx.pos?'+':'−');
+  const sx=sweepSignSpread(S,'x'),sy=sweepSignSpread(S,'y'),nvalid=sx.pos+sx.neg;   // # of ok (non-diverged), non-zero-sign pairs
+  let why;
+  if(nvalid<2)why='<2 valid pairs';                                                  // all excluded (e.g. every pair diverged) — don't claim a spurious one-signed reason
+  else if(sy.pos===0||sy.neg===0)why=(S===SW3?'Σ∇‖J‖':'Σcurv')+' all '+(sy.pos?'+':'−');
+  else if(sx.pos===0||sx.neg===0)why='Σd all '+(sx.pos?'+':'−');
+  else why='degenerate';
   return 'sign-r —('+why+') · '+rhs;}
 // ---- prediction overshoot cap: a diverging FROZEN-r prediction can shoot to ~1e19 and dominate the (linear) axis,
 // hiding the actual + the well-behaved evolving-Qr curve. Cap each predicted value at PRED_CAP_F × the ACTUAL it is
@@ -4847,7 +4852,13 @@ function ensureSweepPlots(){   // build the pred-1&2 sweep scatter plots on dema
   {const L=baseLayout('Prediction-2b — Σd vs Σ∇‖J‖ (signed-log) · N₂','signed log₁₀(Σ ∇‖J‖)',false);L.xaxis.title='signed log₁₀(Σ d)';L.showlegend=false;L.margin.r=46;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=_PH.slice();newP('p_sw3',_corrTr(),L);}
 }
 let SWEEP_THEN_RUN=false;   // set by the main Run button: run the sweep FIRST, then auto-start the main run when it ends. On one GPU a concurrent sweep would cancel the main run (per-device token) and a deferred sweep (after a long run) looks like it never fires — so sweep-first makes it visibly run the moment Run is clicked.
-function _sweepDoneThenRun(){ if(SWEEP_THEN_RUN){SWEEP_THEN_RUN=false; if(typeof run==='function') run(); } }   // hand off to the main run once the (Run-triggered) sweep terminates, however it ends
+function _sweepBtns(sweeping){const rb=document.getElementById('run'),sb=document.getElementById('stop');   // during a sweep with NO main run yet: block a 2nd Run, allow Stop to abort the sweep
+  if(RUNNING)return;   // a main run owns the buttons (concurrent separate-port sweep) — don't touch
+  if(rb)rb.disabled=!!sweeping; if(sb)sb.disabled=!sweeping;}
+function _sweepDoneThenRun(){ if(SWEEP_THEN_RUN){SWEEP_THEN_RUN=false; if(typeof run==='function') run(); }   // hand off to the main run once the (Run-triggered) sweep terminates (run() then owns the buttons)
+  else _sweepBtns(false); }   // manual sweep finished ⇒ re-enable Run, disable Stop
+function _abortSweep(){ SWEEP_THEN_RUN=false; PENDING_AUTOSWEEP=false; if(SWEEP_ES){try{SWEEP_ES.close();}catch(e){}SWEEP_ES=null;}   // Reset/Stop during the sweep-first phase: kill the stream + clear the flags so NO main run auto-launches
+  const st=document.getElementById('sweepstatus'); if(st&&!RUNNING)st.textContent='sweep stopped.'; _sweepBtns(false); }
 function startSweep(){ _runSweep(false); }   // ★ prediction-1&2 sweep entry (onclick)
 function _runSweep(forceSame){   // forceSame=true ⇒ ignore the swport box and run on THIS server (same-origin fallback)
   if(SWEEP_ES){SWEEP_ES.close();SWEEP_ES=null;}
@@ -4855,7 +4866,7 @@ function _runSweep(forceSame){   // forceSame=true ⇒ ignore the swport box and
   SW0.x.length=SW0.y.length=SW0.text.length=SW0.col.length=0; SW1.x.length=SW1.y.length=SW1.text.length=SW1.col.length=0; SW2.x.length=SW2.y.length=SW2.jx.length=SW2.jy.length=SW2.ok.length=SW2.rx.length=SW2.ry.length=SW2.align.length=0; SW3.x.length=SW3.y.length=SW3.jx.length=SW3.jy.length=SW3.ok.length=SW3.rx.length=SW3.ry.length=SW3.align.length=0;
   try{Plotly.restyle('p_sw0',{x:[[]],y:[[]],text:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw1',{x:[[]],y:[[]],text:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw2',{x:[[]],y:[[]],text:[[]],customdata:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw3',{x:[[]],y:[[]],text:[[]],customdata:[[]],'marker.color':[[]]},[0]);}catch(e){}
   try{Plotly.relayout('p_sw0',{annotations:[]});Plotly.relayout('p_sw1',{annotations:[]});Plotly.relayout('p_sw2',{annotations:[]});Plotly.relayout('p_sw3',{annotations:[]});}catch(e){}   // drop the "click Run sweep" placeholder once the sweep starts
-  const st=document.getElementById('sweepstatus'); if(st)st.textContent='starting…';
+  const st=document.getElementById('sweepstatus'); if(st)st.textContent='starting…'; _sweepBtns(true);   // sweep running: block a 2nd Run, allow Stop to abort it
   const q=currentQueryParams(); const ps=new URLSearchParams(); for(const k in q)ps.set(k,q[k]);
   ps.set('mode','sweep');
   ps.set('swpairs',(document.getElementById('swpairs').value||'16'));
@@ -5151,7 +5162,7 @@ async function run(){
   if(curMode()==='gpu'){ if(RUNNING&&ST){ABORT=true;await new Promise(r=>setTimeout(r,40));} ST=null; runGPU(); }
   else { if(ES){ES.close();ES=null;} META=null;lastT=-1; await runLocal(); }
 }
-function stopRun(){ curMode()==='gpu'?stopGPU():stopLocal(); }
+function stopRun(){ if(SWEEP_ES&&!RUNNING){_abortSweep();return;} curMode()==='gpu'?stopGPU():stopLocal(); }   // Stop during the sweep-first phase (no main run yet) aborts the sweep
 function resumeRun(){ curMode()==='gpu'?resumeGPU():resumeLocal(); }
 
 // ================= presets =================
@@ -5349,7 +5360,7 @@ function cmpHTML(pre, kind) {
   </div>
   <div class="controls">
     <div class="panel"><div class="panel-title">Dataset &amp; architecture</div><div class="grid">
-      ${C('dataset', 'dataset', '', '', [['synthetic', 'synthetic', 1], ['const', 'const target', 0], ['cifar10', 'CIFAR-10', 0], ['chebyshev', 'Chebyshev', 0], ['chebyshev2', 'Chebyshev-2', 0]])}
+      ${C('dataset', 'dataset', '', '', [['synthetic', 'synthetic', 1], ['const', 'const target', 0], ['anglepair', 'angle pair', 0], ['chebyshev', 'Chebyshev', 0], ['chebyshev2', 'Chebyshev-2', 0]])}
       ${C('arch', 'architecture', '', '', [['mlp', 'MLP', 1], ['cnn', 'CNN', 0], ['vgg11', 'VGG11', 0], ['gpt', 'mini-GPT', 0]])}
       ${C('loss', 'loss', '', '', [['mse', 'MSE', 1], ['ce', 'cross-entropy', 0]])}
       ${C('chmul', 'CNN/VGG chan mult', 0.25, 0.05)}
