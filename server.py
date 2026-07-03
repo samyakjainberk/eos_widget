@@ -5603,7 +5603,7 @@ def main():
     print(f"  device : {_dev()}   dtype: {str(DTYPE).replace('torch.', '')}")
     if len(DEVICE_POOL) > 1:
         print(f"  pool   : {', '.join(str(d) for d in DEVICE_POOL)}  (concurrent runs auto-assigned least-busy)")
-    print(f"  serving: http://{a.host}:{a.port}/   (index.html — set Compute → \"GPU backend\")")
+    print(f"  serving: http://{a.host}:{a.port}/   <- the PREDICTION WIDGET opens here (press Run; no /prediction needed)")
     print(f"  tunnel : ssh -N -L {a.port}:localhost:{a.port} <this-box>"
           f"   then open http://localhost:{a.port}/")
     print("  Ctrl-C to stop.")
