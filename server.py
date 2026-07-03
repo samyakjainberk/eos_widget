@@ -3356,7 +3356,7 @@ def run_stream(P):
     p3m = None   # prediction-3 MULTI-FREEZE panel: rolling (t,J,r,‖r‖) buffer + 3 frozen-J residual theories (t*-10/+10/+20)
     p4_J = None; p4_th0 = None; p4_r0 = None   # prediction-4: frozen J(t0), θ(t0), residual(t0) for the frozen-M_r Jacobian propagation
     p4_anchor_t = None   # prediction-4: iteration of the last live re-anchor (repeat_iter); re-seed frozen+evolving from the live run every p4rep iters
-    p4_Je = None; p4_re = None; p4_the = None; p4_thQ = None; p4_f0 = None; p4_qsc = 0   # prediction-4: EVOLVING-Qr variant — propagated Ĵ, r̂ (BOUNDED quadratic self-residual), self-computed θ̂, frozen f(θ0); Q re-evaluated at θ̂ every s steps (nothing from the live run)
+    p4_Je = None; p4_re = None; p4_the = None; p4_thQ = None; p4_J0e = None; p4_f0 = None; p4_qsc = 0   # prediction-4: EVOLVING-Qr variant — propagated Ĵ, r̂ (BOUNDED quadratic self-residual), self-computed θ̂, θ̂Q (Q-eval point, refreshed every s), frozen J(θ0) & f(θ0) (nothing from the live run)
     p4m = None   # prediction-4 MULTI-FREEZE panel: 3 frozen-M_r states at t0-10/+10/+20
     tr5 = None                                 # prediction-5: frozen state {θ0,J0,f0,Yf,tr0,traj[4]} for the trace-statistic propagation
     sec15_th64 = None          # §15: float64 SHADOW GD trajectory (MLP only). D²=‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖² is a ~9-digit
@@ -3765,7 +3765,8 @@ def run_stream(P):
                 if (p4_J is None and t >= p4t0) or (p4_J is not None and p4rep > 0 and p4_anchor_t is not None and t >= p4_anchor_t + p4rep):   # freeze Q & residual at t0, then ★ repeat_iter: RE-anchor from the LIVE run every p4rep iters
                     p4_J = Jm4.detach().clone(); p4_th0 = th.detach().clone(); p4_r0 = rr[:M].reshape(N, outD).detach().clone()
                     p4_Je = Jm4.detach().clone(); p4_re = rr[:M].detach().clone()   # EVOLVING-Qr: seed Ĵ, r̂
-                    p4_the = th.detach().clone(); p4_thQ = th.detach().clone(); p4_qsc = 0   # self-computed θ̂ (GD-propagated) + θ at which Q is evaluated (refreshed every s steps)
+                    p4_J0e = Jm4.detach().clone()                                   # frozen J(θ0) for the bounded quadratic self-residual
+                    p4_the = th.detach().clone(); p4_thQ = th.detach().clone(); p4_qsc = 0   # self-computed θ̂ (GD-propagated) + θ̂Q (point at which Q is evaluated, refreshed every s steps)
                     p4_f0 = (Y.reshape(-1)[:M] - rr[:M]).detach().clone()         # f(θ0) — anchor for the BOUNDED quadratic self-residual r̂=Y−(f0+J0Δθ̂+½Δθ̂ᵀQ0Δθ̂)
                     p4_anchor_t = t
                 if p4_J is not None:
@@ -3797,22 +3798,26 @@ def run_stream(P):
                         if torch.isfinite(p4_J).all():
                             MrJ = torch.stack([hvpS(p4_th0, X, p4_J[k], p4_r0) for k in range(M)])   # frozen M_r·J rows (M,p), Q & r frozen at t0
                             p4_J = p4_J + (lr / max(N, 1)) * MrJ                  # advance frozen-residual predicted J for the NEXT step
-                        if torch.isfinite(p4_Je).all() and torch.isfinite(p4_re).all():   # EVOLVING-Qr (self-contained; re-anchored to the live run every p4rep — LOWER p4rep to re-sync more often and track the actual NTK closely): r̂ decays via the PSD NTK ĴĴᵀ; Ĵ grows via the THROTTLED frozen-Q0 contraction M_r=Σ_k r̂_k Q0_k every s steps
-                            lam_e = max((float(_safe_eigvalsh(p4_Je @ p4_Je.t())[-1]) if ee > 1 else (kPredE[0] if kPredE else 0.0)), 1e-12)   # λmax(ĴĴᵀ): reuse the tick's eigendecomp when 1 sub-step; RE-compute from the CURRENT Ĵ when ee>1 (Ĵ grows mid-tick, so the cached λmax would go stale)
-                            alpha_e = min(lr / max(N, 1), 1.9 / lam_e)                          # ★ CLAMP the residual step so α·λmax(ĴĴᵀ)<2 ⇒ r̂ (and Ĵ) stay bounded past EoS. WITHOUT this the evolving-Qr blows up to ~1e19 at strong EoS (verified) — far worse than the frozen baseline
-                            p4_re = p4_re - alpha_e * (p4_Je @ (p4_Je.t() @ p4_re))             # r̂ ← (I−α·ĴĴᵀ)r̂
+                        if torch.isfinite(p4_Je).all() and torch.isfinite(p4_re).all() and torch.isfinite(p4_the).all():   # EVOLVING-Qr (self-contained; re-anchored to the live run every p4rep). r̂ = BOUNDED quadratic self-residual of the frozen-Taylor model at θ0 (NOT a linear decay — that collapsed r̂→0 and flat-lined Ĵ); θ̂ GD-propagated; Ĵ grows via M_r=Σ_k r̂_k Q_k with Q RE-evaluated at θ̂ (every s steps, scaled by s to keep the per-step growth rate)
+                            Yf = Y.reshape(-1)[:M]
+                            g_e = p4_Je.t() @ p4_re                                             # ∇L̂ direction = Ĵᵀ r̂
+                            p4_the = p4_the + (lr / max(N, 1)) * g_e                             # θ̂ self-trajectory (GD on the quadratic model)
+                            dth_e = p4_the - p4_th0
+                            HzD_e = jac_hvp(p4_th0, X, dth_e)[:M]                                # Q0·Δθ̂ (M,p)
+                            p4_re = Yf - (p4_f0 + p4_J0e @ dth_e + 0.5 * (HzD_e @ dth_e))        # r̂ = Y − (f0 + J0Δθ̂ + ½Δθ̂ᵀQ0Δθ̂) — bounded, follows the training; no α-clamp needed
                             p4_qsc += 1
-                            if p4_qsc % p4s == 0:
-                                p4_Je = p4_Je + (lr / max(N, 1)) * torch.stack([hvpS(p4_th0, X, p4_Je[k], p4_re.reshape(N, outD)) for k in range(M)])
+                            if p4_qsc % p4s == 0:                                                # grow Ĵ via M_r=Σ_k r̂_k Q(θ̂)_k, Q RE-evaluated at θ̂; ONE coarse step of size s·η/N every s steps. Coarse Euler is deliberately MORE stable than every-step: the fine per-step version over-compounds and blows up past EoS (verified); this tracks the growth phase within ~20% and diverges only well past the peak (bounded by the display cap + re-anchoring)
+                                p4_thQ = p4_the.detach().clone()
+                                p4_Je = p4_Je + (p4s * lr / max(N, 1)) * torch.stack([hvpS(p4_thQ, X, p4_Je[k], p4_re.reshape(N, outD)) for k in range(M)])
 
             # prediction-4 MULTI-FREEZE panel: same frozen-M_r propagation but anchored at t0-10, t0+10, t0+20 (3 plots vs the actual top-5 NTK eigvals)
             g_pred4m = None
             if s37 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 Jm4m = Jc[:M]
                 if p4m is None:
-                    p4m = [{"tf": p4t0 - 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "f0": None, "qsc": 0, "anchor_t": None},
-                           {"tf": p4t0 + 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "f0": None, "qsc": 0, "anchor_t": None},
-                           {"tf": p4t0 + 20, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "f0": None, "qsc": 0, "anchor_t": None}]
+                    p4m = [{"tf": p4t0 - 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "J0e": None, "f0": None, "qsc": 0, "anchor_t": None},
+                           {"tf": p4t0 + 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "J0e": None, "f0": None, "qsc": 0, "anchor_t": None},
+                           {"tf": p4t0 + 20, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "J0e": None, "f0": None, "qsc": 0, "anchor_t": None}]
                 K5m = min(3, M)                                                   # top-3
                 try:
                     Wam = _safe_eigvalsh(Jm4m @ Jm4m.t()); ka4m = [max(0.0, float(Wam[-1 - i])) for i in range(K5m)]
@@ -3824,7 +3829,8 @@ def run_stream(P):
                        (fz["J"] is not None and p4rep > 0 and fz["anchor_t"] is not None and t >= fz["anchor_t"] + p4rep):   # freeze M_r (θ, J, residual) at this offset iteration (>= so eigevery>1 can't skip the exact tick), then ★ repeat_iter: RE-anchor from the LIVE run every p4rep iters (so this multi-freeze plot ALSO shows the periodic reset, not just prediction-4's main plot)
                         fz["J"] = Jm4m.detach().clone(); fz["th0"] = th.detach().clone(); fz["r0"] = rr[:M].reshape(N, outD).detach().clone()
                         fz["Je"] = Jm4m.detach().clone(); fz["re"] = rr[:M].detach().clone()   # evolving-Qr seed
-                        fz["the"] = th.detach().clone(); fz["thQ"] = th.detach().clone(); fz["qsc"] = 0   # self-computed θ̂ + θ for Q eval (refreshed every s)
+                        fz["J0e"] = Jm4m.detach().clone()                          # frozen J(θ_freeze) for the bounded quadratic self-residual
+                        fz["the"] = th.detach().clone(); fz["thQ"] = th.detach().clone(); fz["qsc"] = 0   # self-computed θ̂ + θ̂Q for Q eval (refreshed every s)
                         fz["f0"] = (Y.reshape(-1)[:M] - rr[:M]).detach().clone()   # f(θ_freeze) for the bounded quadratic self-residual
                         fz["anchor_t"] = t
                     if fz["J"] is not None:
@@ -3837,13 +3843,17 @@ def run_stream(P):
                             if torch.isfinite(fz["J"]).all():
                                 MrJm = torch.stack([hvpS(fz["th0"], X, fz["J"][k], fz["r0"]) for k in range(M)])
                                 fz["J"] = fz["J"] + (lr / max(N, 1)) * MrJm
-                            if torch.isfinite(fz["Je"]).all() and torch.isfinite(fz["re"]).all():   # evolving-Qr: r̂ decays via the PSD NTK ĴĴᵀ (step CLAMPED so α·λmax<2 ⇒ bounded past EoS); Ĵ grows via the throttled frozen-Q0 contraction every s steps
-                                lam_e = max((float(_safe_eigvalsh(fz["Je"] @ fz["Je"].t())[-1]) if ee > 1 else (kpmE[fi4][0] if kpmE[fi4] else 0.0)), 1e-12)   # refresh λmax from the CURRENT Ĵ when ee>1 (mid-tick growth ⇒ cached λmax stale)
-                                alpha_e = min(lr / max(N, 1), 1.9 / lam_e)
-                                fz["re"] = fz["re"] - alpha_e * (fz["Je"] @ (fz["Je"].t() @ fz["re"]))
+                            if torch.isfinite(fz["Je"]).all() and torch.isfinite(fz["re"]).all() and torch.isfinite(fz["the"]).all():   # evolving-Qr: r̂ = BOUNDED quadratic self-residual (was a clamped linear decay that collapsed r̂→0 and flat-lined Ĵ); θ̂ GD-propagated; Ĵ grows via M_r(r̂) with Q re-evaluated at θ̂ (coarse step every s)
+                                Yf = Y.reshape(-1)[:M]
+                                g_e = fz["Je"].t() @ fz["re"]                                   # ∇L̂ = Ĵᵀ r̂
+                                fz["the"] = fz["the"] + (lr / max(N, 1)) * g_e                   # θ̂ self-trajectory
+                                dth_e = fz["the"] - fz["th0"]
+                                HzD_e = jac_hvp(fz["th0"], X, dth_e)[:M]                         # Q0·Δθ̂
+                                fz["re"] = Yf - (fz["f0"] + fz["J0e"] @ dth_e + 0.5 * (HzD_e @ dth_e))   # r̂ = Y − (f0 + J0Δθ̂ + ½Δθ̂ᵀQ0Δθ̂)
                                 fz["qsc"] += 1
-                                if fz["qsc"] % p4s == 0:
-                                    fz["Je"] = fz["Je"] + (lr / max(N, 1)) * torch.stack([hvpS(fz["th0"], X, fz["Je"][k], fz["re"].reshape(N, outD)) for k in range(M)])
+                                if fz["qsc"] % p4s == 0:                                        # grow Ĵ via M_r(r̂), Q re-evaluated at θ̂ (coarse step ×s ⇒ stable)
+                                    fz["thQ"] = fz["the"].detach().clone()
+                                    fz["Je"] = fz["Je"] + (p4s * lr / max(N, 1)) * torch.stack([hvpS(fz["thQ"], X, fz["Je"][k], fz["re"].reshape(N, outD)) for k in range(M)])
                 if ka4m is not None:
                     g_pred4m = {"kAct": ka4m, "off": [p4t0 - 10, p4t0 + 10, p4t0 + 20], "kPred": kpm, "kPredE": kpmE}
 
@@ -5388,8 +5398,8 @@ class Handler(BaseHTTPRequestHandler):
             self._sse(parse_qs(u.query))
         elif u.path == "/captures":
             self._captures()
-        elif u.path in ("/prediction", "/prediction/"):
-            self._static("/eos_widget_prediction/index_prediction.html")   # EoS prediction-demo widget (§1/2/3 + §21 p1/p2 + 4-plot forecast panel)
+        elif u.path in ("/", "/prediction", "/prediction/", "/index.html"):
+            self._static("/eos_widget_prediction/index_prediction.html")   # ROOT + /prediction BOTH serve the prediction widget, so anyone who follows the README (or just opens the port) lands on the prediction widget by default
         else:
             self._static(u.path)
 

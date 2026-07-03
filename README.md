@@ -18,10 +18,12 @@ turns those diagnostics into **forecasts** and scores each one against the real 
 pip install torch numpy                          # 1 · install (once)
 python3 server.py --device cuda:0 --port 8756    # 2 · start the backend on your GPU
 #                                                  3 · open in a browser ↓
-#     http://localhost:8756/prediction
+#     http://localhost:8756/
 ```
 
-The widget **defaults to the GPU backend** — just open the URL and press **Run**.
+Opening the port (**`http://localhost:8756/`**) serves the **prediction widget** directly — the
+widget **defaults to the GPU backend**, so just open the URL and press **Run**. (The `/prediction`
+path works too.)
 
 > **Running on a remote GPU box?** Forward the port to your laptop, then open the same URL:
 > ```bash
