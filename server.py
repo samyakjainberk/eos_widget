@@ -3808,7 +3808,7 @@ def run_stream(P):
                             p4_qsc += 1
                             if p4_qsc % p4s == 0:                                                # grow Ĵ via M_r=Σ_k r̂_k Q(θ̂)_k, Q RE-evaluated at θ̂; ONE coarse step of size s·η/N every s steps. Coarse Euler is deliberately MORE stable than every-step: the fine per-step version over-compounds and blows up past EoS (verified); this tracks the growth phase within ~20% and diverges only well past the peak (bounded by the display cap + re-anchoring)
                                 p4_thQ = p4_the.detach().clone()
-                                p4_Je = p4_Je + (p4s * lr / max(N, 1)) * torch.stack([hvpS(p4_thQ, X, p4_Je[k], p4_re.reshape(N, outD)) for k in range(M)])
+                                p4_Je = p4_Je + (p4s * lr / max(N, 1)) * jac_hvp(p4_thQ, X, p4_Je.t() @ p4_re)[:M]   # TRUE dJ_k=(eta/N)Q_k(theta_hat)(J^T r); M_r*J_k was the WRONG operator (87% err vs exact)
 
             # prediction-4 MULTI-FREEZE panel: same frozen-M_r propagation but anchored at t0-10, t0+10, t0+20 (3 plots vs the actual top-5 NTK eigvals)
             g_pred4m = None
@@ -3853,7 +3853,7 @@ def run_stream(P):
                                 fz["qsc"] += 1
                                 if fz["qsc"] % p4s == 0:                                        # grow Ĵ via M_r(r̂), Q re-evaluated at θ̂ (coarse step ×s ⇒ stable)
                                     fz["thQ"] = fz["the"].detach().clone()
-                                    fz["Je"] = fz["Je"] + (p4s * lr / max(N, 1)) * torch.stack([hvpS(fz["thQ"], X, fz["Je"][k], fz["re"].reshape(N, outD)) for k in range(M)])
+                                    fz["Je"] = fz["Je"] + (p4s * lr / max(N, 1)) * jac_hvp(fz["thQ"], X, fz["Je"].t() @ fz["re"])[:M]   # TRUE dJ_k=(eta/N)Q_k(J^T r); M_r*J_k was the wrong operator
                 if ka4m is not None:
                     g_pred4m = {"kAct": ka4m, "off": [p4t0 - 10, p4t0 + 10, p4t0 + 20], "kPred": kpm, "kPredE": kpmE}
 
