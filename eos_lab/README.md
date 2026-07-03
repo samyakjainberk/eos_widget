@@ -11,20 +11,24 @@ run in the browser are directly comparable.
 
 ## Running it
 
-Uses the same environment as `server.py` (`torch`, `numpy`, `matplotlib`).
+Needs the same dependencies as `server.py`, plus `matplotlib` for the figures:
 
 ```bash
-PY=/nas/ucb/samsj/conda_env/envs/samsenv/bin/python
+pip install torch numpy matplotlib
+```
 
+Run these from the **repo root** (the folder that contains the `eos_lab/` directory):
+
+```bash
 # Run a preset on a GPU; arrays + panel images land in runs/<preset>/
-$PY -m eos_lab.cli --preset msample --device cuda:0
-$PY -m eos_lab.cli --preset cifar_vgg --device cuda:0 --set chmul=0.5 --cifar-dir <cifar-dir>
-$PY -m eos_lab.cli --preset mnist2_mlp --device cuda:0     # 2-class scalar MNIST — runs the per-sample §16/§17
-$PY -m eos_lab.cli --preset cifar2_mlp --device cuda:0 --set c2a=3 --set c2b=5   # pick which two classes → ±1
-$PY -m eos_lab.cli --list-presets
+python3 -m eos_lab.cli --preset msample --device cuda:0
+python3 -m eos_lab.cli --preset cifar_vgg --device cuda:0 --set chmul=0.5 --cifar-dir <cifar-dir>
+python3 -m eos_lab.cli --preset mnist2_mlp --device cuda:0     # 2-class scalar MNIST — runs the per-sample §16/§17
+python3 -m eos_lab.cli --preset cifar2_mlp --device cuda:0 --set c2a=3 --set c2b=5   # pick which two classes → ±1
+python3 -m eos_lab.cli --list-presets
 
 # As a library
-$PY -c "from eos_lab import Config, run_job; r = run_job(Config.from_preset('msample'), device='cuda:0', progress=True)"
+python3 -c "from eos_lab import Config, run_job; r = run_job(Config.from_preset('msample'), device='cuda:0', progress=True)"
 
 # A sweep across GPUs (one job per array index)
 sbatch --array=0-3 eos_lab/slurm/submit_array.sh
