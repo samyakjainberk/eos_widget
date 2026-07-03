@@ -1046,15 +1046,19 @@ def _dev():
     """Device assigned to the current /run thread; falls back to the default _dev() off-thread."""
     return getattr(_TL, "device", DEVICE)
 
-def acquire_device():
-    """Pick the least-busy device in the pool for a new run and claim a fresh per-device token."""
+def acquire_device(bump_token=True):
+    """Pick the least-busy device in the pool for a new run. bump_token=True claims a FRESH per-device token so a
+    newer main run supersedes older ones on that GPU. bump_token=False (the prediction SWEEP) assigns the device
+    WITHOUT bumping the token, so the sweep runs IN PARALLEL with the live run on the SAME GPU instead of cancelling
+    it (run_sweep never checks the token; ThreadingHTTPServer + thread-local _TL keep the two runs isolated)."""
     with _DEV_LOCK:
         pool = DEVICE_POOL or [DEVICE]
         dev = min(pool, key=lambda d: (_DEV_LOAD.get(str(d), 0), pool.index(d)))
         k = str(dev)
         _DEV_LOAD[k] = _DEV_LOAD.get(k, 0) + 1
-        RUN_TOKEN[k] = RUN_TOKEN.get(k, 0) + 1
-        return dev, RUN_TOKEN[k]
+        if bump_token:
+            RUN_TOKEN[k] = RUN_TOKEN.get(k, 0) + 1
+        return dev, RUN_TOKEN.get(k, 0)
 
 def release_device(dev):
     with _DEV_LOCK:
@@ -5450,12 +5454,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")   # allow the prediction widget to run the sweep on a DIFFERENT fleet port (separate GPU) via a cross-origin EventSource
         self.end_headers()
         P = _parse_params(q)
-        dev, tok = acquire_device()                 # auto least-busy GPU; concurrent tabs land on different devices
+        _mode = P.get("mode")
+        dev, tok = acquire_device(bump_token=(_mode != "sweep"))   # a SWEEP does NOT bump the token ⇒ it runs IN PARALLEL with the live run on the same GPU (does not supersede it); a main run still supersedes older main runs
         _TL.device = dev
         if dev.type == "cuda":
             torch.cuda.set_device(dev)
         P["_token"] = tok
-        _mode = P.get("mode")
         gen = run_sweep(P) if _mode == "sweep" else (run_surrogate_compare(P) if _mode == "surrogate" else run_stream(P))
         try:
             for msg in gen:

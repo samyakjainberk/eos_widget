@@ -3519,8 +3519,22 @@ function applyTimeScrub(frac){
     try{Plotly.relayout(gd,rl);}catch(e){}
     if(repHi===null){repHi=hi;repMax=ex[1];}   // first time-series plot (loss curve) drives the readout
   });
+  _scrubS27(frac);   // §7 (∇θ 3D subspace projection) has no time AXIS — iteration is the colour — so rewind it by TRUNCATING each 3D trajectory to iterations ≤ frac·maxIter
   const read=document.getElementById('scrubread');
   if(read)read.textContent=live?'live (latest)':`t ≈ ${repHi!=null?Math.round(repHi):'—'} / ${repMax!=null?Math.round(repMax):'—'}  ·  ${Math.round(frac*100)}%`;
+}
+// §7 rewind: the ∇θ 3D projection plots accumulate points coloured by iteration (window.S27DATA[id]={x,y,z,c}). Show only c ≤ frac·maxIter; fix the colour scale to [0,maxIter] so a truncated view keeps each iteration's colour.
+function _scrubS27(frac){
+  const D=window.S27DATA; if(!D)return;
+  let maxC=0; for(const id in D){const c=D[id]&&D[id].c; if(c&&c.length)maxC=Math.max(maxC,c[c.length-1]);}
+  if(maxC<=0)return;
+  const hi=(frac>=0.999)?Infinity:frac*maxC;
+  for(const id in D){const d=D[id],gd=document.getElementById(id);
+    if(!d||!d.c||!gd||!gd._fullLayout||gd.offsetParent===null)continue;
+    let x=d.x,y=d.y,z=d.z,c=d.c;
+    if(hi!==Infinity){x=[];y=[];z=[];c=[];for(let i=0;i<d.c.length;i++){if(d.c[i]<=hi){x.push(d.x[i]);y.push(d.y[i]);z.push(d.z[i]);c.push(d.c[i]);}}}
+    try{Plotly.restyle(id,{x:[x],y:[y],z:[z],text:[c],'marker.color':[c],'marker.cmin':0,'marker.cmax':maxC,'line.color':[c],'line.cmin':0,'line.cmax':maxC},[0]);}catch(e){}
+  }
 }
 function resetScrub(){const sl=document.getElementById('timescrub');if(sl)sl.value=sl.max;applyTimeScrub(1);}   // back to live (call on a fresh run)
 (function _wireScrub(){
@@ -5162,7 +5176,7 @@ async function run(){
   if(curMode()==='gpu'){ if(RUNNING&&ST){ABORT=true;await new Promise(r=>setTimeout(r,40));} ST=null; runGPU(); }
   else { if(ES){ES.close();ES=null;} META=null;lastT=-1; await runLocal(); }
 }
-function stopRun(){ if(SWEEP_ES&&!RUNNING){_abortSweep();return;} curMode()==='gpu'?stopGPU():stopLocal(); }   // Stop during the sweep-first phase (no main run yet) aborts the sweep
+function stopRun(){ if(typeof _abortSweep==='function')_abortSweep(); if(!RUNNING)return; curMode()==='gpu'?stopGPU():stopLocal(); }   // Stop aborts the parallel sweep AND (if a main run is live) stops it too
 function resumeRun(){ curMode()==='gpu'?resumeGPU():resumeLocal(); }
 
 // ================= presets =================
@@ -5275,11 +5289,8 @@ syncInitScaleEnabled();   // grey out init_scale on load if the current scheme i
 {const sl=document.getElementById('s23_slider');if(sl)sl.addEventListener('input',function(){S23CH.renderIdx(+this.value);});}   // §23 surrogate scrub
 let PENDING_AUTOSWEEP=false;   // ★ auto-sweep on Run: a concurrent sweep on the SAME GPU would cancel the main run (per-device RUN_TOKEN) ⇒ only run it concurrently when routed to a SEPARATE port; otherwise defer to the main run's 'done'
 document.getElementById('run').addEventListener('click',()=>{
-  const sp=document.getElementById('swport'),spv=sp?sp.value.trim():'';
-  if(chk('enPs')&&typeof startSweep==='function'){
-    if(spv&&spv!==(location.port||'')){SWEEP_THEN_RUN=false;PENDING_AUTOSWEEP=false;startSweep();run();}   // separate GPU port ⇒ sweep there CONCURRENTLY while the main run starts now
-    else{SWEEP_THEN_RUN=true;PENDING_AUTOSWEEP=false;startSweep();}   // same GPU ⇒ ★ sweep FIRST (runs the moment Run is clicked, no cancellation), then _sweepDoneThenRun() auto-starts the main run
-  } else {SWEEP_THEN_RUN=false;PENDING_AUTOSWEEP=false;run();}
+  if(chk('enPs')&&typeof startSweep==='function'){SWEEP_THEN_RUN=false;PENDING_AUTOSWEEP=false;startSweep();run();}   // ★ PARALLEL: the sweep and the main run start together and progress side-by-side (server: mode=sweep no longer bumps the GPU token, so the sweep coexists with the live run on the same GPU instead of cancelling it)
+  else{SWEEP_THEN_RUN=false;PENDING_AUTOSWEEP=false;run();}
 });
 document.getElementById('stop').addEventListener('click',stopRun);
 document.getElementById('resume').addEventListener('click',resumeRun);
