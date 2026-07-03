@@ -3501,7 +3501,7 @@ function applyTimeScrub(frac){
   SCRUB_FRAC=frac; const live=frac>=0.999;
   const bar=document.getElementById('scrubbar'); if(bar)bar.classList.toggle('scrubbed',!live);
   let repHi=null,repMax=null;
-  document.querySelectorAll('div.plot').forEach(gd=>{
+  document.querySelectorAll('div.plot').forEach(gd=>{ try{
     if(!gd._fullLayout||gd.offsetParent===null||!_scrubable(gd))return;   // visible time-series plots only
     if(live){try{Plotly.relayout(gd,{'xaxis.autorange':true,'yaxis.autorange':true});}catch(e){}return;}   // live: both axes auto-fit the full run
     const ex=_xExtent(gd); if(!ex||ex[1]<=ex[0])return;
@@ -3518,8 +3518,8 @@ function applyTimeScrub(frac){
       else{ const span=yhi-ylo, pad=span>0?span*0.06:(Math.abs(yhi)*0.06||1e-9); rl['yaxis.range']=[ylo-pad,yhi+pad]; rl['yaxis.autorange']=false; } }
     try{Plotly.relayout(gd,rl);}catch(e){}
     if(repHi===null){repHi=hi;repMax=ex[1];}   // first time-series plot (loss curve) drives the readout
-  });
-  _scrubS27(frac);   // §7 (∇θ 3D subspace projection) has no time AXIS — iteration is the colour — so rewind it by TRUNCATING each 3D trajectory to iterations ≤ frac·maxIter
+  }catch(_e){/* one malformed plot must NOT abort the whole sweep — otherwise the §7 rewind below would be skipped */} });
+  try{ _scrubS27(frac); }catch(_e){}   // §7 (∇θ 3D subspace projection) has no time AXIS — iteration is the colour — so rewind it by TRUNCATING each 3D trajectory to iterations ≤ frac·maxIter (ALWAYS run, even if a time-series plot above errored)
   const read=document.getElementById('scrubread');
   if(read)read.textContent=live?'live (latest)':`t ≈ ${repHi!=null?Math.round(repHi):'—'} / ${repMax!=null?Math.round(repMax):'—'}  ·  ${Math.round(frac*100)}%`;
 }
@@ -3530,7 +3530,7 @@ function _scrubS27(frac){
   if(maxC<=0)return;
   const hi=(frac>=0.999)?Infinity:frac*maxC;
   for(const id in D){const d=D[id],gd=document.getElementById(id);
-    if(!d||!d.c||!gd||!gd._fullLayout||gd.offsetParent===null)continue;
+    if(!d||!d.c||!d.c.length||!gd||!gd._fullLayout)continue;   // rewind whenever the plot has data + is laid out (don't gate on momentary visibility — restyling a hidden plot is harmless and keeps it correct once shown)
     let x=d.x,y=d.y,z=d.z,c=d.c;
     if(hi!==Infinity){x=[];y=[];z=[];c=[];for(let i=0;i<d.c.length;i++){if(d.c[i]<=hi){x.push(d.x[i]);y.push(d.y[i]);z.push(d.z[i]);c.push(d.c[i]);}}}
     try{Plotly.restyle(id,{x:[x],y:[y],z:[z],text:[c],'marker.color':[c],'marker.cmin':0,'marker.cmax':maxC,'line.color':[c],'line.cmin':0,'line.cmax':maxC},[0]);}catch(e){}
