@@ -78,12 +78,6 @@
   .plotrow{display:grid;gap:16px;margin-top:6px}
   .row4{grid-template-columns:repeat(4,1fr)} .row2{grid-template-columns:repeat(2,1fr)} .row5{grid-template-columns:repeat(5,1fr)} .row3{grid-template-columns:repeat(3,1fr)} .row6{grid-template-columns:repeat(6,1fr)} .row1{grid-template-columns:1fr}
   .plot{width:100%;min-width:0;height:320px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 3px rgba(16,24,40,.05)}
-  /* Force an always-visible horizontal scrollbar on the Prediction-6 panel (defeats macOS overlay scrollbars) */
-  #p_p6_scroll{scrollbar-width:auto;scrollbar-color:rgba(100,116,139,.75) rgba(100,116,139,.18)}
-  #p_p6_scroll::-webkit-scrollbar{height:14px;-webkit-appearance:none;appearance:none}
-  #p_p6_scroll::-webkit-scrollbar-track{background:rgba(100,116,139,.18);border-radius:8px}
-  #p_p6_scroll::-webkit-scrollbar-thumb{background:rgba(100,116,139,.75);border-radius:8px;border:2px solid transparent;background-clip:padding-box}
-  #p_p6_scroll::-webkit-scrollbar-thumb:hover{background:rgba(100,116,139,.95)}
   .plotrow>*{min-width:0}   /* grid items default to min-width:auto (=min-content); without this a wide Plotly SVG expands the 1fr track and the row spills past the page margin */
   @media(max-width:1320px){.row4{grid-template-columns:repeat(2,1fr)} .row5{grid-template-columns:repeat(3,1fr)} .row6{grid-template-columns:repeat(3,1fr)}}
   @media(max-width:1000px){.row4,.row2,.row5,.row3,.row6{grid-template-columns:1fr}}
@@ -376,13 +370,13 @@
 </div>
 <p class="cap">Four INDEPENDENT trajectories — <b style="color:#2563eb">GD</b>, <b style="color:#dc2626">Signed-GD</b>, <b style="color:#16a34a">Spectral (Muon)</b>, <b style="color:#7c3aed">Gauss-Newton</b> — run from the SAME initialization $\theta_0$, each with its own learning rate above (NO momentum, NO weight decay). Every iteration we take the <b>top-50 eigenvalues of the Gauss-Newton matrix</b> $J^\top J$ (= the nonzero NTK $JJ^\top$ spectrum) along each trajectory and plot them as a <b>scree curve</b> — <b>x-axis = eigenvalue rank</b> (1 = largest … 50th), <b>y-axis = eigenvalue value</b> (log). Each panel overlays <b>GD</b> vs one adaptive optimizer, and the curves <b>evolve over training</b> (redrawn every iteration). Enable via the ★ Prediction-6 toggle (off by default). Needs $N\!\cdot\!\text{out\_dim}\ge 50$ for a full top-50; otherwise it uses all $N\!\cdot\!\text{out\_dim}$ eigenvalues.</p>
 <p class="cap" style="margin:8px 0 1px">Plots 4–5: the <b>loss</b> and <b>sharpness</b> $\lambda_{\max}(\nabla^2 L)$ evolution of all four trajectories over training (one curve per optimizer, log-scaled).</p>
-<div id="p_p6_scroll" style="width:100%;overflow-x:scroll;padding-bottom:10px"><div style="display:inline-flex;gap:16px;vertical-align:top">
-  <div id="p_p6_sign" class="plot" style="height:320px;width:400px;min-width:400px;flex:0 0 400px"></div>
-  <div id="p_p6_muon" class="plot" style="height:320px;width:400px;min-width:400px;flex:0 0 400px"></div>
-  <div id="p_p6_gn" class="plot" style="height:320px;width:400px;min-width:400px;flex:0 0 400px"></div>
-  <div id="p_p6_loss" class="plot" style="height:320px;width:400px;min-width:400px;flex:0 0 400px"></div>
-  <div id="p_p6_sharp" class="plot" style="height:320px;width:400px;min-width:400px;flex:0 0 400px"></div>
-</div></div>
+<div class="plotrow row5"><div id="p_p6_sign" class="plot" style="height:320px"></div><div id="p_p6_muon" class="plot" style="height:320px"></div><div id="p_p6_gn" class="plot" style="height:320px"></div><div id="p_p6_loss" class="plot" style="height:320px"></div><div id="p_p6_sharp" class="plot" style="height:320px"></div></div>
+<div class="ctl" style="display:flex;align-items:center;gap:12px;margin:10px 0 2px;max-width:980px">
+  <label style="white-space:nowrap" title="Rewind the three Gauss-Newton scree plots to an earlier training step (loss / sharpness always show the full run)">⏱ scree step</label>
+  <input id="p6_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
+  <span id="p6_step" style="white-space:nowrap;color:#475569;font-size:13px;min-width:172px;text-align:center">live (latest)</span>
+  <button class="btn-reset" id="p6_live" type="button" style="padding:4px 10px" title="Jump back to the latest step">live ▸</button>
+</div>
 </div>
 
 <div id="sec_1">
@@ -3286,13 +3280,36 @@ function p6lay(nm){return {title:{text:'GD vs '+nm,font:{size:12}},showlegend:tr
   legend:{font:{size:9},orientation:'h',y:-0.16,yanchor:'top'},margin:{l:54,r:8,t:26,b:46},
   xaxis:{title:{text:'eigenvalue rank (1 = largest)',font:{size:10}}},
   yaxis:{title:{text:'Gauss-Newton eigenvalue',font:{size:10}},type:'log'}};}
+// ★ Prediction-6 scree scrubber — the 3 GD-vs-optimizer scree plots have a RANK x-axis (not time), so the
+// master time-scrubber skips them. Keep every step's scree so a dedicated slider can rewind them (loss/sharp
+// keep their full trajectory). Mirrors the §20/§21 per-section snapshot-slider pattern.
+let P6_SNAPS=[], P6_RAF=0, P6_PENDING=-1, P6_CURIDX=0; const P6_MAXSNAPS=4000;
+function p6DrawScree(s){
+  const draw=(id,other,nm,col)=>{const gd=s.gd||[],ot=s[other]||[];if(!document.getElementById(id)||!gd.length||!ot.length)return;
+    const xg=gd.map((_,i)=>i+1),xo=ot.map((_,i)=>i+1);   // rank 1..K (1 = largest eigenvalue)
+    Plotly.react(id,[{x:xg,y:gd,mode:'lines+markers',name:'GD',line:{color:'#2563eb',width:1.6},marker:{size:3,color:'#2563eb'}},
+      {x:xo,y:ot,mode:'lines+markers',name:nm,line:{color:col,width:1.6},marker:{size:3,color:col}}],p6lay(nm),{displayModeBar:false});};
+  draw('p_p6_sign','sign','Signed','#dc2626'); draw('p_p6_muon','spectral','Muon','#16a34a'); draw('p_p6_gn','gaussnewton','Gauss-Newton','#7c3aed');}
+function p6RenderNow(i){const s=P6_SNAPS[i];if(!s)return;P6_CURIDX=i;p6DrawScree(s);
+  const live=i>=P6_SNAPS.length-1, sp=document.getElementById('p6_step');
+  if(sp)sp.textContent=(live?'live · ':'')+`step ${s.t}  ·  ${i+1}/${P6_SNAPS.length}`;
+  const sl=document.getElementById('p6_slider');if(sl&&+sl.value!==i)sl.value=i;}
+function p6RenderIdx(i){P6_PENDING=i;if(P6_RAF)return;P6_RAF=requestAnimationFrame(()=>{P6_RAF=0;const j=P6_PENDING;P6_PENDING=-1;if(j>=0)p6RenderNow(j);});}
+function p6Push(g,t){if(!g||!(g.gd&&g.gd.length))return;const sl=document.getElementById('p6_slider'),wasLive=!sl||(+sl.value>=+sl.max);
+  P6_SNAPS.push({t:t,gd:g.gd,sign:g.sign,spectral:g.spectral,gaussnewton:g.gaussnewton});
+  if(P6_SNAPS.length>P6_MAXSNAPS){P6_SNAPS=P6_SNAPS.filter((_,ix)=>ix%2===0);if(P6_CURIDX>=P6_SNAPS.length)P6_CURIDX=P6_SNAPS.length-1;}
+  if(sl){sl.max=P6_SNAPS.length-1;if(wasLive)sl.value=sl.max;}
+  p6RenderIdx(wasLive?P6_SNAPS.length-1:(sl?+sl.value:0));}   // follow to latest only when the user hasn't scrubbed back
+function p6Reset(){P6_SNAPS=[];P6_CURIDX=0;if(P6_RAF){cancelAnimationFrame(P6_RAF);P6_RAF=0;}P6_PENDING=-1;
+  const sl=document.getElementById('p6_slider');if(sl){sl.max=0;sl.value=0;}
+  const sp=document.getElementById('p6_step');if(sp)sp.textContent='live (latest)';}
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   resetPlotDecim();   // fresh decimation state for this run (bounds plotted points → no progressive hang)
   g3dReset();   // §11: drop snapshots from the previous run
   s12Reset();   // §12: drop snapshots from the previous run
   s13Reset();   // §13: drop the approximation-comparison time-series from the previous run
   s14Reset();   // §14: drop snapshots from the previous run
-  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s21Reset();S22CH.reset();S23CH.reset();s16Reset();s17Reset();   // §15+§16+§19+§20: drop the 2nd-difference + optimizer + grad-norm + M_r-histogram series
+  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s21Reset();p6Reset();S22CH.reset();S23CH.reset();s16Reset();s17Reset();   // §15+§16+§19+§20: drop the 2nd-difference + optimizer + grad-norm + M_r-histogram series
   trReset();    // §5: clear the trace-over-iterations curves
   syncSectionVis(multi);   // gate sections by the panel toggles (multi from the actual run)
   const dis=s=>OPT.gs?s:s+'  (off)';
@@ -3900,12 +3917,8 @@ function pushPoint(t,D,n,kth,nResid){
     for(let k=0;k<3;k++){if(g.thy[k]!=null)extP(mids[k],{x:[[t],[t],[t],[t]],y:[[g.rAct],[_capPred(g.thy[k],g.rAct)],[_capPred(g.thy2?g.thy2[k]:null,g.rAct)],[_capPred(g.thy3?g.thy3[k]:null,g.rAct)]]},[0,1,2,3]);}}   // cap multi-freeze theory ‖r‖ at 20× actual
   if(D.g_pred4m){const g=D.g_pred4m,ka=g.kAct,mids=['p_pd4m_1','p_pd4m_2','p_pd4m_3'];   // ★ prediction-4 multi-freeze: frozen-r (3k) / evolving-r (3k+1) / actual (3k+2)
     for(let m=0;m<3;m++){const kp=g.kPred[m],ke=g.kPredE?g.kPredE[m]:null;if(!kp)continue;const xs=[],ys=[],ti=[];for(let k=0;k<3&&k<ka.length;k++){xs.push([t]);ys.push([_capPred(kp[k],ka[k])]);ti.push(3*k);xs.push([t]);ys.push([_capPred(ke?ke[k]:null,ka[k])]);ti.push(3*k+1);xs.push([t]);ys.push([ka[k]]);ti.push(3*k+2);}if(ti.length)extP(mids[m],{x:xs,y:ys},ti);}}   // cap multi-freeze predicted eigvals at 20× actual
-  if(D.g_pred6){const g=D.g_pred6;   // ★ prediction-6: scree plot — x=eigenvalue rank (1..50), y=eigenvalue value; GD vs each optimizer, redrawn each iteration (evolves over training)
-    const drawS=(id,other,nm,col)=>{const gd=g.gd||[],ot=g[other]||[];if(!document.getElementById(id)||!gd.length||!ot.length)return;
-      const xg=gd.map((_,i)=>i+1),xo=ot.map((_,i)=>i+1);   // rank 1..K (1 = largest eigenvalue)
-      Plotly.react(id,[{x:xg,y:gd,mode:'lines+markers',name:'GD',line:{color:'#2563eb',width:1.6},marker:{size:3,color:'#2563eb'}},
-        {x:xo,y:ot,mode:'lines+markers',name:nm,line:{color:col,width:1.6},marker:{size:3,color:col}}],p6lay(nm),{displayModeBar:false});};
-    drawS('p_p6_sign','sign','Signed','#dc2626'); drawS('p_p6_muon','spectral','Muon','#16a34a'); drawS('p_p6_gn','gaussnewton','Gauss-Newton','#7c3aed');
+  if(D.g_pred6){const g=D.g_pred6;   // ★ prediction-6: scree plot — x=eigenvalue rank (1..50), y=eigenvalue value; GD vs each optimizer, stored per step so the ⏱ slider can rewind it
+    p6Push(g,t);   // store this step's scree + redraw the 3 scree plots (latest when live, else stay at the scrubbed step)
     const OKS=['gd','sign','spectral','gaussnewton'];   // loss + sharpness evolution: one curve per optimizer (null ⇒ gap where a trajectory diverged)
     if(g.loss)extP('p_p6_loss',{x:OKS.map(()=>[t]),y:OKS.map(k=>[g.loss[k]])},[0,1,2,3]);
     if(g.sharp)extP('p_p6_sharp',{x:OKS.map(()=>[t]),y:OKS.map(k=>[g.sharp[k]])},[0,1,2,3]);}
@@ -4642,7 +4655,7 @@ function resetSim(){
   s12Reset();   // §12: clear the eigvec-similarity grids/cuboids + snapshots/slider too
   s13Reset();   // §13: clear the approximation-comparison time-series too
   s14Reset();   // §14: clear the triplet-decomposition cubes + snapshots/slider too
-  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s21Reset();S22CH.reset();S23CH.reset();s16Reset();s17Reset();   // §15+§16+§19+§20: clear the time-series too
+  s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s21Reset();p6Reset();S22CH.reset();S23CH.reset();s16Reset();s17Reset();   // §15+§16+§19+§20: clear the time-series too
   updateButtons();
 }
 
@@ -5375,6 +5388,8 @@ syncInitScaleEnabled();   // grey out init_scale on load if the current scheme i
 {const sl=document.getElementById('s13_slider');if(sl)sl.addEventListener('input',function(){s12RenderIdx(+this.value);});}   // §13 scrub (shares §12 snapshots; s12RenderNow re-syncs both sliders)
 {const sl=document.getElementById('s14_slider');if(sl)sl.addEventListener('input',function(){s14RenderNow(+this.value);});}   // §14 scrub past snapshots (own S14_SNAPS)
 {const sl=document.getElementById('s20_slider');if(sl)sl.addEventListener('input',function(){s20RenderIdx(+this.value);});}   // §20 scrub past M_r-histogram snapshots (own S20_SNAPS)
+{const sl=document.getElementById('p6_slider');if(sl)sl.addEventListener('input',function(){p6RenderIdx(+this.value);});}   // ★ Prediction-6 scrub past scree snapshots (own P6_SNAPS)
+{const lv=document.getElementById('p6_live');if(lv)lv.addEventListener('click',function(){if(!P6_SNAPS.length)return;const sl=document.getElementById('p6_slider');if(sl)sl.value=sl.max;p6RenderIdx(P6_SNAPS.length-1);});}   // ★ Prediction-6 jump back to latest
 {const sl=document.getElementById('s21_slider');if(sl)sl.addEventListener('input',function(){s21RenderIdx(+this.value);});}   // §21 scrub past residual↔spectrum snapshots (own S21_SNAPS)
 {const sl=document.getElementById('s22_slider');if(sl)sl.addEventListener('input',function(){S22CH.renderIdx(+this.value);});}   // §22 surrogate scrub
 {const sl=document.getElementById('s23_slider');if(sl)sl.addEventListener('input',function(){S23CH.renderIdx(+this.value);});}   // §23 surrogate scrub
