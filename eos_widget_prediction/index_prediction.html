@@ -369,9 +369,8 @@
   <label title="Gauss-Newton trajectory learning rate (≈1 is the natural GN rate)">GN&nbsp;<input id="lr_gn" value="1.0" style="width:56px"></label>
 </div>
 <p class="cap">Four INDEPENDENT trajectories — <b style="color:#2563eb">GD</b>, <b style="color:#dc2626">Signed-GD</b>, <b style="color:#16a34a">Spectral (Muon)</b>, <b style="color:#7c3aed">Gauss-Newton</b> — run from the SAME initialization $\theta_0$, each with its own learning rate above (NO momentum, NO weight decay). Every iteration we take the <b>top-50 eigenvalues of the Gauss-Newton matrix</b> $J^\top J$ (= the nonzero NTK $JJ^\top$ spectrum) along each trajectory and plot them as a <b>scree curve</b> — <b>x-axis = eigenvalue rank</b> (1 = largest … 50th), <b>y-axis = eigenvalue value</b> (log). Each panel overlays <b>GD</b> vs one adaptive optimizer, and the curves <b>evolve over training</b> (redrawn every iteration). Enable via the ★ Prediction-6 toggle (off by default). Needs $N\!\cdot\!\text{out\_dim}\ge 50$ for a full top-50; otherwise it uses all $N\!\cdot\!\text{out\_dim}$ eigenvalues.</p>
-<div class="plotrow row3"><div id="p_p6_sign" class="plot" style="height:340px"></div><div id="p_p6_muon" class="plot" style="height:340px"></div><div id="p_p6_gn" class="plot" style="height:340px"></div></div>
-<p class="cap" style="margin:12px 0 1px">Below: the <b>loss</b> and <b>sharpness</b> $\lambda_{\max}(\nabla^2 L)$ evolution of all four trajectories over training (one curve per optimizer). Both log-scaled.</p>
-<div class="plotrow row2"><div id="p_p6_loss" class="plot" style="height:320px"></div><div id="p_p6_sharp" class="plot" style="height:320px"></div></div>
+<p class="cap" style="margin:8px 0 1px">Plots 4–5: the <b>loss</b> and <b>sharpness</b> $\lambda_{\max}(\nabla^2 L)$ evolution of all four trajectories over training (one curve per optimizer, log-scaled).</p>
+<div class="plotrow row5"><div id="p_p6_sign" class="plot" style="height:320px"></div><div id="p_p6_muon" class="plot" style="height:320px"></div><div id="p_p6_gn" class="plot" style="height:320px"></div><div id="p_p6_loss" class="plot" style="height:320px"></div><div id="p_p6_sharp" class="plot" style="height:320px"></div></div>
 </div>
 
 <div id="sec_1">
@@ -5805,7 +5804,7 @@ function makeCompareSection(pre, kind) {
 }
 
 function reorderPredictionLayout(){   // base panels §1-6 on top, then Prediction-1&2 → 3 → 4 → 5(trace) → σ₁ demo
-  const order=['sec_1','sec_2','sec_3','sec_slqH','sec_4','sec_s21','sec_s27','sec_sweep','sec_pred6','sec_pred3_box','sec_pred4_box','sec_trace','sec_pred'];
+  const order=['sec_1','sec_2','sec_3','sec_slqH','sec_4','sec_s21','sec_s27','sec_sweep','sec_pred3_box','sec_pred4_box','sec_trace','sec_pred','sec_pred6'];
   const anchor=document.getElementById('sec_pred'); if(!anchor)return; const parent=anchor.parentNode; if(!parent)return;
   for(const id of order){const e=document.getElementById(id); if(e&&e.parentNode===parent)parent.insertBefore(e,anchor);}   // insert each before sec_pred (σ₁ ends last)
   // ★ STRICT SEPARATION from the original widget: force-hide EVERY section that is not part of the prediction widget.
