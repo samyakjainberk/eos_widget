@@ -4048,12 +4048,22 @@ def run_stream(P):
                 if p6 is None:
                     p6 = {k: th.detach().clone() for k in ("gd", "sign", "spectral", "gaussnewton")}   # seed all 4 at the current θ (run init)
                 _K6 = min(50, M)
-                spec6 = {}
+                _mV6 = min(mV, 20)                                                 # bounded Lanczos for the per-trajectory sharpness (4 trajectories × per-step)
+                _fin = lambda x: x if (x == x and -1e30 < x < 1e30) else None      # finite-or-None (JSON can't hold inf/nan)
+                spec6 = {}; loss6 = {}; sharp6 = {}
                 for okey in ("gd", "sign", "spectral", "gaussnewton"):
                     thx = p6[okey]; olr = lr6[okey]
                     Jx, _ox = jac_cols(thx, X); Jx = Jx[:M]
                     lam6 = _safe_eigvalsh(Jx @ Jx.t())                                 # JJᵀ (NTK) eigenvalues at THIS tick's θ, ascending; = nonzero Gauss-Newton spectrum
                     spec6[okey] = [max(0.0, float(lam6[-1 - i])) for i in range(_K6)]  # top-50 (or M) eigenvalues, DESCENDING (rank 1 = largest) — a scree curve per optimizer
+                    if torch.isfinite(thx).all():                                      # loss + sharpness λmax(∇²L) at THIS tick's θ (None once a trajectory diverges)
+                        loss6[okey] = _fin(float(_TL.loss.value(_TL.model.forward(thx, X), Y, N)))
+                        try:
+                            sharp6[okey] = _fin(max(0.0, float(lanczos_extreme_vals(lambda v: hvpL(thx, X, Y, v), p, 1, _mV6, 0x5EED1)[0][0])))
+                        except Exception:
+                            sharp6[okey] = None
+                    else:
+                        loss6[okey] = None; sharp6[okey] = None
                     for _ in range(max(1, ee)):                                        # advance ee steps per tick ⇒ stay in lockstep with the run's t-axis (eigevery>1 safe)
                         if okey == "gaussnewton":                                      # GN needs the full J and residual r
                             Js, os = jac_cols(thx, X)
@@ -4062,7 +4072,7 @@ def run_stream(P):
                         else:
                             thx = thx - olr * _opt_dir(_TL.model, gradL(thx, X, Y)[0], okey)
                     p6[okey] = thx
-                g_pred6 = {"t": t, **spec6}                                            # {t, gd:[≤50], sign:[≤50], spectral:[≤50], gaussnewton:[≤50]}
+                g_pred6 = {"t": t, **spec6, "loss": loss6, "sharp": sharp6}            # {t, gd/sign/spectral/gaussnewton:[≤50 eig], loss:{opt:..}, sharp:{opt:λmax∇²L}}
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None
