@@ -370,7 +370,13 @@
 </div>
 <p class="cap">Four INDEPENDENT trajectories — <b style="color:#2563eb">GD</b>, <b style="color:#dc2626">Signed-GD</b>, <b style="color:#16a34a">Spectral (Muon)</b>, <b style="color:#7c3aed">Gauss-Newton</b> — run from the SAME initialization $\theta_0$, each with its own learning rate above (NO momentum, NO weight decay). Every iteration we take the <b>top-50 eigenvalues of the Gauss-Newton matrix</b> $J^\top J$ (= the nonzero NTK $JJ^\top$ spectrum) along each trajectory and plot them as a <b>scree curve</b> — <b>x-axis = eigenvalue rank</b> (1 = largest … 50th), <b>y-axis = eigenvalue value</b> (log). Each panel overlays <b>GD</b> vs one adaptive optimizer, and the curves <b>evolve over training</b> (redrawn every iteration). Enable via the ★ Prediction-6 toggle (off by default). Needs $N\!\cdot\!\text{out\_dim}\ge 50$ for a full top-50; otherwise it uses all $N\!\cdot\!\text{out\_dim}$ eigenvalues.</p>
 <p class="cap" style="margin:8px 0 1px">Plots 4–5: the <b>loss</b> and <b>sharpness</b> $\lambda_{\max}(\nabla^2 L)$ evolution of all four trajectories over training (one curve per optimizer, log-scaled).</p>
-<div class="plotrow row5"><div id="p_p6_sign" class="plot" style="height:320px"></div><div id="p_p6_muon" class="plot" style="height:320px"></div><div id="p_p6_gn" class="plot" style="height:320px"></div><div id="p_p6_loss" class="plot" style="height:320px"></div><div id="p_p6_sharp" class="plot" style="height:320px"></div></div>
+<div style="overflow-x:auto;overflow-y:hidden;padding-bottom:8px"><div style="display:flex;gap:16px;width:max-content">
+  <div id="p_p6_sign" class="plot" style="height:320px;width:380px;flex:0 0 380px"></div>
+  <div id="p_p6_muon" class="plot" style="height:320px;width:380px;flex:0 0 380px"></div>
+  <div id="p_p6_gn" class="plot" style="height:320px;width:380px;flex:0 0 380px"></div>
+  <div id="p_p6_loss" class="plot" style="height:320px;width:380px;flex:0 0 380px"></div>
+  <div id="p_p6_sharp" class="plot" style="height:320px;width:380px;flex:0 0 380px"></div>
+</div></div>
 </div>
 
 <div id="sec_1">
