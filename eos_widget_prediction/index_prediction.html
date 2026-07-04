@@ -364,9 +364,9 @@
 <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:4px 0 8px;font-size:13px;color:#374151">
   <b>learning rates:</b>
   <label title="GD trajectory learning rate">GD&nbsp;<input id="lr_gd" value="0.1" style="width:56px"></label>
-  <label title="Signed-GD trajectory learning rate">Signed&nbsp;<input id="lr_sign" value="0.01" style="width:56px"></label>
+  <label title="Signed-GD trajectory learning rate">Signed&nbsp;<input id="lr_sign" value="0.001" style="width:56px"></label>
   <label title="Spectral (Muon) trajectory learning rate">Muon&nbsp;<input id="lr_muon" value="0.01" style="width:56px"></label>
-  <label title="Gauss-Newton trajectory learning rate (≈1 is the natural GN rate)">GN&nbsp;<input id="lr_gn" value="1.0" style="width:56px"></label>
+  <label title="Gauss-Newton trajectory learning rate">GN&nbsp;<input id="lr_gn" value="0.01" style="width:56px"></label>
 </div>
 <p class="cap">Four INDEPENDENT trajectories — <b style="color:#2563eb">GD</b>, <b style="color:#dc2626">Signed-GD</b>, <b style="color:#16a34a">Spectral (Muon)</b>, <b style="color:#7c3aed">Gauss-Newton</b> — run from the SAME initialization $\theta_0$, each with its own learning rate above (NO momentum, NO weight decay). Every iteration we take the <b>top-50 eigenvalues of the Gauss-Newton matrix</b> $J^\top J$ (= the nonzero NTK $JJ^\top$ spectrum) along each trajectory and plot them as a <b>scree curve</b> — <b>x-axis = eigenvalue rank</b> (1 = largest … 50th), <b>y-axis = eigenvalue value</b> (log). Each panel overlays <b>GD</b> vs one adaptive optimizer, and the curves <b>evolve over training</b> (redrawn every iteration). Enable via the ★ Prediction-6 toggle (off by default). Needs $N\!\cdot\!\text{out\_dim}\ge 50$ for a full top-50; otherwise it uses all $N\!\cdot\!\text{out\_dim}$ eigenvalues.</p>
 <p class="cap" style="margin:8px 0 1px">Plots 4–5: the <b>loss</b> and <b>sharpness</b> $\lambda_{\max}(\nabla^2 L)$ evolution of all four trajectories over training (one curve per optimizer, log-scaled).</p>
@@ -5803,10 +5803,11 @@ function makeCompareSection(pre, kind) {
   document.getElementById(pre + '_status').textContent = 'press Run to start this ' + kind + ' comparison (needs the GPU backend — python server.py).';
 }
 
-function reorderPredictionLayout(){   // base panels §1-6 on top, then Prediction-1&2 → 3 → 4 → 5(trace) → σ₁ demo
+function reorderPredictionLayout(){   // base panels §1-6 on top, then Prediction-1&2 → 3 → 4 → 5.1(trace) → 5.2(σ₁) → 6
   const order=['sec_1','sec_2','sec_3','sec_slqH','sec_4','sec_s21','sec_s27','sec_sweep','sec_pred3_box','sec_pred4_box','sec_trace','sec_pred','sec_pred6'];
   const anchor=document.getElementById('sec_pred'); if(!anchor)return; const parent=anchor.parentNode; if(!parent)return;
-  for(const id of order){const e=document.getElementById(id); if(e&&e.parentNode===parent)parent.insertBefore(e,anchor);}   // insert each before sec_pred (σ₁ ends last)
+  for(const id of order){const e=document.getElementById(id); if(e&&e.parentNode===parent)parent.insertBefore(e,anchor);}   // insert each before sec_pred (5.2 is the anchor)
+  {const p6=document.getElementById('sec_pred6'); if(p6&&p6.parentNode===parent)parent.insertBefore(p6, anchor.nextSibling);}   // Prediction-6 goes AFTER 5.2 (sec_pred), so the numbering reads 1&2→3→4→5.1→5.2→6
   // ★ STRICT SEPARATION from the original widget: force-hide EVERY section that is not part of the prediction widget.
   // The other en* toggles/presets stay in the DOM so chk()/forced computations still resolve, but their ORIGINAL-widget
   // sections must never render here. .pred-off is display:none!important, so it beats syncSectionVis's inline style=''.

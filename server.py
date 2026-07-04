@@ -3390,8 +3390,8 @@ def run_stream(P):
     lr = P["lr"]
     opt = P.get("optimizer", "gd")
     s39 = int(P.get("s39", 0))                          # Prediction-6 (Adaptive Optimizers): 4 parallel trajectories, top-50 Gauss-Newton eigenvalues each (scree curve)
-    lr6 = {"gd": float(P.get("lr_gd", 0.1)), "sign": float(P.get("lr_sign", 0.01)),
-           "spectral": float(P.get("lr_muon", 0.01)), "gaussnewton": float(P.get("lr_gn", 1.0))}   # per-optimizer LR for prediction-6
+    lr6 = {"gd": float(P.get("lr_gd", 0.1)), "sign": float(P.get("lr_sign", 0.001)),
+           "spectral": float(P.get("lr_muon", 0.01)), "gaussnewton": float(P.get("lr_gn", 0.01))}   # per-optimizer LR for prediction-6
     p6 = None                                           # lazy-seeded {optimizer: θ} for the 4 prediction-6 trajectories (all from the run's init θ0)
     thr = 2.0 / lr
 
@@ -5339,8 +5339,8 @@ def _parse_params(q):
         "p4rep": fi("p4rep", 100),       # prediction-4: live re-anchor interval (repeat_iter)
         "s38": g("s38", "0") == "1",     # prediction-5: trace-statistic Tr(NTK) prediction (prediction widget)
         "s39": g("s39", "0") == "1",     # prediction-6: adaptive-optimizer top-50 Gauss-Newton eigenvalue scree curves (OFF by default)
-        "lr_gd": ff("lr_gd", 0.1), "lr_sign": ff("lr_sign", 0.01),            # prediction-6 per-optimizer learning rates
-        "lr_muon": ff("lr_muon", 0.01), "lr_gn": ff("lr_gn", 1.0),
+        "lr_gd": ff("lr_gd", 0.1), "lr_sign": ff("lr_sign", 0.001),           # prediction-6 per-optimizer learning rates
+        "lr_muon": ff("lr_muon", 0.01), "lr_gn": ff("lr_gn", 0.01),
         "p5t0": fi("p5t0", 10), "evcubic": max(1, fi("evcubic", 25)),          # prediction-5: START iteration + cubic re-anchor window (quad uses qapprox)
         "stat_init": fi("stat_init", 0),   # prediction 5.1/5.2: iteration after which the theoretical forecasts begin
         "s30t": max(0, fi("s30t", 0)),   # §22: freeze iteration t
