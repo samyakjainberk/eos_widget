@@ -10,9 +10,9 @@ The prediction widget layers three families of theoretical forecasts on top of t
 
   Section 1 & 2 — a SWEEP over (lr, init-std) pairs (`sweep`). Each pair runs a light full-batch GD and
     records where d = ‖J·ṙ‖ − ‖J̇·r‖ (= jrd − jdr, §25's product-rule split) first changes sign — both the
-    ACTUAL sign-change (`tAct`) and one PREDICTED from θ(Tstart) via the §10 cubic Eq-51 self-trajectory with
-    the quadratic model refrozen every K steps (`tPred`). Plus loss curvature (`curv`) and the start-of-training
-    ‖J‖_F trend sign (`jnormSign`).
+    ACTUAL sign-change (`tAct`) and two PREDICTED from θ(Tstart) via the §10 Eq-51 self-trajectory (cubic `tPred`
+    and quadratic `tPredQ`) with the model refrozen every K steps. Plus the loss curvature (`curv`), the
+    `swsumn`-window sums (`sumD`/`sumCurv`/`sumD2`/`sumJgrad`), and the top-3-NTK residual alignment (`alignNTK`).
 
   Prediction-3 (`Pred3Tracker`) — after d first changes sign at t*, freeze J*=J(t*) and compare the ACTUAL
     residual with a frozen-J linear NTK theory r_{k+1}=(I−(η/N)J*J*ᵀ)r_k (`rThy`/`cos`) AND a 2nd-order theory
@@ -86,12 +86,24 @@ def max_abs_curvature(ys):
     return float(best)
 
 
+def curvature_at(ys, t):
+    """Prediction-2 (iteration-t variant): the discrete central 2nd difference L[t+1]−2L[t]+L[t−1] of the loss
+    AT a specific iteration t (its exact sign), NOT the peak. 0.0 if t is outside the finite range [1, len−2].
+    MIRRORS server._curvature_at (copied)."""
+    n = len(ys)
+    if n < 3 or t < 1 or t > n - 2:
+        return 0.0
+    return float(ys[t + 1]) - 2.0 * float(ys[t]) + float(ys[t - 1])
+
+
 # ═══════════════════════════════════════════════════════════════════════ predicted sign-change (§10 cubic)
-def pred_signchange(model, loss, th_start, X, Y, N, outD, p, lr, K, max_steps):
-    """PREDICTED first sign-change of d = ‖J·ṙ‖−‖J̇·r‖ along the §10 cubic Eq-51 self-trajectory from th_start,
+def pred_signchange(model, loss, th_start, X, Y, N, outD, p, lr, K, max_steps, cubic=True):
+    """PREDICTED first sign-change of d = ‖J·ṙ‖−‖J̇·r‖ along the Eq-51 (§10) trajectory from th_start,
     with the quadratic model refrozen every K steps. Returns (t, censored). The residual is the frozen-quad
-    self-residual r_q; jrd/jdr use the cubic-propagated J and r_q with Q frozen at the current anchor. Sign
-    only ⇒ ∇L magnitude is irrelevant. MIRRORS server._pred_signchange exactly (matrix-free via eos_lab)."""
+    self-residual r_q; jrd/jdr use the propagated J and r_q with Q frozen at the current anchor. Sign
+    only ⇒ ∇L magnitude is irrelevant. MIRRORS server._pred_signchange exactly (matrix-free via eos_lab).
+    cubic=True  ⇒ full §10 cubic: J += (η/N)·Qg + ½(η/N)²·T[g,g], Qg carries the 3rd-derivative T corrections.
+    cubic=False ⇒ QUADRATIC approximation (prediction-1 plot 1): T=0 and Q FIXED ⇒ J += (η/N)·Q₀·g only."""
     dev, dt = th_start.device, th_start.dtype
     etaN = lr / max(N, 1)
     M = N * outD
@@ -129,35 +141,43 @@ def pred_signchange(model, loss, th_start, X, Y, N, outD, p, lr, K, max_steps):
             return s, False
         if sg != 0:
             prev = sg
-        g = Jc.t() @ r_q                                  # advance the cubic-self trajectory (Eq-51)
+        g = Jc.t() @ r_q                                  # advance the self trajectory (Eq-51)
         Qg = jac_hvp(model, th0, X, g)[:M]
-        for gk in st["HistG"]:
-            Qg = Qg + etaN * T2m(th0, gk, g)
-        dJ = etaN * Qg + 0.5 * (etaN ** 2) * T2m(th0, g, g)
-        st["HistG"].append(g); st["J"] = Jc + dJ
+        if cubic:
+            for gk in st["HistG"]:
+                Qg = Qg + etaN * T2m(th0, gk, g)
+            dJ = etaN * Qg + 0.5 * (etaN ** 2) * T2m(th0, g, g)   # full cubic (3rd-derivative T corrections)
+            st["HistG"].append(g)
+        else:
+            dJ = etaN * Qg                                # QUADRATIC: T=0, Q fixed ⇒ J += (η/N)·Q₀·g
+        st["J"] = Jc + dJ
         st["Dth"] = dth + etaN * g
     return max_steps, True
 
 
 # ═══════════════════════════════════════════════════════════════════════ Section 1 & 2 — (lr, std) sweep
 def sweep(cfg, npairs=None, K=None, Tstart=None, steps=None, seed=None,
-          lr_range=None, std_range=None, device=None, dtype=None, cifar_dir=None):
+          swsumn=None, swsumn2=None, lr_range=None, std_range=None, device=None, dtype=None, cifar_dir=None):
     """Prediction-widget Sections 1 & 2 — sweep `npairs` random (lr, init-std) pairs (log-uniform in the
     ranges). Per pair a light full-batch GD run tracks d = ‖J·ṙ‖−‖J̇·r‖ = jrd−jdr (§25) + the loss, yielding
     one dict per pair with keys:
       lr, std          — the sampled pair
       tAct, censA      — first step d changes sign (censored at `steps` if none; censA true if censored OR diverged)
-      tPred, censP     — the same sign-change PREDICTED from θ(Tstart) via §10 cubic Eq-51, refrozen every K
-      startDiff        — d at step 0
+      tPred, censP     — the same sign-change PREDICTED from θ(Tstart) via §10 CUBIC Eq-51, refrozen every K
+      tPredQ, censPQ   — the QUADRATIC (T=0, Q fixed) prediction (prediction-1 plot 1)
+      alignNTK         — mean over the first `swsumn` steps of Σ_{k≤3}|⟨r̂, v_k⟩| (residual vs top-3 NTK eigvecs; tick colour)
+      sumD, sumCurv    — prediction-2: Σ d and Σ d²loss/dt² over the first `swsumn` iterations (from 0)
+      sumD2, sumJgrad  — prediction-2b: Σ d and Σ Δ‖J‖_F (= ‖J‖_{swsumn2} − ‖J‖_0, telescoping) over `swsumn2` iters
       curv             — peak signed d²loss/dt² (max-|·| central 2nd difference of loss(t))
-      jnormSign        — +1 if ‖J‖_F is RISING over the first ~20 steps, −1 if falling, 0 if <2 steps (prediction-2b)
+      swsumn, swsumn2  — the two summation windows echoed back
       diverged         — the pair blew up (loss NaN or >1e12) before `steps`
 
     A generator (yields as the pairs are computed, like server.run_sweep's SSE stream). MIRRORS
     server.run_sweep (the trajectory / diagnostics run through eos_lab primitives instead of the globals).
 
     Config knobs (fall back to the cfg attribute / the server default when the arg is None):
-      npairs ← cfg.swpairs (12)      K ← cfg.swK (20)        Tstart ← cfg.swTstart (0)
+      npairs ← cfg.swpairs (100)     K ← cfg.swK (20)        Tstart ← cfg.swTstart (0)
+      swsumn ← cfg.swsumn (20)       swsumn2 ← cfg.swsumn2 (20)
       steps  ← cfg.steps             seed ← cfg.seed
       lr_range ← (cfg.swlrmin, cfg.swlrmax) or auto base_lr/4 … base_lr·4
       std_range ← (cfg.swstdmin, cfg.swstdmax) or auto base_std/4 … base_std·4
@@ -181,9 +201,11 @@ def sweep(cfg, npairs=None, K=None, Tstart=None, steps=None, seed=None,
         raise ValueError(f"sweep too large (M={M}, p={p}); use a small MLP + small nsamp.")
 
     steps = max(5, int(cfg.steps if steps is None else steps))
-    npairs = max(1, min(200, int(getattr(cfg, "swpairs", 12) if npairs is None else npairs)))
+    npairs = max(1, min(200, int(getattr(cfg, "swpairs", 100) if npairs is None else npairs)))
     K = max(1, int(getattr(cfg, "swK", 20) if K is None else K))
     Tstart = max(0, min(steps - 2, int(getattr(cfg, "swTstart", 0) if Tstart is None else Tstart)))
+    swsumn = max(1, int(getattr(cfg, "swsumn", 20) if swsumn is None else swsumn))     # prediction-2 window (Σ d, Σ d²loss/dt²)
+    swsumn2 = max(1, int(getattr(cfg, "swsumn2", 20) if swsumn2 is None else swsumn2))   # prediction-2b window (Σ d, Σ Δ‖J‖)
     seed0 = int(cfg.seed if seed is None else seed)
     base_lr = float(cfg.lr); base_std = float(cfg.init)
 
@@ -208,7 +230,7 @@ def sweep(cfg, npairs=None, K=None, Tstart=None, steps=None, seed=None,
         lr = math.exp(rng.uniform(math.log(lrmin), math.log(lrmax)))
         std = math.exp(rng.uniform(math.log(stdmin), math.log(stdmax)))
         th = model.init_theta(seed0 + 1, std)
-        diffs = []; losses = []; jnorms = []; th_at_T = None; diverged = False
+        diffs = []; losses = []; jnorms = []; th_at_T = None; diverged = False; align_acc = 0.0; align_cnt = 0
         for t in range(steps):
             out = model.forward(th, X)
             lv = float(loss.value(out, Y, N))
@@ -219,6 +241,13 @@ def sweep(cfg, npairs=None, K=None, Tstart=None, steps=None, seed=None,
             jnorms.append(float(Jm.norm()))                # ‖J‖_F per step → start-of-training trend (prediction-2b)
             cS = loss.resid_cotangent(out.reshape(N, outD), Y, N)
             rr = (-N * cS).reshape(-1)[:M]
+            if t < swsumn:                                 # prediction-2/2b tick colour: Σ_{k≤3}|⟨r̂, v_k⟩| (top-3 NTK eigvecs), averaged over the window
+                try:
+                    _Wv, _Vv = torch.linalg.eigh(Jm @ Jm.t())
+                    _rn = rr / max(float(rr.norm()), 1e-30)
+                    align_acc += float(sum(abs(float(_rn @ _Vv[:, -1 - _k])) for _k in range(min(3, M)))); align_cnt += 1
+                except Exception:
+                    pass
             gL = grad_loss(model, loss, th, X, Y)[0]
             jrd = float((Jm.t() @ (Jm @ gL)).norm())
             jdr = float(hvp_S(model, th, X, rr.reshape(N, outD), gL).norm())
@@ -228,22 +257,26 @@ def sweep(cfg, npairs=None, K=None, Tstart=None, steps=None, seed=None,
             th = th - lr * gL
         tAct, censA = first_signchange(diffs, steps)
         if th_at_T is not None:                            # predict only if θ(Tstart) reached before divergence
-            tPredRel, censP = pred_signchange(model, loss, th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart)
+            tPredRel, censP = pred_signchange(model, loss, th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart, cubic=True)
             tPred = tPredRel + Tstart
+            tPredQRel, censPQ = pred_signchange(model, loss, th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart, cubic=False)   # prediction-1 plot 1: quadratic (T=0, Q fixed)
+            tPredQ = tPredQRel + Tstart
         else:
-            tPred, censP = steps, True
-        curv = max_abs_curvature(losses)                   # peak signed d²loss/dt² over the finite prefix
-        Wj = min(len(jnorms), 20)                          # prediction-2b: is ‖J‖ RISING (+1) or FALLING (−1) at the START?
-        if Wj >= 2:
-            hj = max(1, Wj // 2)
-            jnormSign = 1 if (sum(jnorms[Wj - hj:Wj]) / hj) >= (sum(jnorms[:hj]) / hj) else -1
-        else:
-            jnormSign = 0
+            tPred, censP = steps, True; tPredQ, censPQ = steps, True
+        alignNTK = float(align_acc / align_cnt) if align_cnt else 0.0   # residual↔top-3-NTK-eigvec alignment (tick colour for prediction-2/2b)
+        curv = max_abs_curvature(losses)                   # peak signed d²loss/dt² over the finite prefix (legacy)
+        sumD = float(sum(diffs[:swsumn]))                  # prediction-2: Σ d = Σ(jrd−jdr) over the first swsumn iterations (from 0)
+        sumCurv = float(sum(curvature_at(losses, tt) for tt in range(min(swsumn, len(losses)))))   # prediction-2: Σ d²loss/dt² over the first swsumn iterations (from 0)
+        sumD2 = float(sum(diffs[:swsumn2]))                # prediction-2b: Σ d over the first swsumn2 iterations (own window)
+        nj2 = min(swsumn2, len(jnorms) - 1)                # prediction-2b: Σ ∇‖J‖ over the first swsumn2 iters = ‖J‖_{swsumn2} − ‖J‖_0 (telescoping)
+        sumJgrad = float(sum(jnorms[i + 1] - jnorms[i] for i in range(nj2))) if nj2 >= 1 else 0.0
         yield {"i": pi, "lr": float(lr), "std": float(std),
                "tAct": tAct, "censA": censA or diverged, "tPred": tPred, "censP": censP,
-               "startDiff": (diffs[0] if diffs else 0.0),
-               "curv": (curv if curv == curv else 0.0),
-               "jnormSign": jnormSign, "diverged": diverged}
+               "tPredQ": tPredQ, "censPQ": censPQ,                                   # prediction-1 plot 1: quadratic (T=0, Q fixed) predicted t*
+               "alignNTK": (alignNTK if alignNTK == alignNTK else 0.0),             # Σ|⟨r̂,v_k⟩| top-3 NTK — prediction-2/2b tick colour
+               "sumD": (sumD if sumD == sumD else 0.0), "sumCurv": (sumCurv if sumCurv == sumCurv else 0.0),
+               "sumD2": (sumD2 if sumD2 == sumD2 else 0.0), "sumJgrad": (sumJgrad if sumJgrad == sumJgrad else 0.0),
+               "curv": (curv if curv == curv else 0.0), "swsumn": swsumn, "swsumn2": swsumn2, "diverged": diverged}
 
 
 # ═══════════════════════════════════════════════════════════════════════ per-step forecast state machines

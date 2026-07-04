@@ -1,0 +1,184 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue]{hyperref}
+
+\definecolor{codebg}{rgb}{0.97,0.97,0.97}
+\definecolor{codekw}{rgb}{0.10,0.10,0.60}
+\definecolor{codecm}{rgb}{0.30,0.55,0.30}
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  backgroundcolor=\color{codebg},
+  keywordstyle=\color{codekw}\bfseries,
+  commentstyle=\color{codecm}\itshape,
+  language=Python,
+  showstringspaces=false,
+  breaklines=true,
+  frame=single,
+  framesep=4pt,
+  columns=fullflexible,
+}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Sub}[1]{\mathcal{S}_{#1}}
+\newcommand{\inner}[2]{\langle #1,\, #2\rangle}
+
+\title{\S12 Principal Angles between Per-Sample Curvature Subspaces\\
+\large How the min / max / mean principal angles are computed in code}
+\author{eos\_widget --- \texttt{\_sec12\_payload}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{What is being measured}
+
+For each training sample $i$ the per-sample function Hessian
+$Q_i=\nabla^2 f_i(\theta)\in\R^{p\times p}$ (the Hessian of the ground-truth-label
+network output $f_i$ with respect to the $p$ parameters) has an eigendecomposition.
+We summarise each $Q_i$ by a low-dimensional \emph{curvature subspace}: the span of
+its top-$k$ eigenvectors (largest eigenvalues) together with its bottom-$k$
+eigenvectors (most negative eigenvalues). The diagnostic then asks: \emph{how aligned
+are these curvature subspaces across different samples?} The alignment of two
+subspaces is quantified by their \textbf{principal angles}, and Panels~1--3 plot the
+$N\times N$ grid of pairwise angles together with its min, max, and mean over sample
+pairs, as a function of training step.
+
+\section{The code}
+
+The computation is the function \texttt{pa(k)} together with \texttt{offstats},
+reproduced here (ASCII-transliterated; \texttt{TV},\texttt{BV} are the per-sample
+top/bottom eigenvectors of shape $(N,K,p)$):
+
+\begin{lstlisting}
+offm = ~torch.eye(N, dtype=torch.bool, device=dev)   # off-diagonal (i != j) mask
+
+# principal angles (gauge-free: svdvals invariant to eigenvector sign) for k=1,2,5,10,kfull
+def pa(k):
+    kk = max(1, min(k, K))
+    E  = torch.cat([TV[:, :kk, :], BV[:, :kk, :]], dim=1)        # (N, 2kk, p)
+    sv = torch.linalg.svdvals(torch.einsum('iap,jbp->ijab', E, E)).clamp(-1.0, 1.0)
+    return (torch.acos(sv) * (180.0 / pi)).mean(dim=2)           # (N, N) mean angle per pair
+
+def offstats(g):                                     # min/max/mean over off-diagonal pairs (i != j)
+    s = g[offm]
+    return float(s.min()), float(s.max()), float(s.mean())
+\end{lstlisting}
+
+We now translate each line into mathematics.
+
+\section{Step 1: the per-sample subspace}
+
+For a chosen rank $k$ let $kk=\min(k,K)$. Stack sample $i$'s top-$kk$ and bottom-$kk$
+eigenvectors as the rows of
+\begin{equation}
+  E_i^{(k)}=
+  \begin{bmatrix}
+    u_{i,1}^{\top}\\ \vdots\\ u_{i,kk}^{\top}\\
+    u_{i,-1}^{\top}\\ \vdots\\ u_{i,-kk}^{\top}
+  \end{bmatrix}\in\R^{2kk\times p},
+  \qquad
+  \texttt{E = cat([TV[:,:kk], BV[:,:kk]])}.
+\end{equation}
+Each $u$ is a unit vector in parameter space $\R^p$, and within a sample the $2kk$
+eigenvectors are mutually orthonormal (they are Ritz vectors of one
+fully-reorthogonalised Lanczos basis), so $E_i^{(k)}$ has orthonormal rows. It is
+therefore an orthonormal basis for the $2kk$-dimensional subspace
+\begin{equation}
+  \Sub{i}^{(k)}
+  =\operatorname{span}\bigl\{u_{i,1},\dots,u_{i,kk},\,u_{i,-1},\dots,u_{i,-kk}\bigr\}
+  \subseteq\R^{p},
+  \qquad \dim \Sub{i}^{(k)}=2kk .
+\end{equation}
+In the code, $k$ ranges over $\{1,2,5,10,k_{\mathrm{full}}\}$ with
+$k_{\mathrm{full}}=\min(15,K)$.
+
+\section{Step 2: principal angles between two samples}
+
+For a pair $(i,j)$, the einsum \texttt{'iap,jbp->ijab'} forms the cross-Gram matrix
+\begin{equation}
+  M_{ij}=E_i^{(k)}\,\bigl(E_j^{(k)}\bigr)^{\top}\in\R^{2kk\times 2kk},
+  \qquad
+  \bigl(M_{ij}\bigr)_{ab}=\inner{e_{i,a}}{e_{j,b}},
+\end{equation}
+i.e.\ all pairwise inner products between the eigenvectors of sample $i$ and those of
+sample $j$. Let its singular values be
+\begin{equation}
+  \sigma_1\ge\sigma_2\ge\cdots\ge\sigma_{2kk}, \qquad
+  \sigma_\ell=\sigma_\ell(M_{ij})\in[0,1]
+  \qquad(\texttt{svdvals}, \text{ clamped to } [-1,1]).
+\end{equation}
+By the variational (CS / Jordan) characterisation of \textbf{principal angles}
+$0\le\theta_1\le\cdots\le\theta_{2kk}\le \tfrac{\pi}{2}$ between two subspaces with
+orthonormal bases $U,V$, the singular values of $U^{\top}V$ are exactly the cosines of
+those angles:
+\begin{equation}
+  \cos\theta_\ell=\sigma_\ell,
+  \qquad\Longrightarrow\qquad
+  \theta^{(k)}_{ij,\ell}=\arccos(\sigma_\ell)\cdot\frac{180}{\pi}\ \text{(degrees)}.
+\end{equation}
+The clamp to $[-1,1]$ only guards against a singular value numerically exceeding $1$,
+which would make $\arccos$ undefined. Recall the recursive meaning: $\cos\theta_1$ is
+the largest possible correlation $\inner{u}{v}$ over unit vectors $u\in\Sub{i}$,
+$v\in\Sub{j}$; each subsequent angle maximises correlation subject to orthogonality to
+the previous principal directions.
+
+\paragraph{Gauge invariance.} Eigenvectors are only defined up to sign (and up to an
+orthogonal rotation inside any degenerate eigenspace). Replacing $E_i\mapsto O_i E_i$
+for orthogonal $O_i$ leaves the singular values of
+$M_{ij}=E_iE_j^{\top}\mapsto O_iE_iE_j^{\top}O_j^{\top}$ unchanged. Hence
+$\theta^{(k)}_{ij,\ell}$ depends only on the \emph{subspaces}
+$\Sub{i}^{(k)},\Sub{j}^{(k)}$, not on the eigenvector signs or basis choice --- this
+is the ``gauge-free'' comment, and is why we use singular values of the cross-Gram
+rather than raw dot products.
+
+\section{Step 3: two levels of aggregation}
+
+\paragraph{Inner mean ($\texttt{.mean(dim=2)}$).} The $2kk$ angles of a single pair are
+averaged into one scalar, giving the $N\times N$ grid
+\begin{equation}
+  \bar G^{(k)}_{ij}=\frac{1}{2kk}\sum_{\ell=1}^{2kk}\theta^{(k)}_{ij,\ell}
+  \quad\in[0^\circ,90^\circ].
+\end{equation}
+This $\bar G^{(k)}\in\R^{N\times N}$ is the \textbf{Panel-1 heatmap}; by construction
+$\bar G^{(k)}_{ii}=0$ (a subspace makes a zero angle with itself).
+
+\paragraph{Outer min / max / mean ($\texttt{offstats}$).} The mask
+$\texttt{offm}=\{(i,j):i\ne j\}$ removes the trivial diagonal, and the three reported
+statistics are taken over the $N(N-1)$ off-diagonal ordered pairs:
+\begin{align}
+  \theta^{(k)}_{\min}  &= \min_{i\ne j}\ \bar G^{(k)}_{ij}, &
+  \theta^{(k)}_{\max}  &= \max_{i\ne j}\ \bar G^{(k)}_{ij}, &
+  \theta^{(k)}_{\mathrm{mean}} &= \frac{1}{N(N-1)}\sum_{i\ne j}\bar G^{(k)}_{ij}.
+\end{align}
+These are the fields \texttt{mn}, \texttt{mx}, \texttt{me}; Panels~2--3 plot them
+versus the training step (one curve per rank $k$).
+
+\paragraph{Whole-grid mean (\texttt{gm}).} The Panel-1 title uses the mean over
+\emph{all} $N^2$ entries, including the $N$ diagonal zeros, so it is just the
+off-diagonal mean diluted by the diagonal:
+\begin{equation}
+  \texttt{gm}^{(k)}=\frac{1}{N^2}\sum_{i,j}\bar G^{(k)}_{ij}
+  =\frac{N(N-1)}{N^2}\,\theta^{(k)}_{\mathrm{mean}}
+  =\frac{N-1}{N}\,\theta^{(k)}_{\mathrm{mean}}.
+\end{equation}
+
+\section{Interpretation}
+
+All quantities are in degrees: $0^\circ$ means two samples share the same curvature
+subspace, $90^\circ$ means the subspaces are orthogonal.
+\begin{itemize}[nosep]
+  \item $\theta^{(k)}_{\min}$ --- the most-aligned pair of samples (smallest angle):
+        the strongest shared top/bottom curvature directions in the dataset.
+  \item $\theta^{(k)}_{\max}$ --- the most-misaligned pair.
+  \item $\theta^{(k)}_{\mathrm{mean}}$ --- the typical pairwise misalignment across
+        all sample pairs.
+\end{itemize}
+Tracking these versus the training step shows whether the per-sample curvature
+subspaces become more or less aligned as progressive sharpening / edge-of-stability
+proceeds.
+
+\end{document}

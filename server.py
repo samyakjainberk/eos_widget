@@ -1013,26 +1013,78 @@ def _sec17_driver(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ar
         yield rec
 
 
-def _opt_dir(model, g, opt):
-    """Update DIRECTION from the raw gradient g (NO momentum). The actual θ step is θ ← θ − lr·dir.
-      gd       → g                       (plain full-batch gradient descent)
-      sign     → sign(g)                 (signed GD, elementwise)
-      spectral → Muon-style: each weight MATRIX W gets svd(∇W)=UΣVᵀ → step UVᵀ (steepest descent under the
-                 spectral norm); biases / non-matrix params fall back to sign(g).
-    Only the actual trajectory changes — the §9/§10 theory recomputes its own GD Δθ and is untouched."""
+def _matpow_sym(M, power, rel=1e-6):
+    """Mᵖ for a symmetric PSD matrix via eigendecomposition, eigenvalues floored at rel·λmax so a NEGATIVE
+    power of a rank-deficient / singular M is finite (near-null directions are clamped, not blown up)."""
+    lam, V = torch.linalg.eigh(M)
+    lmax = float(lam[-1]) if lam.numel() else 0.0
+    lam = lam.clamp_min(max(rel * lmax, 1e-30))
+    return (V * lam.pow(power)) @ V.t()
+
+
+def _muon_whiten(model, v):
+    """Muon / spectral-GD preconditioner applied to v: per weight MATRIX the block is
+    (GGᵀ)^(−¼) ⊗ (GᵀG)^(−¼) with G = that layer's slice of v — i.e. the two-sided whitening
+    (GGᵀ)^(−¼)·G·(GᵀG)^(−¼), which equals UVᵀ (the polar factor) for full-rank G. Biases / non-matrix
+    params → sign(v). MLP only (reads model.spec); returns sign(v) for models without a spec."""
+    d = torch.sign(v)                            # default for biases / non-matrix params
+    spec = getattr(model, "spec", None)
+    if spec is not None:                         # MLP: layer ℓ weight is a din×dout contiguous block of θ
+        for layer in spec:
+            din, dout, wOff = layer[0], layer[1], layer[3]
+            W = v[wOff:wOff + din * dout].view(din, dout)
+            A = _matpow_sym(W @ W.t(), -0.25)    # (GGᵀ)^(−¼)   din×din
+            B = _matpow_sym(W.t() @ W, -0.25)    # (GᵀG)^(−¼)   dout×dout
+            d[wOff:wOff + din * dout] = (A @ W @ B).reshape(-1)
+    return d
+
+
+def _gn_precond(J, r, k=50, rel=1e-6):
+    """Min-norm Gauss-Newton direction  Jᵀ(JJᵀ)⁻¹r  (drives f→Y). For M≤k a single damped SPD solve
+    (JJᵀ+λI)⁻¹r (full inverse; cheap — no eigendecomposition, no GPU→CPU sync, so it stays fast when called
+    inside the prediction inner-loops). For M>k the top-k eigenpairs of JJᵀ (rank-k truncated pseudo-inverse)."""
+    M = J.shape[0]
+    K = J @ J.t()                                # M×M NTK
+    if M <= k:                                   # full inverse via a damped Cholesky solve (avoids the per-call eigh cost)
+        ridge = rel * K.diagonal().mean() + 1e-30
+        return J.t() @ torch.linalg.solve(K + ridge * torch.eye(M, dtype=K.dtype, device=K.device), r)
+    lam, U = torch.linalg.eigh(K)                # M>k: eigenvalues ascending
+    lam_k = lam[-k:]; U_k = U[:, -k:]            # top-k directions
+    inv = 1.0 / lam_k.clamp_min(max(rel * float(lam_k[-1]), 1e-30))
+    return J.t() @ (U_k @ (inv * (U_k.t() @ r)))  # Jᵀ Σ (1/λ_i)(u_iᵀr) u_i
+
+
+def _opt_dir(model, g, opt, J=None, r=None):
+    """Update DIRECTION d (NO momentum, NO weight decay); the actual θ step is θ ← θ − lr·d.
+      gd          → g = ∇L                       (plain full-batch gradient descent)
+      sign        → sign(g)                      (signed GD, elementwise)
+      spectral    → Muon: per weight matrix (GGᵀ)^(−¼)·G·(GᵀG)^(−¼) (= UVᵀ full-rank); biases → sign(g)
+      gaussnewton → −Jᵀ(JJᵀ)⁻¹r  (min-norm GN; θ←θ+lr·Jᵀ(JJᵀ)⁻¹r drives f→Y; top-50 truncated). Needs J,r.
+    Only the actual trajectory changes here; the preconditioned prediction dynamics use _precond_flow."""
     if opt == "sign":
         return torch.sign(g)
     if opt == "spectral":
-        d = torch.sign(g)                       # default for biases / non-matrix params
-        spec = getattr(model, "spec", None)
-        if spec is not None:                    # MLP: layer ℓ weight is a din×dout contiguous block of θ
-            for layer in spec:
-                din, dout, wOff = layer[0], layer[1], layer[3]
-                G = g[wOff:wOff + din * dout].view(din, dout)
-                U, _, Vh = torch.linalg.svd(G, full_matrices=False)
-                d[wOff:wOff + din * dout] = (U @ Vh).reshape(-1)
-        return d
-    return g                                    # gd (default)
+        return _muon_whiten(model, g)
+    if opt == "gaussnewton":
+        return -_gn_precond(J, r)
+    return g                                     # gd (default)
+
+
+def _precond_flow(model, opt, J, r, N, lr):
+    """(g, scale) for the preconditioned prediction dynamics: one optimizer step moves θ by Δθ = scale·g, so
+    ṙ = −scale·J·g,  J̇ = scale·Q·g (= scale·jac_hvp(θ,X,g)),  the self-trajectory Δθ = scale·g, and the 2nd-order
+    residual curvature = ½·scale²·(gᵀQg). g is a WELL-SCALED direction (O(1)-magnitude ⇒ the finite-difference
+    jac_hvp stays accurate); the per-optimizer step size lives in `scale`. This matches the ACTUAL step
+    θ←θ−lr·_opt_dir(∇L,opt). gd ⇒ (Jᵀr, lr/N) reproduces the original GD dynamics byte-for-byte.
+      gd → (Jᵀr, lr/N)   sign → (sign(Jᵀr), lr)   spectral → (Muon-whiten(Jᵀr), lr)   gaussnewton → (Jᵀ(JJᵀ)⁻¹r, lr)."""
+    Jr = J.t() @ r
+    if opt == "sign":
+        return torch.sign(Jr), lr
+    if opt == "spectral":
+        return _muon_whiten(model, Jr), lr
+    if opt == "gaussnewton":
+        return _gn_precond(J, r), lr
+    return Jr, lr / max(N, 1)                     # gd (default): (Jᵀr, η/N)
 # Each /run is assigned a device (auto least-busy across DEVICE_POOL). RUN_TOKEN is PER-DEVICE, so runs on
 # different GPUs coexist; a newer run on the SAME device bumps that device's token and the older one stops.
 # _DEV_LOAD counts active runs per device for the least-busy pick. All three are guarded by _DEV_LOCK.
@@ -2167,6 +2219,41 @@ def _sec27_vectors(th, X, Y, N, outD, Jc, rr, prev):
     return vecs, {"r": rm.detach().clone(), "J": Jm.detach().clone()}
 
 
+def _sec27_cosnorm(th, X, Y, N, outD, Jc, rr, vecs, opt="gd"):
+    """§7 EXTRA panel (per-step, no sliding window): 4 cosine similarities + 6 norms of these param-space (p,)
+    vectors — mg = ∇θ‖g‖²,  g = Jᵀr,  mJ = ∇θ‖J‖²_F,  jr = J·ṙ = JᵀJ·g,  jd = J̇·r = −M_r·g,  mJd = ∇θ‖J̇‖²_F.
+    g is the GN gradient Jᵀr (NOT the ∇L used for training; for MSE ∇L=−(1/N)Jᵀr so mg∝∇‖Jᵀr‖²). mg/mJ/mJd come
+    from _sec27_vectors. cos = [cos(mg,g),cos(mg,mJ),cos(jr,jd),cos(g,mJd)] ; norm = [‖mg‖,‖g‖,‖mJ‖,‖jr‖,‖jd‖,‖mJd‖].
+    When opt≠'gd' also returns cosP/normP — the SAME quantities with g→gP=P·(Jᵀr) and ṙ→J·gP (the preconditioned
+    view): sign→sign(Jᵀr), spectral→Muon whitening of Jᵀr, gaussnewton→Jᵀ(JJᵀ)⁻¹r."""
+    M = N * outD; Jm = Jc[:M]; rm = rr[:M]
+    rc = rm.reshape(N, outD)
+    gL = (Jm.t() @ rm).detach()                               # g = Jᵀr  (the GN gradient; was ∇L)
+    jr = (Jm.t() @ (Jm @ gL)).detach()                        # J·ṙ = JᵀJ·(Jᵀr)
+    jd = (-hvpS(th, X, gL, rc)).detach()                      # J̇·r = −M_r·(Jᵀr)  (sign from θ̇∝−∇L; matters for cos(jr,jd))
+    mg = vecs["g"]; mJ = vecs["J"]; mJd = vecs["Jd"]
+    def _cos(a, b):
+        na = float(a.norm()); nb = float(b.norm())
+        return (float(a @ b) / (na * nb)) if (na > 1e-30 and nb > 1e-30) else 0.0
+    out = {"cos": [_cos(mg, gL), _cos(mg, mJ), _cos(jr, jd), _cos(gL, mJd)],
+           "norm": [float(mg.norm()), float(gL.norm()), float(mJ.norm()), float(jr.norm()), float(jd.norm()), float(mJd.norm())]}
+    if opt != "gd":                                           # preconditioned view: g → gP = P·(Jᵀr)
+        if opt == "sign":
+            gP = torch.sign(gL)
+        elif opt == "spectral":
+            gP = _muon_whiten(_TL.model, gL)
+        elif opt == "gaussnewton":
+            gP = _gn_precond(Jm, rm)
+        else:
+            gP = gL
+        gP = gP.detach()
+        jrP = (Jm.t() @ (Jm @ gP)).detach()                  # J·ṙ_P = JᵀJ·gP  (ṙ_P = J·gP = J·P·Jᵀr)
+        jdP = (-hvpS(th, X, gP, rc)).detach()                # J̇·r_P = −M_r·gP
+        out["cosP"] = [_cos(mg, gP), _cos(mg, mJ), _cos(jrP, jdP), _cos(gP, mJd)]
+        out["normP"] = [float(mg.norm()), float(gP.norm()), float(mJ.norm()), float(jrP.norm()), float(jdP.norm()), float(mJd.norm())]
+    return out
+
+
 def _quad_surrogate_main(th_freeze, X, Y, N, outD, lr, steps, ee, K, n, mV, nResid,
                          s1, s2, s3, gs, kind, qhvp=None, s15=0, divreg=0.3):
     """§22/§23 REPLACE mode: iterate the closed-loop quadratic-Taylor surrogate from th_freeze and compute the
@@ -2326,7 +2413,7 @@ def cubic_init_state():
             "J": None, "HistG": None, "A51": 0.0, "P51": 0.0, "A51n": 0.0, "P51n": 0.0}
 
 
-def cubic_step(ctx, st, th, X, Y, t, J, out, rr, bEk_vals, shH):
+def cubic_step(ctx, st, th, X, Y, t, J, out, rr, bEk_vals, shH, opt="gd"):
     """§10 CUBIC approximation (paper §6) — Eq-47 (single) / Eq-51 (multi) σ₁ predictions with EXACT J&Q
     propagation. At each window start freeze θ₀, J₀ and the 3rd-derivative tensor T (matrix-free central
     differences of the HVPs); within the window propagate J and Q (Q via the residual·Jacobian history →
@@ -2393,20 +2480,20 @@ def cubic_step(ctx, st, th, X, Y, t, J, out, rr, bEk_vals, shH):
             Jc = st["J"]; Kc, Vc = sym_eig_desc(Jc @ Jc.t())
             u1 = pin_sign(Vc[:, 0]); sg = math.sqrt(max(float(Kc[0]), 1e-30))
             v1 = Jc.t() @ u1; v1 = v1 / max(float(v1.norm()), 1e-30)
-            g = Jc.t() @ rr
+            g, scale = _precond_flow(_TL.model, opt, Jc, rr, N, lr)        # preconditioned GN gradient + step; gd ⇒ (Jᵀrr, η/N) byte-identical
             Qg = jac_hvp(th0, X, g)
             for gk in st["HistG"]:
-                Qg = Qg + etaN * T2m(gk, g)
+                Qg = Qg + scale * T2m(gk, g)
             Tgg = T2m(g, g)
             Qgu = (u1.unsqueeze(1) * Qg).sum(0); Tggu = (u1.unsqueeze(1) * Tgg).sum(0)
-            dJ = etaN * Qg + 0.5 * (etaN ** 2) * Tgg                        # ΔJ = (η/N)Q_t[g] + ½(η/N)²T[g,g]  (true Taylor ½)
+            dJ = scale * Qg + 0.5 * (scale ** 2) * Tgg                     # ΔJ = scale·Q_t[g] + ½·scale²·T[g,g]  (true Taylor ½)
             dJu = dJ.t() @ u1
-            st["A51"] += 2 * etaN * sg * float(v1 @ Qgu) + (etaN ** 2) * sg * float(v1 @ Tggu)   # 2√σ₁ v₁ᵀΔJᵀu₁
+            st["A51"] += 2 * scale * sg * float(v1 @ Qgu) + (scale ** 2) * sg * float(v1 @ Tggu)   # 2√σ₁ v₁ᵀΔJᵀu₁
             st["P51"] += float(dJu @ dJu)
             # "without η²": same cubic trajectory & PSD; drop only the explicit cubic interaction scalar from Δσ₁
-            st["A51n"] += 2 * etaN * sg * float(v1 @ Qgu); st["P51n"] += float(dJu @ dJu)
+            st["A51n"] += 2 * scale * sg * float(v1 @ Qgu); st["P51n"] += float(dJu @ dJu)
             for i, z in enumerate(st["Z"]):
-                st["dQz"][i] = st["dQz"][i] + etaN * T2m(g, z)
+                st["dQz"][i] = st["dQz"][i] + scale * T2m(g, z)
             st["HistG"].append(g); st["J"] = Jc + dJ
     elif (not multi) and st["Jp"] is not None:
         actN = float(J @ J); cap = 10.0 * max(actN, 1e-30)
@@ -2439,7 +2526,7 @@ def cubic_self_init_state():
     return s
 
 
-def cubic_self_step(ctx, st, th, X, Y, t, rr, bEk_vals):
+def cubic_self_step(ctx, st, th, X, Y, t, rr, bEk_vals, opt="gd"):
     """Eq-51 cubic σ₁ prediction (MULTI) driven by the frozen-quadratic SELF-residual r_q instead of the
     live residual: §10's cubic J/Q/T propagation fused with §9d's Δθ self-trajectory. Returns {c51d, c51dp}.
     r_q = Y − (f₀ + J₀·Δθ + ½·Q₀[Δθ]·Δθ);  g = J_t·r_q drives BOTH the cubic ΔJ and Δθ += (η/N)g.
@@ -2486,18 +2573,18 @@ def cubic_self_step(ctx, st, th, X, Y, t, rr, bEk_vals):
         Jc = st["J"]; Kc, Vc = sym_eig_desc(Jc @ Jc.t())
         u1 = pin_sign(Vc[:, 0]); sg = math.sqrt(max(float(Kc[0]), 1e-30))
         v1 = Jc.t() @ u1; v1 = v1 / max(float(v1.norm()), 1e-30)
-        g = Jc.t() @ r_q                                           # self-residual gradient (propagated J)
+        g, scale = _precond_flow(_TL.model, opt, Jc, r_q, N, lr)   # (direction, step) recomputed each step; gd ⇒ (Jᵀr_q, η/N)
         Qg = jac_hvp(th0, X, g)
         for gk in st["HistG"]:
-            Qg = Qg + etaN * T2m(gk, g)                            # propagated Q_t[g] via the g-history + T
+            Qg = Qg + scale * T2m(gk, g)                           # propagated Q_t[g] via the g-history + T
         Tgg = T2m(g, g)
         Qgu = (u1.unsqueeze(1) * Qg).sum(0); Tggu = (u1.unsqueeze(1) * Tgg).sum(0)
-        dJ = etaN * Qg + 0.5 * (etaN ** 2) * Tgg                    # ΔJ = (η/N)Q_t[g] + ½(η/N)²T[g,g]
+        dJ = scale * Qg + 0.5 * (scale ** 2) * Tgg                 # ΔJ = scale·Q_t[g] + ½·scale²·T[g,g]
         dJu = dJ.t() @ u1
-        st["A51"] += 2 * etaN * sg * float(v1 @ Qgu) + (etaN ** 2) * sg * float(v1 @ Tggu)
+        st["A51"] += 2 * scale * sg * float(v1 @ Qgu) + (scale ** 2) * sg * float(v1 @ Tggu)
         st["P51"] += float(dJu @ dJu)
         st["HistG"].append(g); st["J"] = Jc + dJ
-        st["Dth"] = dth + etaN * g                                 # advance Δθ (self-GD, Eq-15) ⇒ r_q evolves
+        st["Dth"] = dth + scale * g                                # advance Δθ (self-GD, Eq-15) ⇒ r_q evolves
     return rec
 
 
@@ -3302,6 +3389,10 @@ def run_stream(P):
     nResid = M                       # §1 residual plot: ALL samples' residual evolution (was capped at 12)
     lr = P["lr"]
     opt = P.get("optimizer", "gd")
+    s39 = int(P.get("s39", 0))                          # Prediction-6 (Adaptive Optimizers): 4 parallel trajectories, top-40 Gauss-Newton eigenvalues each
+    lr6 = {"gd": float(P.get("lr_gd", 0.1)), "sign": float(P.get("lr_sign", 0.01)),
+           "spectral": float(P.get("lr_muon", 0.01)), "gaussnewton": float(P.get("lr_gn", 1.0))}   # per-optimizer LR for prediction-6
+    p6 = None                                           # lazy-seeded {optimizer: θ} for the 4 prediction-6 trajectories (all from the run's init θ0)
     thr = 2.0 / lr
 
     if p > PMAX:
@@ -3453,7 +3544,12 @@ def run_stream(P):
             for _ in range(s30t):                                            # advance the REAL model to iteration t (θ_t)
                 if mytok != RUN_TOKEN.get(_devkey, mytok):                   # stay interruptible during a long freeze-advance
                     return
-                thf = thf - lr * _opt_dir(_TL.model, gradL(thf, Xq, Yq)[0], opt)
+                if opt == "gaussnewton":                                     # GN needs the full J and residual r (not just ∇L)
+                    _Jg, _of = jac_cols(thf, Xq); _Mq = Nfull * outD
+                    _rr = (-Nfull * _TL.loss.resid_cotangent(_of.reshape(Nfull, outD), Yq, Nfull)).reshape(-1)
+                    thf = thf - lr * _opt_dir(_TL.model, None, opt, _Jg[:_Mq], _rr[:_Mq])
+                else:
+                    thf = thf - lr * _opt_dir(_TL.model, gradL(thf, Xq, Yq)[0], opt)
             driver = _quad_surrogate_main(thf, Xq, Yq, Nfull, outD, lr, steps, ee, sec20k, n, mV, nResid,
                                           s1, s2, s3, gs, "frozen", s15=s23, divreg=P.get("divreg", 0.3))
             rectype = "g22"
@@ -3656,11 +3752,12 @@ def run_stream(P):
             # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag).
             #      At step t we finalize iteration t−50 (its [t−100,t] window is buffered); the trailing
             #      50 are flushed after the loop. Browser renders g27 only (no local recompute).
-            g27 = None
+            g27 = None; g27x = None
             if s35 and isinstance(_TL.model, MlpModel) and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 if sec27_state is None:
                     sec27_state = _Sec27State()
                 _v27, sec27_prev = _sec27_vectors(th, X, Y, N, outD, Jc, rr, sec27_prev)
+                g27x = {"t": t, **_sec27_cosnorm(th, X, Y, N, outD, Jc, rr, _v27, opt)}   # §7 extra panel: per-step cosines + norms (+ preconditioned cosP/normP when opt≠gd); NOT lagged, emit at t
                 _pts27 = sec27_state.push_step(t, _v27)
                 sec27_last_t = t
                 if _pts27:
@@ -3695,17 +3792,19 @@ def run_stream(P):
                     cos3c = (float(rm3 @ p3_r3) / (na3 * nt3c)) if (na3 > 1e-30 and nt3c > 1e-30) else None   # evolving-J theory direction cosine
                     g_pred3.update({"tstar": p3_tstar, "rAct": na3, "rThy": nt3, "cos": cos3, "rThy2": nt3b, "cos2": cos3b, "rThy3": nt3c, "cos3": cos3c})
                     for _ in range(max(1, ee)):   # advance the linear + 2nd-order theories ONE GD step per actual step
-                        p3_rtheory = p3_rtheory - (lr / N) * (p3_Jstar @ (p3_Jstar.t() @ p3_rtheory))   # 1st order: r=(I−(η/N)J*J*ᵀ)r
-                        g2 = p3_Jstar.t() @ p3_r2                                                        # 2nd order (J*,Q* frozen at t*): g=J*ᵀr₂
-                        quad2 = 0.5 * (lr / N) ** 2 * (jac_hvp(p3_thstar, X, g2)[:M] * g2).sum(dim=1)    # ½(η/N)²·(gᵀQ*_k g)_k  (M-dim)
-                        p3_r2 = p3_r2 - (lr / N) * (p3_Jstar @ (p3_Jstar.t() @ p3_r2)) - quad2    # r=Y−f ⇒ 2nd-order Taylor curvature enters with a MINUS (Δr=−Δf, Δf's ½-order term is +½(η/N)²gᵀQg)
+                        g1p, sc1p = _precond_flow(_TL.model, opt, p3_Jstar, p3_rtheory, N, lr)           # 1st order: ṙ=−scale·J*·(P·J*ᵀr); gd ⇒ (J*ᵀr, η/N)
+                        p3_rtheory = p3_rtheory - sc1p * (p3_Jstar @ g1p)                                # r=(I−scale·J*·P·J*ᵀ)r
+                        g2, sc2 = _precond_flow(_TL.model, opt, p3_Jstar, p3_r2, N, lr)                  # 2nd order (J*,Q* frozen at t*): g2=P·(J*ᵀr₂)
+                        quad2 = 0.5 * (sc2 ** 2) * (jac_hvp(p3_thstar, X, g2)[:M] * g2).sum(dim=1)       # ½·scale²·(g2ᵀQ*_k g2)_k  (M-dim)
+                        p3_r2 = p3_r2 - sc2 * (p3_Jstar @ g2) - quad2    # r=Y−f ⇒ 2nd-order Taylor curvature enters with a MINUS (Δr=−Δf)
                         if torch.isfinite(p3_J3).all() and torch.isfinite(p3_the3).all():   # 3rd theory (J EVOLVING as a STEP function): r3 decays EVERY step via the CONSTANT window-J3; a shadow J3adv advances EVERY step via the TRUE QJr ΔJ3_k=(η/N)Q_k(θ̂3)·(J3advᵀr3)=jac_hvp(θ̂3,X,J3advᵀr3)[k]; every p3k steps the window-J3 JUMPS to the p3k-step-advanced shadow. i.e. J is held FIXED for p3k iters (r3 changing), then updated by RUNNING the QJr recurrence for p3k iters — the true (I+(η/N)Q·(·ᵀr))^p3k, NOT a single coarse ×p3k step.
                             if p3_J3adv is None:
                                 p3_J3adv = p3_J3.detach().clone()                            # shadow J: starts each window at the committed window-J3
-                            p3_J3adv = p3_J3adv + (lr / N) * jac_hvp(p3_the3, X, p3_J3adv.t() @ p3_r3)[:M]   # ★ QJr EVERY step (Q at θ̂3), using r3 at the start of this step (r_t)
-                            g3e = p3_J3.t() @ p3_r3                                          # g = J3ᵀ r3 with the CONSTANT window-J3
-                            p3_r3 = p3_r3 - (lr / N) * (p3_J3 @ g3e)                         # r3 decays via the CONSTANT window-J3: r_{t+1}=(I−(η/N)J3J3ᵀ)r3
-                            p3_the3 = p3_the3 + (lr / N) * g3e                               # θ̂3 self-trajectory (the point at which Q is re-evaluated)
+                            gsh, scsh = _precond_flow(_TL.model, opt, p3_J3adv, p3_r3, N, lr)   # shadow J̇ = scale·Q(θ̂3)·(P·J3advᵀr3)
+                            p3_J3adv = p3_J3adv + scsh * jac_hvp(p3_the3, X, gsh)[:M]        # ★ QJr EVERY step (Q at θ̂3), using r3 at the start of this step (r_t)
+                            g3e, sc3e = _precond_flow(_TL.model, opt, p3_J3, p3_r3, N, lr)   # g = P·(J3ᵀ r3) with the CONSTANT window-J3
+                            p3_r3 = p3_r3 - sc3e * (p3_J3 @ g3e)                             # r3 decays via the CONSTANT window-J3: r_{t+1}=(I−scale·J3·P·J3ᵀ)r3
+                            p3_the3 = p3_the3 + sc3e * g3e                                   # θ̂3 self-trajectory (the point at which Q is re-evaluated)
                             p3_j3sc += 1
                             if p3_j3sc % p3k == 0:                                           # COMMIT: window-J3 jumps to the p3k-step-advanced shadow, then held fixed for the next p3k iters
                                 p3_J3 = p3_J3adv.detach().clone()
@@ -3721,16 +3820,19 @@ def run_stream(P):
                     p3m["buf"] = p3m["buf"][-30:]
                 offs = [-10, 10, 20]; backfill = None
                 def _adv3m(Js, ths, r1, r2, r3, J3, J3adv, sc3):                  # one GD step: 1st & 2nd (frozen J*) + 3rd (evolving-J as a STEP function), Q frozen at ths=θ*
-                    r1n = r1 - (lr / N) * (Js @ (Js.t() @ r1))                    # 1st: r=(I−(η/N)J*J*ᵀ)r   [UNCHANGED — frozen-J]
-                    g2 = Js.t() @ r2
-                    quad2 = 0.5 * (lr / N) ** 2 * (jac_hvp(ths, X, g2)[:M] * g2).sum(dim=1)   # ½(η/N)²·(gᵀQ*_k g)_k
-                    r2n = r2 - (lr / N) * (Js @ (Js.t() @ r2)) - quad2    # 2nd: curvature enters with a MINUS (Δr=−Δf)   [UNCHANGED — frozen-J]
+                    g1m, s1m = _precond_flow(_TL.model, opt, Js, r1, N, lr)       # 1st: ṙ=−scale·J*·(P·J*ᵀr); gd ⇒ (J*ᵀr, η/N)
+                    r1n = r1 - s1m * (Js @ g1m)                                   # r=(I−scale·J*·P·J*ᵀ)r
+                    g2, s2m = _precond_flow(_TL.model, opt, Js, r2, N, lr)        # 2nd order (J*,Q* frozen at t*): g2=P·(J*ᵀr₂)
+                    quad2 = 0.5 * (s2m ** 2) * (jac_hvp(ths, X, g2)[:M] * g2).sum(dim=1)   # ½·scale²·(g2ᵀQ*_k g2)_k
+                    r2n = r2 - s2m * (Js @ g2) - quad2    # 2nd: curvature enters with a MINUS (Δr=−Δf)
                     r3n = r3; J3adv_n = J3adv                                      # 3rd (evolving-J STEP function): r3 decays every step via the CONSTANT window-J3; shadow J3adv advances every step via QJr (Q frozen at ths=θ*); every p3k steps window-J3 jumps to the shadow
                     if torch.isfinite(J3).all():
                         if J3adv_n is None:
                             J3adv_n = J3.detach().clone()
-                        J3adv_n = J3adv_n + (lr / N) * jac_hvp(ths, X, J3adv_n.t() @ r3)[:M]   # ★ QJr EVERY step (Q frozen at ths): the true (I+(η/N)Q·(·ᵀr))^p3k power iteration using r_t
-                        r3n = r3 - (lr / N) * (J3 @ (J3.t() @ r3))                 # r3 decays via the CONSTANT window-J3
+                        gshm, sshm = _precond_flow(_TL.model, opt, J3adv_n, r3, N, lr)   # shadow J̇ = scale·Q(ths)·(P·J3advᵀr3)
+                        J3adv_n = J3adv_n + sshm * jac_hvp(ths, X, gshm)[:M]       # ★ QJr EVERY step (Q frozen at ths), using r_t
+                        g3m, s3m = _precond_flow(_TL.model, opt, J3, r3, N, lr)    # g = P·(J3ᵀ r3) with the CONSTANT window-J3
+                        r3n = r3 - s3m * (J3 @ g3m)                                # r3 decays via the CONSTANT window-J3
                         sc3 += 1
                         if sc3 % p3k == 0:
                             J3 = J3adv_n.detach().clone(); J3adv_n = J3.detach().clone()   # COMMIT window-J3 to the p3k-step shadow, restart the shadow
@@ -3803,17 +3905,20 @@ def run_stream(P):
                         cos5 = []; cos5E = []; cosGN5 = []; cosGN5E = []
                     g_pred4 = {"t0": p4t0, "s": p4s, "kAct": kAct4, "kPred": kPred4, "kPredE": kPredE,
                                "cos5": cos5, "cos5E": cos5E, "cosGN5": cosGN5, "cosGN5E": cosGN5E}   # frozen- & evolving-residual eigvals + NTK & GN eigvec |cos|
+                    sc4 = lr / max(N, 1) if opt == "gd" else lr                  # optimizer step size (gd ⇒ η/N); Pred-4 keeps the M_r·J closure — P enters via the self-trajectory + this step size
                     for _ in range(max(1, ee)):                                  # advance ONE GD step per actual step (ee GD steps between diagnostic ticks)
-                        if torch.isfinite(p4_J).all():
+                        if torch.isfinite(p4_J).all() and float(p4_J.norm()) < 1e8:   # freeze once the predicted NTK clearly diverges (GN's big steps blow it up) ⇒ stays finite so the eigh reporting never stalls
                             MrJ = torch.stack([hvpS(p4_th0, X, p4_J[k], p4_r0) for k in range(M)])   # frozen M_r·J rows (M,p), Q & r frozen at t0
-                            p4_J = p4_J + (lr / max(N, 1)) * MrJ                  # advance frozen-residual predicted J for the NEXT step
-                        if torch.isfinite(p4_Je).all() and torch.isfinite(p4_re).all() and torch.isfinite(p4_the).all():   # EVOLVING-Qr (self-contained; re-anchored to the live run every p4rep). Ĵ is updated EVERY step by the rQJ recurrence Ĵ_{t+1}=Ĵ_t+(η/N)·M_r·Ĵ_t, where rQ=M_r(r̂Q,θ̂Q)=Σ_a r̂Q_a Q_a(θ̂Q) is FIXED for s steps then refreshed. r̂=bounded quadratic self-residual; θ̂=GD-propagated self-trajectory (both evolve every step so the NEXT rQ refresh differs). Prediction-4 DELIBERATELY uses this rQJ approximation of the true dĴ_k=(η/N)Q_k·(Ĵᵀr̂) — the panel shows how well it tracks the ACTUAL NTK (pred-3 uses the exact QJr).
+                            p4_J = p4_J + sc4 * MrJ                               # advance frozen-residual predicted J for the NEXT step
+                        if torch.isfinite(p4_Je).all() and torch.isfinite(p4_re).all() and torch.isfinite(p4_the).all() and float(p4_Je.norm()) < 1e8:   # EVOLVING-Qr (self-contained; re-anchored to the live run every p4rep). Norm cap ⇒ GN divergence can't overflow the eigh. Ĵ is updated EVERY step by the rQJ recurrence Ĵ_{t+1}=Ĵ_t+(η/N)·M_r·Ĵ_t, where rQ=M_r(r̂Q,θ̂Q)=Σ_a r̂Q_a Q_a(θ̂Q) is FIXED for s steps then refreshed. r̂=bounded quadratic self-residual; θ̂=GD-propagated self-trajectory (both evolve every step so the NEXT rQ refresh differs). Prediction-4 DELIBERATELY uses this rQJ approximation of the true dĴ_k=(η/N)Q_k·(Ĵᵀr̂) — the panel shows how well it tracks the ACTUAL NTK (pred-3 uses the exact QJr).
                             Yf = Y.reshape(-1)[:M]
                             if p4_reQ is None or p4_qsc % p4s == 0:                              # refresh the FIXED rQ = M_r(r̂Q, θ̂Q) at each s-step window boundary; hold it constant in between (p4s=1 ⇒ refresh every step)
                                 p4_thQ = p4_the.detach().clone(); p4_reQ = p4_re.detach().clone()
-                            p4_Je = p4_Je + (lr / max(N, 1)) * torch.stack([hvpS(p4_thQ, X, p4_Je[k], p4_reQ.reshape(N, outD)) for k in range(M)])   # ★ Ĵ EVERY step: Ĵ_{t+1}=Ĵ_t+(η/N)·M_r(r̂Q,θ̂Q)·Ĵ_t (rQ fixed for this window ⇒ true (I+(η/N)M_r)^s power iteration, not one coarse ×s jump)
-                            g_e = p4_Je.t() @ p4_re                                             # advance the self-model (θ̂, r̂) every step for the NEXT rQ refresh
-                            p4_the = p4_the + (lr / max(N, 1)) * g_e                             # θ̂ self-trajectory (GD on the quadratic model)
+                            p4_Je = p4_Je + sc4 * torch.stack([hvpS(p4_thQ, X, p4_Je[k], p4_reQ.reshape(N, outD)) for k in range(M)])   # ★ Ĵ EVERY step: Ĵ_{t+1}=Ĵ_t+scale·M_r(r̂Q,θ̂Q)·Ĵ_t (rQ fixed for this window ⇒ true (I+scale·M_r)^s power iteration)
+                            g_e = _precond_flow(_TL.model, opt, p4_Je, p4_re, N, lr)[0]          # preconditioned self-model gradient P·(Ĵᵀr̂); gd ⇒ Ĵᵀr̂
+                            _neg = float(g_e.norm())
+                            if _neg > 1e4: g_e = g_e * (1e4 / _neg)                              # trust-region clamp: GN's Newton step diverges the frozen-quad extrapolation ⇒ bound θ̂/r̂ so the FD kernels never stall on inf/denormal (gd's g_e is tiny near convergence, so this never fires for gd)
+                            p4_the = p4_the + sc4 * g_e                                          # θ̂ self-trajectory (follows the optimizer)
                             dth_e = p4_the - p4_th0
                             HzD_e = jac_hvp(p4_th0, X, dth_e)[:M]                                # Q0·Δθ̂ (M,p)
                             p4_re = Yf - (p4_f0 + p4_J0e @ dth_e + 0.5 * (HzD_e @ dth_e))        # r̂ = Y − (f0 + J0Δθ̂ + ½Δθ̂ᵀQ0Δθ̂) — bounded
@@ -3848,17 +3953,20 @@ def run_stream(P):
                             Wpe = _safe_eigvalsh(fz["Je"] @ fz["Je"].t()); kpmE[fi4] = [max(0.0, float(Wpe[-1 - i])) for i in range(K5m)]
                         except Exception:
                             kpm[fi4] = None; kpmE[fi4] = None
+                        sc4m = lr / max(N, 1) if opt == "gd" else lr             # optimizer step size (gd ⇒ η/N)
                         for _ in range(max(1, ee)):                              # advance the frozen- & evolving-residual Jacobians ee GD steps
-                            if torch.isfinite(fz["J"]).all():
+                            if torch.isfinite(fz["J"]).all() and float(fz["J"].norm()) < 1e8:   # cap ⇒ GN divergence stays finite (no eigh stall)
                                 MrJm = torch.stack([hvpS(fz["th0"], X, fz["J"][k], fz["r0"]) for k in range(M)])
-                                fz["J"] = fz["J"] + (lr / max(N, 1)) * MrJm
-                            if torch.isfinite(fz["Je"]).all() and torch.isfinite(fz["re"]).all() and torch.isfinite(fz["the"]).all():   # evolving-Qr: Ĵ updated EVERY step via Ĵ_{t+1}=Ĵ_t+(η/N)·M_r·Ĵ, where rQ=M_r(r̂Q,θ̂Q) is FIXED for s steps then refreshed; θ̂/r̂ evolve every step
+                                fz["J"] = fz["J"] + sc4m * MrJm
+                            if torch.isfinite(fz["Je"]).all() and torch.isfinite(fz["re"]).all() and torch.isfinite(fz["the"]).all() and float(fz["Je"].norm()) < 1e8:   # evolving-Qr (norm cap ⇒ no eigh stall on GN divergence): Ĵ_{t+1}=Ĵ_t+(η/N)·M_r·Ĵ, rQ=M_r(r̂Q,θ̂Q) FIXED for s steps then refreshed; θ̂/r̂ evolve every step
                                 Yf = Y.reshape(-1)[:M]
                                 if fz["reQ"] is None or fz["qsc"] % p4s == 0:                  # refresh the FIXED rQ = M_r(r̂Q, θ̂Q) at each s-step window boundary (p4s=1 ⇒ refresh every step)
                                     fz["thQ"] = fz["the"].detach().clone(); fz["reQ"] = fz["re"].detach().clone()
-                                fz["Je"] = fz["Je"] + (lr / max(N, 1)) * torch.stack([hvpS(fz["thQ"], X, fz["Je"][k], fz["reQ"].reshape(N, outD)) for k in range(M)])   # ★ Ĵ EVERY step via the FIXED rQJ = M_r(r̂Q,θ̂Q)·Ĵ (true (I+(η/N)M_r)^s power iteration)
-                                g_e = fz["Je"].t() @ fz["re"]                                   # advance the self-model (θ̂, r̂) every step for the NEXT rQ refresh
-                                fz["the"] = fz["the"] + (lr / max(N, 1)) * g_e                   # θ̂ self-trajectory
+                                fz["Je"] = fz["Je"] + sc4m * torch.stack([hvpS(fz["thQ"], X, fz["Je"][k], fz["reQ"].reshape(N, outD)) for k in range(M)])   # ★ Ĵ EVERY step via the FIXED rQJ = M_r(r̂Q,θ̂Q)·Ĵ (true (I+scale·M_r)^s power iteration)
+                                g_e = _precond_flow(_TL.model, opt, fz["Je"], fz["re"], N, lr)[0]   # preconditioned self-model gradient P·(Ĵᵀr̂); gd ⇒ Ĵᵀr̂
+                                _negm = float(g_e.norm())
+                                if _negm > 1e4: g_e = g_e * (1e4 / _negm)                       # trust-region clamp (see pred-4): keep θ̂/r̂ finite under GN so the FD kernels never stall
+                                fz["the"] = fz["the"] + sc4m * g_e
                                 dth_e = fz["the"] - fz["th0"]
                                 HzD_e = jac_hvp(fz["th0"], X, dth_e)[:M]                         # Q0·Δθ̂
                                 fz["re"] = Yf - (fz["f0"] + fz["J0e"] @ dth_e + 0.5 * (HzD_e @ dth_e))   # r̂ = Y − (f0 + J0Δθ̂ + ½Δθ̂ᵀQ0Δθ̂)
@@ -3913,23 +4021,48 @@ def run_stream(P):
                                 r = Yf5 - (f0 + J0 @ dth + 0.5 * (HzD @ dth))       # quadratic-model self-residual (= actual residual at each anchor)
                             else:
                                 r = rr[:M]                                         # live-run residual
-                            g = Jtr.t() @ r
+                            g, scale = _precond_flow(_TL.model, opt, Jtr, r, N, lr)   # (direction, step) recomputed each step; gd ⇒ (Jᵀr, η/N)
                             Qg = jac_hvp(th0, X, g)[:M]
                             if dtr["cubic"]:
                                 for gk in dtr["HistG"]:
-                                    Qg = Qg + etaN5 * _T2m5(th0, gk, g)            # Q_t propagated (Eq-3 history)
-                                dJ = etaN5 * Qg + 0.5 * (etaN5 ** 2) * _T2m5(th0, g, g)   # ΔJ = (η/N)Q_t[g] + ½(η/N)²T[g,g]
+                                    Qg = Qg + scale * _T2m5(th0, gk, g)            # Q_t propagated (Eq-3 history)
+                                dJ = scale * Qg + 0.5 * (scale ** 2) * _T2m5(th0, g, g)   # ΔJ = scale·Q_t[g] + ½·scale²·T[g,g]
                             else:
-                                dJ = etaN5 * Qg                                     # quadratic: T=0, Q frozen ⇒ ΔJ=(η/N)Q0[g]
+                                dJ = scale * Qg                                     # quadratic: T=0, Q frozen ⇒ ΔJ=scale·Q0[g]
                             dtr["trNo"] += 2.0 * float((Jtr * dJ).sum()); dtr["J"] = Jtr + dJ
                             if dtr["cubic"]:
                                 dtr["HistG"].append(g)
                             if dtr["self"]:
-                                dtr["Dth"] = dth + etaN5 * g
+                                dtr["Dth"] = dth + scale * g
                             dtr["sc"] += 1
                     qL5, qS5, cL5, cS5 = tr_out[0], tr_out[1], tr_out[2], tr_out[3]
                 g_trace = {"t0": stat_init, "trGN": trGN, "trHess": trHess,       # actual Tr(JᵀJ)/Tr(∇²L) shown throughout; forecasts are None before stat_init
                            "qLive": qL5, "qSelf": qS5, "cLive": cL5, "cSelf": cS5}
+
+            # Prediction-6 (Adaptive Optimizers): 4 INDEPENDENT trajectories {GD, Signed-GD, Spectral(Muon), Gauss-Newton}
+            # from the SAME init θ0, each stepped with its OWN lr (lr6). Per iteration report the top-40 Gauss-Newton
+            # eigenvalues (of the NTK JJᵀ = nonzero spectrum of the GN Hessian) along each ⇒ the client overlays
+            # GD-vs-{signed,muon,gn} translucent histograms that evolve over training. OFF by default; NO momentum/WD.
+            g_pred6 = None
+            if s39 and _TL.loss.name == "mse" and dataset != "owt" and (N * outD) <= grid3dcap:
+                if p6 is None:
+                    p6 = {k: th.detach().clone() for k in ("gd", "sign", "spectral", "gaussnewton")}   # seed all 4 at the current θ (run init)
+                _K6 = min(40, M)
+                spec6 = {}
+                for okey in ("gd", "sign", "spectral", "gaussnewton"):
+                    thx = p6[okey]; olr = lr6[okey]
+                    Jx, _ox = jac_cols(thx, X); Jx = Jx[:M]
+                    lam6 = _safe_eigvalsh(Jx @ Jx.t())                                 # JJᵀ (NTK) eigenvalues at THIS tick's θ, ascending; = nonzero Gauss-Newton spectrum
+                    spec6[okey] = [max(0.0, float(lam6[-1 - i])) for i in range(_K6)]  # top-40 (or M) magnitudes, descending
+                    for _ in range(max(1, ee)):                                        # advance ee steps per tick ⇒ stay in lockstep with the run's t-axis (eigevery>1 safe)
+                        if okey == "gaussnewton":                                      # GN needs the full J and residual r
+                            Js, os = jac_cols(thx, X)
+                            rx = (-N * _TL.loss.resid_cotangent(os.reshape(N, outD), Y, N)).reshape(-1)[:M]
+                            thx = thx - olr * _opt_dir(_TL.model, None, okey, Js[:M], rx)
+                        else:
+                            thx = thx - olr * _opt_dir(_TL.model, gradL(thx, X, Y)[0], okey)
+                    p6[okey] = thx
+                g_pred6 = {"t": t, **spec6}                                            # {t, gd:[≤40], sign:[≤40], spectral:[≤40], gaussnewton:[≤40]}
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None
@@ -4216,9 +4349,9 @@ def run_stream(P):
                         thDth_s = thDth_s + lr * r_qs * thJp_d
 
             # ---- §10 CUBIC approximation (Eq-47/51 σ₁ predictions, exact J&Q propagation) ----
-            cub = cubic_step(cubCtx, cubSt, th, X, Y, t, J, out, rr, bEk_vals, thAH) if s17 else {}
+            cub = cubic_step(cubCtx, cubSt, th, X, Y, t, J, out, rr, bEk_vals, thAH, opt) if s17 else {}
             if s17:
-                cub.update(cubic_self_step(cubCtx, cubSelfSt, th, X, Y, t, rr, bEk_vals))   # plot 4: c51d/c51dp (self-residual cubic; actuals reuse cActN/cActH)
+                cub.update(cubic_self_step(cubCtx, cubSelfSt, th, X, Y, t, rr, bEk_vals, opt))   # plot 4: c51d/c51dp (self-residual cubic; actuals reuse cActN/cActH)
 
             # ---- §11 3D grids T1=JᵢᵀQⱼJₖ, T2=uⱼuₖT1, T3=rᵢuⱼuₖT1 (multi-sample, small M, SLQ cadence) ----
             g3d = None
@@ -4506,8 +4639,12 @@ def run_stream(P):
                 if len(sec15_hist) > 2:
                     sec15_hist.pop(0)
                 if f64_15:                                # advance the float64 shadow one GD step (same rule/minibatch as the displayed
-                    sec15_th64 = sec15_th64 - lr * _opt_dir(   # float32 trajectory, but in float64 ⇒ next step's D² stays cancellation-free)
-                        _TL.model, gradL(sec15_th64, X15, Y.double())[0], opt)
+                    if opt == "gaussnewton":               # float32 trajectory, but in float64 ⇒ next step's D² stays cancellation-free)
+                        _Jg, _of = jac_cols(sec15_th64, X15); _Mf = N * outD
+                        _rr = (-N * _TL.loss.resid_cotangent(_of.reshape(N, outD), Y.double(), N)).reshape(-1)
+                        sec15_th64 = sec15_th64 - lr * _opt_dir(_TL.model, None, opt, _Jg[:_Mf], _rr[:_Mf])
+                    else:
+                        sec15_th64 = sec15_th64 - lr * _opt_dir(_TL.model, gradL(sec15_th64, X15, Y.double())[0], opt)
 
             if s27 and opt == "gd" and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and Jc is not None and rr is not None:   # §19: A_t = Δ‖gradient‖ (one-step GD prediction) + tr(NTK); B=D²(trNTK) client-side. MSE + GD only: A_t hardcodes the MSE residual update r_{t+1}=(I−η/N·NTK)r (output-Hessian A=I); CE needs A=diag(p)−ppᵀ≠I.
                 sec19 = _sec19_payload(Jc, rr, th, X, lr, N, outD)
@@ -4552,11 +4689,14 @@ def run_stream(P):
                 "g25": g25,                                    # §25: ‖∇L‖ + d/dt(J·r) split + ∇‖J‖²·{Q∇L,G∇L} alignments
                 "g26": g26,                                    # §26: eigenvector-direction drift |cos(v_i(t),v_i(t−k))| for GN/NTK/M_r top-3 (+M_r bottom-3)
                 "g27": g27,                                    # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag)
+                "g27x": g27x,                                  # §7 extra panel: per-step cosine similarities + norms of {∇‖g‖², g, ∇‖J‖², J·ṙ, J̇·r, ∇‖J̇‖²}
+
                 "g_pred3": g_pred3,                            # prediction-3: (jrd−jdr) + post-sign-change linear residual theory ‖r‖/cos (prediction widget)
                 "g_pred3m": g_pred3m,                          # prediction-3 multi-freeze: ‖r‖ actual vs frozen-J theory at t*-10/+10/+20
                 "g_pred4": g_pred4,                            # prediction-4: top-10 NTK eigenvalues — frozen-M_r Jacobian propagation predicted vs actual (prediction widget)
                 "g_pred4m": g_pred4m,                          # prediction-4 multi-freeze: top-5 NTK eigvals predicted (M_r frozen at t0-10/+10/+20) vs actual
                 "g_trace": g_trace,                           # prediction-5: Tr(NTK) predictions (quad/cubic × live/self, ±PSD) vs Tr(∇²L) & Tr(JᵀJ) (prediction widget)
+                "g_pred6": g_pred6,                            # prediction-6: 4 adaptive-optimizer trajectories' top-40 Gauss-Newton eigenvalues (overlapping histograms)
                 "sps": (t - start + 1) / max(time.time() - t0, 1e-9),
             }
 
@@ -4601,7 +4741,12 @@ def run_stream(P):
             eigTick += 1
             done += 1
 
-        th = th - lr * _opt_dir(_TL.model, gradL(th, X, Y)[0], opt)
+        if opt == "gaussnewton":                                   # GN needs the full J and residual r every step (not just ∇L)
+            _Jg, _of = jac_cols(th, X); _M = N * outD
+            _rr = (-N * _TL.loss.resid_cotangent(_of.reshape(N, outD), Y, N)).reshape(-1)
+            th = th - lr * _opt_dir(_TL.model, None, opt, _Jg[:_M], _rr[:_M])
+        else:
+            th = th - lr * _opt_dir(_TL.model, gradL(th, X, Y)[0], opt)
 
     if sec27_state is not None and sec27_state.n_seen > 0:         # §27 end-of-run flush: the trailing 50 iterations (right-clipped windows)
         _f27 = sec27_state.flush()
@@ -5036,7 +5181,7 @@ def run_surrogate_compare(P):
                     lanczos_extreme_vals(lambda v: hvpL(th, X, Y, v), p, 1, mV, 0x5EED1)[0][0])
                 sigSurC = (float(_safe_eigvalsh(Jq @ Jq.t())[-1]) if multi
                            else float(Jq.reshape(-1) @ Jq.reshape(-1)))   # surrogate σ₁ (the §10 reference here)
-                cub = cubic_step(cubCtx, cubSt, th, X, Y, t, J_act, out_act, rA, [sigSurC], shCub)
+                cub = cubic_step(cubCtx, cubSt, th, X, Y, t, J_act, out_act, rA, [sigSurC], shCub, opt)
                 if "cActN" in cub:
                     cub["cActN"] = sigSurC / N      # compare the cubic prediction to the SURROGATE's σ₁ (per-sample)
 
@@ -5068,7 +5213,12 @@ def run_surrogate_compare(P):
         # advance the actual model AND the frozen-window surrogate by one GD step EVERY iteration, so the
         # surrogate stays in lockstep with the actual model regardless of eigevery / qapprox alignment
         # (the surrogate GD is on the frozen-θ₀ MSE Taylor model; Q,J₀ are frozen at the window start).
-        th = th - lr * _opt_dir(_TL.model, gradL(th, X, Y)[0], opt)   # actual trajectory uses the chosen optimizer
+        if opt == "gaussnewton":                                   # GN needs the full J and residual r every step (not just ∇L)
+            _Jg, _of = jac_cols(th, X); _M = N * outD
+            _rr = (-N * _TL.loss.resid_cotangent(_of.reshape(N, outD), Y, N)).reshape(-1)
+            th = th - lr * _opt_dir(_TL.model, None, opt, _Jg[:_M], _rr[:_M])
+        else:
+            th = th - lr * _opt_dir(_TL.model, gradL(th, X, Y)[0], opt)   # actual trajectory uses the chosen optimizer
         if th0 is not None:
             dths = th_sur - th0
             if kind == "quad":
@@ -5130,7 +5280,7 @@ def _parse_params(q):
         "cvar": ff("cvar", 0.0),         # const dataset: variance of Gaussian noise added to the constant target (0 ⇒ exact constant)
         "initscheme": g("initscheme", "default"),
         "surrogate": g("surrogate", "quad"), "mode": g("mode", "run"),
-        "swpairs": fi("swpairs", 12), "swK": fi("swK", 20), "swTstart": fi("swTstart", 0),   # prediction-widget sweep (Sections 1&2)
+        "swpairs": fi("swpairs", 100), "swK": fi("swK", 20), "swTstart": fi("swTstart", 0),   # prediction-widget sweep (Sections 1&2)
         "swlrmin": ff("swlrmin", 0.0), "swlrmax": ff("swlrmax", 0.0),   # 0 ⇒ auto range (base lr ×[1/4,4])
         "swstdmin": ff("swstdmin", 0.0), "swstdmax": ff("swstdmax", 0.0),
         "swsumn": fi("swsumn", 20), "swsumn2": fi("swsumn2", 20),   # prediction-2/2b: sum windows N / N₂ (must be in P so the query values reach run_sweep)
@@ -5178,6 +5328,9 @@ def _parse_params(q):
         "p3rep": fi("p3rep", 100),       # prediction-3: live re-anchor interval (repeat_iter)
         "p4rep": fi("p4rep", 100),       # prediction-4: live re-anchor interval (repeat_iter)
         "s38": g("s38", "0") == "1",     # prediction-5: trace-statistic Tr(NTK) prediction (prediction widget)
+        "s39": g("s39", "0") == "1",     # prediction-6: adaptive-optimizer top-40 Gauss-Newton eigenvalue histograms (OFF by default)
+        "lr_gd": ff("lr_gd", 0.1), "lr_sign": ff("lr_sign", 0.01),            # prediction-6 per-optimizer learning rates
+        "lr_muon": ff("lr_muon", 0.01), "lr_gn": ff("lr_gn", 1.0),
         "p5t0": fi("p5t0", 10), "evcubic": max(1, fi("evcubic", 25)),          # prediction-5: START iteration + cubic re-anchor window (quad uses qapprox)
         "stat_init": fi("stat_init", 0),   # prediction 5.1/5.2: iteration after which the theoretical forecasts begin
         "s30t": max(0, fi("s30t", 0)),   # §22: freeze iteration t
@@ -5249,7 +5402,7 @@ def _curvature_at(ys, t):
     return float(ys[t + 1]) - 2.0 * float(ys[t]) + float(ys[t - 1])
 
 
-def _pred_signchange(th_start, X, Y, N, outD, p, lr, K, max_steps, cubic=True):
+def _pred_signchange(th_start, X, Y, N, outD, p, lr, K, max_steps, cubic=True, opt="gd"):
     """PREDICTED first sign-change of d = ‖J·ṙ‖−‖J̇·r‖ along the Eq-51 (§10) trajectory from th_start,
     with the quadratic model refrozen every K steps. Returns (t, censored). The residual is the frozen-quad
     self-residual r_q (like §9d / cubic_self); jrd/jdr use the propagated J and r_q with Q frozen at the
@@ -5279,25 +5432,24 @@ def _pred_signchange(th_start, X, Y, N, outD, p, lr, K, max_steps, cubic=True):
         th0 = st["th0"]; Jc = st["J"]; dth = st["Dth"]
         HzD = jac_hvp(th0, X, dth)[:M]
         r_q = Yf - (st["f0"] + st["J0"] @ dth + 0.5 * (HzD @ dth))    # frozen-quad self-residual
-        gL = -(1.0 / N) * (Jc.t() @ r_q)                  # predicted ∇L (MSE)
-        jrd = float((Jc.t() @ (Jc @ gL)).norm())          # ‖J·ṙ‖ = ‖JᵀJ∇L‖
-        jdr = float(hvpS(th0, X, gL, r_q.reshape(N, outD)).norm())    # ‖J̇·r‖ = ‖M_r∇L‖ (Q frozen at th0, weighted by r_q)
+        g, scale = _precond_flow(_TL.model, opt, Jc, r_q, N, lr)   # (direction, step) recomputed each step; gd ⇒ (Jᵀr_q, η/N)
+        jrd = float((Jc.t() @ (Jc @ g)).norm())           # ‖J·ṙ‖ ∝ ‖JᵀJ·g‖  (only sign(jrd−jdr) matters for the sign-change)
+        jdr = float(hvpS(th0, X, g, r_q.reshape(N, outD)).norm())    # ‖J̇·r‖ ∝ ‖M_r·g‖ (Q frozen at th0)
         d = jrd - jdr; sg = (1 if d > 0 else (-1 if d < 0 else 0))
         if prev is not None and sg != 0 and sg != prev:
             return s, False
         if sg != 0:
             prev = sg
-        g = Jc.t() @ r_q                                  # advance the self trajectory (Eq-51)
-        Qg = jac_hvp(th0, X, g)[:M]
+        Qg = jac_hvp(th0, X, g)[:M]                        # advance the self trajectory (Eq-51)
         if cubic:
             for gk in st["HistG"]:
-                Qg = Qg + etaN * T2m(th0, gk, g)
-            dJ = etaN * Qg + 0.5 * (etaN ** 2) * T2m(th0, g, g)   # full cubic (3rd-derivative T corrections)
+                Qg = Qg + scale * T2m(th0, gk, g)
+            dJ = scale * Qg + 0.5 * (scale ** 2) * T2m(th0, g, g)   # full cubic (3rd-derivative T corrections)
             st["HistG"].append(g)
         else:
-            dJ = etaN * Qg                                # QUADRATIC: T=0, Q fixed ⇒ J += (η/N)·Q₀·g
+            dJ = scale * Qg                               # QUADRATIC: T=0, Q fixed
         st["J"] = Jc + dJ
-        st["Dth"] = dth + etaN * g
+        st["Dth"] = dth + scale * g
     return max_steps, True
 
 
@@ -5328,12 +5480,12 @@ def run_sweep(P):
         yield {"type": "meta", "error": f"sweep too large (M={M}, p={p}); use a small MLP + small nsamp."}
         return
     steps = max(5, int(P.get("steps", 200)))
-    npairs = max(1, min(200, int(P.get("swpairs", 12))))
+    npairs = max(1, min(200, int(P.get("swpairs", 100))))
     K = max(1, int(P.get("swK", 20)))
     Tstart = max(0, min(steps - 2, int(P.get("swTstart", 0))))
     swsumn = max(1, int(P.get("swsumn", 20)))   # prediction-2: SUM d and d²loss/dt² over the first swsumn iterations (from 0), then take the signs
     swsumn2 = max(1, int(P.get("swsumn2", 20)))   # prediction-2b: SUM d and ∇‖J‖ over the first swsumn2 iterations (from 0), then take the signs (own window; less noisy)
-    seed0 = int(P.get("seed", 0))
+    seed0 = int(P.get("seed", 0)); opt = P.get("optimizer", "gd")   # sweep actual + predicted trajectories follow the chosen optimizer
     base_lr = float(P.get("lr", 0.1)); base_std = float(P.get("init", 0.5))
     _lrmn = float(P.get("swlrmin", 0) or 0); _lrmx = float(P.get("swlrmax", 0) or 0)          # 0 ⇒ auto (base±4×)
     _stmn = float(P.get("swstdmin", 0) or 0); _stmx = float(P.get("swstdmax", 0) or 0)
@@ -5365,18 +5517,25 @@ def run_sweep(P):
                     align_acc += float(sum(abs(float(_rn @ _Vv[:, -1 - _k])) for _k in range(min(3, M)))); align_cnt += 1
                 except Exception:
                     pass
-            gL = gradL(th, X, Y)[0]
-            jrd = float((Jm.t() @ (Jm @ gL)).norm())
-            jdr = float(hvpS(th, X, gL, rr.reshape(N, outD)).norm())
+            if opt == "gd":
+                gL = gradL(th, X, Y)[0]                    # GD: exact ∇L path (byte-identical to the original)
+                jrd = float((Jm.t() @ (Jm @ gL)).norm())
+                jdr = float(hvpS(th, X, gL, rr.reshape(N, outD)).norm())
+                dth_sw = -lr * gL
+            else:
+                g, scale = _precond_flow(_TL.model, opt, Jm, rr, N, lr)   # preconditioned actual trajectory (direction, step)
+                jrd = float((Jm.t() @ (Jm @ g)).norm())
+                jdr = float(hvpS(th, X, g, rr.reshape(N, outD)).norm())
+                dth_sw = scale * g
             diffs.append(jrd - jdr); losses.append(lv)
             if t == Tstart:
                 th_at_T = th.detach().clone()
-            th = th - lr * gL
+            th = th + dth_sw                              # actual trajectory follows the chosen optimizer
         tAct, censA = _first_signchange(diffs, steps)
         if th_at_T is not None:                       # predict only if θ(Tstart) was reached before any divergence
-            tPredRel, censP = _pred_signchange(th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart, cubic=True)
+            tPredRel, censP = _pred_signchange(th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart, cubic=True, opt=opt)
             tPred = tPredRel + Tstart
-            tPredQRel, censPQ = _pred_signchange(th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart, cubic=False)   # prediction-1 plot 1: quadratic prediction (T=0, Q fixed)
+            tPredQRel, censPQ = _pred_signchange(th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart, cubic=False, opt=opt)   # prediction-1 plot 1: quadratic prediction (T=0, Q fixed)
             tPredQ = tPredQRel + Tstart
         else:
             tPred, censP = steps, True; tPredQ, censPQ = steps, True

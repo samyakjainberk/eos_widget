@@ -144,7 +144,7 @@
       <div class="ctl"><label>data sampling</label><select id="fixedx"><option value="1" selected>fixed sample (x=1)</option><option value="0">iid Gaussian</option></select></div>
       <div class="ctl"><label>input std (iid)</label><input id="inputstd" type="number" value="1.0" min="0" step="0.1"></div>
       <div class="ctl"><label>init residual sign</label><select id="ssign"><option value="off" selected>off</option><option value="pos">all positive</option><option value="neg">all negative</option></select></div>
-      <div class="ctl"><label title="Optimizer for the actual run (no momentum). full-batch GD (default) | signed GD: θ←θ−lr·sign(∇L) | spectral (Muon-style): each weight matrix W steps by lr·UVᵀ from svd(∇W)=UΣVᵀ, biases→sign. Only the measured statistics change — the §9/§10 theoretical predictions keep using the GD update.">optimizer</label><select id="optimizer"><option value="gd" selected>full-batch GD</option><option value="sign">signed GD</option><option value="spectral">spectral (Muon)</option></select></div>
+      <div class="ctl"><label title="Optimizer for the actual run (NO momentum, NO weight decay). All apply a preconditioner P to the GN gradient Jᵀr: update = −lr·P·(Jᵀr). GD: P=I. Signed GD: P=diag(|Jᵀr|)⁻¹ ⇒ sign(Jᵀr). Spectral GD (Muon): per weight matrix block (GGᵀ)^(−¼)⊗(GᵀG)^(−¼) ⇒ two-sided whitening (=UVᵀ). Gauss-Newton: P=(JJᵀ)⁻¹ (min-norm, top-50 truncated). The §1–§7 predictions now follow each optimizer (Jᵀr→P·Jᵀr); §7 panel-3 adds the preconditioned view for non-GD.">optimizer</label><select id="optimizer"><option value="gd" selected>GD</option><option value="sign">Signed GD</option><option value="spectral">Spectral GD (Muon)</option><option value="gaussnewton">Gauss-Newton</option></select></div>
       <div class="ctl"><label>in_dim</label><input id="indim" type="number" value="10" min="1" max="40" step="1"></div>
       <div class="ctl"><label>out_dim</label><input id="outdim" type="number" value="1" min="1" max="10" step="1"></div>
       <div class="ctl" title="saddle dataset: teacher singular-value separation σ_j = sep^j (sep<1 ⇒ well-separated modes ⇒ clear staircase)"><label>saddle_sep</label><input id="saddlesep" type="number" value="0.4" min="0.05" max="0.95" step="0.05"></div>
@@ -224,6 +224,7 @@
   <label title="★ Prediction-4 — frozen-M_r Jacobian propagation → top-10 NTK spectrum"><input type="checkbox" id="enP4" checked> ★ Prediction-4</label>
   <label title="★ Prediction-3 — frozen-J linear residual theory after the ‖J·ṙ‖−‖J̇·r‖ sign-change"><input type="checkbox" id="enP3" checked> ★ Prediction-3</label>
   <label title="★ Prediction-1 & 2 — sweep over (lr, init-std): predicted vs actual sign-change + start-d vs loss curvature"><input type="checkbox" id="enPs" checked> ★ Prediction-1&2 (sweep)</label>
+  <label title="Prediction 6 — 4 adaptive optimizers (GD / Signed / Muon / Gauss-Newton) from the SAME init; top-40 Gauss-Newton eigenvalue histograms, evolving over training. OFF by default (no momentum, no weight decay)."><input type="checkbox" id="enP6"> ★ Prediction-6 (Adaptive Opt)</label>
   <span class="tt" style="margin-left:14px">Base panels (feed the forecasts)</span>
   <label><input type="checkbox" id="en1" checked> 1 · loss / sharpness / residual</label>
   <label><input type="checkbox" id="en2" checked> 2 · eig top-n</label>
@@ -345,7 +346,7 @@
 <h2 style="color:#b45309;margin-top:4px">★ Prediction-1 &amp; 2</h2>
 <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:4px 0 8px;font-size:13px;color:#374151">
   <button id="runsweep" class="btn-run" style="background:#b45309">Run sweep</button>
-  <label>pairs&nbsp;<input id="swpairs" value="16" style="width:46px"></label>
+  <label>pairs&nbsp;<input id="swpairs" value="100" style="width:46px"></label>
   <label title="GD steps PER sweep pair. The sweep trains a fresh net per (lr,std) pair up to this many steps to find the sign-change &amp; loss-curvature — kept SEPARATE from (and much smaller than) the main run's steps so the sweep stays fast. Increase if too many pairs are censored (no sign-change within the window).">steps/pair&nbsp;<input id="swsteps" value="500" style="width:52px"></label>
   <label>K (quad refreeze)&nbsp;<input id="swK" value="20" style="width:46px"></label>
   <label>T_start&nbsp;<input id="swTstart" value="0" style="width:46px"></label>
@@ -356,6 +357,19 @@
 </div>
 <p class="cap">Each pair runs a full-batch GD training (config below, with that pair's lr &amp; init-std); four plots. <b>Prediction-1</b> — the iteration $t^{\star}$ at which $d=\lVert J\dot r\rVert-\lVert\dot J r\rVert$ (jrd−jdr) first changes sign, <b>actual (y)</b> vs. <b>predicted (x)</b> from the §10 self-trajectory at $\theta(T_{\rm start})$, model <b>refrozen every K</b> steps; on the dotted $y=x$ line = perfect, <b style="color:#ef4444">red</b> = censored. <b>Plot 1 (quadratic):</b> the prediction uses the <b>quadratic</b> approximation — $T=0$ and $Q$ fixed, so $\hat J\!+\!=\!\tfrac{\eta}{N}Q_0 g$. <b>Plot 2 (cubic):</b> the full cubic Eq-51 (adds the 3rd-derivative $T$ corrections). Comparing the two shows what the cubic term buys. <b>Prediction-2 (plot 3):</b> $\operatorname{sign\text{-}log}\,\Sigma d$ vs. $\operatorname{sign\text{-}log}\,\Sigma\,d^2\mathrm{loss}/dt^2$, both <b>summed over the first $N$ iterations</b> — a diagonal cloud ⇒ strong (rank) correlation between early $d$ and loss concavity/convexity. <b>Prediction-2b (plot 4):</b> $\Sigma d$ vs. $\Sigma\nabla\lVert J\rVert$ over the first $N_2$ iters. In plots 3–4 each tick is <b>coloured by</b> $\sum_{k\le3}\lvert\langle\hat r,v_k\rangle\rvert$ — the residual's alignment with the top-3 NTK eigenvectors (windowed mean); <b>hover</b> shows that value. Points stream in as each pair finishes (it can be slow).</p>
 <div class="plotrow row4"><div id="p_sw0" class="plot" style="height:340px"></div><div id="p_sw1" class="plot" style="height:340px"></div><div id="p_sw2" class="plot" style="height:340px"></div><div id="p_sw3" class="plot" style="height:340px"></div></div>
+</div>
+
+<div id="sec_pred6" style="display:none;border:2px solid #be185d;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#fdf2f8">
+<h2 style="color:#be185d;margin-top:4px">Prediction 6 · Adaptive Optimizers</h2>
+<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:4px 0 8px;font-size:13px;color:#374151">
+  <b>learning rates:</b>
+  <label title="GD trajectory learning rate">GD&nbsp;<input id="lr_gd" value="0.1" style="width:56px"></label>
+  <label title="Signed-GD trajectory learning rate">Signed&nbsp;<input id="lr_sign" value="0.01" style="width:56px"></label>
+  <label title="Spectral (Muon) trajectory learning rate">Muon&nbsp;<input id="lr_muon" value="0.01" style="width:56px"></label>
+  <label title="Gauss-Newton trajectory learning rate (≈1 is the natural GN rate)">GN&nbsp;<input id="lr_gn" value="1.0" style="width:56px"></label>
+</div>
+<p class="cap">Four INDEPENDENT trajectories — <b style="color:#2563eb">GD</b>, <b style="color:#dc2626">Signed-GD</b>, <b style="color:#16a34a">Spectral (Muon)</b>, <b style="color:#7c3aed">Gauss-Newton</b> — run from the SAME initialization $\theta_0$, each with its own learning rate above (NO momentum, NO weight decay). Every iteration we take the <b>top-40 eigenvalues of the Gauss-Newton matrix</b> $J^\top J$ (= the nonzero NTK $JJ^\top$ spectrum) along each trajectory and overlay them as <b>translucent histograms</b>; each panel compares <b>GD</b> against one adaptive optimizer, and the histograms <b>evolve over training</b> (redrawn every iteration). Enable via the ★ Prediction-6 toggle (off by default). Needs $N\!\cdot\!\text{out\_dim}\ge 40$ for a full top-40; otherwise it uses all $N\!\cdot\!\text{out\_dim}$ eigenvalues.</p>
+<div class="plotrow row3"><div id="p_p6_sign" class="plot" style="height:340px"></div><div id="p_p6_muon" class="plot" style="height:340px"></div><div id="p_p6_gn" class="plot" style="height:340px"></div></div>
 </div>
 
 <div id="sec_1">
@@ -609,6 +623,10 @@ Each line “$i\!\cdot\!j$” is $\cos\angle(\text{vector }i,\text{vector }j)\in
 <div class="plotrow row6"><div id="p_s27_f" class="plot" style="height:280px"></div><div id="p_s27_r" class="plot" style="height:280px"></div><div id="p_s27_J" class="plot" style="height:280px"></div><div id="p_s27_g" class="plot" style="height:280px"></div><div id="p_s27_rd" class="plot" style="height:280px"></div><div id="p_s27_Jd" class="plot" style="height:280px"></div></div>
 <p class="cap" style="margin:10px 0 1px;color:#475569"><b>Panel 2 — common subspace</b> (all six metrics' windows stacked → one shared top-3):&nbsp; $\nabla\lVert f\rVert^2$ · $\nabla\lVert r\rVert^2$ · $\nabla\lVert J\rVert_F^2$ · $\nabla\lVert\nabla L\rVert^2$ · $\nabla\lVert\dot r\rVert^2$ · $\nabla\lVert\dot J\rVert_F^2$</p>
 <div class="plotrow row6"><div id="p_s27c_f" class="plot" style="height:280px"></div><div id="p_s27c_r" class="plot" style="height:280px"></div><div id="p_s27c_J" class="plot" style="height:280px"></div><div id="p_s27c_g" class="plot" style="height:280px"></div><div id="p_s27c_rd" class="plot" style="height:280px"></div><div id="p_s27c_Jd" class="plot" style="height:280px"></div></div>
+<p class="cap" style="margin:14px 0 1px;color:#475569"><b>Panel 3 — cosine similarities &amp; norms</b> (per step, vs iteration). Vectors (all in parameter space): $g=J^\top r$ · $\nabla\lVert g\rVert^2$ · $\nabla\lVert J\rVert_F^2$ · $J\!\cdot\!\dot r = J^\top J\,(J^\top r)$ · $\dot J\!\cdot\!r = -M_r(J^\top r)$ · $\nabla\lVert\dot J\rVert_F^2$. <b>Left:</b> cosine of $(\nabla\lVert g\rVert^2,\,g)$, $(\nabla\lVert g\rVert^2,\,\nabla\lVert J\rVert^2)$, $(J\!\cdot\!\dot r,\,\dot J\!\cdot\!r)$, $(g,\,\nabla\lVert\dot J\rVert^2)$. <b>Right:</b> the norm of each of the six vectors (log). Here $g$ is the Gauss-Newton gradient $J^\top r$ (not the training $\nabla L$).</p>
+<div class="plotrow row2"><div id="p_s27x_cos" class="plot" style="height:300px"></div><div id="p_s27x_norm" class="plot" style="height:300px"></div></div>
+<p class="cap" style="margin:14px 0 1px;color:#475569"><b>Panel 3b — preconditioned view</b> (only when optimizer ≠ GD). Same six vectors but $g=P\,J^\top r$ and $\dot r = J\,P\,J^\top r$, where $P$ is the selected optimizer's preconditioner — Signed: $\mathrm{sign}(J^\top r)$; Spectral/Muon: per weight matrix $(GG^\top)^{-\frac14}G(G^\top G)^{-\frac14}$; Gauss-Newton: $J^\top(JJ^\top)^{-1}r$. Stays empty under full-batch GD.</p>
+<div class="plotrow row2"><div id="p_s27x_cosP" class="plot" style="height:300px"></div><div id="p_s27x_normP" class="plot" style="height:300px"></div></div>
 </div>
 
 <div id="sec_s13" style="display:none">
@@ -3226,7 +3244,7 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_s26');if(el){const vis=chk('en34');el.style.display=vis?'':'none';   // §26 eigenvector-direction drift (GN/NTK/M_r)
     if(vis)requestAnimationFrame(()=>{for(const id of ['p_s26_gn1','p_s26_ntk1','p_s26_mr1','p_s26_gn2','p_s26_ntk2','p_s26_mr2','p_s26_gn3','p_s26_ntk3','p_s26_mr3','p_s26_mrb1','p_s26_mrb2','p_s26_mrb3']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
   {const el=document.getElementById('sec_s27');if(el){const vis=chk('en35');el.style.display=vis?'':'none';   // §27 ∇θ-vector 3D subspace projection (sliding window)
-    if(vis)requestAnimationFrame(()=>{for(const id of ['p_s27_f','p_s27_r','p_s27_J','p_s27_g','p_s27_rd','p_s27_Jd','p_s27c_f','p_s27c_r','p_s27c_J','p_s27c_g','p_s27c_rd','p_s27c_Jd']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
+    if(vis)requestAnimationFrame(()=>{for(const id of ['p_s27_f','p_s27_r','p_s27_J','p_s27_g','p_s27_rd','p_s27_Jd','p_s27c_f','p_s27c_r','p_s27c_J','p_s27c_g','p_s27c_rd','p_s27c_Jd','p_s27x_cos','p_s27x_norm','p_s27x_cosP','p_s27x_normP']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
   {const el=document.getElementById('sec_s13');if(el)el.style.display=(chk('en21')&&multi)?'':'none';}   // §13 residual-weighted curvature alignment (own toggle en21; reuses the §12 Lanczos)
   {const el=document.getElementById('sec_s14');if(el){const vis=(chk('en20')&&multi);el.style.display=vis?'':'none';   // §14 Tr(ΔNTK) per-triplet decomposition (s20, multi-only)
     if(vis&&typeof S14_SNAPS!=='undefined'&&S14_SNAPS.length)requestAnimationFrame(()=>s14RenderNow(S14_CURIDX));}}   // redraw canvases now that the divs have size
@@ -3244,10 +3262,16 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_pred4_box');if(el)el.style.display=chk('enP4')?'':'none';}   // toggle the whole Prediction-4 box (both panels)
   {const el=document.getElementById('sec_pred3_box');if(el)el.style.display=chk('enP3')?'':'none';}   // toggle the whole Prediction-3 box (both panels)
   {const el=document.getElementById('sec_sweep');if(el)el.style.display=chk('enPs')?'':'none';}
+  {const el=document.getElementById('sec_pred6');if(el){const vis=chk('enP6');el.style.display=vis?'':'none';
+    if(vis)requestAnimationFrame(()=>{for(const id of ['p_p6_sign','p_p6_muon','p_p6_gn']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
   requestAnimationFrame(()=>{for(const id of ['p_pd1','p_pd2','p_pd3','p_pd4','p_pt1','p_pt2','p_pt3','p_pt4','p_pd5','p_pd6','p_pd7','p_p3_diff','p_p3_rnorm','p_p3_cos','p_sw0','p_sw1','p_sw2','p_sw3']){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});   // re-measure ★ prediction plots when shown
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
   if(typeof SCRUB_FRAC!=='undefined'&&SCRUB_FRAC<1)requestAnimationFrame(()=>applyTimeScrub(SCRUB_FRAC));   // keep a just-shown section's plots at the current rewound position
 }
+// Prediction-6 histogram layout — a VALUE x-axis (eigenvalue magnitude), NOT titled step/iter, so the master time-scrubber leaves it alone.
+function p6lay(nm){return {title:{text:'GD vs '+nm,font:{size:12}},barmode:'overlay',bargap:0.03,showlegend:true,
+  legend:{font:{size:9},orientation:'h',y:-0.16,yanchor:'top'},margin:{l:46,r:8,t:26,b:46},
+  xaxis:{title:{text:'Gauss-Newton eigenvalue',font:{size:10}}},yaxis:{title:{text:'count',font:{size:10}}}};}
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   resetPlotDecim();   // fresh decimation state for this run (bounds plotted points → no progressive hang)
   g3dReset();   // §11: drop snapshots from the previous run
@@ -3336,6 +3360,32 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
    s27P('p_s27c_f','∇‖f‖²  (common)'); s27P('p_s27c_r','∇‖r‖²  (common)'); s27P('p_s27c_J','∇‖J‖²_F  (common)');
    s27P('p_s27c_g','∇‖∇L‖²  (common)'); s27P('p_s27c_rd','∇‖ṙ‖²  (common)'); s27P('p_s27c_Jd','∇‖J̇‖²_F  (common)');
    {const sl=document.getElementById('s27slider');if(sl){sl.max='0';sl.value='0';}const rd=document.getElementById('s27iterval');if(rd)rd.textContent='iter 0';}}   // reset the §6 common highlight slider for the new run
+  // §7 Panel 3 — per-step cosine similarities + norms (time-series ⇒ scrub with the master bar). g27x = {t, cos:[4], norm:[6]}
+  {const L=baseLayout('cosine similarities','cos',false);L.yaxis.range=[-1.05,1.05];L.showlegend=true;L.legend={orientation:'h',font:{size:8},y:-0.16,yanchor:'top'};L.margin=Object.assign({},L.margin,{b:64});
+   newP('p_s27x_cos',[{x:[],y:[],mode:'lines',name:'cos(∇‖g‖², g)',line:{color:'#2563eb',width:1.8}},
+     {x:[],y:[],mode:'lines',name:'cos(∇‖g‖², ∇‖J‖²)',line:{color:'#16a34a',width:1.8}},
+     {x:[],y:[],mode:'lines',name:'cos(J·ṙ, J̇·r)',line:{color:'#dc2626',width:1.8}},
+     {x:[],y:[],mode:'lines',name:'cos(g, ∇‖J̇‖²)',line:{color:'#7c3aed',width:1.8}}],L);}
+  {const L=baseLayout('norms','‖·‖ (log)',true);L.showlegend=true;L.legend={orientation:'h',font:{size:8},y:-0.16,yanchor:'top'};L.margin=Object.assign({},L.margin,{b:64});
+   newP('p_s27x_norm',[{x:[],y:[],mode:'lines',name:'∇‖g‖²',line:{color:'#2563eb',width:1.7}},
+     {x:[],y:[],mode:'lines',name:'g',line:{color:'#0891b2',width:1.7}},
+     {x:[],y:[],mode:'lines',name:'∇‖J‖²',line:{color:'#16a34a',width:1.7}},
+     {x:[],y:[],mode:'lines',name:'J·ṙ',line:{color:'#dc2626',width:1.7}},
+     {x:[],y:[],mode:'lines',name:'J̇·r',line:{color:'#ea580c',width:1.7}},
+     {x:[],y:[],mode:'lines',name:'∇‖J̇‖²',line:{color:'#7c3aed',width:1.7}}],L);}
+  // §7 Panel 3b — preconditioned (g=P·Jᵀr, ṙ=J·P·Jᵀr); populated only when optimizer≠GD. g27x.cosP[4]/normP[6]
+  {const L=baseLayout('cosine similarities (P·Jᵀr)','cos',false);L.yaxis.range=[-1.05,1.05];L.showlegend=true;L.legend={orientation:'h',font:{size:8},y:-0.16,yanchor:'top'};L.margin=Object.assign({},L.margin,{b:64});
+   newP('p_s27x_cosP',[{x:[],y:[],mode:'lines',name:'cos(∇‖g‖², gP)',line:{color:'#2563eb',width:1.8}},
+     {x:[],y:[],mode:'lines',name:'cos(∇‖g‖², ∇‖J‖²)',line:{color:'#16a34a',width:1.8}},
+     {x:[],y:[],mode:'lines',name:'cos(J·ṙP, J̇·rP)',line:{color:'#dc2626',width:1.8}},
+     {x:[],y:[],mode:'lines',name:'cos(gP, ∇‖J̇‖²)',line:{color:'#7c3aed',width:1.8}}],L);}
+  {const L=baseLayout('norms (P·Jᵀr)','‖·‖ (log)',true);L.showlegend=true;L.legend={orientation:'h',font:{size:8},y:-0.16,yanchor:'top'};L.margin=Object.assign({},L.margin,{b:64});
+   newP('p_s27x_normP',[{x:[],y:[],mode:'lines',name:'∇‖g‖²',line:{color:'#2563eb',width:1.7}},
+     {x:[],y:[],mode:'lines',name:'gP=P·Jᵀr',line:{color:'#0891b2',width:1.7}},
+     {x:[],y:[],mode:'lines',name:'∇‖J‖²',line:{color:'#16a34a',width:1.7}},
+     {x:[],y:[],mode:'lines',name:'J·ṙP',line:{color:'#dc2626',width:1.7}},
+     {x:[],y:[],mode:'lines',name:'J̇·rP',line:{color:'#ea580c',width:1.7}},
+     {x:[],y:[],mode:'lines',name:'∇‖J̇‖²',line:{color:'#7c3aed',width:1.7}}],L);}
   // §5 SLQ
   const slqT=c=>[{x:[],y:[],mode:'lines',fill:'tozeroy',line:{color:c,width:1.6},fillcolor:c+'22',name:'density'}];
   newP('p_sH',slqT('#2563eb'),slqLayout('SLQ density — function Hessian H'));
@@ -3455,6 +3505,10 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   const _p3note=[{text:'activates at the ‖J·ṙ‖−‖J̇·r‖<br>sign-change t* (none yet in this run)',xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,align:'center',font:{size:11,color:'#94a3b8'}}];
   {const L=baseLayout('‖r‖ actual vs theory','‖r‖ (log)',false);L.yaxis.type='log';L.annotations=_p3note;newP('p_p3_rnorm',[{x:[],y:[],mode:'lines',name:'‖r‖ actual',line:{color:'#2563eb',width:2}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (1st-order)',line:{color:'#ea580c',width:1.9,dash:'dash'}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (2nd-order)',line:{color:'#059669',width:1.9,dash:'dot'}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (evolving-J)',line:{color:'#db2777',width:1.9,dash:'dashdot'}}],L);}
   {const L=baseLayout('cos(r_act, r_thy)','cos',false);L.yaxis.range=[-1.05,1.05];L.annotations=_p3note;newP('p_p3_cos',[{x:[],y:[],mode:'lines',name:'cos (1st-order)',line:{color:'#7c3aed',width:2}},{x:[],y:[],mode:'lines',name:'cos (2nd-order)',line:{color:'#059669',width:1.9,dash:'dot'}},{x:[],y:[],mode:'lines',name:'cos (evolving-J)',line:{color:'#db2777',width:1.9,dash:'dashdot'}}],L);}
+  // Prediction-6: 3 overlapping translucent histograms (GD vs Signed / Muon / Gauss-Newton); value-axis, redrawn per iteration
+  {const p6mk=(id,nm,col)=>Plotly.newPlot(id,[{x:[],type:'histogram',opacity:0.55,name:'GD',marker:{color:'rgba(37,99,235,0.55)'}},
+      {x:[],type:'histogram',opacity:0.55,name:nm,marker:{color:col}}],p6lay(nm),{displayModeBar:false});
+   p6mk('p_p6_sign','Signed','rgba(220,38,38,0.55)'); p6mk('p_p6_muon','Muon','rgba(22,163,74,0.55)'); p6mk('p_p6_gn','Gauss-Newton','rgba(124,58,237,0.55)');}
   // ★ prediction-4: top-10 NTK eigenvalues — predicted (frozen-M_r Jacobian, lines) vs actual (dots); 2 plots λ1–5 & λ6–10
   {const cols=['#2563eb','#16a34a','#db2777','#ea580c','#7c3aed'];
    const mk3=()=>{const tr=[];for(let k=0;k<3;k++){tr.push({x:[],y:[],mode:'lines',name:'λ'+(k+1)+' pred (frozen r)',line:{color:cols[k],width:1.9}});tr.push({x:[],y:[],mode:'lines',name:'λ'+(k+1)+' pred (evolving Qr)',line:{color:cols[k],width:1.7,dash:'dash'}});tr.push({x:[],y:[],mode:'markers',name:'λ'+(k+1)+' actual',marker:{color:cols[k],size:4.5,symbol:'circle',line:{color:'#111',width:0.4}}});}return tr;};
@@ -3698,6 +3752,11 @@ function pushPoint(t,D,n,kth,nResid){
     E('p_s26_mrb1',g.mrBot&&g.mrBot[0]); E('p_s26_mrb2',g.mrBot&&g.mrBot[1]); E('p_s26_mrb3',g.mrBot&&g.mrBot[2]);   // panel 4 (M_r bottom-3)
   }
   if(OPT.s35&&D.g27){applyG27(D.g27.pts);}   // §27 — accumulate this step's finalized iteration-point(s) into the 12 3D curves
+  if(OPT.s35&&D.g27x){const gx=D.g27x,tt=gx.t,c=gx.cos||[],nm=gx.norm||[],cP=gx.cosP||[],nmP=gx.normP||[];   // §7 Panel 3 — per-step cosines + norms (time-series, scrubs with the master bar)
+    if(c.length>=4)extP('p_s27x_cos',{x:[[tt],[tt],[tt],[tt]],y:[[c[0]],[c[1]],[c[2]],[c[3]]]},[0,1,2,3]);
+    if(nm.length>=6)extP('p_s27x_norm',{x:[[tt],[tt],[tt],[tt],[tt],[tt]],y:[[nm[0]],[nm[1]],[nm[2]],[nm[3]],[nm[4]],[nm[5]]]},[0,1,2,3,4,5]);
+    if(cP.length>=4)extP('p_s27x_cosP',{x:[[tt],[tt],[tt],[tt]],y:[[cP[0]],[cP[1]],[cP[2]],[cP[3]]]},[0,1,2,3]);   // Panel 3b — preconditioned (present only when opt≠gd)
+    if(nmP.length>=6)extP('p_s27x_normP',{x:[[tt],[tt],[tt],[tt],[tt],[tt]],y:[[nmP[0]],[nmP[1]],[nmP[2]],[nmP[3]],[nmP[4]],[nmP[5]]]},[0,1,2,3,4,5]);}
   if(OPT.s4&&D.jt){   // D.jt is null on cross-entropy runs (server disables §4); guard like §7–§12
     extP('p_Jtopn',{x:reps(n,t),y:colsOf(n,D.jtN)},ids(n));     // phase 1: alignment
     extP('p_Jbotn',{x:reps(n,t),y:colsOf(n,D.jbN)},ids(n));
@@ -3822,6 +3881,12 @@ function pushPoint(t,D,n,kth,nResid){
     for(let k=0;k<3;k++){if(g.thy[k]!=null)extP(mids[k],{x:[[t],[t],[t],[t]],y:[[g.rAct],[_capPred(g.thy[k],g.rAct)],[_capPred(g.thy2?g.thy2[k]:null,g.rAct)],[_capPred(g.thy3?g.thy3[k]:null,g.rAct)]]},[0,1,2,3]);}}   // cap multi-freeze theory ‖r‖ at 20× actual
   if(D.g_pred4m){const g=D.g_pred4m,ka=g.kAct,mids=['p_pd4m_1','p_pd4m_2','p_pd4m_3'];   // ★ prediction-4 multi-freeze: frozen-r (3k) / evolving-r (3k+1) / actual (3k+2)
     for(let m=0;m<3;m++){const kp=g.kPred[m],ke=g.kPredE?g.kPredE[m]:null;if(!kp)continue;const xs=[],ys=[],ti=[];for(let k=0;k<3&&k<ka.length;k++){xs.push([t]);ys.push([_capPred(kp[k],ka[k])]);ti.push(3*k);xs.push([t]);ys.push([_capPred(ke?ke[k]:null,ka[k])]);ti.push(3*k+1);xs.push([t]);ys.push([ka[k]]);ti.push(3*k+2);}if(ti.length)extP(mids[m],{x:xs,y:ys},ti);}}   // cap multi-freeze predicted eigvals at 20× actual
+  if(D.g_pred6){const g=D.g_pred6;   // ★ prediction-6: redraw the 3 overlapping histograms with THIS iteration's top-40 GN eigenvalues (evolves over training)
+    const drawH=(id,other,nm,col)=>{const gd=g.gd||[],ot=g[other]||[];if(!document.getElementById(id)||!gd.length||!ot.length)return;
+      const lo=Math.min(Math.min.apply(null,gd),Math.min.apply(null,ot)),hi=Math.max(Math.max.apply(null,gd),Math.max.apply(null,ot)),sz=Math.max((hi-lo)/24,1e-12),xb={start:lo,end:hi+sz,size:sz};
+      Plotly.react(id,[{x:gd,type:'histogram',opacity:0.55,name:'GD',marker:{color:'rgba(37,99,235,0.55)'},xbins:xb},
+        {x:ot,type:'histogram',opacity:0.55,name:nm,marker:{color:col},xbins:xb}],p6lay(nm),{displayModeBar:false});};
+    drawH('p_p6_sign','sign','Signed','rgba(220,38,38,0.55)'); drawH('p_p6_muon','spectral','Muon','rgba(22,163,74,0.55)'); drawH('p_p6_gn','gaussnewton','Gauss-Newton','rgba(124,58,237,0.55)');}
   if(D.g_trace){const g=D.g_trace,sh=g.trHess,gn=g.trGN;   // ★ trace stats: traces [predNo(blue), predWith(green), Tr(∇²L)(red), Tr(JᵀJ)(orange)]
     const pt=(key,id)=>{const a=g[key],pv=(a?a[1]:null),pp=(a?a[0]:null);   // actual Tr(∇²L)/Tr(JᵀJ) shown throughout; forecasts (pv,pp) gated by stat_init (null → gap)
       if(pv!=null||pp!=null||sh!=null||gn!=null)extP(id,{x:[[t],[t],[t],[t]],y:[[pv],[pp],[sh],[gn]]},[0,1,2,3]);};
@@ -4728,7 +4793,8 @@ async function downloadPlots(){
 // QUERY_IDS: plain value controls; SEC_TOGGLE_MAP: query-key ↔ checkbox-id for every section toggle.
 const QUERY_IDS=['depth','width','act','bias','fixedx','inputstd','ssign','optimizer','lr','init','initscheme','nsamp','batch','indim','outdim','tgt',
    'neig','kth','steps','eigevery','slqevery','heavyevery','slqprobes','energyp','seed','gson','qapprox','evcubic','qmode','tset','cubicapprox','grid3dcap','sec12ncap','cubeevery','s24warm','s24iter','s24grid','s24ares','s24k','s28k','s29k','s30t','s31r','s31scale',
-   'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','degree','cvar','divreg','ksparse','angle','norm1','norm2','lab1','lab2','saddlesep','agfratio'];
+   'dataset','arch','loss','chmul','nlayer','nhead','dmodel','seqlen','degree','cvar','divreg','ksparse','angle','norm1','norm2','lab1','lab2','saddlesep','agfratio',
+   'lr_gd','lr_sign','lr_muon','lr_gn'];   // prediction-6 per-optimizer learning rates (restore on capture load so a load→re-save round-trip is lossless)
 const SEC_TOGGLE_MAP=[['s1','en1'],['s2','en2'],['s3','en3'],['s4','en4'],['s5','en5'],['s6','en6'],
    ['s7','en7'],['s8','en8'],['s9','en9'],['s10','en10'],['s11','en11'],['s12','en12'],['s13','en13'],['s14','en14'],['s15','en15'],['s16','en16'],['s17','en17'],['s18','en18'],['s19','en19'],['s20','en20'],['s21','en21'],['s22','en22'],['s23','en23'],['s24','en24'],['s24base','en24base'],['s25','en25'],['s25base','en25base'],['s26','en26'],['s27','en27'],['s28','en28'],['s29','en29'],['s30','en30'],['s31','en31'],['s32','en32'],['s33','en33'],['s34','en34'],['s35','en35']];
 
@@ -4776,6 +4842,8 @@ function currentQueryParams(){   // the exact query-style param dict the backend
   for(const id of QUERY_IDS){const el=document.getElementById(id);if(el)o[id]=val(id);}
   for(const [k,id] of SEC_TOGGLE_MAP)o[k]=chk(id)?'1':'0';
   for(const k of ['s1','s2','s3','s12','s14','s16','s17','s29','s36','s37','s38'])o[k]='1';   // prediction demo: always compute §1/2/3 + §9/§9c/§9d-c/§10 + §21 + prediction-3/4/5 to feed the panels
+  o['s39']=chk('enP6')?'1':'0';   // prediction-6 (adaptive-optimizer GN-eigenvalue histograms) — off by default, on only when its toggle is checked
+  for(const k of ['lr_gd','lr_sign','lr_muon','lr_gn']){const el=document.getElementById(k);if(el&&el.value!=='')o[k]=el.value;}   // prediction-6 per-optimizer learning rates
   o['s5']=chk('enSlq')?'1':'0';   // §4 SLQ densities: compute only when the SLQ toggle is on (feeds sec_slqH)
   // ★ STRICT SEPARATION (compute side, mirrors the .pred-off display separation): the prediction widget
   // computes ONLY its own sections. Force every other original-widget s-flag OFF so a preset that checks a
@@ -4883,7 +4951,7 @@ function _runSweep(forceSame){   // forceSame=true ⇒ ignore the swport box and
   const st=document.getElementById('sweepstatus'); if(st)st.textContent='starting…'; _sweepBtns(true);   // sweep running: block a 2nd Run, allow Stop to abort it
   const q=currentQueryParams(); const ps=new URLSearchParams(); for(const k in q)ps.set(k,q[k]);
   ps.set('mode','sweep');
-  ps.set('swpairs',(document.getElementById('swpairs').value||'16'));
+  ps.set('swpairs',(document.getElementById('swpairs').value||'100'));
   {const e=document.getElementById('swsteps'),v=e&&e.value.trim();if(v&&+v>=5)ps.set('steps',v);}   // sweep uses its OWN (small) steps/pair, NOT the main run's 5000 — keeps the sweep fast
   ps.set('swK',(document.getElementById('swK').value||'20'));
   {const e=document.getElementById('swsumn');if(e)ps.set('swsumn',e.value||'10');}
@@ -4941,7 +5009,7 @@ function gpuHandle(m,st,sp,finish,resuming){
       if(m.g24)ADV_GOT.en32=1;   // §24 lives in the step record → mark it produced so markSkippedAdv only notes a truly-empty §24
       if(m.g25)ADV_GOT.en33=1;   // §25 likewise lives in the step record
       if(m.g26)ADV_GOT.en34=1;   // §26 (eigenvector-direction drift) lives in the step record too
-      if(m.g27)ADV_GOT.en35=1;   // §27 (∇θ-vector 3D subspace projection) lives in the step record too
+      if(m.g27||m.g27x)ADV_GOT.en35=1;   // §27/§7 (∇θ-vector 3D subspace projection + cos/norm panel) live in the step record too — g27x fires every step (g27 lags 50), so it marks §7 produced even on short runs
       pushPoint(m.t,m,META.n,META.kth,META.nResid);lastT=m.t;
       if(m.sps!=null)sp.textContent=`steps/sec: ${m.sps.toFixed(1)}`;
       st.textContent=`running on ${META.device} … step ${m.t}/${m.steps}  ·  p=${m.p}, 2/lr=${META.thr.toFixed(2)}`;
@@ -4974,6 +5042,7 @@ function applyCaptureParams(params){
   if(!params)return;
   for(const id of QUERY_IDS){if(id in params){const el=document.getElementById(id);if(el)el.value=String(params[id]);}}
   for(const [k,id] of SEC_TOGGLE_MAP){const el=document.getElementById(id);if(el&&k in params)el.checked=(String(params[k])==='1');}
+  {const e=document.getElementById('enP6');if(e&&('s39' in params))e.checked=(String(params.s39)==='1');}   // prediction-6 toggle (not in SEC_TOGGLE_MAP) — restore from the s39 flag so a loaded capture re-shows its histograms
   {const e30=document.getElementById('en30'),e31=document.getElementById('en31');if(e30&&e31&&e30.checked&&e31.checked)e31.checked=false;}   // .checked= doesn't fire the en30/en31 mux; enforce it here (frozen-Q wins, matching the server) so a both-set capture doesn't force-show an empty sec_s23
   const pe=document.getElementById('preset');if(pe)pe.value='custom';
   if(typeof syncLossPanels==='function')syncLossPanels();
@@ -5272,7 +5341,7 @@ function drawPreview(){ if(curMode()==='browser' && val('dataset')==='synthetic'
 document.getElementById('loss').addEventListener('change',syncLossPanels);
 document.getElementById('preset').addEventListener('change',e=>{if(e.target.value!=='custom'){applyPreset(e.target.value);syncSectionVis();drawPreview();}});
 ['en1','en2','en3','en4','en5','en6','en7','en8','en9','en10','en11','en12','en13','en14','en15','en16','en17','en18','en19','en20','en21','en22','en23','en24','en25','en26','en27','en28','en29','en30','en31','en32','en33','en34','gson'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>{document.getElementById('preset').value='custom';syncSectionVis();});});
-['enPd','enPt','enP4','enP3','enPs','enSlq','en35'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>syncSectionVis());});   // ★ prediction-panel + §4 SLQ + §27 toggles: show/hide live (no re-run needed)
+['enPd','enPt','enP4','enP3','enPs','enP6','enSlq','en35'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>syncSectionVis());});   // ★ prediction-panel + §4 SLQ + §27 toggles: show/hide live (no re-run needed)
 // §22 (en30) & §23 (en31) are MUTUALLY EXCLUSIVE — selecting one quadratic surrogate deselects the other (the surrogate REPLACES §1–§21, so only one trajectory can drive the plots).
 {const e30=document.getElementById('en30'),e31=document.getElementById('en31');const mux=(a,b)=>{if(a.checked&&b.checked){b.checked=false;syncSectionVis();}};
  if(e30&&e31){e30.addEventListener('change',()=>mux(e30,e31));e31.addEventListener('change',()=>mux(e31,e30));}}
@@ -5725,7 +5794,7 @@ function makeCompareSection(pre, kind) {
 }
 
 function reorderPredictionLayout(){   // base panels §1-6 on top, then Prediction-1&2 → 3 → 4 → 5(trace) → σ₁ demo
-  const order=['sec_1','sec_2','sec_3','sec_slqH','sec_4','sec_s21','sec_s27','sec_sweep','sec_pred3_box','sec_pred4_box','sec_trace','sec_pred'];
+  const order=['sec_1','sec_2','sec_3','sec_slqH','sec_4','sec_s21','sec_s27','sec_sweep','sec_pred6','sec_pred3_box','sec_pred4_box','sec_trace','sec_pred'];
   const anchor=document.getElementById('sec_pred'); if(!anchor)return; const parent=anchor.parentNode; if(!parent)return;
   for(const id of order){const e=document.getElementById(id); if(e&&e.parentNode===parent)parent.insertBefore(e,anchor);}   // insert each before sec_pred (σ₁ ends last)
   // ★ STRICT SEPARATION from the original widget: force-hide EVERY section that is not part of the prediction widget.
