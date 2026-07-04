@@ -368,7 +368,7 @@
   <label title="Spectral (Muon) trajectory learning rate">Muon&nbsp;<input id="lr_muon" value="0.01" style="width:56px"></label>
   <label title="Gauss-Newton trajectory learning rate (≈1 is the natural GN rate)">GN&nbsp;<input id="lr_gn" value="1.0" style="width:56px"></label>
 </div>
-<p class="cap">Four INDEPENDENT trajectories — <b style="color:#2563eb">GD</b>, <b style="color:#dc2626">Signed-GD</b>, <b style="color:#16a34a">Spectral (Muon)</b>, <b style="color:#7c3aed">Gauss-Newton</b> — run from the SAME initialization $\theta_0$, each with its own learning rate above (NO momentum, NO weight decay). Every iteration we take the <b>top-40 eigenvalues of the Gauss-Newton matrix</b> $J^\top J$ (= the nonzero NTK $JJ^\top$ spectrum) along each trajectory and overlay them as <b>translucent histograms</b>; each panel compares <b>GD</b> against one adaptive optimizer, and the histograms <b>evolve over training</b> (redrawn every iteration). Enable via the ★ Prediction-6 toggle (off by default). Needs $N\!\cdot\!\text{out\_dim}\ge 40$ for a full top-40; otherwise it uses all $N\!\cdot\!\text{out\_dim}$ eigenvalues.</p>
+<p class="cap">Four INDEPENDENT trajectories — <b style="color:#2563eb">GD</b>, <b style="color:#dc2626">Signed-GD</b>, <b style="color:#16a34a">Spectral (Muon)</b>, <b style="color:#7c3aed">Gauss-Newton</b> — run from the SAME initialization $\theta_0$, each with its own learning rate above (NO momentum, NO weight decay). Every iteration we take the <b>top-50 eigenvalues of the Gauss-Newton matrix</b> $J^\top J$ (= the nonzero NTK $JJ^\top$ spectrum) along each trajectory and plot them as a <b>scree curve</b> — <b>x-axis = eigenvalue rank</b> (1 = largest … 50th), <b>y-axis = eigenvalue value</b> (log). Each panel overlays <b>GD</b> vs one adaptive optimizer, and the curves <b>evolve over training</b> (redrawn every iteration). Enable via the ★ Prediction-6 toggle (off by default). Needs $N\!\cdot\!\text{out\_dim}\ge 50$ for a full top-50; otherwise it uses all $N\!\cdot\!\text{out\_dim}$ eigenvalues.</p>
 <div class="plotrow row3"><div id="p_p6_sign" class="plot" style="height:340px"></div><div id="p_p6_muon" class="plot" style="height:340px"></div><div id="p_p6_gn" class="plot" style="height:340px"></div></div>
 </div>
 
@@ -3269,9 +3269,10 @@ function syncSectionVis(multi){
   if(typeof SCRUB_FRAC!=='undefined'&&SCRUB_FRAC<1)requestAnimationFrame(()=>applyTimeScrub(SCRUB_FRAC));   // keep a just-shown section's plots at the current rewound position
 }
 // Prediction-6 histogram layout — a VALUE x-axis (eigenvalue magnitude), NOT titled step/iter, so the master time-scrubber leaves it alone.
-function p6lay(nm){return {title:{text:'GD vs '+nm,font:{size:12}},barmode:'overlay',bargap:0.03,showlegend:true,
-  legend:{font:{size:9},orientation:'h',y:-0.16,yanchor:'top'},margin:{l:46,r:8,t:26,b:46},
-  xaxis:{title:{text:'Gauss-Newton eigenvalue',font:{size:10}}},yaxis:{title:{text:'count',font:{size:10}}}};}
+function p6lay(nm){return {title:{text:'GD vs '+nm,font:{size:12}},showlegend:true,
+  legend:{font:{size:9},orientation:'h',y:-0.16,yanchor:'top'},margin:{l:54,r:8,t:26,b:46},
+  xaxis:{title:{text:'eigenvalue rank (1 = largest)',font:{size:10}}},
+  yaxis:{title:{text:'Gauss-Newton eigenvalue',font:{size:10}},type:'log'}};}
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   resetPlotDecim();   // fresh decimation state for this run (bounds plotted points → no progressive hang)
   g3dReset();   // §11: drop snapshots from the previous run
@@ -3505,10 +3506,10 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   const _p3note=[{text:'activates at the ‖J·ṙ‖−‖J̇·r‖<br>sign-change t* (none yet in this run)',xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,align:'center',font:{size:11,color:'#94a3b8'}}];
   {const L=baseLayout('‖r‖ actual vs theory','‖r‖ (log)',false);L.yaxis.type='log';L.annotations=_p3note;newP('p_p3_rnorm',[{x:[],y:[],mode:'lines',name:'‖r‖ actual',line:{color:'#2563eb',width:2}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (1st-order)',line:{color:'#ea580c',width:1.9,dash:'dash'}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (2nd-order)',line:{color:'#059669',width:1.9,dash:'dot'}},{x:[],y:[],mode:'lines',name:'‖r‖ theory (evolving-J)',line:{color:'#db2777',width:1.9,dash:'dashdot'}}],L);}
   {const L=baseLayout('cos(r_act, r_thy)','cos',false);L.yaxis.range=[-1.05,1.05];L.annotations=_p3note;newP('p_p3_cos',[{x:[],y:[],mode:'lines',name:'cos (1st-order)',line:{color:'#7c3aed',width:2}},{x:[],y:[],mode:'lines',name:'cos (2nd-order)',line:{color:'#059669',width:1.9,dash:'dot'}},{x:[],y:[],mode:'lines',name:'cos (evolving-J)',line:{color:'#db2777',width:1.9,dash:'dashdot'}}],L);}
-  // Prediction-6: 3 overlapping translucent histograms (GD vs Signed / Muon / Gauss-Newton); value-axis, redrawn per iteration
-  {const p6mk=(id,nm,col)=>Plotly.newPlot(id,[{x:[],type:'histogram',opacity:0.55,name:'GD',marker:{color:'rgba(37,99,235,0.55)'}},
-      {x:[],type:'histogram',opacity:0.55,name:nm,marker:{color:col}}],p6lay(nm),{displayModeBar:false});
-   p6mk('p_p6_sign','Signed','rgba(220,38,38,0.55)'); p6mk('p_p6_muon','Muon','rgba(22,163,74,0.55)'); p6mk('p_p6_gn','Gauss-Newton','rgba(124,58,237,0.55)');}
+  // Prediction-6: 3 scree plots (GD vs Signed / Muon / Gauss-Newton) — x = eigenvalue rank (1..50), y = eigenvalue value; redrawn per iteration
+  {const p6mk=(id,nm,col)=>Plotly.newPlot(id,[{x:[],y:[],mode:'lines+markers',name:'GD',line:{color:'#2563eb',width:1.6},marker:{size:3,color:'#2563eb'}},
+      {x:[],y:[],mode:'lines+markers',name:nm,line:{color:col,width:1.6},marker:{size:3,color:col}}],p6lay(nm),{displayModeBar:false});
+   p6mk('p_p6_sign','Signed','#dc2626'); p6mk('p_p6_muon','Muon','#16a34a'); p6mk('p_p6_gn','Gauss-Newton','#7c3aed');}
   // ★ prediction-4: top-10 NTK eigenvalues — predicted (frozen-M_r Jacobian, lines) vs actual (dots); 2 plots λ1–5 & λ6–10
   {const cols=['#2563eb','#16a34a','#db2777','#ea580c','#7c3aed'];
    const mk3=()=>{const tr=[];for(let k=0;k<3;k++){tr.push({x:[],y:[],mode:'lines',name:'λ'+(k+1)+' pred (frozen r)',line:{color:cols[k],width:1.9}});tr.push({x:[],y:[],mode:'lines',name:'λ'+(k+1)+' pred (evolving Qr)',line:{color:cols[k],width:1.7,dash:'dash'}});tr.push({x:[],y:[],mode:'markers',name:'λ'+(k+1)+' actual',marker:{color:cols[k],size:4.5,symbol:'circle',line:{color:'#111',width:0.4}}});}return tr;};
@@ -3881,12 +3882,12 @@ function pushPoint(t,D,n,kth,nResid){
     for(let k=0;k<3;k++){if(g.thy[k]!=null)extP(mids[k],{x:[[t],[t],[t],[t]],y:[[g.rAct],[_capPred(g.thy[k],g.rAct)],[_capPred(g.thy2?g.thy2[k]:null,g.rAct)],[_capPred(g.thy3?g.thy3[k]:null,g.rAct)]]},[0,1,2,3]);}}   // cap multi-freeze theory ‖r‖ at 20× actual
   if(D.g_pred4m){const g=D.g_pred4m,ka=g.kAct,mids=['p_pd4m_1','p_pd4m_2','p_pd4m_3'];   // ★ prediction-4 multi-freeze: frozen-r (3k) / evolving-r (3k+1) / actual (3k+2)
     for(let m=0;m<3;m++){const kp=g.kPred[m],ke=g.kPredE?g.kPredE[m]:null;if(!kp)continue;const xs=[],ys=[],ti=[];for(let k=0;k<3&&k<ka.length;k++){xs.push([t]);ys.push([_capPred(kp[k],ka[k])]);ti.push(3*k);xs.push([t]);ys.push([_capPred(ke?ke[k]:null,ka[k])]);ti.push(3*k+1);xs.push([t]);ys.push([ka[k]]);ti.push(3*k+2);}if(ti.length)extP(mids[m],{x:xs,y:ys},ti);}}   // cap multi-freeze predicted eigvals at 20× actual
-  if(D.g_pred6){const g=D.g_pred6;   // ★ prediction-6: redraw the 3 overlapping histograms with THIS iteration's top-40 GN eigenvalues (evolves over training)
-    const drawH=(id,other,nm,col)=>{const gd=g.gd||[],ot=g[other]||[];if(!document.getElementById(id)||!gd.length||!ot.length)return;
-      const lo=Math.min(Math.min.apply(null,gd),Math.min.apply(null,ot)),hi=Math.max(Math.max.apply(null,gd),Math.max.apply(null,ot)),sz=Math.max((hi-lo)/24,1e-12),xb={start:lo,end:hi+sz,size:sz};
-      Plotly.react(id,[{x:gd,type:'histogram',opacity:0.55,name:'GD',marker:{color:'rgba(37,99,235,0.55)'},xbins:xb},
-        {x:ot,type:'histogram',opacity:0.55,name:nm,marker:{color:col},xbins:xb}],p6lay(nm),{displayModeBar:false});};
-    drawH('p_p6_sign','sign','Signed','rgba(220,38,38,0.55)'); drawH('p_p6_muon','spectral','Muon','rgba(22,163,74,0.55)'); drawH('p_p6_gn','gaussnewton','Gauss-Newton','rgba(124,58,237,0.55)');}
+  if(D.g_pred6){const g=D.g_pred6;   // ★ prediction-6: scree plot — x=eigenvalue rank (1..50), y=eigenvalue value; GD vs each optimizer, redrawn each iteration (evolves over training)
+    const drawS=(id,other,nm,col)=>{const gd=g.gd||[],ot=g[other]||[];if(!document.getElementById(id)||!gd.length||!ot.length)return;
+      const xg=gd.map((_,i)=>i+1),xo=ot.map((_,i)=>i+1);   // rank 1..K (1 = largest eigenvalue)
+      Plotly.react(id,[{x:xg,y:gd,mode:'lines+markers',name:'GD',line:{color:'#2563eb',width:1.6},marker:{size:3,color:'#2563eb'}},
+        {x:xo,y:ot,mode:'lines+markers',name:nm,line:{color:col,width:1.6},marker:{size:3,color:col}}],p6lay(nm),{displayModeBar:false});};
+    drawS('p_p6_sign','sign','Signed','#dc2626'); drawS('p_p6_muon','spectral','Muon','#16a34a'); drawS('p_p6_gn','gaussnewton','Gauss-Newton','#7c3aed');}
   if(D.g_trace){const g=D.g_trace,sh=g.trHess,gn=g.trGN;   // ★ trace stats: traces [predNo(blue), predWith(green), Tr(∇²L)(red), Tr(JᵀJ)(orange)]
     const pt=(key,id)=>{const a=g[key],pv=(a?a[1]:null),pp=(a?a[0]:null);   // actual Tr(∇²L)/Tr(JᵀJ) shown throughout; forecasts (pv,pp) gated by stat_init (null → gap)
       if(pv!=null||pp!=null||sh!=null||gn!=null)extP(id,{x:[[t],[t],[t],[t]],y:[[pv],[pp],[sh],[gn]]},[0,1,2,3]);};

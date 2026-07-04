@@ -3389,7 +3389,7 @@ def run_stream(P):
     nResid = M                       # §1 residual plot: ALL samples' residual evolution (was capped at 12)
     lr = P["lr"]
     opt = P.get("optimizer", "gd")
-    s39 = int(P.get("s39", 0))                          # Prediction-6 (Adaptive Optimizers): 4 parallel trajectories, top-40 Gauss-Newton eigenvalues each
+    s39 = int(P.get("s39", 0))                          # Prediction-6 (Adaptive Optimizers): 4 parallel trajectories, top-50 Gauss-Newton eigenvalues each (scree curve)
     lr6 = {"gd": float(P.get("lr_gd", 0.1)), "sign": float(P.get("lr_sign", 0.01)),
            "spectral": float(P.get("lr_muon", 0.01)), "gaussnewton": float(P.get("lr_gn", 1.0))}   # per-optimizer LR for prediction-6
     p6 = None                                           # lazy-seeded {optimizer: θ} for the 4 prediction-6 trajectories (all from the run's init θ0)
@@ -4047,13 +4047,13 @@ def run_stream(P):
             if s39 and _TL.loss.name == "mse" and dataset != "owt" and (N * outD) <= grid3dcap:
                 if p6 is None:
                     p6 = {k: th.detach().clone() for k in ("gd", "sign", "spectral", "gaussnewton")}   # seed all 4 at the current θ (run init)
-                _K6 = min(40, M)
+                _K6 = min(50, M)
                 spec6 = {}
                 for okey in ("gd", "sign", "spectral", "gaussnewton"):
                     thx = p6[okey]; olr = lr6[okey]
                     Jx, _ox = jac_cols(thx, X); Jx = Jx[:M]
                     lam6 = _safe_eigvalsh(Jx @ Jx.t())                                 # JJᵀ (NTK) eigenvalues at THIS tick's θ, ascending; = nonzero Gauss-Newton spectrum
-                    spec6[okey] = [max(0.0, float(lam6[-1 - i])) for i in range(_K6)]  # top-40 (or M) magnitudes, descending
+                    spec6[okey] = [max(0.0, float(lam6[-1 - i])) for i in range(_K6)]  # top-50 (or M) eigenvalues, DESCENDING (rank 1 = largest) — a scree curve per optimizer
                     for _ in range(max(1, ee)):                                        # advance ee steps per tick ⇒ stay in lockstep with the run's t-axis (eigevery>1 safe)
                         if okey == "gaussnewton":                                      # GN needs the full J and residual r
                             Js, os = jac_cols(thx, X)
@@ -4062,7 +4062,7 @@ def run_stream(P):
                         else:
                             thx = thx - olr * _opt_dir(_TL.model, gradL(thx, X, Y)[0], okey)
                     p6[okey] = thx
-                g_pred6 = {"t": t, **spec6}                                            # {t, gd:[≤40], sign:[≤40], spectral:[≤40], gaussnewton:[≤40]}
+                g_pred6 = {"t": t, **spec6}                                            # {t, gd:[≤50], sign:[≤50], spectral:[≤50], gaussnewton:[≤50]}
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None
@@ -4696,7 +4696,7 @@ def run_stream(P):
                 "g_pred4": g_pred4,                            # prediction-4: top-10 NTK eigenvalues — frozen-M_r Jacobian propagation predicted vs actual (prediction widget)
                 "g_pred4m": g_pred4m,                          # prediction-4 multi-freeze: top-5 NTK eigvals predicted (M_r frozen at t0-10/+10/+20) vs actual
                 "g_trace": g_trace,                           # prediction-5: Tr(NTK) predictions (quad/cubic × live/self, ±PSD) vs Tr(∇²L) & Tr(JᵀJ) (prediction widget)
-                "g_pred6": g_pred6,                            # prediction-6: 4 adaptive-optimizer trajectories' top-40 Gauss-Newton eigenvalues (overlapping histograms)
+                "g_pred6": g_pred6,                            # prediction-6: 4 adaptive-optimizer trajectories' top-50 Gauss-Newton eigenvalue scree curves
                 "sps": (t - start + 1) / max(time.time() - t0, 1e-9),
             }
 
@@ -5328,7 +5328,7 @@ def _parse_params(q):
         "p3rep": fi("p3rep", 100),       # prediction-3: live re-anchor interval (repeat_iter)
         "p4rep": fi("p4rep", 100),       # prediction-4: live re-anchor interval (repeat_iter)
         "s38": g("s38", "0") == "1",     # prediction-5: trace-statistic Tr(NTK) prediction (prediction widget)
-        "s39": g("s39", "0") == "1",     # prediction-6: adaptive-optimizer top-40 Gauss-Newton eigenvalue histograms (OFF by default)
+        "s39": g("s39", "0") == "1",     # prediction-6: adaptive-optimizer top-50 Gauss-Newton eigenvalue scree curves (OFF by default)
         "lr_gd": ff("lr_gd", 0.1), "lr_sign": ff("lr_sign", 0.01),            # prediction-6 per-optimizer learning rates
         "lr_muon": ff("lr_muon", 0.01), "lr_gn": ff("lr_gn", 1.0),
         "p5t0": fi("p5t0", 10), "evcubic": max(1, fi("evcubic", 25)),          # prediction-5: START iteration + cubic re-anchor window (quad uses qapprox)
