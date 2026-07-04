@@ -78,6 +78,12 @@
   .plotrow{display:grid;gap:16px;margin-top:6px}
   .row4{grid-template-columns:repeat(4,1fr)} .row2{grid-template-columns:repeat(2,1fr)} .row5{grid-template-columns:repeat(5,1fr)} .row3{grid-template-columns:repeat(3,1fr)} .row6{grid-template-columns:repeat(6,1fr)} .row1{grid-template-columns:1fr}
   .plot{width:100%;min-width:0;height:320px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 3px rgba(16,24,40,.05)}
+  /* Force an always-visible horizontal scrollbar on the Prediction-6 panel (defeats macOS overlay scrollbars) */
+  #p_p6_scroll{scrollbar-width:auto;scrollbar-color:rgba(100,116,139,.75) rgba(100,116,139,.18)}
+  #p_p6_scroll::-webkit-scrollbar{height:14px;-webkit-appearance:none;appearance:none}
+  #p_p6_scroll::-webkit-scrollbar-track{background:rgba(100,116,139,.18);border-radius:8px}
+  #p_p6_scroll::-webkit-scrollbar-thumb{background:rgba(100,116,139,.75);border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+  #p_p6_scroll::-webkit-scrollbar-thumb:hover{background:rgba(100,116,139,.95)}
   .plotrow>*{min-width:0}   /* grid items default to min-width:auto (=min-content); without this a wide Plotly SVG expands the 1fr track and the row spills past the page margin */
   @media(max-width:1320px){.row4{grid-template-columns:repeat(2,1fr)} .row5{grid-template-columns:repeat(3,1fr)} .row6{grid-template-columns:repeat(3,1fr)}}
   @media(max-width:1000px){.row4,.row2,.row5,.row3,.row6{grid-template-columns:1fr}}
