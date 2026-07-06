@@ -29,6 +29,8 @@ def init_kind_scale(scheme, init, fan_in, fan_out, is_readout):
       mup           → hidden std = 1/√fan_in, readout std = 1/fan_in   (canonical muP base init)
       xavier_normal → std = √(2/(fan_in+fan_out))                       (Glorot normal, gain 1)
       xavier_uniform→ U(±√(6/(fan_in+fan_out)))                         (Glorot uniform, gain 1)
+      kaiming_normal→ std = √(2/fan_in)                                 (He normal, ReLU gain √2)
+      kaiming_uniform→ U(±√(6/fan_in))                                  (He uniform, ReLU gain √2)
     `init_scale` only applies to the two free-magnitude schemes:
       default       → std = init/√fan_in   (scale)
       custom        → std = init            (the Gaussian std directly)
@@ -39,6 +41,10 @@ def init_kind_scale(scheme, init, fan_in, fan_out, is_readout):
         return ("normal", math.sqrt(2.0 / (fi + fo)))                # canonical Glorot; init_scale ignored
     if scheme == "xavier_uniform":
         return ("uniform", math.sqrt(6.0 / (fi + fo)))               # canonical Glorot uniform; init_scale ignored
+    if scheme == "kaiming_normal":
+        return ("normal", math.sqrt(2.0 / fi))                       # canonical He/Kaiming normal (ReLU gain √2); init_scale ignored
+    if scheme == "kaiming_uniform":
+        return ("uniform", math.sqrt(6.0 / fi))                      # canonical He/Kaiming uniform (bound = √(6/fan_in)); init_scale ignored
     if scheme == "mup":
         return ("normal", 1.0 / fi if is_readout else 1.0 / math.sqrt(fi))   # canonical muP; init_scale ignored
     if scheme == "custom":

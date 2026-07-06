@@ -181,7 +181,7 @@
       <div class="ctl"><label title="const dataset only: VARIANCE of Gaussian noise added to the constant target (0 = exact constant ⇒ uniform residuals; raise to decorrelate the residuals and dial up cross-sample interaction)">const noise var</label><input id="cvar" type="number" value="0" min="0" step="0.05"></div>
       <div class="ctl"><label>learning rate</label><input id="lr" type="number" value="0.3" step="0.001"></div>
       <div class="ctl"><label>init_scale</label><input id="init" type="number" value="0.1" step="0.05"></div>
-      <div class="ctl"><label>init scheme</label><select id="initscheme"><option value="default" selected>default (scale/√fan_in)</option><option value="mup">muP</option><option value="xavier_normal">Xavier normal</option><option value="xavier_uniform">Xavier uniform</option><option value="custom">custom (Gaussian std)</option></select></div>
+      <div class="ctl"><label>init scheme</label><select id="initscheme"><option value="default" selected>default (scale/√fan_in)</option><option value="mup">muP</option><option value="xavier_normal">Xavier normal</option><option value="xavier_uniform">Xavier uniform</option><option value="kaiming_normal">Kaiming normal</option><option value="kaiming_uniform">Kaiming uniform</option><option value="custom">custom (Gaussian std)</option></select></div>
       <div class="ctl"><label>steps</label><input id="steps" type="number" value="400" min="20" max="10000" step="20"></div>
       <div class="ctl"><label>seed</label><input id="seed" type="number" value="0" step="1"></div>
     </div>
@@ -861,6 +861,8 @@ function initKindScale(scheme,init,fanIn,fanOut,isReadout){
   const fi=Math.max(fanIn,1),fo=Math.max(fanOut,1);
   if(scheme==='xavier_normal')return ['normal',Math.sqrt(2/(fi+fo))];           // canonical Glorot; init_scale ignored
   if(scheme==='xavier_uniform')return ['uniform',Math.sqrt(6/(fi+fo))];          // canonical Glorot uniform; init_scale ignored
+  if(scheme==='kaiming_normal')return ['normal',Math.sqrt(2/fi)];                // canonical He/Kaiming normal (ReLU gain √2); init_scale ignored
+  if(scheme==='kaiming_uniform')return ['uniform',Math.sqrt(6/fi)];              // canonical He/Kaiming uniform (bound √(6/fan_in)); init_scale ignored
   if(scheme==='mup')return ['normal',isReadout?1/fi:1/Math.sqrt(fi)];            // canonical muP; init_scale ignored
   if(scheme==='custom')return ['normal',init];
   return ['normal',init/Math.sqrt(fi)];   // default — scale/√fan_in (init_scale = the scale)
@@ -4976,7 +4978,7 @@ function setVal(id,v){document.getElementById(id).value=String(v);}
 function applyPreset(name){const P=PRESETS[name];if(!P)return;for(const k in P){const el=document.getElementById(k);if(!el)continue;if(el.type==='checkbox')el.checked=!!P[k];else el.value=String(P[k]);}syncLossPanels();updateParamBadge();syncInitScaleEnabled();}
 // mup / xavier_* set the weight variance from fan-in/fan-out (canonical) — the init_scale knob is unused there,
 // so grey it out to make that explicit. It stays active for default (scale) and custom (Gaussian std).
-function syncInitScaleEnabled(){const sch=val('initscheme'),off=(sch==='mup'||sch==='xavier_normal'||sch==='xavier_uniform');
+function syncInitScaleEnabled(){const sch=val('initscheme'),off=(sch==='mup'||sch==='xavier_normal'||sch==='xavier_uniform'||sch==='kaiming_normal'||sch==='kaiming_uniform');
   const el=document.getElementById('init');if(!el)return;el.disabled=off;el.style.opacity=off?0.4:'';
   el.title=off?'ignored — '+sch+' sets the variance from fan-in/fan-out (canonical)':'init_scale (default → std=init/√fan_in · custom → std=init)';}
 document.getElementById('initscheme').addEventListener('change',syncInitScaleEnabled);

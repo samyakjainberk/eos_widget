@@ -1277,6 +1277,10 @@ def init_kind_scale(scheme, init, fan_in, fan_out, is_readout):
         return ("normal", math.sqrt(2.0 / (fi + fo)))                # canonical Glorot; init_scale ignored
     if scheme == "xavier_uniform":
         return ("uniform", math.sqrt(6.0 / (fi + fo)))               # canonical Glorot uniform; init_scale ignored
+    if scheme == "kaiming_normal":
+        return ("normal", math.sqrt(2.0 / fi))                       # canonical He/Kaiming normal (ReLU gain √2); init_scale ignored
+    if scheme == "kaiming_uniform":
+        return ("uniform", math.sqrt(6.0 / fi))                      # canonical He/Kaiming uniform (bound = √(6/fan_in)); init_scale ignored
     if scheme == "mup":
         return ("normal", 1.0 / fi if is_readout else 1.0 / math.sqrt(fi))   # canonical muP; init_scale ignored
     if scheme == "custom":
@@ -5498,6 +5502,7 @@ def _parse_params(q):
         "swlrmin": ff("swlrmin", 0.0), "swlrmax": ff("swlrmax", 0.0),   # 0 ⇒ auto range (base lr ×[1/4,4])
         "swstdmin": ff("swstdmin", 0.0), "swstdmax": ff("swstdmax", 0.0),
         "swsumn": fi("swsumn", 20), "swsumn2": fi("swsumn2", 20),   # prediction-2/2b: sum windows N / N₂ (must be in P so the query values reach run_sweep)
+        "swshk": fi("swshk", 5),        # prediction-2c: Δsharpness window k (λmax(∇²L) at t=k vs t=0)
         "s1": g("s1", "1") == "1", "s2": g("s2", "1") == "1", "s3": g("s3", "1") == "1",
         "s4": g("s4", "1") == "1", "s5": g("s5", "1") == "1", "s6": g("s6", "1") == "1",
         "s7": g("s7", "1") == "1", "s8": g("s8", "1") == "1", "s9": g("s9", "1") == "1",
@@ -5701,6 +5706,7 @@ def run_sweep(P):
     Tstart = max(0, min(steps - 2, int(P.get("swTstart", 0))))
     swsumn = max(1, int(P.get("swsumn", 20)))   # prediction-2: SUM d and d²loss/dt² over the first swsumn iterations (from 0), then take the signs
     swsumn2 = max(1, int(P.get("swsumn2", 20)))   # prediction-2b: SUM d and ∇‖J‖ over the first swsumn2 iterations (from 0), then take the signs (own window; less noisy)
+    swshk = max(1, min(int(P.get("swshk", 5)), steps - 1))   # prediction-2c: window k for Δsharpness = λmax(∇²L)(t=k) − λmax(∇²L)(t=0) (clamped < steps so t==swshk always fires)
     seed0 = int(P.get("seed", 0)); opt = P.get("optimizer", "gd")   # sweep actual + predicted trajectories follow the chosen optimizer
     base_lr = float(P.get("lr", 0.1)); base_std = float(P.get("init", 0.5))
     _lrmn = float(P.get("swlrmin", 0) or 0); _lrmx = float(P.get("swlrmax", 0) or 0)          # 0 ⇒ auto (base±4×)
@@ -5713,11 +5719,20 @@ def run_sweep(P):
            "lrRange": [lrmin, lrmax], "stdRange": [stdmin, stdmax]}
     import math as _math
     rng = __import__("random").Random(seed0 or 1)         # deterministic log-uniform (lr, std) pairs
+    def _lanczos_extremes(hvp, both=False):               # prediction-2c: top (and optionally bottom) eigenvalue via matrix-free Lanczos
+        try:
+            _Ql, _Tl, _kl = _lanczos_core(hvp, p, min(p, 28), 0, dt=DTYPE, q0=_randvec16(p, 0x5A1DBEEF & 0x7FFFFFFF))
+            _mu, _ = _safe_eigh(_Tl)
+            return (float(_mu[-1]), float(_mu[0])) if both else float(_mu[-1])   # ascending ⇒ [-1]=λmax, [0]=λmin
+        except Exception:
+            return ((None, None) if both else None)
     for pi in range(npairs):
         lr = _math.exp(rng.uniform(_math.log(lrmin), _math.log(lrmax)))
         std = _math.exp(rng.uniform(_math.log(stdmin), _math.log(stdmax)))
         th = _TL.model.init_theta(seed0 + 1, std)
         diffs = []; losses = []; jnorms = []; th_at_T = None; diverged = False; align_acc = 0.0; align_cnt = 0
+        sharp0 = None; sharpK = None; mrSpread = None   # prediction-2c: λmax(∇²L) at t=0/t=k + (λmax−λmin) of M_r=Σr_kQ_k at t=0
+        hSpread = None   # prediction-2d: (λmax−λmin) of the function Hessian H=Σ_a Q_a at t=0 (init) — plotted vs the init scale (lr-independent, so "small lr")
         for t in range(steps):
             out = _TL.model.forward(th, X)
             lv = float(_TL.loss.value(out, Y, N))
@@ -5726,6 +5741,17 @@ def run_sweep(P):
             Jc, _ = jac_cols(th, X); Jm = Jc[:M]; jnorms.append(float(Jm.norm()))   # ‖J‖_F per step → start-of-training trend (prediction-2b)
             cS = _TL.loss.resid_cotangent(out.reshape(N, outD), Y, N)
             rr = (-N * cS).reshape(-1)[:M]
+            if t == 0:                                    # prediction-2c/2d: (λmax−λmin) of Qr=M_r=Σ_k r_kQ_k, of the function Hessian H=Σ_a Q_a, AND sharpness λmax(∇²L), all at init
+                _mrmx, _mrmn = _lanczos_extremes(lambda v: hvpS(th, X, v, rr.reshape(N, outD)), both=True)
+                if _mrmx is not None:
+                    mrSpread = _mrmx - _mrmn
+                _onesc = torch.ones(N, outD, dtype=DTYPE, device=_dev())   # c=1 ⇒ hvpS gives Σ_a 1·Q_a·v = (Σ_a Q_a)·v = function-Hessian HVP
+                _hmx, _hmn = _lanczos_extremes(lambda v: hvpS(th, X, v, _onesc), both=True)
+                if _hmx is not None:
+                    hSpread = _hmx - _hmn
+                sharp0 = _lanczos_extremes(lambda v: hvpL(th, X, Y, v))
+            if t == swshk:                                # prediction-2c: sharpness λmax(∇²L) after k iterations
+                sharpK = _lanczos_extremes(lambda v: hvpL(th, X, Y, v))
             if t < swsumn:                                # prediction-2/2b tick colour: Σ_{k≤3} |⟨r̂, v_k⟩| (top-3 NTK eigenvectors), averaged over the window
                 try:
                     _Wv, _Vv = torch.linalg.eigh(Jm @ Jm.t())
@@ -5763,7 +5789,11 @@ def run_sweep(P):
         nj2 = min(swsumn2, len(jnorms) - 1)            # prediction-2b: Σ ∇‖J‖ over the first swsumn2 iters = Σ(‖J‖_{i+1}−‖J‖_i) = ‖J‖_{swsumn2} − ‖J‖_0 (telescoping) — how much ‖J‖ rose/fell overall
         sumJgrad = float(sum(jnorms[i + 1] - jnorms[i] for i in range(nj2))) if nj2 >= 1 else 0.0
         jfro = float(sum(jnorms[:swsumn]) / max(1, min(swsumn, len(jnorms))))   # windowed-mean ‖J‖_F over the first swsumn steps (same window as alignNTK) — the right-half tick colour for prediction-2/2b
+        dSharp = (sharpK - sharp0) if (sharpK is not None and sharp0 is not None) else None   # prediction-2c: Δ sharpness = λmax(∇²L)(t=k) − λmax(∇²L)(t=0)
         yield {"type": "sweeppt", "i": pi, "lr": float(lr), "std": float(std),
+               "dSharp": (dSharp if (dSharp is not None and dSharp == dSharp) else None),     # prediction-2c y: Δ sharpness over the first k iters
+               "mrSpread": (mrSpread if (mrSpread is not None and mrSpread == mrSpread) else None), "swshk": swshk,   # prediction-2c x: (λmax−λmin) of Qr=M_r at init
+               "hSpread": (hSpread if (hSpread is not None and hSpread == hSpread) else None),   # prediction-2d y: (λmax−λmin) of function Hessian H=Σ_a Q_a at init (x = init scale = std)
                "tAct": tAct, "censA": censA or diverged, "tPred": tPred, "censP": censP,
                "tPredQ": tPredQ, "censPQ": censPQ,                                   # prediction-1 plot 1: quadratic (T=0, Q fixed) predicted t*
                "alignNTK": (alignNTK if alignNTK == alignNTK else 0.0),             # Σ|⟨r̂,v_k⟩| top-3 NTK — prediction-2/2b LEFT-half tick colour
