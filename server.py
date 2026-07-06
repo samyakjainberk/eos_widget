@@ -5731,8 +5731,8 @@ def run_sweep(P):
         std = _math.exp(rng.uniform(_math.log(stdmin), _math.log(stdmax)))
         th = _TL.model.init_theta(seed0 + 1, std)
         diffs = []; losses = []; jnorms = []; th_at_T = None; diverged = False; align_acc = 0.0; align_cnt = 0
-        sharp0 = None; sharpK = None; mrSpread = None   # prediction-2c: λmax(∇²L) at t=0/t=k + (λmax−λmin) of M_r=Σr_kQ_k at t=0
-        hSpread = None   # prediction-2d: (λmax−λmin) of the function Hessian H=Σ_a Q_a at t=0 (init) — plotted vs the init scale (lr-independent, so "small lr")
+        sharp0 = None; sharpK = None; mrSum = None   # prediction-2c: λmax(∇²L) at t=0/t=k + (λmax+λmin) of M_r=Σr_kQ_k at t=0
+        hSum = None   # prediction-2d: (λmax+λmin) of the function Hessian H=Σ_a Q_a at t=0 (init) — plotted vs the init scale (lr-independent, so "small lr")
         for t in range(steps):
             out = _TL.model.forward(th, X)
             lv = float(_TL.loss.value(out, Y, N))
@@ -5741,14 +5741,14 @@ def run_sweep(P):
             Jc, _ = jac_cols(th, X); Jm = Jc[:M]; jnorms.append(float(Jm.norm()))   # ‖J‖_F per step → start-of-training trend (prediction-2b)
             cS = _TL.loss.resid_cotangent(out.reshape(N, outD), Y, N)
             rr = (-N * cS).reshape(-1)[:M]
-            if t == 0:                                    # prediction-2c/2d: (λmax−λmin) of Qr=M_r=Σ_k r_kQ_k, of the function Hessian H=Σ_a Q_a, AND sharpness λmax(∇²L), all at init
+            if t == 0:                                    # prediction-2c/2d: (λmax+λmin) of Qr=M_r=Σ_k r_kQ_k, of the function Hessian H=Σ_a Q_a, AND sharpness λmax(∇²L), all at init
                 _mrmx, _mrmn = _lanczos_extremes(lambda v: hvpS(th, X, v, rr.reshape(N, outD)), both=True)
                 if _mrmx is not None:
-                    mrSpread = _mrmx - _mrmn
+                    mrSum = _mrmx + _mrmn                  # λmax+λmin = |λmax|−|λmin| (λmin<0): signed net-extreme of the indefinite M_r
                 _onesc = torch.ones(N, outD, dtype=DTYPE, device=_dev())   # c=1 ⇒ hvpS gives Σ_a 1·Q_a·v = (Σ_a Q_a)·v = function-Hessian HVP
                 _hmx, _hmn = _lanczos_extremes(lambda v: hvpS(th, X, v, _onesc), both=True)
                 if _hmx is not None:
-                    hSpread = _hmx - _hmn
+                    hSum = _hmx + _hmn                     # λmax+λmin of the function Hessian H=Σ_a Q_a
                 sharp0 = _lanczos_extremes(lambda v: hvpL(th, X, Y, v))
             if t == swshk:                                # prediction-2c: sharpness λmax(∇²L) after k iterations
                 sharpK = _lanczos_extremes(lambda v: hvpL(th, X, Y, v))
@@ -5792,8 +5792,8 @@ def run_sweep(P):
         dSharp = (sharpK - sharp0) if (sharpK is not None and sharp0 is not None) else None   # prediction-2c: Δ sharpness = λmax(∇²L)(t=k) − λmax(∇²L)(t=0)
         yield {"type": "sweeppt", "i": pi, "lr": float(lr), "std": float(std),
                "dSharp": (dSharp if (dSharp is not None and dSharp == dSharp) else None),     # prediction-2c y: Δ sharpness over the first k iters
-               "mrSpread": (mrSpread if (mrSpread is not None and mrSpread == mrSpread) else None), "swshk": swshk,   # prediction-2c x: (λmax−λmin) of Qr=M_r at init
-               "hSpread": (hSpread if (hSpread is not None and hSpread == hSpread) else None),   # prediction-2d y: (λmax−λmin) of function Hessian H=Σ_a Q_a at init (x = init scale = std)
+               "mrSum": (mrSum if (mrSum is not None and mrSum == mrSum) else None), "swshk": swshk,   # prediction-2c x: (λmax+λmin) of Qr=M_r at init
+               "hSum": (hSum if (hSum is not None and hSum == hSum) else None),   # prediction-2d y: (λmax+λmin) of function Hessian H=Σ_a Q_a at init (x = init scale = std)
                "tAct": tAct, "censA": censA or diverged, "tPred": tPred, "censP": censP,
                "tPredQ": tPredQ, "censPQ": censPQ,                                   # prediction-1 plot 1: quadratic (T=0, Q fixed) predicted t*
                "alignNTK": (alignNTK if alignNTK == alignNTK else 0.0),             # Σ|⟨r̂,v_k⟩| top-3 NTK — prediction-2/2b LEFT-half tick colour
