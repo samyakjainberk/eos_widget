@@ -14,7 +14,7 @@ import time
 import numpy as np
 import torch
 
-from .models import build_model, build_loss, grad_loss, opt_dir, MlpModel
+from .models import build_model, build_loss, grad_loss, opt_dir, jac_cols, MlpModel
 from .data import init_data_theta, make_test_set
 from .diagnostics import Diagnostics
 
@@ -173,7 +173,13 @@ def run_job(cfg, device=None, dtype=None, cifar_dir=None, progress=False, on_ste
             if on_step is not None:
                 on_step(rec, meta)
         if t < cfg.steps:
-            th = th - cfg.lr * opt_dir(model, grad_loss(model, loss, th, Xb, Yb)[0], cfg.optimizer)
+            if cfg.optimizer == "gaussnewton":               # GN needs the full J and residual r every step (mirrors server run_stream 4754-4759)
+                _Nb = Xb.shape[0]; _Mb = _Nb * out_dim
+                _Jg, _of = jac_cols(model, th, Xb)
+                _rr = (-_Nb * loss.resid_cotangent(_of.reshape(_Nb, out_dim), Yb, _Nb)).reshape(-1)
+                th = th - cfg.lr * opt_dir(model, None, cfg.optimizer, _Jg[:_Mb], _rr[:_Mb])
+            else:
+                th = th - cfg.lr * opt_dir(model, grad_loss(model, loss, th, Xb, Yb)[0], cfg.optimizer)
 
     # ── §27 end-of-run flush: the trailing iteration-points whose +50 forward window never completed
     #    during streaming (right-clipped). Kept OUT of `history` so it does NOT inject a NaN tail into the

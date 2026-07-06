@@ -1923,6 +1923,79 @@ def _sec26_match(cur, prev):
 SEC21_SEED = SEC20_SEED   # §21 panel 2 reuses §20's M_r Lanczos start ⇒ identical M_r eigenpairs
 
 
+def _sec6phase(Jc, rr, th, X, Y, N, outD):
+    """§6 (s29) 'phases of learning' TIME-SERIES quantities for the main run (GD flow θ̇=−∇L, so ṙ=J∇L,
+    J̇·r=−M_r∇L, J·ṙ=JᵀJ∇L). Returns per-tick scalars; the Δ‖Jᵀr‖ and ½ d²‖J‖²_F/dt² 2nd-difference are
+    completed in the run loop from rolling state. Reuses §21's eigenvector machinery.
+      qr     — plot 1 (Phase-1 Jr↔Qr): (Jᵀr·u_i)/‖Jᵀr‖ for u_i = top-3 ⊕ bottom-3 eigenvectors of M_r=Σ_k r_kQ_k
+               (§21 Lanczos; u_i sign-fixed so its largest-|·| component is + ⇒ a reproducible signed projection).
+      Jrn    — plot 2 (Super Power Iteration): ‖Jᵀr‖  (Δ‖Jᵀr‖ added in the loop).
+      lam3   — plot 2: top-3 Jacobian (NTK=JJᵀ) eigenvalues λ_i=σ_i²; the loop plots Δλ_i=λ_i(t)−λ_i(t−1).
+      ntk    — plot 3 (Residual Alignment): |v_i·r|/‖r‖ for v_i = top-8 NTK=JJᵀ eigenvectors (i=1..8).
+      gn     — plot 4a: ‖∇L‖ (loss gradient); EMITTED as N·‖∇L‖ (loop multiplies by N).   dbal — plot 4b: ‖J̇·r‖−‖J·ṙ‖ = ‖M_r∇L‖ − ‖JᵀJ∇L‖.
+      trdiff — plot 4d (RAW here; the run loop scales by η/N before emit): Σ_k (J·v)_k·Tr(Q_k) with v=J̇·r−J·ṙ.
+               J–v contract on the PARAMETER axis (⇒ per-sample (Jv)_k); Q_k's two parameter axes contract with each
+               other ⇒ Tr(Q_k) (per-sample Hessian trace / Laplacian), via the coordinate-diagonal (Bekas) estimator:
+               EXACT (all p coords, no noise) when p≤TRCAP, else a fixed-seeded TRCAP-coord subsample rescaled by p/S.
+      Jf2    — ‖J‖²_F (for the loop's ½ d²‖J‖²_F/dt² 2nd difference)."""
+    M = N * outD
+    Jg = Jc[:M]; r = rr[:M]; p = Jg.shape[1]; rc = r.reshape(N, outD)
+    rn = max(float(r.norm()), 1e-30)
+    Jr = Jg.t() @ r                                          # Jᵀr (p,) = the GN gradient g = Σ_k r_k ∇f_k
+    Jrn = float(Jr.norm()); Jrn_g = max(Jrn, 1e-30)
+    gL = gradL(th, X, Y)[0]                                  # ∇L (loss gradient, p,)
+    # ---- plot 1: (Jᵀr·u_i)/‖Jᵀr‖ on top-3 ⊕ bottom-3 M_r eigvecs (§21 Lanczos, sign-fixed) ----
+    K3 = min(3, p); mlan = min(p, max(5 * K3, 64))
+    Q, T, k = _lanczos_core(lambda v: hvpS(th, X, v, rc), p, mlan, 0, dt=Jg.dtype, q0=_randvec16(p, SEC21_SEED))
+    mu, Sv = _safe_eigh(T); desc = torch.argsort(mu, descending=True); Qmat = torch.stack(Q)
+    kt = min(K3, k); bs = max(kt, k - K3)
+    positions = list(range(kt)) + list(range(bs, k))         # top-3 ⊕ bottom-3 DISTINCT
+    qr = []
+    for pos in positions:
+        ui = Sv[:, int(desc[pos])].to(device=_dev(), dtype=Jg.dtype) @ Qmat   # Ritz eigenvector of M_r (p,)
+        if float(ui[int(ui.abs().argmax())]) < 0:            # sign-fix: largest-|·| component + ⇒ reproducible signed projection
+            ui = -ui
+        qr.append(float(ui @ Jr) / Jrn_g)
+    while len(qr) < 6:
+        qr.append(None)                                       # < 6 distinct eigenpairs (tiny p): pad
+    qr = qr[:6]
+    # ---- plot 3: |v_i·r|/‖r‖ on top-8 NTK eigvecs ----
+    Kc, Vc = sym_eig_desc(Jg @ Jg.t())                       # NTK=JJᵀ (M×M), eigvals desc, eigvecs in columns
+    ntk = [abs(float(Vc[:, i] @ r)) / rn for i in range(min(8, M))]
+    while len(ntk) < 8:
+        ntk.append(None)
+    lam3 = [float(Kc[i]) for i in range(min(3, M))]          # top-3 Jacobian (NTK=JJᵀ) eigenvalues = σ_i²; Δλ_i formed in the loop
+    while len(lam3) < 3:
+        lam3.append(None)
+    # ---- plot 4: residual dominance ----
+    Mrg = hvpS(th, X, gL, rc)                                 # M_r∇L (p,);  J̇·r = −M_r∇L
+    JJg = Jg.t() @ (Jg @ gL)                                  # JᵀJ∇L (p,);  J·ṙ = JᵀJ∇L
+    # Σ_k (J·v)_k · Tr(Q_k),  v = J̇·r − J·ṙ.  J–v contract on the PARAMETER axis ⇒ per-sample scalar (Jv)_k;
+    # Q_k's two parameter axes contract with EACH OTHER ⇒ Tr(Q_k) (per-sample output-Hessian trace / Laplacian).
+    # Tr(Q_k) via the COORDINATE-DIAGONAL (Bekas) estimator: Q_{k,αα} = jac_hvp(e_α)[k,α] (one HVP per coord gives
+    # the α-diagonal for ALL samples). Using all p coords ⇒ EXACT trace (no noise); for p>TRCAP take a FIXED seeded
+    # subset of TRCAP coords (smooth, reproducible) and rescale by p/S. Coord-diagonal ≫ Rademacher Hutchinson here:
+    # these per-sample Hessians are ill-conditioned (‖Q_k‖_F/|Tr Q_k|~2-4) so Rademacher needs 100s of probes for
+    # what the exact diagonal gets in p; coord-diag is exact once S≥p and ~2× lower error when subsampling.
+    vphi = (-Mrg) - JJg                                       # v = J̇·r − J·ṙ  (p,), parameter-space vector
+    Jv = Jg @ vphi                                            # (Jv)_k = J_k·v  (M,) — J·v contracted on the parameter axis
+    TRCAP = 256                                               # max coords (HVPs) spent on the trace per tick
+    if p <= TRCAP:
+        coords = range(p); trscale = 1.0                     # all coords ⇒ EXACT Tr(Q_k), no rescale
+    else:
+        _g6 = torch.Generator(device=Jg.device); _g6.manual_seed(0x54ACE6)   # FIXED subset ⇒ smooth, reproducible
+        coords = torch.randperm(p, generator=_g6, device=Jg.device)[:TRCAP].tolist(); trscale = p / TRCAP
+    trQ = torch.zeros(M, dtype=Jg.dtype, device=Jg.device)
+    for _a in coords:
+        ea = torch.zeros(p, dtype=Jg.dtype, device=Jg.device); ea[_a] = 1.0
+        trQ += jac_hvp(th, X, ea)[:M][:, _a]                 # Q_{k,αα} for all samples (α=_a)
+    trQ *= trscale                                           # ≈ Tr(Q_k)  (M,)  (EXACT when p≤TRCAP)
+    trdiff = float((Jv * trQ).sum())                         # Σ_k (Jv)_k · Tr(Q_k)
+    return {"qr": qr, "Jrn": Jrn, "ntk": ntk, "lam3": lam3,
+            "gn": float(gL.norm()), "dbal": float(Mrg.norm()) - float(JJg.norm()),
+            "trdiff": trdiff, "Jf2": float((Jg * Jg).sum())}
+
+
 def _sec21_payload(Jc, rr, th, X, N, outD, K):
     """§21: residual ↔ spectrum alignment, THREE panels (each: 4 bar plots; grey eigenvalue bar only on the eigval-weighted #3/#4).
     Panel 1 (NTK): K=JJᵀ (M×M) eigenpairs (σ_i, v_i, descending), σ_i ÷N (#samples, as G=(1/N)JᵀJ);
@@ -3348,12 +3421,14 @@ def run_stream(P):
     s33 = P.get("s33", 0)                # §25: ‖∇L‖, ‖M_r∇L‖, ‖JᵀJ∇L‖, |⟨∇‖J‖²,Q∇L⟩|, |⟨∇‖J‖²,G∇L⟩| evolution (single plot)
     s34 = P.get("s34", 0)                # §26: direction-drift |cos(v_i(t),v_i(t−k))| of the top-3 GN/NTK & top-3⊕bottom-3 M_r eigenvectors
     s35 = P.get("s35", 0)                # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag)
+    s40 = P.get("s40", 0)                # §28: TIMESCALES — relative rates of change along the flow θ̇=−∇L: panel 1 (J/r) + panel 2 (Q-Hessian analogs)
     s36 = P.get("s36", 0)                # prediction-3: linear residual theory r_{t+1}=(I−η̃JJᵀ)r_t after the ‖J·ṙ‖−‖J̇·r‖ sign-change (prediction widget)
     s37 = P.get("s37", 0)                # prediction-4: frozen-M_r Jacobian propagation J_{s+1}=(I+(η/N)M_r)J_s → top-10 NTK eigvals predicted vs actual (prediction widget)
     p4t0 = max(0, int(P.get("p4t0", 10)))   # prediction-4: iteration t0 at which the function-Hessian Q & residual are frozen
     p4s = max(1, int(P.get("p4s", 10)))   # prediction-4: re-anchor interval s for the EVOLVING-residual variant (residual re-anchored to actual every s steps)
     p3k = max(1, int(P.get("p3k", 10)))   # prediction-3: evolving-Jacobian theory — update J3 every p3k steps
     p3rep = max(0, int(P.get("p3rep", 100)))   # prediction-3: re-anchor ALL theories from the live run every p3rep iters (0 = never; freeze once at t*)
+    p3thr = float(P.get("p3thr", 0.8))         # prediction-3: ANCHOR when phase-1 |(Jᵀr)·u₁|/‖Jᵀr‖ (top M_r eigvec) first reaches this threshold
     p4rep = max(0, int(P.get("p4rep", 100)))   # prediction-4: re-anchor frozen+evolving from the live run every p4rep iters (0 = never; freeze once at t0)
     s38 = P.get("s38", 0)                # prediction-5: trace-statistic prediction Tr(NTK) (quad/cubic × live/self, ±PSD) vs Tr(∇²L) & Tr(JᵀJ) (prediction widget)
     p5t0 = max(0, int(P.get("p5t0", 10)))   # prediction-5: iteration t0 at which Q, residual & J are frozen for the trace propagation
@@ -3433,6 +3508,7 @@ def run_stream(P):
     sec13_prev = None         # §13: previous eig-tick's per-sample {TV,TW,BV,BW,r,Jg} (Q_i,Q_k & J',r at t-1)
     sec13_qjprev = None        # §13 panel 4: previous eig-tick's {QJ=(N_j,N_i,p) Q_iJ_j, r} for the ‖A−B‖/‖A‖ asymmetry
     sec15_hist = []            # §15: rolling buffer of the last 2 eig-ticks' {th, J, r} (need t−1 and t−2)
+    sec6_prev_Jrn = None; sec6_Jf2hist = []; sec6_prev_lam3 = None   # §6 phases-of-learning: prev ‖Jᵀr‖ (for Δ‖Jᵀr‖) + last-2 ‖J‖²_F (for ½ d²‖J‖²_F/dt²) + prev top-3 NTK eigvals (for Δλ_i)
     sec25_hist = []            # §25: rolling buffer of the last 2 ticks' {th, J, r} for the II/III tr-NTK 2nd-diff terms (need t−1,t−2)
     sec25_rhist = []           # §25: rolling buffer of the last 101 ticks' {t, r} for cos(r_t, r_{t−k}), k∈{1,10,30,50,100} (residual-direction drift)
     sec25_r0hist = []          # §25: the INITIAL residual r_0 (persistent, 1 entry) for the cos(r_t, r_0) cumulative-rotation reference line
@@ -3665,7 +3741,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37 or s38)) or ((s23 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37 or s38) and N <= grid3dcap):   # §15/§19/§20/§21/§24/§25/§26/§27/pred-3/4/5 also run for a single sample
+            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37 or s38 or s40)) or ((s23 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37 or s38 or s40) and N <= grid3dcap):   # §15/§19/§20/§21/§24/§25/§26/§27/pred-3/4/5 also run for a single sample
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -3737,6 +3813,87 @@ def run_stream(P):
                 if len(sec25_hist) > 2:
                     sec25_hist.pop(0)
 
+            # §28 (s40): TIMESCALES — relative rates of change along the gradient flow θ̇=−∇L (so ṙ=−J·θ̇=J∇L,
+            #   J̇=Q·θ̇ ⇒ J̇·r=−M_r∇L, Q̇=[∂³f]·θ̇). PANEL 1 (a1-a5, EXACT, reuses §25's identities): ‖ṙ‖/‖r‖ ;
+            #   ‖J̇‖_F/‖J‖_F (‖J̇‖_F=‖[Q_k∇L]_k‖_F=‖jac_hvp(∇L)‖_F) ; ‖J·ṙ‖/‖J·r‖ (J·ṙ=JᵀJ∇L, "J·r"=Jᵀr) ;
+            #   ‖J̇·r‖/‖J·r‖ (J̇·r=−M_r∇L) ; ‖(J·r)˙‖/‖J·r‖ (=‖J·ṙ+J̇·r‖=‖JᵀJ∇L−M_r∇L‖). PANEL 2 (b1-b5, the
+            #   function-Hessian Q=[Q_k] analogs; Frobenius norms of p×p operators via P Rademacher probes ⇒
+            #   STOCHASTIC): ‖Q̇‖_F/‖Q‖_F ; ‖ḟ‖/‖f‖ (‖ḟ‖=‖J∇L‖=‖ṙ‖, f=Y−r) ; ‖Q·ṙ‖_F/‖Q·r‖_F ("Q·r"=M_r=Σ_k r_kQ_k,
+            #   "Q·ṙ"=M_ṙ=Σ_k ṙ_kQ_k) ; ‖Q̇·r‖_F/‖Q·r‖_F ((Q̇·r)v=−(r·T[∇L,v])) ; ‖(Q·r)˙‖_F/‖Q·r‖_F (=‖M_ṙ+Q̇·r‖_F).
+            #   Same gate as §25; OFF by default. Q̇ uses a 3rd-derivative central diff (ε=1e-2, matches pred3/§10).
+            g28 = None
+            if s40 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:   # MSE-only: Panel-1's ṙ=J∇L identity drops the softmax Jacobian S′ under CE (a1/b2 would be wrong)
+                Jts = Jc[:M]; rts = rr[:M]; rc_ts = rts.reshape(N, outD)
+                gL28 = gradL(th, X, Y)[0]                            # ∇L (p,)
+                rdot = Jts @ gL28                                    # ṙ = J∇L (M,)
+                rd_ts = rdot.reshape(N, outD)
+                Jr28 = Jts.t() @ rts                                 # J·r = Jᵀr (p,)
+                JJg28 = Jts.t() @ (Jts @ gL28)                       # J·ṙ = JᵀJ∇L (p,)
+                Mrg28 = hvpS(th, X, gL28, rc_ts)                     # M_r∇L (p,);  J̇·r = −Mrg28
+                Jdot28 = jac_hvp(th, X, gL28)[:M]                    # [Q_k∇L]_k ⇒ ‖J̇‖_F = ‖Jdot28‖_F (M,p)
+                f28 = Y.reshape(-1)[:M] - rts                        # f = Y − r (M,)  [model output]
+                nr28 = float(rts.norm()); nJ28 = float(Jts.norm()); nJr28 = float(Jr28.norm())
+                nf28 = float(f28.norm()); nrd28 = float(rdot.norm())
+                _rel28 = lambda a, b: (a / b) if b > 1e-30 else None
+                # ---- panel 2: Frobenius norms of the p×p Hessian operators via P Rademacher probes (fixed seed → deterministic) ----
+                _P28 = 8
+                def _T28(a, b):                                      # T[a,b] = ∇³f·[a,b] (M,p) via central diff of jac_hvp (ε=1e-2; matches pred3/§10 _T2m)
+                    an = float(a.norm())
+                    if an < 1e-30:
+                        return torch.zeros(M, p, dtype=DTYPE, device=_dev())
+                    ah = a / an
+                    return an * (jac_hvp(th + 1e-2 * ah, X, b)[:M] - jac_hvp(th - 1e-2 * ah, X, b)[:M]) / 2e-2
+                sQ = sQd = sMr = sMrd = sQdr = sQrd = 0.0
+                for _ip in range(_P28):
+                    v28 = _randn_vec(p, (0x715CA1E + _ip * 0x9E3779B1) & 0xFFFFFFFF).sign()   # Rademacher probe (E[vvᵀ]=I ⇒ E‖Av‖²=‖A‖_F²)
+                    A28 = jac_hvp(th, X, v28)[:M]                    # [Q_k v]_k → ‖Q‖_F² = E‖A‖_F²
+                    B28 = _T28(gL28, v28)                            # [T_k[∇L,v]]_k = −Q̇_k v → ‖Q̇‖_F² = E‖B‖_F²
+                    c28 = rts @ B28                                  # c28 = (r·B) = −(Q̇·r)v (p,) → ‖Q̇·r‖_F² = E‖c28‖²
+                    mr28 = hvpS(th, X, v28, rc_ts)                   # M_r v (p,) → ‖Q·r‖_F² = E‖mr‖²
+                    mrd28 = hvpS(th, X, v28, rd_ts)                  # M_ṙ v (p,) → ‖Q·ṙ‖_F² = E‖mrd‖²
+                    sQ += float((A28 * A28).sum()); sQd += float((B28 * B28).sum())
+                    sMr += float((mr28 * mr28).sum()); sMrd += float((mrd28 * mrd28).sum())
+                    sQdr += float((c28 * c28).sum()); sQrd += float(((mrd28 - c28) * (mrd28 - c28)).sum())   # (Q·r)˙ v = M_ṙ v + (Q̇·r)v = mrd − c
+                fQ = (max(sQ, 0.0) / _P28) ** 0.5; fQd = (max(sQd, 0.0) / _P28) ** 0.5
+                fMr = (max(sMr, 0.0) / _P28) ** 0.5; fMrd = (max(sMrd, 0.0) / _P28) ** 0.5
+                fQdr = (max(sQdr, 0.0) / _P28) ** 0.5; fQrd = (max(sQrd, 0.0) / _P28) ** 0.5
+                g28 = {"t": t,
+                       "a1": _rel28(nrd28, nr28),                            # ‖ṙ‖/‖r‖
+                       "a2": _rel28(float(Jdot28.norm()), nJ28),             # ‖J̇‖_F/‖J‖_F
+                       "a3": _rel28(float(JJg28.norm()), nJr28),             # ‖J·ṙ‖/‖J·r‖
+                       "a4": _rel28(float(Mrg28.norm()), nJr28),             # ‖J̇·r‖/‖J·r‖
+                       "a5": _rel28(float((JJg28 - Mrg28).norm()), nJr28),   # ‖(J·r)˙‖/‖J·r‖
+                       "b1": _rel28(fQd, fQ),                                # ‖Q̇‖_F/‖Q‖_F
+                       "b2": _rel28(nrd28, nf28),                            # ‖ḟ‖/‖f‖  (‖ḟ‖=‖J∇L‖=‖ṙ‖=nrd28)
+                       "b3": _rel28(fMrd, fMr),                              # ‖Q·ṙ‖_F/‖Q·r‖_F
+                       "b4": _rel28(fQdr, fMr),                              # ‖Q̇·r‖_F/‖Q·r‖_F
+                       "b5": _rel28(fQrd, fMr)}                              # ‖(Q·r)˙‖_F/‖Q·r‖_F
+
+            # §6 (s29) PHASES-OF-LEARNING time-series (companion to §21's snapshot panels; main run, GD flow θ̇=−∇L):
+            #   plot 1 Jr↔Qr alignment on top-3⊕bottom-3 M_r eigvecs; plot 2 ‖Jᵀr‖ & Δ‖Jᵀr‖ (power iteration);
+            #   plot 3 residual↔top-8-NTK alignment; plot 4 residual dominance {‖∇L‖, ‖J̇·r‖−‖J·ṙ‖, ½ d²‖J‖²_F/dt²,
+            #   Σ_k J_kᵀQ_k(J̇·r)−Σ_k J_kᵀQ_k(J·ṙ)}. MSE-only (the J̇·r/J·ṙ identities); off by default (§6 toggle).
+            g_phase = None
+            if s29 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+                _ph = _sec6phase(Jc, rr, th, X, Y, N, outD)
+                _dJrn = (_ph["Jrn"] - sec6_prev_Jrn) if sec6_prev_Jrn is not None else None      # Δ‖Jᵀr‖ = ‖J_{t}r_{t}‖ − ‖J_{t−1}r_{t−1}‖
+                sec6_prev_Jrn = _ph["Jrn"]
+                _dlam = [None, None, None]                                                        # Δλ_i = λ_i(t) − λ_i(t−1) for the top-3 NTK (JJᵀ) eigenvalues
+                if sec6_prev_lam3 is not None:
+                    for _i in range(3):
+                        if _ph["lam3"][_i] is not None and sec6_prev_lam3[_i] is not None:
+                            _dlam[_i] = _ph["lam3"][_i] - sec6_prev_lam3[_i]
+                sec6_prev_lam3 = _ph["lam3"]
+                _d2 = None
+                if len(sec6_Jf2hist) >= 2:                                                        # ½ d²‖J‖²_F/dt² = ½(‖J_t‖²−2‖J_{t−1}‖²+‖J_{t−2}‖²) (discrete 2nd difference over ticks)
+                    _d2 = 0.5 * (_ph["Jf2"] - 2.0 * sec6_Jf2hist[-1] + sec6_Jf2hist[-2])
+                sec6_Jf2hist.append(_ph["Jf2"])
+                if len(sec6_Jf2hist) > 2:
+                    sec6_Jf2hist.pop(0)
+                g_phase = {"t": t, "qr": _ph["qr"], "Jrn": _ph["Jrn"], "dJrn": _dJrn, "dlam": _dlam,
+                           "ntk": _ph["ntk"], "gn": _ph["gn"] * N, "dbal": _ph["dbal"],   # gn emitted as N·‖∇L‖
+                           "d2Jf2": _d2, "trdiff": _ph["trdiff"] * (lr / N)}   # scale the trace-difference by η/N (η=lr)
+
             # §26: eigenvector-direction drift — |cos(v_i(t),v_i(t−k))|, k∈{10,20,30,50,100}, for the top-3 GN & NTK
             #       eigenvectors and the top-3 ⊕ bottom-3 M_r=Σr_kQ_k eigenvectors (12 eigvecs; 4 panels × 3 plots × 5 lags)
             g26 = None
@@ -3772,9 +3929,19 @@ def run_stream(P):
                 jrd3 = float((Jm3.t() @ (Jm3 @ gL3)).norm())                    # ‖J·ṙ‖ = ‖JᵀJ∇L‖
                 jdr3 = float(hvpS(th, X, gL3, rm3.reshape(N, outD)).norm())      # ‖J̇·r‖ = ‖M_r∇L‖
                 diff3 = jrd3 - jdr3; sgn3 = (1 if diff3 > 0 else (-1 if diff3 < 0 else 0))
-                g_pred3 = {"jrd": jrd3, "jdr": jdr3, "diff": diff3}
-                if p3_tstar is None and p3_prev_sign is not None and sgn3 != 0 and sgn3 != p3_prev_sign:
-                    p3_tstar = t; p3_Jstar = Jm3.detach().clone(); p3_rtheory = rm3.detach().clone()   # freeze J*, seed r_theory = r(t*)
+                # PHASE-1 anchor: start the theory the first tick |(Jᵀr)·u₁|/‖Jᵀr‖ ≥ p3thr (u₁ = TOP eigenvector of
+                # M_r=Σ_k r_kQ_k — the §6 'Phase-1 Jr↔Qr alignment' value). Replaces the old ‖J·ṙ‖−‖J̇·r‖ sign-change.
+                p3align = None
+                if p3_tstar is None:                                             # only need it until the anchor is found
+                    Jr3 = Jm3.t() @ rm3; Jr3n = float(Jr3.norm())
+                    if Jr3n > 1e-30:
+                        _Qp, _Tp, _kp = _lanczos_core(lambda v: hvpS(th, X, v, rm3.reshape(N, outD)), p, min(p, 64), 0, dt=Jm3.dtype, q0=_randvec16(p, SEC21_SEED))
+                        _mup, _Svp = _safe_eigh(_Tp)
+                        _u1 = _Svp[:, int(torch.argmax(_mup))].to(device=_dev(), dtype=Jm3.dtype) @ torch.stack(_Qp)   # Ritz vec of the TOP (most positive) M_r eigenvalue
+                        p3align = abs(float(_u1 @ Jr3)) / Jr3n
+                g_pred3 = {"jrd": jrd3, "jdr": jdr3, "diff": diff3, "align": p3align, "thr": p3thr}
+                if p3_tstar is None and p3align is not None and p3align >= p3thr:
+                    p3_tstar = t; p3_Jstar = Jm3.detach().clone(); p3_rtheory = rm3.detach().clone()   # freeze J*, seed r_theory = r(t*) — at the phase-1 threshold crossing
                     p3_thstar = th.detach().clone(); p3_r2 = rm3.detach().clone()   # 2nd-order theory: freeze θ* (for Q*) and seed r₂ = r(t*)
                     p3_J3 = Jm3.detach().clone(); p3_J3adv = None; p3_r3 = rm3.detach().clone(); p3_the3 = th.detach().clone(); p3_j3sc = 0   # evolving-J theory: seed J3=J(t*), r3=r(t*), θ̂3=θ(t*); shadow J3adv seeded lazily from J3
                     p3_anchor_t = t
@@ -4050,7 +4217,7 @@ def run_stream(P):
                 _K6 = min(50, M)
                 _mV6 = min(mV, 20)                                                 # bounded Lanczos for the per-trajectory sharpness (4 trajectories × per-step)
                 _fin = lambda x: x if (x == x and -1e30 < x < 1e30) else None      # finite-or-None (JSON can't hold inf/nan)
-                spec6 = {}; loss6 = {}; sharp6 = {}
+                spec6 = {}; loss6 = {}; sharp6 = {}; feat6 = {}
                 for okey in ("gd", "sign", "spectral", "gaussnewton"):
                     thx = p6[okey]; olr = lr6[okey]
                     Jx, _ox = jac_cols(thx, X); Jx = Jx[:M]
@@ -4064,6 +4231,23 @@ def run_stream(P):
                             sharp6[okey] = None
                     else:
                         loss6[okey] = None; sharp6[okey] = None
+                    # FEATURE LEARNING (magnitude of each term): the successive ∇L-contracted derivative terms of the
+                    #   feature/output change at THIS trajectory's θ — ‖J∇L‖ (Jacobian·∇L, 1 leg), ‖[∇Lᵀ Q_k ∇L]_k‖
+                    #   (function Hessian·∇L², 2 legs), ‖[T_k[∇L,∇L,∇L]]_k‖ (3rd-derivative T·∇L³, 3 legs), and ‖∇L‖.
+                    if torch.isfinite(thx).all():
+                        gLx = gradL(thx, X, Y)[0]                                       # ∇L at this trajectory's θ (p,)
+                        an6 = float(gLx.norm())
+                        QgLx = jac_hvp(thx, X, gLx)[:M]                                 # [Q_k ∇L]_k (M,p)
+                        q2x = (QgLx * gLx).sum(dim=1)                                   # [∇Lᵀ Q_k ∇L]_k (M,) — 2-leg contraction
+                        if an6 > 1e-30:                                                 # 3-leg: T_k[∇L,∇L,∇L] via central diff of jac_hvp (ε=1e-2, matches pred3/§10 _T2m)
+                            ah6 = gLx / an6
+                            T2x = an6 * (jac_hvp(thx + 1e-2 * ah6, X, gLx)[:M] - jac_hvp(thx - 1e-2 * ah6, X, gLx)[:M]) / 2e-2   # [T_k[∇L,∇L]]_k (M,p)
+                            t3v = _fin(float((T2x * gLx).sum(dim=1).norm()))            # ‖[T_k[∇L,∇L,∇L]]_k‖
+                        else:
+                            t3v = None
+                        feat6[okey] = {"t1": _fin(float((Jx @ gLx).norm())), "t2": _fin(float(q2x.norm())), "t3": t3v, "gn": _fin(an6)}
+                    else:
+                        feat6[okey] = {"t1": None, "t2": None, "t3": None, "gn": None}
                     for _ in range(max(1, ee)):                                        # advance ee steps per tick ⇒ stay in lockstep with the run's t-axis (eigevery>1 safe)
                         if okey == "gaussnewton":                                      # GN needs the full J and residual r
                             Js, os = jac_cols(thx, X)
@@ -4072,7 +4256,7 @@ def run_stream(P):
                         else:
                             thx = thx - olr * _opt_dir(_TL.model, gradL(thx, X, Y)[0], okey)
                     p6[okey] = thx
-                g_pred6 = {"t": t, **spec6, "loss": loss6, "sharp": sharp6}            # {t, gd/sign/spectral/gaussnewton:[≤50 eig], loss:{opt:..}, sharp:{opt:λmax∇²L}}
+                g_pred6 = {"t": t, **spec6, "loss": loss6, "sharp": sharp6, "feat": feat6}   # +feat:{opt:{t1=‖J∇L‖,t2=‖∇LᵀQ∇L‖,t3=‖T[∇L³]‖,gn=‖∇L‖}} — feature-learning term magnitudes
 
             # §7 NTK + function-Hessian tensor SVD
             ntkR = ntkH = fhEvT = fhEvB = None
@@ -4700,6 +4884,8 @@ def run_stream(P):
                 "g26": g26,                                    # §26: eigenvector-direction drift |cos(v_i(t),v_i(t−k))| for GN/NTK/M_r top-3 (+M_r bottom-3)
                 "g27": g27,                                    # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag)
                 "g27x": g27x,                                  # §7 extra panel: per-step cosine similarities + norms of {∇‖g‖², g, ∇‖J‖², J·ṙ, J̇·r, ∇‖J̇‖²}
+                "g28": g28,                                    # §28: TIMESCALES — panel 1 (5 J/r rate ratios, exact) + panel 2 (5 Q-Hessian rate ratios, Hutchinson)
+                "g_phase": g_phase,                            # §6: phases-of-learning time-series — Jr↔Qr / power-iteration / residual↔NTK / residual-dominance
 
                 "g_pred3": g_pred3,                            # prediction-3: (jrd−jdr) + post-sign-change linear residual theory ‖r‖/cos (prediction widget)
                 "g_pred3m": g_pred3m,                          # prediction-3 multi-freeze: ‖r‖ actual vs frozen-J theory at t*-10/+10/+20
@@ -5330,12 +5516,14 @@ def _parse_params(q):
         "s33": g("s33", "0") == "1",     # §25: gradient-norm + d/dt(J·r) split + ∇‖J‖²·{Q∇L,G∇L} alignment evolution (single plot)
         "s34": g("s34", "0") == "1",     # §26: eigenvector-direction drift |cos(v_i(t),v_i(t−k))| of top-3 GN/NTK & top-3⊕bottom-3 M_r eigvecs
         "s35": g("s35", "0") == "1",     # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag)
+        "s40": g("s40", "0") == "1",     # §28: TIMESCALES — relative rates of change (panel 1 J/r exact, panel 2 Q-Hessian Hutchinson)
         "s36": g("s36", "0") == "1",     # prediction-3: linear residual theory after the ‖J·ṙ‖−‖J̇·r‖ sign-change (prediction widget)
         "s37": g("s37", "0") == "1",     # prediction-4: frozen-M_r Jacobian propagation NTK-eigenvalue prediction (prediction widget)
         "p4t0": fi("p4t0", 10),          # prediction-4: iteration t0 at which Q & residual are frozen
         "p4s": fi("p4s", 10),            # prediction-4: re-anchor interval s for the evolving-residual variant
         "p3k": fi("p3k", 10),            # prediction-3: evolving-Jacobian J-update interval
         "p3rep": fi("p3rep", 100),       # prediction-3: live re-anchor interval (repeat_iter)
+        "p3thr": ff("p3thr", 0.8),       # prediction-3: phase-1 |(Jᵀr)·u₁|/‖Jᵀr‖ anchor threshold (default 0.8)
         "p4rep": fi("p4rep", 100),       # prediction-4: live re-anchor interval (repeat_iter)
         "s38": g("s38", "0") == "1",     # prediction-5: trace-statistic Tr(NTK) prediction (prediction widget)
         "s39": g("s39", "0") == "1",     # prediction-6: adaptive-optimizer top-50 Gauss-Newton eigenvalue scree curves (OFF by default)
@@ -5556,10 +5744,12 @@ def run_sweep(P):
         sumD2 = float(sum(diffs[:swsumn2]))            # prediction-2b: Σ d over the first swsumn2 iterations (own window)
         nj2 = min(swsumn2, len(jnorms) - 1)            # prediction-2b: Σ ∇‖J‖ over the first swsumn2 iters = Σ(‖J‖_{i+1}−‖J‖_i) = ‖J‖_{swsumn2} − ‖J‖_0 (telescoping) — how much ‖J‖ rose/fell overall
         sumJgrad = float(sum(jnorms[i + 1] - jnorms[i] for i in range(nj2))) if nj2 >= 1 else 0.0
+        jfro = float(sum(jnorms[:swsumn]) / max(1, min(swsumn, len(jnorms))))   # windowed-mean ‖J‖_F over the first swsumn steps (same window as alignNTK) — the right-half tick colour for prediction-2/2b
         yield {"type": "sweeppt", "i": pi, "lr": float(lr), "std": float(std),
                "tAct": tAct, "censA": censA or diverged, "tPred": tPred, "censP": censP,
                "tPredQ": tPredQ, "censPQ": censPQ,                                   # prediction-1 plot 1: quadratic (T=0, Q fixed) predicted t*
-               "alignNTK": (alignNTK if alignNTK == alignNTK else 0.0),             # Σ|⟨r̂,v_k⟩| top-3 NTK — prediction-2/2b tick colour
+               "alignNTK": (alignNTK if alignNTK == alignNTK else 0.0),             # Σ|⟨r̂,v_k⟩| top-3 NTK — prediction-2/2b LEFT-half tick colour
+               "jfro": (jfro if jfro == jfro else 0.0),                             # windowed-mean ‖J‖_F — prediction-2/2b RIGHT-half tick colour
                "sumD": (sumD if sumD == sumD else 0.0), "sumCurv": (sumCurv if sumCurv == sumCurv else 0.0),
                "sumD2": (sumD2 if sumD2 == sumD2 else 0.0), "sumJgrad": (sumJgrad if sumJgrad == sumJgrad else 0.0),
                "curv": (curv if curv == curv else 0.0), "swsumn": swsumn, "swsumn2": swsumn2, "diverged": diverged}
@@ -5578,6 +5768,8 @@ class Handler(BaseHTTPRequestHandler):
             self._captures()
         elif u.path in ("/", "/prediction", "/prediction/", "/index.html"):
             self._static("/eos_widget_prediction/index_prediction.html")   # ROOT + /prediction BOTH serve the prediction widget, so anyone who follows the README (or just opens the port) lands on the prediction widget by default
+        elif u.path in ("/original", "/original/", "/orig", "/widget"):
+            self._static("/index.html")   # the ORIGINAL §1-§28 widget (browser or GPU backend via the Compute dropdown); relative /run + /captures ⇒ same-origin, so it just works from the fleet
         else:
             self._static(u.path)
 

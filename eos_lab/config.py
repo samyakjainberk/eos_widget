@@ -52,8 +52,9 @@ class Config:
                                     # (0 ⇒ full batch = nsamp). Only the owt dataset uses it today.
     tgt: float = 1.0
     lr: float = 0.3
-    optimizer: str = "gd"           # gd (full-batch GD) | sign (θ←θ−lr·sign∇L) | spectral (Muon-style: per weight
-                                    #   matrix step lr·UVᵀ from svd(∇W)=UΣVᵀ, biases→sign; NO momentum). Only the
+    optimizer: str = "gd"           # gd (full-batch GD) | sign (θ←θ−lr·sign∇L) | spectral (Muon: per weight matrix
+                                    #   (GGᵀ)^(−¼)·G·(GᵀG)^(−¼)=UVᵀ for full-rank G, biases→sign) | gaussnewton
+                                    #   (θ←θ+lr·Jᵀ(JJᵀ)⁻¹r, min-norm GN, top-50 truncated; NO momentum). Only the
                                     #   actual trajectory/statistics change — §9/§10 theory keeps the GD update.
     init: float = 0.1               # init magnitude; meaning depends on initscheme (below)
     initscheme: str = "default"     # default(=scale/√fan_in) | mup | xavier_normal | xavier_uniform |
@@ -166,6 +167,25 @@ class Config:
     s34: int = 0          # §26 — eigenvector-direction drift |cos(v_i(t),v_i(t−k))| GN/NTK/M_r (server/browser only)
     s35: int = 0          # §27 — sliding-window 3D subspace projection of the six ∇θ gradient-vectors (server/browser only)
 
+    # ---- prediction widget (server s36-s39): OFF by default; MSE + small M (N·outD ≤ grid3dcap) + non-owt only.
+    #   The trackers live in prediction.py and are driven by prediction.run_predictions() (mirrors server.py's
+    #   run_stream prediction path). All follow the run's `optimizer` via models.precond_flow (gd ⇒ plain GD). ----
+    s36: int = 0          # Prediction-3 — frozen-J* linear-NTK residual theory (1st/2nd/3rd-order) after the (‖J·ṙ‖−‖J̇·r‖) sign-change t*
+    s37: int = 0          # Prediction-4 — frozen-M_r Jacobian propagation; top-3 NTK eigenvalues predicted vs actual (+ evolving-Qr variant)
+    s38: int = 0          # Prediction-5.1 — trace-statistic forecast Tr(NTK)/Tr(∇²L) from 4 quad/cubic × live/self trajectories
+    s39: int = 0          # Prediction-6 — 4 adaptive-optimizer trajectories {GD, Signed, Muon, Gauss-Newton}; top-50 GN scree + loss + sharpness
+    lr_gd: float = 0.1    # Prediction-6 per-trajectory learning rates (server lr_gd/lr_sign/lr_muon/lr_gn)
+    lr_sign: float = 0.001
+    lr_muon: float = 0.01
+    lr_gn: float = 0.01
+    p3rep: int = 100      # Pred-3: re-anchor ALL theories from the live run every p3rep iters (0 = freeze once at t*)
+    p3k: int = 10         # Pred-3: evolving-J step-function window — window-J3 jumps to the p3k-step-advanced shadow every p3k iters
+    p4t0: int = 10        # Pred-4: freeze M_r (θ0,J0,r0) at iteration t0
+    p4s: int = 10         # Pred-4: evolving-residual re-anchor / Q-window period
+    p4rep: int = 100      # Pred-4: re-anchor the frozen-M_r propagation from the live run every p4rep iters (0 = freeze once)
+    stat_init: int = 0    # Pred-5.1: iteration at which the trace forecast starts
+    evcubic: int = 25     # Pred-5.1: cubic-trajectory re-anchor window (quad trajectory uses qapprox)
+
     # ---- test set (held-out) ----
     n_test: int = 0                # held-out test points (0 ⇒ default: max(nsamp, 256), capped per dataset)
 
@@ -185,7 +205,8 @@ class Config:
             d[k] = bool(getattr(self, k))
         # §18-§26 section toggles (s26..s34) consumed by diagnostics/train; leave the scalar params
         # (s28k/s29k/s30t/s31r/s31scale) numeric. int 0/1 already reads as truthy, but bool-cast for consistency.
-        for k in ("s26", "s27", "s28", "s29", "s30", "s31", "s32", "s33", "s34", "s35"):
+        for k in ("s26", "s27", "s28", "s29", "s30", "s31", "s32", "s33", "s34", "s35",
+                  "s36", "s37", "s38", "s39"):
             d[k] = bool(getattr(self, k))
         return d
 

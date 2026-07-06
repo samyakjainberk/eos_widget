@@ -484,22 +484,80 @@ def grad_weighted(model, theta, X, c):
     return g.detach()
 
 
-def opt_dir(model, g, opt):
-    """Update DIRECTION from the raw gradient g (NO momentum); actual θ step is θ ← θ − lr·dir. MIRRORS
-    server._opt_dir.  gd→g · sign→sign(g) · spectral→Muon-style per weight-matrix UVᵀ (svd(∇W)=UΣVᵀ),
-    biases→sign. Only the trajectory changes; the §9/§10 theory recomputes its own GD Δθ and is untouched."""
+def matpow_sym(M, power, rel=1e-6):
+    """Mᵖ for a symmetric PSD matrix via eigendecomposition, eigenvalues floored at rel·λmax so a NEGATIVE
+    power of a rank-deficient / singular M is finite (near-null directions are clamped, not blown up).
+    MIRRORS server._matpow_sym EXACTLY (plain torch.linalg.eigh — no safe wrapper — for bit-parity)."""
+    lam, V = torch.linalg.eigh(M)
+    lmax = float(lam[-1]) if lam.numel() else 0.0
+    lam = lam.clamp_min(max(rel * lmax, 1e-30))
+    return (V * lam.pow(power)) @ V.t()
+
+
+def muon_whiten(model, v):
+    """Muon / spectral-GD preconditioner applied to v: per weight MATRIX the block is
+    (GGᵀ)^(−¼) ⊗ (GᵀG)^(−¼) with G = that layer's slice of v — i.e. the two-sided whitening
+    (GGᵀ)^(−¼)·G·(GᵀG)^(−¼), which equals UVᵀ (the polar factor) for full-rank G. Biases / non-matrix
+    params → sign(v). MLP only (reads model.spec); returns sign(v) for models without a spec.
+    MIRRORS server._muon_whiten EXACTLY (the matpow form, NOT the old SVD U@Vh)."""
+    d = torch.sign(v)                            # default for biases / non-matrix params
+    spec = getattr(model, "spec", None)
+    if spec is not None:                         # MLP: layer ℓ weight is a din×dout contiguous block of θ
+        for (din, dout, act, w_off, b_off) in spec:
+            W = v[w_off:w_off + din * dout].view(din, dout)
+            A = matpow_sym(W @ W.t(), -0.25)     # (GGᵀ)^(−¼)   din×din
+            B = matpow_sym(W.t() @ W, -0.25)     # (GᵀG)^(−¼)   dout×dout
+            d[w_off:w_off + din * dout] = (A @ W @ B).reshape(-1)
+    return d
+
+
+def gn_precond(J, r, k=50, rel=1e-6):
+    """Min-norm Gauss-Newton direction  Jᵀ(JJᵀ)⁻¹r  (drives f→Y). For M≤k a single damped SPD solve
+    (JJᵀ+λI)⁻¹r (full inverse; cheap — no eigendecomposition). For M>k the top-k eigenpairs of JJᵀ
+    (rank-k truncated pseudo-inverse). MIRRORS server._gn_precond EXACTLY."""
+    M = J.shape[0]
+    K = J @ J.t()                                # M×M NTK
+    if M <= k:                                   # full inverse via a damped Cholesky solve (avoids the per-call eigh cost)
+        ridge = rel * K.diagonal().mean() + 1e-30
+        return J.t() @ torch.linalg.solve(K + ridge * torch.eye(M, dtype=K.dtype, device=K.device), r)
+    lam, U = torch.linalg.eigh(K)                # M>k: eigenvalues ascending
+    lam_k = lam[-k:]; U_k = U[:, -k:]            # top-k directions
+    inv = 1.0 / lam_k.clamp_min(max(rel * float(lam_k[-1]), 1e-30))
+    return J.t() @ (U_k @ (inv * (U_k.t() @ r)))  # Jᵀ Σ (1/λ_i)(u_iᵀr) u_i
+
+
+def opt_dir(model, g, opt, J=None, r=None):
+    """Update DIRECTION d (NO momentum, NO weight decay); the actual θ step is θ ← θ − lr·d. MIRRORS
+    server._opt_dir (4-way).
+      gd          → g = ∇L                       (plain full-batch gradient descent)
+      sign        → sign(g)                      (signed GD, elementwise)
+      spectral    → Muon: per weight matrix (GGᵀ)^(−¼)·G·(GᵀG)^(−¼) (= UVᵀ full-rank); biases → sign(g)
+      gaussnewton → −Jᵀ(JJᵀ)⁻¹r  (min-norm GN; θ←θ+lr·Jᵀ(JJᵀ)⁻¹r drives f→Y; top-50 truncated). Needs J,r.
+    Only the trajectory changes here; the preconditioned prediction dynamics use precond_flow."""
     if opt == "sign":
         return torch.sign(g)
     if opt == "spectral":
-        d = torch.sign(g)                       # default for biases / non-matrix params
-        spec = getattr(model, "spec", None)
-        if spec is not None:                    # MLP: layer weight is a din×dout contiguous block of θ
-            for (din, dout, act, w_off, b_off) in spec:
-                G = g[w_off:w_off + din * dout].view(din, dout)
-                U, _, Vh = torch.linalg.svd(G, full_matrices=False)
-                d[w_off:w_off + din * dout] = (U @ Vh).reshape(-1)
-        return d
-    return g                                    # gd (default)
+        return muon_whiten(model, g)
+    if opt == "gaussnewton":
+        return -gn_precond(J, r)
+    return g                                     # gd (default)
+
+
+def precond_flow(model, opt, J, r, N, lr):
+    """(g, scale) for the preconditioned prediction dynamics: one optimizer step moves θ by Δθ = scale·g, so
+    ṙ = −scale·J·g,  J̇ = scale·Q·g,  the self-trajectory Δθ = scale·g, and the 2nd-order residual curvature
+    = ½·scale²·(gᵀQg). g is a WELL-SCALED direction; the per-optimizer step size lives in `scale`. This
+    matches the ACTUAL step θ←θ−lr·opt_dir(∇L,opt). gd ⇒ (Jᵀr, lr/N) reproduces GD byte-for-byte.
+    MIRRORS server._precond_flow EXACTLY.
+      gd → (Jᵀr, lr/N)   sign → (sign(Jᵀr), lr)   spectral → (Muon-whiten(Jᵀr), lr)   gaussnewton → (Jᵀ(JJᵀ)⁻¹r, lr)."""
+    Jr = J.t() @ r
+    if opt == "sign":
+        return torch.sign(Jr), lr
+    if opt == "spectral":
+        return muon_whiten(model, Jr), lr
+    if opt == "gaussnewton":
+        return gn_precond(J, r), lr
+    return Jr, lr / max(N, 1)                     # gd (default): (Jᵀr, η/N)
 
 
 def _hvp_scalar(model, theta, X, scalar_fn, v):

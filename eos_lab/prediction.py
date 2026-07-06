@@ -51,9 +51,9 @@ import math
 import torch
 
 from .models import (build_model, build_loss, grad_loss, jac_cols, jac_hvp,
-                     hvp_S, hvp_L, MlpModel)
+                     hvp_S, hvp_L, opt_dir, precond_flow, MlpModel)
 from .data import init_data_theta
-from .linalg import safe_eigvalsh, randn_vec
+from .linalg import safe_eigvalsh, randn_vec, lanczos_extreme_vals
 
 
 # ═══════════════════════════════════════════════════════════════════════ pure-Python helpers (copied)
@@ -97,7 +97,7 @@ def curvature_at(ys, t):
 
 
 # ═══════════════════════════════════════════════════════════════════════ predicted sign-change (§10 cubic)
-def pred_signchange(model, loss, th_start, X, Y, N, outD, p, lr, K, max_steps, cubic=True):
+def pred_signchange(model, loss, th_start, X, Y, N, outD, p, lr, K, max_steps, cubic=True, opt="gd"):
     """PREDICTED first sign-change of d = ‖J·ṙ‖−‖J̇·r‖ along the Eq-51 (§10) trajectory from th_start,
     with the quadratic model refrozen every K steps. Returns (t, censored). The residual is the frozen-quad
     self-residual r_q; jrd/jdr use the propagated J and r_q with Q frozen at the current anchor. Sign
@@ -105,7 +105,6 @@ def pred_signchange(model, loss, th_start, X, Y, N, outD, p, lr, K, max_steps, c
     cubic=True  ⇒ full §10 cubic: J += (η/N)·Qg + ½(η/N)²·T[g,g], Qg carries the 3rd-derivative T corrections.
     cubic=False ⇒ QUADRATIC approximation (prediction-1 plot 1): T=0 and Q FIXED ⇒ J += (η/N)·Q₀·g only."""
     dev, dt = th_start.device, th_start.dtype
-    etaN = lr / max(N, 1)
     M = N * outD
     eps = 1e-2
     Yf = Y.reshape(-1)[:M]
@@ -132,26 +131,25 @@ def pred_signchange(model, loss, th_start, X, Y, N, outD, p, lr, K, max_steps, c
         th0 = st["th0"]; Jc = st["J"]; dth = st["Dth"]
         HzD = jac_hvp(model, th0, X, dth)[:M]
         r_q = Yf - (st["f0"] + st["J0"] @ dth + 0.5 * (HzD @ dth))    # frozen-quad self-residual
-        gL = -(1.0 / N) * (Jc.t() @ r_q)                  # predicted ∇L (MSE)
-        jrd = float((Jc.t() @ (Jc @ gL)).norm())          # ‖J·ṙ‖ = ‖JᵀJ∇L‖
-        jdr = float(hvp_S(model, th0, X, r_q.reshape(N, outD), gL).norm())   # ‖J̇·r‖ = ‖M_r∇L‖ (Q frozen at th0)
+        g, scale = precond_flow(model, opt, Jc, r_q, N, lr)   # (direction, step) recomputed each step; gd ⇒ (Jᵀr_q, η/N)
+        jrd = float((Jc.t() @ (Jc @ g)).norm())           # ‖J·ṙ‖ ∝ ‖JᵀJ·g‖ (only sign(jrd−jdr) matters for the sign-change)
+        jdr = float(hvp_S(model, th0, X, r_q.reshape(N, outD), g).norm())   # ‖J̇·r‖ ∝ ‖M_r·g‖ (Q frozen at th0)
         d = jrd - jdr
         sg = (1 if d > 0 else (-1 if d < 0 else 0))
         if prev is not None and sg != 0 and sg != prev:
             return s, False
         if sg != 0:
             prev = sg
-        g = Jc.t() @ r_q                                  # advance the self trajectory (Eq-51)
-        Qg = jac_hvp(model, th0, X, g)[:M]
+        Qg = jac_hvp(model, th0, X, g)[:M]                # advance the self trajectory (Eq-51)
         if cubic:
             for gk in st["HistG"]:
-                Qg = Qg + etaN * T2m(th0, gk, g)
-            dJ = etaN * Qg + 0.5 * (etaN ** 2) * T2m(th0, g, g)   # full cubic (3rd-derivative T corrections)
+                Qg = Qg + scale * T2m(th0, gk, g)
+            dJ = scale * Qg + 0.5 * (scale ** 2) * T2m(th0, g, g)   # full cubic (3rd-derivative T corrections)
             st["HistG"].append(g)
         else:
-            dJ = etaN * Qg                                # QUADRATIC: T=0, Q fixed ⇒ J += (η/N)·Q₀·g
+            dJ = scale * Qg                               # QUADRATIC: T=0, Q fixed
         st["J"] = Jc + dJ
-        st["Dth"] = dth + etaN * g
+        st["Dth"] = dth + scale * g
     return max_steps, True
 
 
@@ -208,6 +206,7 @@ def sweep(cfg, npairs=None, K=None, Tstart=None, steps=None, seed=None,
     swsumn2 = max(1, int(getattr(cfg, "swsumn2", 20) if swsumn2 is None else swsumn2))   # prediction-2b window (Σ d, Σ Δ‖J‖)
     seed0 = int(cfg.seed if seed is None else seed)
     base_lr = float(cfg.lr); base_std = float(cfg.init)
+    opt = getattr(cfg, "optimizer", "gd")   # sweep actual + predicted trajectories follow the chosen optimizer
 
     if lr_range is not None:
         lrmin, lrmax = float(lr_range[0]), float(lr_range[1])
@@ -248,18 +247,25 @@ def sweep(cfg, npairs=None, K=None, Tstart=None, steps=None, seed=None,
                     align_acc += float(sum(abs(float(_rn @ _Vv[:, -1 - _k])) for _k in range(min(3, M)))); align_cnt += 1
                 except Exception:
                     pass
-            gL = grad_loss(model, loss, th, X, Y)[0]
-            jrd = float((Jm.t() @ (Jm @ gL)).norm())
-            jdr = float(hvp_S(model, th, X, rr.reshape(N, outD), gL).norm())
+            if opt == "gd":
+                gL = grad_loss(model, loss, th, X, Y)[0]   # GD: exact ∇L path (byte-identical to the original)
+                jrd = float((Jm.t() @ (Jm @ gL)).norm())
+                jdr = float(hvp_S(model, th, X, rr.reshape(N, outD), gL).norm())
+                dth_sw = -lr * gL
+            else:
+                g, scale = precond_flow(model, opt, Jm, rr, N, lr)   # preconditioned actual trajectory (direction, step)
+                jrd = float((Jm.t() @ (Jm @ g)).norm())
+                jdr = float(hvp_S(model, th, X, rr.reshape(N, outD), g).norm())
+                dth_sw = scale * g
             diffs.append(jrd - jdr); losses.append(lv)
             if t == Tstart:
                 th_at_T = th.detach().clone()
-            th = th - lr * gL
+            th = th + dth_sw                                # actual trajectory follows the chosen optimizer
         tAct, censA = first_signchange(diffs, steps)
         if th_at_T is not None:                            # predict only if θ(Tstart) reached before divergence
-            tPredRel, censP = pred_signchange(model, loss, th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart, cubic=True)
+            tPredRel, censP = pred_signchange(model, loss, th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart, cubic=True, opt=opt)
             tPred = tPredRel + Tstart
-            tPredQRel, censPQ = pred_signchange(model, loss, th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart, cubic=False)   # prediction-1 plot 1: quadratic (T=0, Q fixed)
+            tPredQRel, censPQ = pred_signchange(model, loss, th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart, cubic=False, opt=opt)   # prediction-1 plot 1: quadratic (T=0, Q fixed)
             tPredQ = tPredQRel + Tstart
         else:
             tPred, censP = steps, True; tPredQ, censPQ = steps, True
@@ -282,42 +288,64 @@ def sweep(cfg, npairs=None, K=None, Tstart=None, steps=None, seed=None,
 # ═══════════════════════════════════════════════════════════════════════ per-step forecast state machines
 class Pred3Tracker:
     """Prediction-3 (server s36): after (jrd−jdr)=‖J·ṙ‖−‖J̇·r‖ first changes sign at t*, freeze J*=J(t*) and
-    compare the ACTUAL residual with the frozen-J linear NTK theory r_{k+1}=(I−(η/N)J*J*ᵀ)r_k from r(t*)
-    (1st order), plus a 2nd-order theory that adds ½(η/N)²(gᵀQ*g). Also drives the MULTI-FREEZE panel with
-    (J,Q) frozen at t*−10 / t*+10 / t*+20 (with a back-fill of the earliest anchor).
+    compare the ACTUAL residual with three theories propagated from r(t*): (1) a frozen-J linear NTK theory
+    r_{k+1}=(I−scale·J*·P·J*ᵀ)r_k, (2) a 2nd-order theory that adds −½·scale²·(gᵀQ*g), and (3) an EVOLVING-J
+    step-function theory — J is held fixed for p3k iters while r decays, then the window-J JUMPS to a shadow
+    that advanced every step via the TRUE QJr recurrence. All theory steps follow the run's `optimizer` via
+    models.precond_flow (gd ⇒ plain (Jᵀr, η/N) GD). With p3rep>0 every theory RE-anchors from the live run
+    every p3rep iters. Also drives the MULTI-FREEZE panel (J,Q frozen at t*−10 / t*+10 / t*+20, back-filled).
 
-    MIRRORS server.py's g_pred3 + g_pred3m per-step blocks (server.py:3631-3691) EXACTLY. Two records per
+    MIRRORS server.py's g_pred3 + g_pred3m per-step blocks (server.py:3766-3868) EXACTLY. Two records per
     step: `step()` returns g_pred3 (None until Jc/rr are available), `step_multi()` returns g_pred3m.
 
     The tracker owns the sign-change state (t*, frozen J*/θ*, the propagated theories), so t* found in `step`
     is visible to `step_multi` in the same tick — mirroring the server, where both blocks share p3_tstar.
     """
 
-    def __init__(self, model, loss, N, outD, p, lr, ee):
+    def __init__(self, model, loss, N, outD, p, lr, ee, opt="gd", p3rep=100, p3k=10):
         self.model = model; self.loss = loss
         self.N = N; self.outD = outD; self.p = p; self.M = N * outD
         self.lr = lr; self.ee = max(1, ee)
-        # prediction-3 single-freeze state (server: p3_*)
+        self.opt = opt; self.p3rep = int(p3rep); self.p3k = max(1, int(p3k))
+        # single-freeze state (server: p3_*): sign tracker, t*, frozen J*/θ*, 1st/2nd-order theory residuals
         self.p3_prev_sign = None; self.p3_tstar = None
         self.p3_Jstar = None; self.p3_rtheory = None
         self.p3_thstar = None; self.p3_r2 = None
-        # prediction-3 multi-freeze state (server: p3m)
+        # 3rd (evolving-J step-function) theory state + repeat-anchor time
+        self.p3_J3 = None; self.p3_J3adv = None; self.p3_r3 = None; self.p3_the3 = None; self.p3_j3sc = 0
+        self.p3_anchor_t = None
+        # multi-freeze state (server: p3m)
         self.p3m = None
         # cached per-tick Jc/rr slices (set in step(), reused by step_multi())
         self._Jm3 = None; self._rm3 = None; self._th = None
 
-    # -- server helper: one GD step of the frozen 1st- & 2nd-order theories (J,Q frozen at the anchor) --
-    def _adv3m(self, Js, ths, r1, r2, X):
-        N = self.N; lr = self.lr; M = self.M
-        r1n = r1 - (lr / N) * (Js @ (Js.t() @ r1))                    # 1st: r=(I−(η/N)JJᵀ)r
-        g2 = Js.t() @ r2
-        quad2 = 0.5 * (lr / N) ** 2 * (jac_hvp(self.model, ths, X, g2)[:M] * g2).sum(dim=1)   # +½(η/N)²·(gᵀQ_k g)_k
-        return r1n, r2 - (lr / N) * (Js @ (Js.t() @ r2)) + quad2
+    def _adv3m(self, Js, ths, r1, r2, r3, J3, J3adv, sc3, X):
+        """One optimizer step of the multi-freeze theories: 1st & 2nd (frozen J*=Js, Q frozen at ths=θ*) + 3rd
+        (evolving-J STEP function; shadow J3adv advances every step via QJr, window-J3 commits every p3k iters).
+        MIRRORS server _adv3m (server.py:3822-3839)."""
+        N = self.N; lr = self.lr; M = self.M; p3k = self.p3k
+        g1m, s1m = precond_flow(self.model, self.opt, Js, r1, N, lr)       # 1st: ṙ=−scale·J*·(P·J*ᵀr); gd ⇒ (J*ᵀr, η/N)
+        r1n = r1 - s1m * (Js @ g1m)                                        # r=(I−scale·J*·P·J*ᵀ)r
+        g2, s2m = precond_flow(self.model, self.opt, Js, r2, N, lr)        # 2nd order (J*,Q* frozen at t*): g2=P·(J*ᵀr₂)
+        quad2 = 0.5 * (s2m ** 2) * (jac_hvp(self.model, ths, X, g2)[:M] * g2).sum(dim=1)   # ½·scale²·(g2ᵀQ*_k g2)_k
+        r2n = r2 - s2m * (Js @ g2) - quad2    # 2nd: curvature enters with a MINUS (Δr=−Δf)
+        r3n = r3; J3adv_n = J3adv                                          # 3rd (evolving-J STEP function)
+        if torch.isfinite(J3).all():
+            if J3adv_n is None:
+                J3adv_n = J3.detach().clone()
+            gshm, sshm = precond_flow(self.model, self.opt, J3adv_n, r3, N, lr)   # shadow J̇ = scale·Q(ths)·(P·J3advᵀr3)
+            J3adv_n = J3adv_n + sshm * jac_hvp(self.model, ths, X, gshm)[:M]       # QJr EVERY step (Q frozen at ths), using r_t
+            g3m, s3m = precond_flow(self.model, self.opt, J3, r3, N, lr)   # g = P·(J3ᵀ r3) with the CONSTANT window-J3
+            r3n = r3 - s3m * (J3 @ g3m)                                    # r3 decays via the CONSTANT window-J3
+            sc3 += 1
+            if sc3 % p3k == 0:
+                J3 = J3adv_n.detach().clone(); J3adv_n = J3.detach().clone()   # COMMIT window-J3 to the p3k-step shadow, restart shadow
+        return r1n, r2n, r3n, J3, J3adv_n, sc3
 
     def step(self, t, th, X, Y, Jc, rr):
         """g_pred3 record for this tick. Returns None when Jc/rr are unavailable (multi-sample gate off)."""
         model = self.model; loss = self.loss
-        N = self.N; M = self.M; lr = self.lr; ee = self.ee
+        N = self.N; M = self.M; lr = self.lr; ee = self.ee; p3k = self.p3k
         if Jc is None or rr is None:
             self._Jm3 = self._rm3 = self._th = None
             return None
@@ -333,31 +361,54 @@ class Pred3Tracker:
             self.p3_tstar = t
             self.p3_Jstar = Jm3.detach().clone(); self.p3_rtheory = rm3.detach().clone()   # freeze J*, r_theory = r(t*)
             self.p3_thstar = th.detach().clone(); self.p3_r2 = rm3.detach().clone()         # freeze θ* (for Q*), r₂ = r(t*)
+            self.p3_J3 = Jm3.detach().clone(); self.p3_J3adv = None; self.p3_r3 = rm3.detach().clone()
+            self.p3_the3 = th.detach().clone(); self.p3_j3sc = 0                             # 3rd theory: seed J3=J(t*), r3=r(t*), θ̂3=θ(t*)
+            self.p3_anchor_t = t
+        elif self.p3_tstar is not None and self.p3rep > 0 and self.p3_anchor_t is not None and t >= self.p3_anchor_t + self.p3rep:
+            self.p3_Jstar = Jm3.detach().clone(); self.p3_rtheory = rm3.detach().clone()     # ★ repeat_iter: RE-anchor ALL theories from the LIVE run every p3rep iters
+            self.p3_thstar = th.detach().clone(); self.p3_r2 = rm3.detach().clone()
+            self.p3_J3 = Jm3.detach().clone(); self.p3_J3adv = None; self.p3_r3 = rm3.detach().clone()
+            self.p3_the3 = th.detach().clone(); self.p3_j3sc = 0
+            self.p3_anchor_t = t
         if sgn3 != 0:
             self.p3_prev_sign = sgn3
         if self.p3_tstar is not None:
-            na3 = float(rm3.norm()); nt3 = float(self.p3_rtheory.norm()); nt3b = float(self.p3_r2.norm())
+            na3 = float(rm3.norm()); nt3 = float(self.p3_rtheory.norm()); nt3b = float(self.p3_r2.norm()); nt3c = float(self.p3_r3.norm())
             cos3 = (float(rm3 @ self.p3_rtheory) / (na3 * nt3)) if (na3 > 1e-30 and nt3 > 1e-30) else None
             cos3b = (float(rm3 @ self.p3_r2) / (na3 * nt3b)) if (na3 > 1e-30 and nt3b > 1e-30) else None
+            cos3c = (float(rm3 @ self.p3_r3) / (na3 * nt3c)) if (na3 > 1e-30 and nt3c > 1e-30) else None   # evolving-J theory direction cosine
             g_pred3.update({"tstar": self.p3_tstar, "rAct": na3, "rThy": nt3, "cos": cos3,
-                            "rThy2": nt3b, "cos2": cos3b})
-            for _ in range(ee):   # advance the linear + 2nd-order theories ONE GD step per actual step
-                self.p3_rtheory = self.p3_rtheory - (lr / N) * (self.p3_Jstar @ (self.p3_Jstar.t() @ self.p3_rtheory))
-                g2 = self.p3_Jstar.t() @ self.p3_r2                                          # 2nd order: g=J*ᵀr₂
-                quad2 = 0.5 * (lr / N) ** 2 * (jac_hvp(model, self.p3_thstar, X, g2)[:M] * g2).sum(dim=1)
-                self.p3_r2 = self.p3_r2 - (lr / N) * (self.p3_Jstar @ (self.p3_Jstar.t() @ self.p3_r2)) + quad2
+                            "rThy2": nt3b, "cos2": cos3b, "rThy3": nt3c, "cos3": cos3c})
+            for _ in range(max(1, ee)):   # advance the 1st + 2nd + 3rd theories ONE GD step per actual step
+                g1p, sc1p = precond_flow(model, self.opt, self.p3_Jstar, self.p3_rtheory, N, lr)   # 1st order
+                self.p3_rtheory = self.p3_rtheory - sc1p * (self.p3_Jstar @ g1p)
+                g2, sc2 = precond_flow(model, self.opt, self.p3_Jstar, self.p3_r2, N, lr)          # 2nd order (J*,Q* frozen at t*)
+                quad2 = 0.5 * (sc2 ** 2) * (jac_hvp(model, self.p3_thstar, X, g2)[:M] * g2).sum(dim=1)
+                self.p3_r2 = self.p3_r2 - sc2 * (self.p3_Jstar @ g2) - quad2                        # curvature enters with a MINUS (Δr=−Δf)
+                if torch.isfinite(self.p3_J3).all() and torch.isfinite(self.p3_the3).all():         # 3rd theory (J EVOLVING as a STEP function)
+                    if self.p3_J3adv is None:
+                        self.p3_J3adv = self.p3_J3.detach().clone()
+                    gsh, scsh = precond_flow(model, self.opt, self.p3_J3adv, self.p3_r3, N, lr)      # shadow J̇ = scale·Q(θ̂3)·(P·J3advᵀr3)
+                    self.p3_J3adv = self.p3_J3adv + scsh * jac_hvp(model, self.p3_the3, X, gsh)[:M]  # QJr EVERY step (Q at θ̂3), using r_t
+                    g3e, sc3e = precond_flow(model, self.opt, self.p3_J3, self.p3_r3, N, lr)         # g = P·(J3ᵀ r3) with the CONSTANT window-J3
+                    self.p3_r3 = self.p3_r3 - sc3e * (self.p3_J3 @ g3e)                              # r3 decays via the CONSTANT window-J3
+                    self.p3_the3 = self.p3_the3 + sc3e * g3e                                         # θ̂3 self-trajectory (where Q is re-evaluated)
+                    self.p3_j3sc += 1
+                    if self.p3_j3sc % p3k == 0:                                                      # COMMIT: window-J3 jumps to the p3k-step shadow
+                        self.p3_J3 = self.p3_J3adv.detach().clone()
+                        self.p3_J3adv = self.p3_J3.detach().clone()
         return g_pred3
 
     def step_multi(self, t, th, X, Y, Jc, rr):
-        """g_pred3m record (multi-freeze) for this tick. Call AFTER step() (it shares the frozen-J* state and
-        the cached Jm3/rm3). Returns None until t* has occurred; matches server's g_pred3m emission."""
+        """g_pred3m record (multi-freeze). Call AFTER step() (shares the frozen-J* state + cached Jm3/rm3).
+        Returns None until t* has occurred. MIRRORS server.py's g_pred3m block (server.py:3813-3868)."""
         N = self.N; M = self.M; lr = self.lr; ee = self.ee
         if Jc is None or rr is None:
             return None
         Jm3 = self._Jm3 if self._Jm3 is not None else Jc[:M]
         rm3 = self._rm3 if self._rm3 is not None else rr[:M]
         if self.p3m is None:
-            self.p3m = {"buf": [], "th": [None, None, None]}       # rolling (t,J,r,‖r‖,θ) buffer + 3 frozen-(J,Q) theories
+            self.p3m = {"buf": [], "th": [None, None, None]}       # rolling (t,J,r,‖r‖,θ) buffer + 3 frozen theories
         p3m = self.p3m
         p3m["buf"].append((t, Jm3.detach().clone(), rm3.detach().clone(), float(rm3.norm()), th.detach().clone()))
         if len(p3m["buf"]) > 30:
@@ -367,71 +418,81 @@ class Pred3Tracker:
             tgt = self.p3_tstar - 10
             bi = min(range(len(p3m["buf"])), key=lambda i: abs(p3m["buf"][i][0] - tgt))
             J0s = p3m["buf"][bi][1]; th0s = p3m["buf"][bi][4]
-            rth = p3m["buf"][bi][2].clone(); r2th = p3m["buf"][bi][2].clone(); bf = []
+            rth = p3m["buf"][bi][2].clone(); r2th = p3m["buf"][bi][2].clone()
+            r3th = p3m["buf"][bi][2].clone(); J3th = J0s.detach().clone(); J3adv_th = None; sc3 = 0; bf = []
             for j in range(bi, len(p3m["buf"])):
-                bf.append([p3m["buf"][j][0], p3m["buf"][j][3], float(rth.norm()), float(r2th.norm())])   # (step, ‖r_act‖, ‖r_1st‖, ‖r_2nd‖)
-                nadv = (p3m["buf"][j + 1][0] - p3m["buf"][j][0]) if j + 1 < len(p3m["buf"]) else max(1, ee)   # buffer points are eigevery GD-steps apart → advance that many (not 1); last → ee to hand off to the ongoing advance
+                bf.append([p3m["buf"][j][0], p3m["buf"][j][3], float(rth.norm()), float(r2th.norm()), float(r3th.norm())])   # (step, ‖r_act‖, 1st, 2nd, 3rd)
+                nadv = (p3m["buf"][j + 1][0] - p3m["buf"][j][0]) if j + 1 < len(p3m["buf"]) else max(1, ee)   # buffer points are eigevery GD-steps apart → advance that many; last → ee to hand off
                 for _ in range(max(1, nadv)):
-                    rth, r2th = self._adv3m(J0s, th0s, rth, r2th, X)
-            p3m["th"][0] = {"J": J0s, "th": th0s, "r": rth, "r2": r2th}; backfill = bf
+                    rth, r2th, r3th, J3th, J3adv_th, sc3 = self._adv3m(J0s, th0s, rth, r2th, r3th, J3th, J3adv_th, sc3, X)
+            p3m["th"][0] = {"J": J0s, "th": th0s, "r": rth, "r2": r2th, "r3": r3th, "J3": J3th, "J3adv": J3adv_th, "sc3": sc3, "anchor_t": t}; backfill = bf
         for k in (1, 2):                                            # theory-1/2 (t*+10, t*+20): freeze when the run reaches them
             if self.p3_tstar is not None and p3m["th"][k] is None and t >= self.p3_tstar + offs[k]:   # >= (not ==): eigevery>1 skips the exact offset tick
-                p3m["th"][k] = {"J": Jm3.detach().clone(), "th": th.detach().clone(),
-                                "r": rm3.detach().clone(), "r2": rm3.detach().clone()}
-        thy = [None, None, None]; thy2 = [None, None, None]
+                p3m["th"][k] = {"J": Jm3.detach().clone(), "th": th.detach().clone(), "r": rm3.detach().clone(),
+                                "r2": rm3.detach().clone(), "r3": rm3.detach().clone(), "J3": Jm3.detach().clone(),
+                                "J3adv": None, "sc3": 0, "anchor_t": t}
+        thy = [None, None, None]; thy2 = [None, None, None]; thy3 = [None, None, None]
         for k in range(3):
             if p3m["th"][k] is None or (k == 0 and backfill is not None):
                 continue                                           # skip theory-0's single emit on the back-fill tick
-            thy[k] = float(p3m["th"][k]["r"].norm()); thy2[k] = float(p3m["th"][k]["r2"].norm())
-            for _ in range(ee):
-                p3m["th"][k]["r"], p3m["th"][k]["r2"] = self._adv3m(
-                    p3m["th"][k]["J"], p3m["th"][k]["th"], p3m["th"][k]["r"], p3m["th"][k]["r2"], X)
+            d = p3m["th"][k]
+            if self.p3rep > 0 and d.get("anchor_t") is not None and t >= d["anchor_t"] + self.p3rep:   # ★ repeat_iter: RE-anchor this frozen theory from the LIVE run
+                d["r"] = rm3.detach().clone(); d["r2"] = rm3.detach().clone(); d["r3"] = rm3.detach().clone()
+                d["J"] = Jm3.detach().clone(); d["J3"] = Jm3.detach().clone(); d["J3adv"] = None
+                d["th"] = th.detach().clone(); d["sc3"] = 0; d["anchor_t"] = t
+            thy[k] = float(d["r"].norm()); thy2[k] = float(d["r2"].norm()); thy3[k] = float(d["r3"].norm())
+            for _ in range(max(1, ee)):
+                d["r"], d["r2"], d["r3"], d["J3"], d["J3adv"], d["sc3"] = self._adv3m(
+                    d["J"], d["th"], d["r"], d["r2"], d["r3"], d["J3"], d.get("J3adv"), d["sc3"], X)
         if self.p3_tstar is not None:
-            return {"rAct": float(rm3.norm()), "thy": thy, "thy2": thy2,
+            return {"rAct": float(rm3.norm()), "thy": thy, "thy2": thy2, "thy3": thy3,
                     "off": offs, "tstar": self.p3_tstar, "backfill": backfill}
         return None
 
 
 class Pred4Tracker:
     """Prediction-4 (server s37): frozen-M_r Jacobian propagation. At iteration t0 freeze θ0, J0=J(t0) and the
-    residual r0; then propagate J_{s+1}=(I+(η/N)M_r)J_s with M_r=Σ_k r0_k Q_k(θ0) frozen (matrix-free via
-    hvp_S), and compare the top-3 NTK eigenvalues λ(JJᵀ) of the predicted vs actual J. A second (EVOLVING-
-    residual) variant propagates (Ĵ, r̂) coupled with r̂ re-anchored to the ACTUAL residual every s steps.
-    Also drives the MULTI-FREEZE panel (anchors at t0−10 / t0+10 / t0+20).
+    residual r0; then propagate J_{s+1}=(I+scale·M_r)J_s with M_r=Σ_k r0_k Q_k(θ0) frozen (matrix-free via
+    hvp_S), and compare the top-3 NTK eigenvalues λ(JJᵀ) of predicted vs actual J. A second EVOLVING-Qr variant
+    propagates Ĵ_{t+1}=Ĵ_t+scale·M_r(r̂Q,θ̂Q)·Ĵ where rQ is FIXED for p4s-step windows (a true (I+scale·M_r)^s
+    power iteration), θ̂ is a GD/optimizer self-trajectory (via precond_flow) and r̂ is a BOUNDED quadratic
+    self-residual Y−(f0+J0Δθ̂+½Δθ̂ᵀQ0Δθ̂); a trust-region clamp (‖g‖≤1e4) + norm cap (‖Ĵ‖<1e8) keep GN's big
+    steps from overflowing the eigh. `scale = lr/N` (gd) or `lr` (preconditioned). With p4rep>0 the whole
+    propagation RE-anchors from the live run every p4rep iters. Also drives the MULTI-FREEZE panel (t0−10/+10/+20).
 
-    MIRRORS server.py's g_pred4 + g_pred4m per-step blocks (server.py:3693-3775) EXACTLY. `step()` returns
+    MIRRORS server.py's g_pred4 + g_pred4m per-step blocks (server.py:3870-3975) EXACTLY. `step()` returns
     g_pred4 (with kAct/kPred/kPredE + cos5/cos5E/cosGN5/cosGN5E), `step_multi()` returns g_pred4m.
     """
 
-    def __init__(self, model, loss, N, outD, p, lr, ee, p4t0=10, p4s=10):
+    def __init__(self, model, loss, N, outD, p, lr, ee, p4t0=10, p4s=10, p4rep=100, opt="gd"):
         self.model = model; self.loss = loss
         self.N = N; self.outD = outD; self.p = p; self.M = N * outD
         self.lr = lr; self.ee = max(1, ee)
-        self.p4t0 = max(0, int(p4t0)); self.p4s = max(1, int(p4s))
-        # single-freeze state (server: p4_*)
+        self.p4t0 = max(0, int(p4t0)); self.p4s = max(1, int(p4s)); self.p4rep = int(p4rep); self.opt = opt
+        # single-freeze state (server: p4_*): frozen-M_r J + the EVOLVING-Qr self-model (Ĵ, r̂, θ̂, fixed-rQ window)
         self.p4_J = None; self.p4_th0 = None; self.p4_r0 = None
-        self.p4_Je = None; self.p4_re = None; self.p4_re_next = None
+        self.p4_Je = None; self.p4_re = None; self.p4_J0e = None
+        self.p4_the = None; self.p4_thQ = None; self.p4_reQ = None; self.p4_qsc = 0
+        self.p4_f0 = None; self.p4_anchor_t = None
         # multi-freeze state (server: p4m)
         self.p4m = None
 
     def step(self, t, th, X, Y, Jc, rr):
         model = self.model
-        N = self.N; M = self.M; lr = self.lr; ee = self.ee
-        p4t0 = self.p4t0; p4s = self.p4s
+        N = self.N; M = self.M; lr = self.lr; ee = self.ee; outD = self.outD
+        p4t0 = self.p4t0; p4s = self.p4s; p4rep = self.p4rep
         if Jc is None or rr is None:
             return None
         Jm4 = Jc[:M]
-        if self.p4_J is None and t >= p4t0:                        # freeze Q & residual at t0
-            self.p4_J = Jm4.detach().clone(); self.p4_th0 = th.detach().clone()
-            self.p4_r0 = rr[:M].reshape(N, self.outD).detach().clone()
-            self.p4_Je = Jm4.detach().clone(); self.p4_re = rr[:M].detach().clone()
-            self.p4_re_next = p4t0 + p4s                            # EVOLVING-residual: seed Ĵ, r̂, first re-anchor
+        if (self.p4_J is None and t >= p4t0) or (self.p4_J is not None and p4rep > 0 and self.p4_anchor_t is not None and t >= self.p4_anchor_t + p4rep):   # freeze Q & residual at t0, then ★ RE-anchor from the LIVE run every p4rep iters
+            self.p4_J = Jm4.detach().clone(); self.p4_th0 = th.detach().clone(); self.p4_r0 = rr[:M].reshape(N, outD).detach().clone()
+            self.p4_Je = Jm4.detach().clone(); self.p4_re = rr[:M].detach().clone()   # EVOLVING-Qr: seed Ĵ, r̂
+            self.p4_J0e = Jm4.detach().clone()                                        # frozen J(θ0) for the bounded quadratic self-residual
+            self.p4_the = th.detach().clone(); self.p4_thQ = th.detach().clone(); self.p4_reQ = None; self.p4_qsc = 0   # θ̂ (GD-propagated); θ̂Q/r̂Q FIXED for the s-step rQ window
+            self.p4_f0 = (Y.reshape(-1)[:M] - rr[:M]).detach().clone()                # f(θ0) anchor for the bounded quadratic self-residual
+            self.p4_anchor_t = t
         if self.p4_J is None:
             return None
-        if self.p4_re_next is not None and t >= self.p4_re_next:    # re-anchor r̂ to the ACTUAL residual every s steps
-            self.p4_re = rr[:M].detach().clone()
-            while self.p4_re_next <= t:
-                self.p4_re_next += p4s
         K4 = min(3, M); K5 = min(3, M)                             # top-3 everywhere
         try:                                                       # eigh → eigenvalues AND eigenvectors (top-3 cosines)
             Wa, Va = torch.linalg.eigh(Jm4 @ Jm4.t())              # actual NTK: eigvals asc, eigvecs = columns
@@ -440,14 +501,14 @@ class Pred4Tracker:
             kAct4 = [max(0.0, float(Wa[-1 - i])) for i in range(K4)]
             kPred4 = [max(0.0, float(Wp[-1 - i])) for i in range(K4)]
             kPredE = [max(0.0, float(We[-1 - i])) for i in range(K4)]
-            cos5 = [abs(float(Va[:, -1 - i] @ Vp[:, -1 - i])) for i in range(K5)]    # |cos| actual vs frozen-residual NTK eigvec
-            cos5E = [abs(float(Va[:, -1 - i] @ Ve[:, -1 - i])) for i in range(K5)]   # |cos| actual vs evolving-residual NTK eigvec
+            cos5 = [min(1.0, abs(float(Va[:, -1 - i] @ Vp[:, -1 - i]))) for i in range(K5)]    # |cos| actual vs frozen-residual NTK eigvec (clamp: fp32 can give 1+2⁻²¹)
+            cos5E = [min(1.0, abs(float(Va[:, -1 - i] @ Ve[:, -1 - i]))) for i in range(K5)]   # |cos| actual vs evolving-residual NTK eigvec
             cosGN5 = []; cosGN5E = []                              # |cos| of the GN (JᵀJ) eigvecs = right-singular vecs z=Jᵀu/‖·‖
             for i in range(K5):
                 za = Jm4.t() @ Va[:, -1 - i]; za = za / max(float(za.norm()), 1e-30)
                 zp = self.p4_J.t() @ Vp[:, -1 - i]; zp = zp / max(float(zp.norm()), 1e-30)
                 ze = self.p4_Je.t() @ Ve[:, -1 - i]; ze = ze / max(float(ze.norm()), 1e-30)
-                cosGN5.append(abs(float(za @ zp))); cosGN5E.append(abs(float(za @ ze)))
+                cosGN5.append(min(1.0, abs(float(za @ zp)))); cosGN5E.append(min(1.0, abs(float(za @ ze))))
         except Exception:                                          # fp32-GPU eigh hiccup ⇒ eigenvalues only
             ka = safe_eigvalsh(Jm4 @ Jm4.t()); kp = safe_eigvalsh(self.p4_J @ self.p4_J.t())
             kpe = safe_eigvalsh(self.p4_Je @ self.p4_Je.t())
@@ -457,27 +518,37 @@ class Pred4Tracker:
             cos5 = []; cos5E = []; cosGN5 = []; cosGN5E = []
         g_pred4 = {"t0": p4t0, "s": p4s, "kAct": kAct4, "kPred": kPred4, "kPredE": kPredE,
                    "cos5": cos5, "cos5E": cos5E, "cosGN5": cosGN5, "cosGN5E": cosGN5E}
-        for _ in range(ee):                                        # advance ONE GD step per actual step (ee GD steps between ticks)
-            if torch.isfinite(self.p4_J).all():
+        sc4 = lr / max(N, 1) if self.opt == "gd" else lr          # optimizer step size (gd ⇒ η/N)
+        for _ in range(max(1, ee)):                               # advance ONE GD step per actual step
+            if torch.isfinite(self.p4_J).all() and float(self.p4_J.norm()) < 1e8:   # norm cap ⇒ GN divergence stays finite (no eigh stall)
                 MrJ = torch.stack([hvp_S(model, self.p4_th0, X, self.p4_r0, self.p4_J[k]) for k in range(M)])   # frozen M_r·J
-                self.p4_J = self.p4_J + (lr / max(N, 1)) * MrJ
-            if torch.isfinite(self.p4_Je).all():                   # evolving-residual: coupled forward-Euler of (Ĵ, r̂), Q frozen at θ0
-                MrJe = torch.stack([hvp_S(model, self.p4_th0, X, self.p4_re.reshape(N, self.outD), self.p4_Je[k]) for k in range(M)])
-                self.p4_re = self.p4_re - (lr / max(N, 1)) * (self.p4_Je @ (self.p4_Je.t() @ self.p4_re))
-                self.p4_Je = self.p4_Je + (lr / max(N, 1)) * MrJe
+                self.p4_J = self.p4_J + sc4 * MrJ
+            if torch.isfinite(self.p4_Je).all() and torch.isfinite(self.p4_re).all() and torch.isfinite(self.p4_the).all() and float(self.p4_Je.norm()) < 1e8:   # EVOLVING-Qr self-model
+                Yf = Y.reshape(-1)[:M]
+                if self.p4_reQ is None or self.p4_qsc % p4s == 0:                    # refresh the FIXED rQ=M_r(r̂Q,θ̂Q) at each s-step window boundary
+                    self.p4_thQ = self.p4_the.detach().clone(); self.p4_reQ = self.p4_re.detach().clone()
+                self.p4_Je = self.p4_Je + sc4 * torch.stack([hvp_S(model, self.p4_thQ, X, self.p4_reQ.reshape(N, outD), self.p4_Je[k]) for k in range(M)])   # Ĵ_{t+1}=Ĵ+scale·M_r(r̂Q,θ̂Q)·Ĵ (true (I+scale·M_r)^s)
+                g_e = precond_flow(self.model, self.opt, self.p4_Je, self.p4_re, N, lr)[0]   # preconditioned self-model gradient P·(Ĵᵀr̂); gd ⇒ Ĵᵀr̂
+                _neg = float(g_e.norm())
+                if _neg > 1e4: g_e = g_e * (1e4 / _neg)                              # trust-region clamp (GN's Newton step can diverge the frozen-quad extrapolation)
+                self.p4_the = self.p4_the + sc4 * g_e                                # θ̂ self-trajectory (follows the optimizer)
+                dth_e = self.p4_the - self.p4_th0
+                HzD_e = jac_hvp(model, self.p4_th0, X, dth_e)[:M]                     # Q0·Δθ̂
+                self.p4_re = Yf - (self.p4_f0 + self.p4_J0e @ dth_e + 0.5 * (HzD_e @ dth_e))   # r̂ = Y − (f0 + J0Δθ̂ + ½Δθ̂ᵀQ0Δθ̂)
+                self.p4_qsc += 1
         return g_pred4
 
     def step_multi(self, t, th, X, Y, Jc, rr):
         model = self.model
-        N = self.N; M = self.M; lr = self.lr; ee = self.ee
-        p4t0 = self.p4t0; p4s = self.p4s
+        N = self.N; M = self.M; lr = self.lr; ee = self.ee; outD = self.outD
+        p4t0 = self.p4t0; p4s = self.p4s; p4rep = self.p4rep
         if Jc is None or rr is None:
             return None
         Jm4m = Jc[:M]
         if self.p4m is None:
-            self.p4m = [{"tf": p4t0 - 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "ren": None},
-                        {"tf": p4t0 + 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "ren": None},
-                        {"tf": p4t0 + 20, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "ren": None}]
+            self.p4m = [{"tf": p4t0 - 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "reQ": None, "J0e": None, "f0": None, "qsc": 0, "anchor_t": None},
+                        {"tf": p4t0 + 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "reQ": None, "J0e": None, "f0": None, "qsc": 0, "anchor_t": None},
+                        {"tf": p4t0 + 20, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "reQ": None, "J0e": None, "f0": None, "qsc": 0, "anchor_t": None}]
         K5m = min(3, M)                                            # top-3
         try:
             Wam = safe_eigvalsh(Jm4m @ Jm4m.t()); ka4m = [max(0.0, float(Wam[-1 - i])) for i in range(K5m)]
@@ -485,28 +556,37 @@ class Pred4Tracker:
             ka4m = None
         kpm = [None, None, None]; kpmE = [None, None, None]
         for fi4, fz in enumerate(self.p4m):
-            if fz["tf"] >= 0 and t == fz["tf"] and fz["J"] is None:  # freeze M_r (θ, J, residual) at this offset iteration
-                fz["J"] = Jm4m.detach().clone(); fz["th0"] = th.detach().clone()
-                fz["r0"] = rr[:M].reshape(N, self.outD).detach().clone()
-                fz["Je"] = Jm4m.detach().clone(); fz["re"] = rr[:M].detach().clone(); fz["ren"] = fz["tf"] + p4s
+            if (fz["tf"] >= 0 and t >= fz["tf"] and fz["J"] is None) or (fz["J"] is not None and p4rep > 0 and fz["anchor_t"] is not None and t >= fz["anchor_t"] + p4rep):   # freeze at this offset (>= so eigevery>1 can't skip the exact tick), then ★ RE-anchor from the LIVE run every p4rep iters
+                fz["J"] = Jm4m.detach().clone(); fz["th0"] = th.detach().clone(); fz["r0"] = rr[:M].reshape(N, outD).detach().clone()
+                fz["Je"] = Jm4m.detach().clone(); fz["re"] = rr[:M].detach().clone()   # evolving-Qr seed
+                fz["J0e"] = Jm4m.detach().clone()                          # frozen J(θ_freeze) for the bounded quadratic self-residual
+                fz["the"] = th.detach().clone(); fz["thQ"] = th.detach().clone(); fz["reQ"] = None; fz["qsc"] = 0
+                fz["f0"] = (Y.reshape(-1)[:M] - rr[:M]).detach().clone()   # f(θ_freeze) for the bounded quadratic self-residual
+                fz["anchor_t"] = t
             if fz["J"] is not None:
-                if fz["ren"] is not None and t >= fz["ren"]:        # re-anchor evolving residual to actual every s steps
-                    fz["re"] = rr[:M].detach().clone()
-                    while fz["ren"] <= t:
-                        fz["ren"] += p4s
                 try:
                     Wpm = safe_eigvalsh(fz["J"] @ fz["J"].t()); kpm[fi4] = [max(0.0, float(Wpm[-1 - i])) for i in range(K5m)]
                     Wpe = safe_eigvalsh(fz["Je"] @ fz["Je"].t()); kpmE[fi4] = [max(0.0, float(Wpe[-1 - i])) for i in range(K5m)]
                 except Exception:
                     kpm[fi4] = None; kpmE[fi4] = None
-                for _ in range(ee):                                # advance the frozen- & evolving-residual Jacobians ee GD steps
-                    if torch.isfinite(fz["J"]).all():
+                sc4m = lr / max(N, 1) if self.opt == "gd" else lr        # optimizer step size (gd ⇒ η/N)
+                for _ in range(max(1, ee)):                              # advance the frozen- & evolving-residual Jacobians ee GD steps
+                    if torch.isfinite(fz["J"]).all() and float(fz["J"].norm()) < 1e8:   # cap ⇒ GN divergence stays finite (no eigh stall)
                         MrJm = torch.stack([hvp_S(model, fz["th0"], X, fz["r0"], fz["J"][k]) for k in range(M)])
-                        fz["J"] = fz["J"] + (lr / max(N, 1)) * MrJm
-                    if torch.isfinite(fz["Je"]).all():
-                        MrJmE = torch.stack([hvp_S(model, fz["th0"], X, fz["re"].reshape(N, self.outD), fz["Je"][k]) for k in range(M)])
-                        fz["re"] = fz["re"] - (lr / max(N, 1)) * (fz["Je"] @ (fz["Je"].t() @ fz["re"]))
-                        fz["Je"] = fz["Je"] + (lr / max(N, 1)) * MrJmE
+                        fz["J"] = fz["J"] + sc4m * MrJm
+                    if torch.isfinite(fz["Je"]).all() and torch.isfinite(fz["re"]).all() and torch.isfinite(fz["the"]).all() and float(fz["Je"].norm()) < 1e8:   # evolving-Qr
+                        Yf = Y.reshape(-1)[:M]
+                        if fz["reQ"] is None or fz["qsc"] % p4s == 0:                  # refresh the FIXED rQ=M_r(r̂Q,θ̂Q) at each s-step window boundary
+                            fz["thQ"] = fz["the"].detach().clone(); fz["reQ"] = fz["re"].detach().clone()
+                        fz["Je"] = fz["Je"] + sc4m * torch.stack([hvp_S(model, fz["thQ"], X, fz["reQ"].reshape(N, outD), fz["Je"][k]) for k in range(M)])   # Ĵ every step via the FIXED rQJ
+                        g_e = precond_flow(self.model, self.opt, fz["Je"], fz["re"], N, lr)[0]   # P·(Ĵᵀr̂); gd ⇒ Ĵᵀr̂
+                        _negm = float(g_e.norm())
+                        if _negm > 1e4: g_e = g_e * (1e4 / _negm)                       # trust-region clamp
+                        fz["the"] = fz["the"] + sc4m * g_e
+                        dth_e = fz["the"] - fz["th0"]
+                        HzD_e = jac_hvp(model, fz["th0"], X, dth_e)[:M]                  # Q0·Δθ̂
+                        fz["re"] = Yf - (fz["f0"] + fz["J0e"] @ dth_e + 0.5 * (HzD_e @ dth_e))   # r̂ = Y − (f0 + J0Δθ̂ + ½Δθ̂ᵀQ0Δθ̂)
+                        fz["qsc"] += 1
         if ka4m is not None:
             return {"kAct": ka4m, "off": [p4t0 - 10, p4t0 + 10, p4t0 + 20], "kPred": kpm, "kPredE": kpmE}
         return None
@@ -525,12 +605,12 @@ class TraceTracker:
     dict {t0, trGN, trHess, qLive, qSelf, cLive, cSelf} — each of the four a [withPSD, noPSD] pair.
     """
 
-    def __init__(self, model, loss, N, outD, p, lr, ee, stat_init=0, qapprox=25, evcubic=25):
+    def __init__(self, model, loss, N, outD, p, lr, ee, stat_init=0, qapprox=25, evcubic=25, opt="gd"):
         self.model = model; self.loss = loss
         self.N = N; self.outD = outD; self.p = p; self.M = N * outD
         self.lr = lr; self.ee = max(1, ee)
         self.stat_init = max(0, int(stat_init))
-        self.qapprox = max(1, int(qapprox)); self.evcubic = max(1, int(evcubic))
+        self.qapprox = max(1, int(qapprox)); self.evcubic = max(1, int(evcubic)); self.opt = opt
         self.tr5 = None
         self.device = None; self.dtype = None       # captured lazily from th on the first step
 
@@ -565,7 +645,6 @@ class TraceTracker:
         if self.tr5 is None:                            # before stat_init: emit the ACTUAL traces only (no forecast yet)
             return {"t0": self.stat_init, "trGN": trGN, "trHess": trHess,
                     "qLive": None, "qSelf": None, "cLive": None, "cSelf": None}
-        etaN5 = lr / max(N, 1)
         Yf5 = Y.reshape(-1)[:M]
         f_cur = Yf5 - rr[:M]                            # current ACTUAL output f(θ_t)
         tr_out = []
@@ -587,19 +666,153 @@ class TraceTracker:
                     r = Yf5 - (f0 + J0 @ dth + 0.5 * (HzD @ dth))    # quadratic-model self-residual
                 else:
                     r = rr[:M]                                        # live-run residual
-                g = Jtr.t() @ r
+                g, scale = precond_flow(self.model, self.opt, Jtr, r, N, lr)   # (direction, step); gd ⇒ (Jᵀr, η/N) byte-identical
                 Qg = jac_hvp(model, th0, X, g)[:M]
                 if dtr["cubic"]:
                     for gk in dtr["HistG"]:
-                        Qg = Qg + etaN5 * self._T2m5(th0, gk, g, X)   # Q_t propagated (Eq-3 history)
-                    dJ = etaN5 * Qg + 0.5 * (etaN5 ** 2) * self._T2m5(th0, g, g, X)   # ΔJ=(η/N)Q_t[g]+½(η/N)²T[g,g]
+                        Qg = Qg + scale * self._T2m5(th0, gk, g, X)   # Q_t propagated (Eq-3 history)
+                    dJ = scale * Qg + 0.5 * (scale ** 2) * self._T2m5(th0, g, g, X)   # ΔJ=scale·Q_t[g]+½·scale²·T[g,g]
                 else:
-                    dJ = etaN5 * Qg                                    # quadratic: T=0, Q frozen ⇒ ΔJ=(η/N)Q0[g]
+                    dJ = scale * Qg                                   # quadratic: T=0, Q frozen ⇒ ΔJ=scale·Q0[g]
                 dtr["trNo"] += 2.0 * float((Jtr * dJ).sum()); dtr["J"] = Jtr + dJ
                 if dtr["cubic"]:
                     dtr["HistG"].append(g)
                 if dtr["self"]:
-                    dtr["Dth"] = dth + etaN5 * g
+                    dtr["Dth"] = dth + scale * g
                 dtr["sc"] += 1
         return {"t0": self.stat_init, "trGN": trGN, "trHess": trHess,
                 "qLive": tr_out[0], "qSelf": tr_out[1], "cLive": tr_out[2], "cSelf": tr_out[3]}
+
+
+class Pred6Tracker:
+    """Prediction-6 (server s39): FOUR INDEPENDENT adaptive-optimizer trajectories {GD, Signed-GD, Spectral(Muon),
+    Gauss-Newton} from the SAME init θ0, each stepped with its OWN learning rate (lr6). Per tick it reports, for
+    each trajectory: the top-50 Gauss-Newton eigenvalues (= the nonzero spectrum of JᵀJ = eigvals of the NTK JJᵀ)
+    as a DESCENDING scree curve, the loss, and the sharpness λmax(∇²L) via bounded Lanczos.
+
+    MIRRORS server.py's g_pred6 per-step block (server.py:4042-4075) EXACTLY. `step(t, th, X, Y)` returns the
+    g_pred6 dict {t, gd/sign/spectral/gaussnewton:[≤50 eig], loss:{opt:..}, sharp:{opt:λmax∇²L}}. The live θ is
+    used ONLY to seed all four trajectories at the first tick; thereafter each evolves on its own (NO momentum/WD).
+
+    Parity: `spec6` (exact Jacobian eigenvalues) and `loss6` match the server to ~1e-12 fp64 / ~1e-4 fp32;
+    `sharp6` carries the documented FD-vs-exact-HVP gap (~1e-3), because server.MlpModel.hvpL is finite-difference
+    while eos_lab.hvp_L is exact autograd (identical to the §1 sharpness discrepancy)."""
+
+    def __init__(self, model, loss, N, outD, p, lr6, ee, mV):
+        self.model = model; self.loss = loss
+        self.N = N; self.outD = outD; self.p = p; self.M = N * outD
+        self.lr6 = dict(lr6); self.ee = max(1, ee); self.mV = mV
+        self.p6 = None                                  # lazy-seeded {optimizer: θ}, all from the run's init θ0
+        self.device = None; self.dtype = None
+
+    def step(self, t, th, X, Y):
+        model = self.model; loss = self.loss
+        N = self.N; M = self.M; p = self.p; outD = self.outD
+        self.device = th.device; self.dtype = th.dtype
+        if self.p6 is None:                             # seed all 4 at the current θ (run init θ0)
+            self.p6 = {k: th.detach().clone() for k in ("gd", "sign", "spectral", "gaussnewton")}
+        _K6 = min(50, M)
+        _mV6 = min(self.mV, 20)                         # bounded Lanczos for the per-trajectory sharpness
+        _fin = lambda x: x if (x == x and -1e30 < x < 1e30) else None    # finite-or-None (JSON can't hold inf/nan)
+        spec6 = {}; loss6 = {}; sharp6 = {}
+        for okey in ("gd", "sign", "spectral", "gaussnewton"):
+            thx = self.p6[okey]; olr = self.lr6[okey]
+            Jx, _ox = jac_cols(model, thx, X); Jx = Jx[:M]
+            lam6 = safe_eigvalsh(Jx @ Jx.t())                                # JJᵀ (NTK) eigenvalues, ascending; = nonzero Gauss-Newton spectrum
+            spec6[okey] = [max(0.0, float(lam6[-1 - i])) for i in range(_K6)]  # top-50 (or M) DESCENDING (rank 1 = largest)
+            if torch.isfinite(thx).all():                                    # loss + sharpness λmax(∇²L) at this θ (None once a trajectory diverges)
+                loss6[okey] = _fin(float(loss.value(model.forward(thx, X), Y, N)))
+                try:
+                    sharp6[okey] = _fin(max(0.0, float(lanczos_extreme_vals(
+                        lambda v: hvp_L(model, loss, thx, X, Y, v), p, 1, _mV6, 0x5EED1, self.device, self.dtype)[0][0])))
+                except Exception:
+                    sharp6[okey] = None
+            else:
+                loss6[okey] = None; sharp6[okey] = None
+            for _ in range(max(1, self.ee)):                                 # advance ee steps per tick ⇒ stay in lockstep with the run's t-axis (eigevery>1 safe)
+                if okey == "gaussnewton":                                    # GN needs the full J and residual r
+                    Js, os = jac_cols(model, thx, X)
+                    rx = (-N * loss.resid_cotangent(os.reshape(N, outD), Y, N)).reshape(-1)[:M]
+                    thx = thx - olr * opt_dir(model, None, okey, Js[:M], rx)
+                else:
+                    thx = thx - olr * opt_dir(model, grad_loss(model, loss, thx, X, Y)[0], okey)
+            self.p6[okey] = thx
+        return {"t": t, **spec6, "loss": loss6, "sharp": sharp6}            # {t, gd/sign/spectral/gaussnewton:[≤50 eig], loss:{opt:..}, sharp:{opt:λmax∇²L}}
+
+
+def run_predictions(cfg, device=None, dtype=None, cifar_dir=None):
+    """Drive the prediction-widget trackers along a full-batch training run — the eos_lab fp64 reference for
+    server.py's g_pred3 / g_pred3m / g_pred4 / g_pred4m / g_trace / g_pred6 SSE keys.
+
+    Runs ONE optimizer trajectory from θ0 (the run's `optimizer`, mirroring server run_stream 4754-4759) and,
+    every `eigevery`-th tick, steps the enabled trackers (s36→Pred-3, s37→Pred-4, s38→Trace(5.1), s39→Pred-6).
+    Returns {"meta":..., "records":[{"t":t, "g_pred3":..., "g_pred3m":..., "g_pred4":..., "g_pred4m":...,
+    "g_trace":..., "g_pred6":...}, ...]} (only the enabled keys per record). Full-batch only (predictions gate to
+    MSE + small M); NOT part of run_job's diagnostics path.
+
+    MIRRORS server.py run_stream's per-tick dispatch: Jc/rr are computed once per tick and shared across the
+    residual-based trackers (server.py:3667-3670); Pred-6 recomputes its own jac_cols per trajectory."""
+    from .train import resolve_device, effective_dims
+    dev = resolve_device(device)
+    if dtype is None:
+        dtype = torch.float32 if dev.type == "cuda" else torch.float64
+    torch.set_grad_enabled(False)
+
+    P = cfg.P()
+    dataset = cfg.dataset
+    inD, outD = effective_dims(cfg)
+    model = build_model(cfg.arch, inD, outD, P, dev, dtype)
+    loss = build_loss(cfg.loss)
+    if loss.name != "mse":
+        raise ValueError("predictions need MSE loss (the residual / NTK theories are for squared loss).")
+    p = model.p
+    N = int(cfg.nsamp); M = N * outD
+    lr = float(cfg.lr); ee = max(1, int(cfg.eigevery)); opt = cfg.optimizer
+    th, X, Y, _, _ = init_data_theta(model, P, dataset, N, inD, outD, dev, dtype, cifar_dir)
+
+    mV = min(p, max(2 * int(cfg.neig) + 16, 28))                 # Lanczos size (mirrors Diagnostics.mV / server mV)
+    lr6 = {"gd": float(cfg.lr_gd), "sign": float(cfg.lr_sign),
+           "spectral": float(cfg.lr_muon), "gaussnewton": float(cfg.lr_gn)}
+
+    trk = {}
+    if int(getattr(cfg, "s36", 0)):
+        trk["pred3"] = Pred3Tracker(model, loss, N, outD, p, lr, ee, opt=opt,
+                                    p3rep=int(cfg.p3rep), p3k=int(cfg.p3k))
+    if int(getattr(cfg, "s37", 0)):
+        trk["pred4"] = Pred4Tracker(model, loss, N, outD, p, lr, ee, p4t0=int(cfg.p4t0),
+                                    p4s=int(cfg.p4s), p4rep=int(cfg.p4rep), opt=opt)
+    if int(getattr(cfg, "s38", 0)):
+        trk["trace"] = TraceTracker(model, loss, N, outD, p, lr, ee, stat_init=int(cfg.stat_init),
+                                    qapprox=int(cfg.qapprox), evcubic=int(cfg.evcubic), opt=opt)
+    if int(getattr(cfg, "s39", 0)):
+        trk["pred6"] = Pred6Tracker(model, loss, N, outD, p, lr6, ee, mV)
+
+    records = []
+    for t in range(int(cfg.steps) + 1):
+        if t % ee == 0:
+            Jc, out_flat = jac_cols(model, th, X)
+            rr = (-N * loss.resid_cotangent(out_flat.reshape(N, outD), Y, N)).reshape(-1)
+            rec = {"t": t}
+            if "pred3" in trk:
+                rec["g_pred3"] = trk["pred3"].step(t, th, X, Y, Jc, rr)
+                rec["g_pred3m"] = trk["pred3"].step_multi(t, th, X, Y, Jc, rr)
+            if "pred4" in trk:
+                rec["g_pred4"] = trk["pred4"].step(t, th, X, Y, Jc, rr)
+                rec["g_pred4m"] = trk["pred4"].step_multi(t, th, X, Y, Jc, rr)
+            if "trace" in trk:
+                rec["g_trace"] = trk["trace"].step(t, th, X, Y, Jc, rr)
+            if "pred6" in trk:
+                rec["g_pred6"] = trk["pred6"].step(t, th, X, Y)
+            records.append(rec)
+        if t < int(cfg.steps):
+            if opt == "gaussnewton":                              # GN needs the full J and residual r (mirror server run_stream 4754-4759)
+                Jg, of = jac_cols(model, th, X)
+                rrg = (-N * loss.resid_cotangent(of.reshape(N, outD), Y, N)).reshape(-1)
+                th = th - lr * opt_dir(model, None, opt, Jg[:M], rrg[:M])
+            else:
+                th = th - lr * opt_dir(model, grad_loss(model, loss, th, X, Y)[0], opt)
+
+    meta = {"p": p, "N": N, "M": M, "outD": outD, "steps": int(cfg.steps), "ee": ee,
+            "lr": lr, "optimizer": opt, "device": str(dev), "dtype": str(dtype).replace("torch.", ""),
+            "mV": mV, "lr6": lr6}
+    return {"meta": meta, "records": records}
