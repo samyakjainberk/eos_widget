@@ -3428,7 +3428,7 @@ def run_stream(P):
     p4s = max(1, int(P.get("p4s", 10)))   # prediction-4: re-anchor interval s for the EVOLVING-residual variant (residual re-anchored to actual every s steps)
     p3k = max(1, int(P.get("p3k", 10)))   # prediction-3: evolving-Jacobian theory — update J3 every p3k steps
     p3rep = max(0, int(P.get("p3rep", 100)))   # prediction-3: re-anchor ALL theories from the live run every p3rep iters (0 = never; freeze once at t*)
-    p3thr = float(P.get("p3thr", 0.8))         # prediction-3: ANCHOR when phase-1 |(Jᵀr)·u₁|/‖Jᵀr‖ (top M_r eigvec) first reaches this threshold
+    p4thr = float(P.get("p4thr", 0.8))         # prediction-4: ANCHOR (freeze) when phase-1 |(Jᵀr)·u₁|/‖Jᵀr‖ (top M_r eigvec) first reaches this threshold
     p4rep = max(0, int(P.get("p4rep", 100)))   # prediction-4: re-anchor frozen+evolving from the live run every p4rep iters (0 = never; freeze once at t0)
     s38 = P.get("s38", 0)                # prediction-5: trace-statistic prediction Tr(NTK) (quad/cubic × live/self, ±PSD) vs Tr(∇²L) & Tr(JᵀJ) (prediction widget)
     p5t0 = max(0, int(P.get("p5t0", 10)))   # prediction-5: iteration t0 at which Q, residual & J are frozen for the trace propagation
@@ -3523,8 +3523,10 @@ def run_stream(P):
     p3m = None   # prediction-3 MULTI-FREEZE panel: rolling (t,J,r,‖r‖) buffer + 3 frozen-J residual theories (t*-10/+10/+20)
     p4_J = None; p4_th0 = None; p4_r0 = None   # prediction-4: frozen J(t0), θ(t0), residual(t0) for the frozen-M_r Jacobian propagation
     p4_anchor_t = None   # prediction-4: iteration of the last live re-anchor (repeat_iter); re-seed frozen+evolving from the live run every p4rep iters
+    p4_tstar = None      # prediction-4: PHASE-1 anchor iteration (first tick |(Jᵀr)·u₁|/‖Jᵀr‖ ≥ p4thr); the multi-freeze offsets t*±10/20 key off this
     p4_Je = None; p4_re = None; p4_the = None; p4_thQ = None; p4_reQ = None; p4_J0e = None; p4_f0 = None; p4_qsc = 0   # prediction-4: EVOLVING-Qr — Ĵ (updated EVERY step), r̂ (bounded quadratic self-residual), θ̂; θ̂Q/r̂Q = the FIXED (θ̂,r̂) that define rQ=M_r for the current s-step window; frozen J0/f0 (nothing from the live run)
-    p4m = None   # prediction-4 MULTI-FREEZE panel: 3 frozen-M_r states at t0-10/+10/+20
+    p4m = None   # prediction-4 MULTI-FREEZE panel: 3 frozen-M_r states at t*-10/+10/+20 (t* = phase-1 anchor)
+    p4mbuf = []  # prediction-4 multi-freeze: rolling (t, J, θ, r) buffer for the t*-10 back-fill
     tr5 = None                                 # prediction-5: frozen state {θ0,J0,f0,Yf,tr0,traj[4]} for the trace-statistic propagation
     sec15_th64 = None          # §15: float64 SHADOW GD trajectory (MLP only). D²=‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖² is a ~9-digit
                                #   catastrophic cancellation when the net is near-stationary (e.g. chebyshev init=0.2: ‖J‖²≈21,
@@ -3651,6 +3653,29 @@ def run_stream(P):
                 yield {"type": _t15, "t": st, **_r15}
         yield {"type": "done", "p": p}
         return
+
+    def _p4m_freeze(fz, Jm, thm, rm, tt):   # prediction-4 multi-freeze: freeze a theory's (J,θ,r) at a given state
+        fz["J"] = Jm.detach().clone(); fz["th0"] = thm.detach().clone(); fz["r0"] = rm.reshape(N, outD).detach().clone()
+        fz["Je"] = Jm.detach().clone(); fz["re"] = rm.detach().clone(); fz["J0e"] = Jm.detach().clone()
+        fz["the"] = thm.detach().clone(); fz["thQ"] = thm.detach().clone(); fz["reQ"] = None; fz["qsc"] = 0
+        fz["f0"] = (Y.reshape(-1)[:M] - rm).detach().clone(); fz["anchor_t"] = tt
+    def _p4m_step(fz, sc4m):                # advance one GD step: frozen-M_r J + evolving-Qr Ĵ (mirrors pred-4's per-tick propagation)
+        if torch.isfinite(fz["J"]).all() and float(fz["J"].norm()) < 1e8:
+            MrJm = torch.stack([hvpS(fz["th0"], X, fz["J"][k], fz["r0"]) for k in range(M)])
+            fz["J"] = fz["J"] + sc4m * MrJm                               # frozen-residual: J += (η/N)·M_r(θ*,r*)·J
+        if torch.isfinite(fz["Je"]).all() and torch.isfinite(fz["re"]).all() and torch.isfinite(fz["the"]).all() and float(fz["Je"].norm()) < 1e8:
+            Yf = Y.reshape(-1)[:M]
+            if fz["reQ"] is None or fz["qsc"] % p4s == 0:
+                fz["thQ"] = fz["the"].detach().clone(); fz["reQ"] = fz["re"].detach().clone()
+            fz["Je"] = fz["Je"] + sc4m * torch.stack([hvpS(fz["thQ"], X, fz["Je"][k], fz["reQ"].reshape(N, outD)) for k in range(M)])
+            g_e = _precond_flow(_TL.model, opt, fz["Je"], fz["re"], N, lr)[0]
+            _negm = float(g_e.norm())
+            if _negm > 1e4: g_e = g_e * (1e4 / _negm)
+            fz["the"] = fz["the"] + sc4m * g_e
+            dth_e = fz["the"] - fz["th0"]
+            HzD_e = jac_hvp(fz["th0"], X, dth_e)[:M]
+            fz["re"] = Yf - (fz["f0"] + fz["J0e"] @ dth_e + 0.5 * (HzD_e @ dth_e))
+            fz["qsc"] += 1
 
     for t in range(steps + 1):
         if mytok != RUN_TOKEN.get(_devkey, mytok):
@@ -3929,19 +3954,9 @@ def run_stream(P):
                 jrd3 = float((Jm3.t() @ (Jm3 @ gL3)).norm())                    # ‖J·ṙ‖ = ‖JᵀJ∇L‖
                 jdr3 = float(hvpS(th, X, gL3, rm3.reshape(N, outD)).norm())      # ‖J̇·r‖ = ‖M_r∇L‖
                 diff3 = jrd3 - jdr3; sgn3 = (1 if diff3 > 0 else (-1 if diff3 < 0 else 0))
-                # PHASE-1 anchor: start the theory the first tick |(Jᵀr)·u₁|/‖Jᵀr‖ ≥ p3thr (u₁ = TOP eigenvector of
-                # M_r=Σ_k r_kQ_k — the §6 'Phase-1 Jr↔Qr alignment' value). Replaces the old ‖J·ṙ‖−‖J̇·r‖ sign-change.
-                p3align = None
-                if p3_tstar is None:                                             # only need it until the anchor is found
-                    Jr3 = Jm3.t() @ rm3; Jr3n = float(Jr3.norm())
-                    if Jr3n > 1e-30:
-                        _Qp, _Tp, _kp = _lanczos_core(lambda v: hvpS(th, X, v, rm3.reshape(N, outD)), p, min(p, 64), 0, dt=Jm3.dtype, q0=_randvec16(p, SEC21_SEED))
-                        _mup, _Svp = _safe_eigh(_Tp)
-                        _u1 = _Svp[:, int(torch.argmax(_mup))].to(device=_dev(), dtype=Jm3.dtype) @ torch.stack(_Qp)   # Ritz vec of the TOP (most positive) M_r eigenvalue
-                        p3align = abs(float(_u1 @ Jr3)) / Jr3n
-                g_pred3 = {"jrd": jrd3, "jdr": jdr3, "diff": diff3, "align": p3align, "thr": p3thr}
-                if p3_tstar is None and p3align is not None and p3align >= p3thr:
-                    p3_tstar = t; p3_Jstar = Jm3.detach().clone(); p3_rtheory = rm3.detach().clone()   # freeze J*, seed r_theory = r(t*) — at the phase-1 threshold crossing
+                g_pred3 = {"jrd": jrd3, "jdr": jdr3, "diff": diff3}
+                if p3_tstar is None and p3_prev_sign is not None and sgn3 != 0 and sgn3 != p3_prev_sign:
+                    p3_tstar = t; p3_Jstar = Jm3.detach().clone(); p3_rtheory = rm3.detach().clone()   # freeze J*, seed r_theory = r(t*)
                     p3_thstar = th.detach().clone(); p3_r2 = rm3.detach().clone()   # 2nd-order theory: freeze θ* (for Q*) and seed r₂ = r(t*)
                     p3_J3 = Jm3.detach().clone(); p3_J3adv = None; p3_r3 = rm3.detach().clone(); p3_the3 = th.detach().clone(); p3_j3sc = 0   # evolving-J theory: seed J3=J(t*), r3=r(t*), θ̂3=θ(t*); shadow J3adv seeded lazily from J3
                     p3_anchor_t = t
@@ -4040,7 +4055,19 @@ def run_stream(P):
             g_pred4 = None
             if s37 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 Jm4 = Jc[:M]
-                if (p4_J is None and t >= p4t0) or (p4_J is not None and p4rep > 0 and p4_anchor_t is not None and t >= p4_anchor_t + p4rep):   # freeze Q & residual at t0, then ★ repeat_iter: RE-anchor from the LIVE run every p4rep iters
+                # PHASE-1 anchor: freeze at the first tick |(Jᵀr)·u₁|/‖Jᵀr‖ ≥ p4thr (u₁ = TOP eigenvector of
+                # M_r=Σ_k r_kQ_k — the §6 'Phase-1 Jr↔Qr alignment' value), instead of the fixed iteration t0.
+                p4align = None
+                if p4_J is None:
+                    _rm4 = rr[:M]; _Jr4 = Jm4.t() @ _rm4; _Jr4n = float(_Jr4.norm())
+                    if _Jr4n > 1e-30:
+                        _Q4, _T4, _k4 = _lanczos_core(lambda v: hvpS(th, X, v, _rm4.reshape(N, outD)), p, min(p, 64), 0, dt=Jm4.dtype, q0=_randvec16(p, SEC21_SEED))
+                        _mu4, _Sv4 = _safe_eigh(_T4)
+                        _u14 = _Sv4[:, int(torch.argmax(_mu4))].to(device=_dev(), dtype=Jm4.dtype) @ torch.stack(_Q4)   # Ritz vec of the TOP M_r eigenvalue
+                        p4align = abs(float(_u14 @ _Jr4)) / _Jr4n
+                if (p4_J is None and p4align is not None and p4align >= p4thr) or (p4_J is not None and p4rep > 0 and p4_anchor_t is not None and t >= p4_anchor_t + p4rep):   # freeze at the PHASE-1 crossing, then ★ repeat_iter: RE-anchor from the LIVE run every p4rep iters
+                    if p4_tstar is None:
+                        p4_tstar = t                                              # record the phase-1 anchor iteration (drives the multi-freeze offsets t*±10/20)
                     p4_J = Jm4.detach().clone(); p4_th0 = th.detach().clone(); p4_r0 = rr[:M].reshape(N, outD).detach().clone()
                     p4_Je = Jm4.detach().clone(); p4_re = rr[:M].detach().clone()   # EVOLVING-Qr: seed Ĵ, r̂
                     p4_J0e = Jm4.detach().clone()                                   # frozen J(θ0) for the bounded quadratic self-residual
@@ -4070,8 +4097,8 @@ def run_stream(P):
                         kPred4 = [max(0.0, float(kp[-1 - i])) for i in range(K4)]
                         kPredE = [max(0.0, float(kpe[-1 - i])) for i in range(K4)]
                         cos5 = []; cos5E = []; cosGN5 = []; cosGN5E = []
-                    g_pred4 = {"t0": p4t0, "s": p4s, "kAct": kAct4, "kPred": kPred4, "kPredE": kPredE,
-                               "cos5": cos5, "cos5E": cos5E, "cosGN5": cosGN5, "cosGN5E": cosGN5E}   # frozen- & evolving-residual eigvals + NTK & GN eigvec |cos|
+                    g_pred4 = {"t0": (p4_tstar if p4_tstar is not None else p4t0), "s": p4s, "kAct": kAct4, "kPred": kPred4, "kPredE": kPredE,
+                               "cos5": cos5, "cos5E": cos5E, "cosGN5": cosGN5, "cosGN5E": cosGN5E}   # t0 = phase-1 anchor t*; frozen- & evolving-residual eigvals + NTK & GN eigvec |cos|
                     sc4 = lr / max(N, 1) if opt == "gd" else lr                  # optimizer step size (gd ⇒ η/N); Pred-4 keeps the M_r·J closure — P enters via the self-trajectory + this step size
                     for _ in range(max(1, ee)):                                  # advance ONE GD step per actual step (ee GD steps between diagnostic ticks)
                         if torch.isfinite(p4_J).all() and float(p4_J.norm()) < 1e8:   # freeze once the predicted NTK clearly diverges (GN's big steps blow it up) ⇒ stays finite so the eigh reporting never stalls
@@ -4091,14 +4118,25 @@ def run_stream(P):
                             p4_re = Yf - (p4_f0 + p4_J0e @ dth_e + 0.5 * (HzD_e @ dth_e))        # r̂ = Y − (f0 + J0Δθ̂ + ½Δθ̂ᵀQ0Δθ̂) — bounded
                             p4_qsc += 1
 
-            # prediction-4 MULTI-FREEZE panel: same frozen-M_r propagation but anchored at t0-10, t0+10, t0+20 (3 plots vs the actual top-5 NTK eigvals)
+            # prediction-4 MULTI-FREEZE panel: same frozen-M_r propagation but anchored at the PHASE-1 anchor t* ± {-10,+10,+20}
             g_pred4m = None
             if s37 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 Jm4m = Jc[:M]
+                p4mbuf.append((t, Jm4m.detach().clone(), th.detach().clone(), rr[:M].detach().clone()))   # rolling buffer for the t*-10 back-fill
+                if len(p4mbuf) > 40:
+                    p4mbuf = p4mbuf[-40:]
                 if p4m is None:
-                    p4m = [{"tf": p4t0 - 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "reQ": None, "J0e": None, "f0": None, "qsc": 0, "anchor_t": None},
-                           {"tf": p4t0 + 10, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "reQ": None, "J0e": None, "f0": None, "qsc": 0, "anchor_t": None},
-                           {"tf": p4t0 + 20, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "reQ": None, "J0e": None, "f0": None, "qsc": 0, "anchor_t": None}]
+                    p4m = [{"tf": None, "J": None, "th0": None, "r0": None, "Je": None, "re": None, "the": None, "thQ": None, "reQ": None, "J0e": None, "f0": None, "qsc": 0, "anchor_t": None} for _ in range(3)]
+                sc4m = lr / max(N, 1) if opt == "gd" else lr                      # optimizer step size (gd ⇒ η/N)
+                if p4_tstar is not None and p4m[0]["tf"] is None:                 # phase-1 anchor now known ⇒ set the three offsets t*±{-10,+10,+20}
+                    for oi, off in enumerate((-10, 10, 20)):
+                        p4m[oi]["tf"] = p4_tstar + off
+                    if p4mbuf:                                                    # BACK-FILL the -10 (in the past): freeze at the buffered t*-10 state, then advance it up to now
+                        bi = min(range(len(p4mbuf)), key=lambda i: abs(p4mbuf[i][0] - (p4_tstar - 10)))
+                        _p4m_freeze(p4m[0], p4mbuf[bi][1], p4mbuf[bi][2], p4mbuf[bi][3], p4mbuf[bi][0])
+                        for j in range(bi, len(p4mbuf) - 1):                      # buffer points are eigevery GD-steps apart → advance that many
+                            for _ in range(max(1, p4mbuf[j + 1][0] - p4mbuf[j][0])):
+                                _p4m_step(p4m[0], sc4m)
                 K5m = min(3, M)                                                   # top-3
                 try:
                     Wam = _safe_eigvalsh(Jm4m @ Jm4m.t()); ka4m = [max(0.0, float(Wam[-1 - i])) for i in range(K5m)]
@@ -4106,40 +4144,20 @@ def run_stream(P):
                     ka4m = None
                 kpm = [None, None, None]; kpmE = [None, None, None]
                 for fi4, fz in enumerate(p4m):
-                    if (fz["tf"] >= 0 and t >= fz["tf"] and fz["J"] is None) or \
-                       (fz["J"] is not None and p4rep > 0 and fz["anchor_t"] is not None and t >= fz["anchor_t"] + p4rep):   # freeze M_r (θ, J, residual) at this offset iteration (>= so eigevery>1 can't skip the exact tick), then ★ repeat_iter: RE-anchor from the LIVE run every p4rep iters (so this multi-freeze plot ALSO shows the periodic reset, not just prediction-4's main plot)
-                        fz["J"] = Jm4m.detach().clone(); fz["th0"] = th.detach().clone(); fz["r0"] = rr[:M].reshape(N, outD).detach().clone()
-                        fz["Je"] = Jm4m.detach().clone(); fz["re"] = rr[:M].detach().clone()   # evolving-Qr seed
-                        fz["J0e"] = Jm4m.detach().clone()                          # frozen J(θ_freeze) for the bounded quadratic self-residual
-                        fz["the"] = th.detach().clone(); fz["thQ"] = th.detach().clone(); fz["reQ"] = None; fz["qsc"] = 0   # θ̂ + θ̂Q/r̂Q (the FIXED rQ for the s-step window, re-snapshotted below)
-                        fz["f0"] = (Y.reshape(-1)[:M] - rr[:M]).detach().clone()   # f(θ_freeze) for the bounded quadratic self-residual
-                        fz["anchor_t"] = t
+                    if (fz["tf"] is not None and fz["tf"] >= 0 and t >= fz["tf"] and fz["J"] is None) or \
+                       (fz["J"] is not None and p4rep > 0 and fz["anchor_t"] is not None and t >= fz["anchor_t"] + p4rep):   # freeze at this offset iteration (real-time for the +10/+20 future offsets; the -10 was back-filled above), then ★ repeat_iter RE-anchor every p4rep
+                        _p4m_freeze(fz, Jm4m, th, rr[:M], t)
                     if fz["J"] is not None:
                         try:
                             Wpm = _safe_eigvalsh(fz["J"] @ fz["J"].t()); kpm[fi4] = [max(0.0, float(Wpm[-1 - i])) for i in range(K5m)]
                             Wpe = _safe_eigvalsh(fz["Je"] @ fz["Je"].t()); kpmE[fi4] = [max(0.0, float(Wpe[-1 - i])) for i in range(K5m)]
                         except Exception:
                             kpm[fi4] = None; kpmE[fi4] = None
-                        sc4m = lr / max(N, 1) if opt == "gd" else lr             # optimizer step size (gd ⇒ η/N)
-                        for _ in range(max(1, ee)):                              # advance the frozen- & evolving-residual Jacobians ee GD steps
-                            if torch.isfinite(fz["J"]).all() and float(fz["J"].norm()) < 1e8:   # cap ⇒ GN divergence stays finite (no eigh stall)
-                                MrJm = torch.stack([hvpS(fz["th0"], X, fz["J"][k], fz["r0"]) for k in range(M)])
-                                fz["J"] = fz["J"] + sc4m * MrJm
-                            if torch.isfinite(fz["Je"]).all() and torch.isfinite(fz["re"]).all() and torch.isfinite(fz["the"]).all() and float(fz["Je"].norm()) < 1e8:   # evolving-Qr (norm cap ⇒ no eigh stall on GN divergence): Ĵ_{t+1}=Ĵ_t+(η/N)·M_r·Ĵ, rQ=M_r(r̂Q,θ̂Q) FIXED for s steps then refreshed; θ̂/r̂ evolve every step
-                                Yf = Y.reshape(-1)[:M]
-                                if fz["reQ"] is None or fz["qsc"] % p4s == 0:                  # refresh the FIXED rQ = M_r(r̂Q, θ̂Q) at each s-step window boundary (p4s=1 ⇒ refresh every step)
-                                    fz["thQ"] = fz["the"].detach().clone(); fz["reQ"] = fz["re"].detach().clone()
-                                fz["Je"] = fz["Je"] + sc4m * torch.stack([hvpS(fz["thQ"], X, fz["Je"][k], fz["reQ"].reshape(N, outD)) for k in range(M)])   # ★ Ĵ EVERY step via the FIXED rQJ = M_r(r̂Q,θ̂Q)·Ĵ (true (I+scale·M_r)^s power iteration)
-                                g_e = _precond_flow(_TL.model, opt, fz["Je"], fz["re"], N, lr)[0]   # preconditioned self-model gradient P·(Ĵᵀr̂); gd ⇒ Ĵᵀr̂
-                                _negm = float(g_e.norm())
-                                if _negm > 1e4: g_e = g_e * (1e4 / _negm)                       # trust-region clamp (see pred-4): keep θ̂/r̂ finite under GN so the FD kernels never stall
-                                fz["the"] = fz["the"] + sc4m * g_e
-                                dth_e = fz["the"] - fz["th0"]
-                                HzD_e = jac_hvp(fz["th0"], X, dth_e)[:M]                         # Q0·Δθ̂
-                                fz["re"] = Yf - (fz["f0"] + fz["J0e"] @ dth_e + 0.5 * (HzD_e @ dth_e))   # r̂ = Y − (f0 + J0Δθ̂ + ½Δθ̂ᵀQ0Δθ̂)
-                                fz["qsc"] += 1
+                        for _ in range(max(1, ee)):                              # advance the frozen- & evolving-residual Jacobians ee GD steps (for the next tick)
+                            _p4m_step(fz, sc4m)
                 if ka4m is not None:
-                    g_pred4m = {"kAct": ka4m, "off": [p4t0 - 10, p4t0 + 10, p4t0 + 20], "kPred": kpm, "kPredE": kpmE}
+                    _b4 = (p4_tstar if p4_tstar is not None else p4t0)
+                    g_pred4m = {"kAct": ka4m, "off": [_b4 - 10, _b4 + 10, _b4 + 20], "kPred": kpm, "kPredE": kpmE}
 
             # prediction-5 (s38): TRACE-STATISTIC prediction (PDF Eq-1..5). At t0 freeze θ0, J0=J(t0), the frozen
             #   output f0 & residual r0, Q0 (jac_hvp) and T (central-diff). Propagate 4 Jacobian trajectories
@@ -5523,7 +5541,7 @@ def _parse_params(q):
         "p4s": fi("p4s", 10),            # prediction-4: re-anchor interval s for the evolving-residual variant
         "p3k": fi("p3k", 10),            # prediction-3: evolving-Jacobian J-update interval
         "p3rep": fi("p3rep", 100),       # prediction-3: live re-anchor interval (repeat_iter)
-        "p3thr": ff("p3thr", 0.8),       # prediction-3: phase-1 |(Jᵀr)·u₁|/‖Jᵀr‖ anchor threshold (default 0.8)
+        "p4thr": ff("p4thr", 0.8),       # prediction-4: phase-1 |(Jᵀr)·u₁|/‖Jᵀr‖ anchor threshold (default 0.8)
         "p4rep": fi("p4rep", 100),       # prediction-4: live re-anchor interval (repeat_iter)
         "s38": g("s38", "0") == "1",     # prediction-5: trace-statistic Tr(NTK) prediction (prediction widget)
         "s39": g("s39", "0") == "1",     # prediction-6: adaptive-optimizer top-50 Gauss-Newton eigenvalue scree curves (OFF by default)
