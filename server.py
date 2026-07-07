@@ -5503,6 +5503,10 @@ def _parse_params(q):
         "swstdmin": ff("swstdmin", 0.0), "swstdmax": ff("swstdmax", 0.0),
         "swsumn": fi("swsumn", 20), "swsumn2": fi("swsumn2", 20),   # prediction-2/2b: sum windows N / N₂ (must be in P so the query values reach run_sweep)
         "swshk": fi("swshk", 5),        # prediction-2c: Δsharpness window k (λmax(∇²L) at t=k vs t=0)
+        "swclr": ff("swclr", 1e-7),     # prediction-2c/2d: FIXED very-small lr for the Δsharpness sub-trajectory (must be in P so the query value reaches run_sweep)
+        "swmrk": fi("swmrk", 10),       # prediction-2c/2d: k for the (Σ top-k)+(Σ bottom-k) eigenvalue sum of Qr
+        "swcsmin": ff("swcsmin", 0.1), "swcsmax": ff("swcsmax", 10.0),   # prediction-2c/2d DEDICATED σ-sweep range (init scale, log-spaced)
+        "sw2cd": g("sw2cd", "0") == "1",   # prediction-2c/2d gate: only run the dedicated σ-loop (plots 4-5) when ON (OFF by default ⇒ not computed)
         "s1": g("s1", "1") == "1", "s2": g("s2", "1") == "1", "s3": g("s3", "1") == "1",
         "s4": g("s4", "1") == "1", "s5": g("s5", "1") == "1", "s6": g("s6", "1") == "1",
         "s7": g("s7", "1") == "1", "s8": g("s8", "1") == "1", "s9": g("s9", "1") == "1",
@@ -5707,6 +5711,10 @@ def run_sweep(P):
     swsumn = max(1, int(P.get("swsumn", 20)))   # prediction-2: SUM d and d²loss/dt² over the first swsumn iterations (from 0), then take the signs
     swsumn2 = max(1, int(P.get("swsumn2", 20)))   # prediction-2b: SUM d and ∇‖J‖ over the first swsumn2 iterations (from 0), then take the signs (own window; less noisy)
     swshk = max(1, min(int(P.get("swshk", 5)), steps - 1))   # prediction-2c: window k for Δsharpness = λmax(∇²L)(t=k) − λmax(∇²L)(t=0) (clamped < steps so t==swshk always fires)
+    swclr = max(1e-12, float(P.get("swclr", 1e-7) or 1e-7))   # prediction-2c: FIXED very-small lr for the Δsharpness sub-trajectory (decoupled from the swept lr; default 1e-7)
+    swmrk = max(1, int(P.get("swmrk", 10)))                    # prediction-2c/2d: k for the (Σ top-k)+(Σ bottom-k) eigenvalue sum of Qr=M_r (default 10)
+    swcsmin = max(1e-6, float(P.get("swcsmin", 0.1) or 0.1))   # prediction-2c/2d DEDICATED σ-sweep min (default 0.1) — decoupled from the main (lr,σ) pairs
+    swcsmax = max(swcsmin * 1.01, float(P.get("swcsmax", 10.0) or 10.0))   # prediction-2c/2d dedicated σ-sweep max (default 10)
     seed0 = int(P.get("seed", 0)); opt = P.get("optimizer", "gd")   # sweep actual + predicted trajectories follow the chosen optimizer
     base_lr = float(P.get("lr", 0.1)); base_std = float(P.get("init", 0.5))
     _lrmn = float(P.get("swlrmin", 0) or 0); _lrmx = float(P.get("swlrmax", 0) or 0)          # 0 ⇒ auto (base±4×)
@@ -5726,13 +5734,60 @@ def run_sweep(P):
             return (float(_mu[-1]), float(_mu[0])) if both else float(_mu[-1])   # ascending ⇒ [-1]=λmax, [0]=λmin
         except Exception:
             return ((None, None) if both else None)
+    def _lanczos_sumk(hvp, k):                            # prediction-2c/2d: (Σ top-k)+(Σ bottom-k) eigenvalues via matrix-free Lanczos (verified 0.00% vs full eigh)
+        try:
+            _m = min(p, max(64, 4 * k))                   # ≥64 iters resolves the top-k & bottom-k extremes on both ends (Lanczos converges outer eigenvalues first)
+            _Ql, _Tl, _kl = _lanczos_core(hvp, p, _m, 0, dt=DTYPE, q0=_randvec16(p, 0x5A1DBEEF & 0x7FFFFFFF))
+            _mu, _ = _safe_eigh(_Tl)                      # ascending Ritz values (length _kl)
+            _ke = max(1, min(k, _kl // 2, p // 2))        # cap so top-k and bottom-k never overlap (small p / small Krylov)
+            return float(_mu[-_ke:].sum()) + float(_mu[:_ke].sum())   # Σ(top-k, most positive) + Σ(bottom-k, most negative) — signed net-extreme over 2k modes
+        except Exception:
+            return None
+    def _lanczos_proj_energy(hvp, jr, k):                 # prediction-2c: Σ_{top-k ⊕ bottom-k} λ_i·(u_i·Jr)² / ‖Jr‖ over Qr's extreme eigenPAIRS (Ritz vectors; verified 0.00% vs full eigh)
+        try:
+            _jn = float(jr.norm())
+            if not (_jn > 1e-30):
+                return None
+            _m = min(p, max(64, 4 * k))
+            _Ql, _Tl, _kl = _lanczos_core(hvp, p, _m, 0, dt=DTYPE, q0=_randvec16(p, 0x5A1DBEEF & 0x7FFFFFFF))
+            _mu, _Vt = _safe_eigh(_Tl)                    # ascending eigenvalues μ + eigenvectors _Vt (kl×kl) of the tridiagonal T
+            _Qm = torch.stack(_Ql)                        # (kl, p) orthonormal Lanczos basis ⇒ Ritz vector u_i = _Qm.t() @ _Vt[:,i] (unit norm)
+            _Vt = _Vt.to(device=_Qm.device, dtype=_Qm.dtype)   # _safe_eigh runs on the fp64/CPU tridiagonal T; move eigvecs onto the Lanczos-basis device+dtype (e.g. GPU fp32) before the Ritz matmul
+            _jd = jr.to(device=_Qm.device, dtype=_Qm.dtype)
+            _ke = max(1, min(k, _kl // 2))
+            _idx = list(range(_ke)) + list(range(_kl - _ke, _kl))   # bottom-k ∪ top-k Ritz modes (no overlap: _ke ≤ kl//2)
+            _acc = 0.0
+            for _i in _idx:
+                _pr = float((_Qm.t() @ _Vt[:, _i]) @ _jd)   # u_i · Jr
+                _acc += float(_mu[_i]) * _pr * _pr          # λ_i (u_i·Jr)²
+            return _acc / _jn                               # signed curvature-energy of Jr in Qr's 2k extreme modes, ÷‖Jr‖
+        except Exception:
+            return None
+    # ── Prediction-2c/2d (plots 4-5): DEDICATED σ-sweep — σ log-spaced over [swcsmin, swcsmax] (default 0.1→10), decoupled from the (lr,σ) pairs below.
+    #    Per σ, the (Σ top-k)+(Σ bottom-k) eigenvalue net-extreme of TWO function Hessians at t=0, each plotted vs σ:
+    #    plot-4 y = H = Σ_α Q_α (UNWEIGHTED function Hessian); plot-5 y = Qr = Σ_α r_α Q_α (residual-weighted, r=y−f). Streamed first so plots 4-5 fill promptly.
+    _sw2cd = bool(P.get("sw2cd", False))                                   # gate: plots 4-5 are OFF by default — the dedicated σ-loop only runs when the toggle is ON
+    _lo, _hi = _math.log(swcsmin), _math.log(swcsmax)
+    for si in range(npairs if _sw2cd else 0):                              # range(0) ⇒ skip entirely (no sweeppt2c streamed, nothing computed) when the toggle is off
+        std_c = _math.exp(_lo + (_hi - _lo) * (si / max(1, npairs - 1)))   # deterministic log-spaced σ grid 0.1 → 10
+        th_c = _TL.model.init_theta(seed0 + 1, std_c)
+        out_c = _TL.model.forward(th_c, X)
+        if not (float(_TL.loss.value(out_c, Y, N)) < 1e12):
+            continue                                                       # skip a NaN/blow-up init (rare at large σ)
+        rr_c = (-N * _TL.loss.resid_cotangent(out_c.reshape(N, outD), Y, N)).reshape(-1)[:M]   # r = y − f
+        _onesc = torch.ones(N, outD, dtype=out_c.dtype, device=out_c.device)                   # cotangent ≡ 1 ⇒ H = Σ_α Q_α (unweighted function Hessian)
+        mrSum = _lanczos_sumk(lambda v: hvpS(th_c, X, v, rr_c.reshape(N, outD)), swmrk)         # plot-5 y: (Σ top-k)+(Σ bottom-k) eigvals of Qr = Σ_α r_α Q_α
+        hSum  = _lanczos_sumk(lambda v: hvpS(th_c, X, v, _onesc), swmrk)                        # plot-4 y: (Σ top-k)+(Σ bottom-k) eigvals of H  = Σ_α Q_α
+        yield {"type": "sweeppt2c", "i": si, "std": float(std_c),
+               "mrSum": (mrSum if (mrSum is not None and mrSum == mrSum) else None),   # plot-5 y: Qr = Σ_α r_α Q_α net-extreme (vs σ)
+               "hSum": (hSum if (hSum is not None and hSum == hSum) else None),         # plot-4 y: H = Σ_α Q_α net-extreme (vs σ)
+               "swmrk": swmrk, "n2c": npairs}
     for pi in range(npairs):
         lr = _math.exp(rng.uniform(_math.log(lrmin), _math.log(lrmax)))
         std = _math.exp(rng.uniform(_math.log(stdmin), _math.log(stdmax)))
         th = _TL.model.init_theta(seed0 + 1, std)
         diffs = []; losses = []; jnorms = []; th_at_T = None; diverged = False; align_acc = 0.0; align_cnt = 0
-        sharp0 = None; sharpK = None; mrSum = None   # prediction-2c/2d: λmax(∇²L) at t=0/t=k + (λmax+λmin) of Qr=M_r=Σ_k r_kQ_k at t=0
-        for t in range(steps):
+        for t in range(steps):                            # main (lr,σ) sweep: prediction-1/2/2b (plots 0-3). Prediction-2c/2d (plots 4-5) run in a DEDICATED σ-loop below.
             out = _TL.model.forward(th, X)
             lv = float(_TL.loss.value(out, Y, N))
             if not (lv < 1e12):                       # NaN or blow-up ⇒ stop this pair, keep only the finite history
@@ -5740,13 +5795,6 @@ def run_sweep(P):
             Jc, _ = jac_cols(th, X); Jm = Jc[:M]; jnorms.append(float(Jm.norm()))   # ‖J‖_F per step → start-of-training trend (prediction-2b)
             cS = _TL.loss.resid_cotangent(out.reshape(N, outD), Y, N)
             rr = (-N * cS).reshape(-1)[:M]
-            if t == 0:                                    # prediction-2c/2d: (λmax+λmin) of Qr=M_r=Σ_k r_kQ_k AND sharpness λmax(∇²L), at init
-                _mrmx, _mrmn = _lanczos_extremes(lambda v: hvpS(th, X, v, rr.reshape(N, outD)), both=True)
-                if _mrmx is not None:
-                    mrSum = _mrmx + _mrmn                  # λmax+λmin = |λmax|−|λmin| (λmin<0): signed net-extreme of the indefinite Qr=M_r
-                sharp0 = _lanczos_extremes(lambda v: hvpL(th, X, Y, v))
-            if t == swshk:                                # prediction-2c: sharpness λmax(∇²L) after k iterations
-                sharpK = _lanczos_extremes(lambda v: hvpL(th, X, Y, v))
             if t < swsumn:                                # prediction-2/2b tick colour: Σ_{k≤3} |⟨r̂, v_k⟩| (top-3 NTK eigenvectors), averaged over the window
                 try:
                     _Wv, _Vv = torch.linalg.eigh(Jm @ Jm.t())
@@ -5784,10 +5832,7 @@ def run_sweep(P):
         nj2 = min(swsumn2, len(jnorms) - 1)            # prediction-2b: Σ ∇‖J‖ over the first swsumn2 iters = Σ(‖J‖_{i+1}−‖J‖_i) = ‖J‖_{swsumn2} − ‖J‖_0 (telescoping) — how much ‖J‖ rose/fell overall
         sumJgrad = float(sum(jnorms[i + 1] - jnorms[i] for i in range(nj2))) if nj2 >= 1 else 0.0
         jfro = float(sum(jnorms[:swsumn]) / max(1, min(swsumn, len(jnorms))))   # windowed-mean ‖J‖_F over the first swsumn steps (same window as alignNTK) — the right-half tick colour for prediction-2/2b
-        dSharp = (sharpK - sharp0) if (sharpK is not None and sharp0 is not None) else None   # prediction-2c: Δ sharpness = λmax(∇²L)(t=k) − λmax(∇²L)(t=0)
         yield {"type": "sweeppt", "i": pi, "lr": float(lr), "std": float(std),
-               "dSharp": (dSharp if (dSharp is not None and dSharp == dSharp) else None),     # prediction-2c y: Δ sharpness over the first k iters
-               "mrSum": (mrSum if (mrSum is not None and mrSum == mrSum) else None), "swshk": swshk,   # prediction-2c x / prediction-2d y: (λmax+λmin) of Qr=M_r at init
                "tAct": tAct, "censA": censA or diverged, "tPred": tPred, "censP": censP,
                "tPredQ": tPredQ, "censPQ": censPQ,                                   # prediction-1 plot 1: quadratic (T=0, Q fixed) predicted t*
                "alignNTK": (alignNTK if alignNTK == alignNTK else 0.0),             # Σ|⟨r̂,v_k⟩| top-3 NTK — prediction-2/2b LEFT-half tick colour
