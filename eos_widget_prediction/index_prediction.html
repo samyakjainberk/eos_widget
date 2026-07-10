@@ -347,7 +347,7 @@
 <div id="sec_predray" style="border:3px solid #4f46e5;border-radius:12px;padding:8px 14px 10px;margin:12px 0 24px;background:#eef2ff;display:none">
 <h2 style="color:#4338ca;margin:2px 0 4px;font-size:21px">★ Prediction 4.2 · Phase-2a ray</h2>
 <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:2px 0 6px;font-size:13px;color:#374151">
-  <label title="Ray anchor: freeze at the end of alignment, the first tick cos(∇L, w1) ≥ this (w1 = top eigvec of M_r=Σ_k r_kQ_k). Default 0.5 — the alignment cos peaks around 0.6 for small nets, so lower this further if the ray never anchors on your run.">anchor cos thr&nbsp;<input id="prthr" value="0.5" style="width:52px"></label>
+  <label title="Ray anchor: freeze at the end of alignment, the first tick cos(∇L, w1) ≥ this (w1 = top eigvec of M_r=Σ_k r_kQ_k). Default 0.9 — if a config's alignment cos peaks below this the ray won't anchor; lower it then.">anchor cos thr&nbsp;<input id="prthr" value="0.9" style="width:52px"></label>
   <label title="Ray: number of grid steps m along the ray θ_a+s·w1 (m ≈ 40-50).">grid steps m&nbsp;<input id="prm" value="40" style="width:44px"></label>
   <label title="Ray: the grid spans prK anchor-steps of motion along w1 (s_max = prK × one-step distance). Increase to see further along the ray.">grid span (×steps)&nbsp;<input id="prK" value="50" style="width:52px"></label>
 </div>
@@ -4971,7 +4971,7 @@ function currentQueryParams(){   // the exact query-style param dict the backend
   {const e=document.getElementById('p4rep');if(e)o['p4rep']=e.value||'100';}   // prediction-4 live re-anchor interval (repeat_iter)
   o['s41']=chk('enPR')?'1':'0';   // ★ Prediction 4.2 (ray): computed ONLY when enabled (s39=Pred-6, s40=§28 → s41). Anchor grid costs ~m forward Jacobians
 
-  {const e=document.getElementById('prthr');if(e)o['prthr']=e.value||'0.5';}   // ray anchor cos threshold
+  {const e=document.getElementById('prthr');if(e)o['prthr']=e.value||'0.9';}   // ray anchor cos threshold
   {const e=document.getElementById('prm');if(e)o['prm']=e.value||'40';}   // ray grid steps
   {const e=document.getElementById('prK');if(e)o['prK']=e.value||'50';}   // ray grid span (×anchor-steps)
   {const e=document.getElementById('p5t0');if(e)o['p5t0']=e.value||'10';}
