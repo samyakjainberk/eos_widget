@@ -3434,6 +3434,10 @@ def run_stream(P):
     p3rep = max(0, int(P.get("p3rep", 100)))   # prediction-3: re-anchor ALL theories from the live run every p3rep iters (0 = never; freeze once at t*)
     p4thr = float(P.get("p4thr", 0.8))         # prediction-4: ANCHOR (freeze) when phase-1 |(Jᵀr)·u₁|/‖Jᵀr‖ (top M_r eigvec) first reaches this threshold
     p4rep = max(0, int(P.get("p4rep", 100)))   # prediction-4: re-anchor frozen+evolving from the live run every p4rep iters (0 = never; freeze once at t0)
+    s41 = P.get("s41", 0)                       # prediction-7 (Phase-2a ray): walk θ_a+s·w1 (w1 = top eigvec of M_r) and predict σ1(J)/‖J‖ + clock  (s39=Pred-6, s40=§28 → s41)
+    prthr = float(P.get("prthr", 0.99))         # ray: anchor at end of alignment when cos(∇L, w1) ≥ this (default 0.99)
+    prm = max(4, int(P.get("prm", 40)))         # ray: number of grid steps along the ray (m ≈ 40-50)
+    prK = float(P.get("prK", 50.0))             # ray: grid spans prK anchor-steps of motion along w1 (s_max = prK · one-step distance)
     s38 = P.get("s38", 0)                # prediction-5: trace-statistic prediction Tr(NTK) (quad/cubic × live/self, ±PSD) vs Tr(∇²L) & Tr(JᵀJ) (prediction widget)
     p5t0 = max(0, int(P.get("p5t0", 10)))   # prediction-5: iteration t0 at which Q, residual & J are frozen for the trace propagation
     stat_init = max(0, int(P.get("stat_init", 0)))   # prediction 5.1/5.2: iteration AFTER which the theoretical forecasts begin (0 = from the start)
@@ -3531,6 +3535,7 @@ def run_stream(P):
     p4_Je = None; p4_re = None; p4_the = None; p4_thQ = None; p4_reQ = None; p4_J0e = None; p4_f0 = None; p4_qsc = 0   # prediction-4: EVOLVING-Qr — Ĵ (updated EVERY step), r̂ (bounded quadratic self-residual), θ̂; θ̂Q/r̂Q = the FIXED (θ̂,r̂) that define rQ=M_r for the current s-step window; frozen J0/f0 (nothing from the live run)
     p4m = None   # prediction-4 MULTI-FREEZE panel: 3 frozen-M_r states at t*-10/+10/+20 (t* = phase-1 anchor)
     p4mbuf = []  # prediction-4 multi-freeze: rolling (t, J, θ, r) buffer for the t*-10 back-fill
+    ray_done = False; ray_tstar = None; ray_th0 = None; ray_ra = None; ray_w1 = None   # prediction-7 (Phase-2a ray): anchor θ_a, residual r_a, direction w1 (frozen once at the end of alignment)
     tr5 = None                                 # prediction-5: frozen state {θ0,J0,f0,Yf,tr0,traj[4]} for the trace-statistic propagation
     sec15_th64 = None          # §15: float64 SHADOW GD trajectory (MLP only). D²=‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖² is a ~9-digit
                                #   catastrophic cancellation when the net is near-stationary (e.g. chebyshev init=0.2: ‖J‖²≈21,
@@ -4162,6 +4167,55 @@ def run_stream(P):
                 if ka4m is not None:
                     _b4 = (p4_tstar if p4_tstar is not None else p4t0)
                     g_pred4m = {"kAct": ka4m, "off": [_b4 - 10, _b4 + 10, _b4 + 20], "kPred": kpm, "kPredE": kpmE}
+
+            # prediction-7 (s39): PHASE-2a RAY recipe. At the end of alignment — cos(∇L, w₁) ≥ prthr, w₁ = TOP eigenvector of
+            #   M_r=Σ_k r_kQ_k — freeze θ_a, r_a, w₁. Walk the straight ray θ(s)=θ_a+s·w₁ on a grid and evaluate the GEOMETRY
+            #   σ₁(J)=√λmax(JJᵀ) and ‖J‖_F (the shape prediction); build the CLOCK t(s)=∫₀ˢ ds′/V, V(s)=‖J(s)ᵀr_a‖ (trapezoid);
+            #   then per step measure the ACTUAL distance s_t=⟨θ_t−θ_a, w₁⟩ and σ₁/‖J‖. Predicted phase-exit = where
+            #   D_J(s)=‖J̇·r_a‖=‖M_r(s)∇L‖ crosses D_r(s)=‖J·ṙ‖=‖JᵀJ∇L‖ on the grid (∇L=(1/N)J(s)ᵀr_a, r held = r_a).
+            g_ray = None
+            if s41 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+              try:
+                Jmr = Jc[:M]; rmr = rr[:M]
+                if not ray_done:                                              # STILL ALIGNING: watch cos(∇L, w₁) = |w₁·(Jᵀr)|/‖Jᵀr‖
+                    _Jrr = Jmr.t() @ rmr; _Jrrn = float(_Jrr.norm())
+                    if _Jrrn > 1e-30:
+                        _Qr, _Tr, _kr = _lanczos_core(lambda v: hvpS(th, X, v, rmr.reshape(N, outD)), p, min(p, 64), 0, dt=Jmr.dtype, q0=_randvec16(p, SEC21_SEED))
+                        _mur, _Svr = _safe_eigh(_Tr)
+                        _w1 = _Svr[:, int(torch.argmax(_mur))].to(device=_dev(), dtype=Jmr.dtype) @ torch.stack(_Qr)   # top M_r eigenvector (unit, p)
+                        if abs(float(_w1 @ _Jrr)) / _Jrrn >= prthr:            # ★ END OF ALIGNMENT → anchor the ray at θ_a
+                            ray_done = True; ray_tstar = t
+                            ray_th0 = th.detach().clone(); ray_ra = rmr.detach().clone(); ray_w1 = _w1.detach().clone()
+                            _sc = lr / max(N, 1) if opt == "gd" else lr        # per-step scale (gd ⇒ η/N)
+                            _smax = prK * abs(_sc * float(_Jrr @ ray_w1))       # grid spans prK anchor-steps of motion along w₁
+                            _smax = max(_smax, 1e-12); _cra = ray_ra.reshape(N, outD)
+                            gs = []; gsig = []; gjf = []; gV = []; gDJ = []; gDr = []
+                            for j in range(prm + 1):
+                                sj = (_smax * j) / prm; thj = ray_th0 + sj * ray_w1
+                                Jj = jac_cols(thj, X)[0][:M]
+                                gs.append(sj); gjf.append(float(Jj.norm()))
+                                gsig.append(float(_safe_eigvalsh(Jj @ Jj.t())[-1].clamp_min(0.0).sqrt()))   # σ₁(J) = √λmax(JJᵀ)
+                                _Jtra = Jj.t() @ ray_ra; gV.append(max(_sc * float(_Jtra.norm()), 1e-30))    # per-STEP distance rate Δs/step ≈ (η/N)‖J(s)ᵀr_a‖ ⇒ clock t(s)=∫ds/V is in STEPS (matches the actual dt overlay)
+                                _gL = _Jtra / max(N, 1)                                                       # ∇L on the ray (r held = r_a)
+                                gDr.append(float((Jj.t() @ (Jj @ _gL)).norm()))                              # D_r=‖J·ṙ‖=‖JᵀJ∇L‖
+                                gDJ.append(float(hvpS(thj, X, _gL, _cra).norm()))                            # D_J=‖J̇·r_a‖=‖M_r(s)∇L‖
+                            gclock = [0.0]                                     # clock t(s)=∫ds′/V, trapezoid
+                            for j in range(1, prm + 1):
+                                gclock.append(gclock[-1] + (gs[j] - gs[j - 1]) * 0.5 * (1.0 / gV[j - 1] + 1.0 / gV[j]))
+                            sExit = None; tExit = None                         # exit = first D_J−D_r sign change on the grid
+                            for j in range(1, prm + 1):
+                                _a = gDJ[j - 1] - gDr[j - 1]; _b = gDJ[j] - gDr[j]
+                                if (_a < 0) != (_b < 0):
+                                    _fr = _a / (_a - _b) if (_a - _b) != 0 else 0.0
+                                    sExit = gs[j - 1] + _fr * (gs[j] - gs[j - 1]); tExit = gclock[j - 1] + _fr * (gclock[j] - gclock[j - 1]); break
+                            g_ray = {"anchor": True, "tstar": t, "s": gs, "sig1": gsig, "jfro": gjf, "clock": gclock,
+                                     "DJ": gDJ, "Dr": gDr, "sExit": sExit, "tExit": tExit,
+                                     "st": 0.0, "sig1a": gsig[0], "jfroa": gjf[0], "dt": 0}
+                if ray_done and g_ray is None:                                # AFTER the anchor: measure actual distance + geometry
+                    g_ray = {"anchor": False, "st": float((th - ray_th0) @ ray_w1), "dt": t - ray_tstar,
+                             "sig1a": float(_safe_eigvalsh(Jmr @ Jmr.t())[-1].clamp_min(0.0).sqrt()), "jfroa": float(Jmr.norm())}
+              except Exception:
+                g_ray = None                                                  # a pathological tick skips the ray panel rather than aborting the whole run
 
             # prediction-5 (s38): TRACE-STATISTIC prediction (PDF Eq-1..5). At t0 freeze θ0, J0=J(t0), the frozen
             #   output f0 & residual r0, Q0 (jac_hvp) and T (central-diff). Propagate 4 Jacobian trajectories
@@ -4913,6 +4967,7 @@ def run_stream(P):
                 "g_pred3m": g_pred3m,                          # prediction-3 multi-freeze: ‖r‖ actual vs frozen-J theory at t*-10/+10/+20
                 "g_pred4": g_pred4,                            # prediction-4: top-10 NTK eigenvalues — frozen-M_r Jacobian propagation predicted vs actual (prediction widget)
                 "g_pred4m": g_pred4m,                          # prediction-4 multi-freeze: top-5 NTK eigvals predicted (M_r frozen at t0-10/+10/+20) vs actual
+                "g_ray": g_ray,                               # prediction-7 (Phase-2a ray): grid σ1(J)/‖J‖ + clock t(s) (on anchor) then per-step actual s_t/σ1/‖J‖
                 "g_trace": g_trace,                           # prediction-5: Tr(NTK) predictions (quad/cubic × live/self, ±PSD) vs Tr(∇²L) & Tr(JᵀJ) (prediction widget)
                 "g_pred6": g_pred6,                            # prediction-6: 4 adaptive-optimizer trajectories' top-50 Gauss-Newton eigenvalue scree curves
                 "sps": (t - start + 1) / max(time.time() - t0, 1e-9),
@@ -5551,6 +5606,10 @@ def _parse_params(q):
         "p3rep": fi("p3rep", 100),       # prediction-3: live re-anchor interval (repeat_iter)
         "p4thr": ff("p4thr", 0.8),       # prediction-4: phase-1 |(Jᵀr)·u₁|/‖Jᵀr‖ anchor threshold (default 0.8)
         "p4rep": fi("p4rep", 100),       # prediction-4: live re-anchor interval (repeat_iter)
+        "s41": g("s41", "0") == "1",     # prediction-7 (Phase-2a ray): walk θ_a+s·w1 and predict σ1(J)/‖J‖ + clock
+        "prthr": ff("prthr", 0.99),      # ray: end-of-alignment anchor threshold cos(∇L,w1) (default 0.99)
+        "prm": fi("prm", 40),            # ray: grid steps along the ray
+        "prK": ff("prK", 50.0),          # ray: grid spans prK anchor-steps (s_max = prK · one-step distance)
         "s38": g("s38", "0") == "1",     # prediction-5: trace-statistic Tr(NTK) prediction (prediction widget)
         "s39": g("s39", "0") == "1",     # prediction-6: adaptive-optimizer top-50 Gauss-Newton eigenvalue scree curves (OFF by default)
         "lr_gd": ff("lr_gd", 0.1), "lr_sign": ff("lr_sign", 0.001),           # prediction-6 per-optimizer learning rates
