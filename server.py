@@ -3775,7 +3775,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37 or s38 or s40)) or ((s23 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37 or s38 or s40) and N <= grid3dcap):   # §15/§19/§20/§21/§24/§25/§26/§27/pred-3/4/5 also run for a single sample
+            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37 or s38 or s40 or s41)) or ((s23 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37 or s38 or s40 or s41) and N <= grid3dcap):   # §15/§19/§20/§21/§24/§25/§26/§27/pred-3/4/5/4.2(ray) also run for a single sample
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -4168,7 +4168,7 @@ def run_stream(P):
                     _b4 = (p4_tstar if p4_tstar is not None else p4t0)
                     g_pred4m = {"kAct": ka4m, "off": [_b4 - 10, _b4 + 10, _b4 + 20], "kPred": kpm, "kPredE": kpmE}
 
-            # prediction-7 (s39): PHASE-2a RAY recipe. At the end of alignment — cos(∇L, w₁) ≥ prthr, w₁ = TOP eigenvector of
+            # prediction 4.2 (s41): PHASE-2a RAY recipe. At the end of alignment — cos(∇L, w₁) ≥ prthr, w₁ = TOP eigenvector of
             #   M_r=Σ_k r_kQ_k — freeze θ_a, r_a, w₁. Walk the straight ray θ(s)=θ_a+s·w₁ on a grid and evaluate the GEOMETRY
             #   σ₁(J)=√λmax(JJᵀ) and ‖J‖_F (the shape prediction); build the CLOCK t(s)=∫₀ˢ ds′/V, V(s)=‖J(s)ᵀr_a‖ (trapezoid);
             #   then per step measure the ACTUAL distance s_t=⟨θ_t−θ_a, w₁⟩ and σ₁/‖J‖. Predicted phase-exit = where
@@ -4190,11 +4190,11 @@ def run_stream(P):
                             _sc = lr / max(N, 1) if opt == "gd" else lr        # per-step scale (gd ⇒ η/N)
                             _smax = max(prK * abs(_sc * float(_Jrr @ _w1)), 1e-12)   # grid spans prK anchor-steps of motion along w₁
                             _cra = _ra.reshape(N, outD)
-                            gs = []; gsig = []; gjf = []; gV = []; gDJ = []; gDr = []
+                            grs = []; gsig = []; gjf = []; gV = []; gDJ = []; gDr = []   # grs = ray grid distances (NOT gs — that is the gson §2/§3-spectra toggle)
                             for j in range(prm + 1):
                                 sj = (_smax * j) / prm; thj = _th0 + sj * _w1
                                 Jj = jac_cols(thj, X)[0][:M]
-                                gs.append(sj); gjf.append(float(Jj.norm()))
+                                grs.append(sj); gjf.append(float(Jj.norm()))
                                 gsig.append(float(_safe_eigvalsh(Jj @ Jj.t())[-1].clamp_min(0.0).sqrt()))   # σ₁(J) = √λmax(JJᵀ)
                                 _Jtra = Jj.t() @ _ra; gV.append(max(_sc * float(_Jtra.norm()), 1e-30))       # per-STEP distance rate Δs/step ≈ (η/N)‖J(s)ᵀr_a‖ ⇒ clock t(s)=∫ds/V is in STEPS (matches the actual dt overlay)
                                 _gL = _Jtra / max(N, 1)                                                       # ∇L on the ray (r held = r_a)
@@ -4202,15 +4202,15 @@ def run_stream(P):
                                 gDJ.append(float(hvpS(thj, X, _gL, _cra).norm()))                            # D_J=‖J̇·r_a‖=‖M_r(s)∇L‖
                             gclock = [0.0]                                     # clock t(s)=∫ds′/V, trapezoid
                             for j in range(1, prm + 1):
-                                gclock.append(gclock[-1] + (gs[j] - gs[j - 1]) * 0.5 * (1.0 / gV[j - 1] + 1.0 / gV[j]))
+                                gclock.append(gclock[-1] + (grs[j] - grs[j - 1]) * 0.5 * (1.0 / gV[j - 1] + 1.0 / gV[j]))
                             sExit = None; tExit = None                         # exit = first D_J−D_r sign change on the grid
                             for j in range(1, prm + 1):
                                 _a = gDJ[j - 1] - gDr[j - 1]; _b = gDJ[j] - gDr[j]
                                 if (_a < 0) != (_b < 0):
                                     _fr = _a / (_a - _b) if (_a - _b) != 0 else 0.0
-                                    sExit = gs[j - 1] + _fr * (gs[j] - gs[j - 1]); tExit = gclock[j - 1] + _fr * (gclock[j] - gclock[j - 1]); break
+                                    sExit = grs[j - 1] + _fr * (grs[j] - grs[j - 1]); tExit = gclock[j - 1] + _fr * (gclock[j] - gclock[j - 1]); break
                             ray_done = True; ray_tstar = t; ray_th0 = _th0; ray_ra = _ra; ray_w1 = _w1.detach().clone()   # ★ latch ONLY after a successful grid
-                            g_ray = {"anchor": True, "tstar": t, "s": gs, "sig1": gsig, "jfro": gjf, "clock": gclock,
+                            g_ray = {"anchor": True, "tstar": t, "s": grs, "sig1": gsig, "jfro": gjf, "clock": gclock,
                                      "DJ": gDJ, "Dr": gDr, "sExit": sExit, "tExit": tExit,
                                      "st": 0.0, "sig1a": gsig[0], "jfroa": gjf[0], "dt": 0}
                 if ray_done and g_ray is None:                                # AFTER the anchor: measure actual distance + geometry
