@@ -5850,7 +5850,7 @@ def run_sweep(P):
                 lr_eff = _lr_resc; rescued = True                          # RESCUE: lower lr (affects all 4 row-1 plots — the trajectory is shared)
             else:
                 eos_drop = True                                            # cannot rescue within the sweep's lr range ⇒ exclude from plots 3-4 (Prediction-2/2b)
-        ps5x = None   # prediction-5 (magnified PS): Σ u₁ᵀ(QJr)v₁ over swps5n frozen-Q,J / evolving-r steps; stays None ⇒ point NOT plotted (filtered out)
+        ps5x = None; ps5t = None   # prediction-5 (magnified PS): Σ u₁ᵀ(QJr)v₁ over swps5n frozen-Q,J / evolving-r steps, frozen at the PS-ONSET step (ps5t); stays None ⇒ point NOT plotted (pair never enters PS below EoS)
         diffs = []; losses = []; jnorms = []; th_at_T = None; diverged = False; align_acc = 0.0; align_cnt = 0
         for t in range(steps):                            # main (lr,σ) sweep: prediction-1/2/2b (plots 0-3). Prediction-2c/2d (plots 4-5) run in a DEDICATED σ-loop below.
             out = _TL.model.forward(th, X)
@@ -5878,10 +5878,11 @@ def run_sweep(P):
                 jdr = float(hvpS(th, X, g, rr.reshape(N, outD)).norm())
                 dth_sw = scale * g
             diffs.append(jrd - jdr); losses.append(lv)
-            if t == 0 and (jrd > jdr) and (_sharp0 is not None) and (_sharp0 < 2.0 / lr_eff):
-                # Prediction-5 (magnified PS): only for ‖J·ṙ‖>‖J̇·r‖ at init AND below EoS (sharpness₀<2/lr). Freeze J,Q at θ_0;
-                # evolve r_{t+1}=r_t−(η/N)J₀J₀ᵀr_t. Sum over swps5n steps of u₁ᵀ(QJr_t)v₁ = Σ_k(u₁)_k·v₁ᵀQ_k(J₀ᵀr_t)
-                # = v₁ᵀQ[u₁](J₀ᵀr_t), u₁=top NTK eigvec (J₀J₀ᵀ), v₁=normalize(J₀ᵀu₁) (top right-singular vec of J₀).
+            if (ps5x is None) and (jrd > jdr) and (_sharp0 is not None) and (_sharp0 < 2.0 / lr_eff):
+                # Prediction-5 (magnified PS): freeze at the FIRST step where ‖J·ṙ‖>‖J̇·r‖ (PS ONSET) — t=0 if the pair
+                # starts in PS, else the neg→pos crossing of jrd−jdr (matching the live Pred-3 anchor) — AND below EoS
+                # (init sharpness₀<2/lr). Freeze J,Q at that θ*; evolve r_{t+1}=r_t−(η/N)J*J*ᵀr_t. Sum over swps5n steps of
+                # u₁ᵀ(QJr_t)v₁ = Σ_k(u₁)_k·v₁ᵀQ_k(J*ᵀr_t) = v₁ᵀQ[u₁](J*ᵀr_t), u₁=top NTK eigvec (J*J*ᵀ), v₁=normalize(J*ᵀu₁).
                 try:
                     _Kw, _Ku = torch.linalg.eigh(Jm @ Jm.t())          # NTK = J₀J₀ᵀ (M×M)
                     _u1 = _Ku[:, -1]                                    # top NTK eigenvector (M,)
@@ -5891,7 +5892,7 @@ def run_sweep(P):
                         _Jr = Jm.t() @ _rc                             # J₀ᵀ r_t  (residual-contracted gradient, p,)
                         _acc += float(_v1 @ hvpS(th, X, _Jr, _c1))     # u₁ᵀ(QJr_t)v₁ = v₁ᵀ Σ_k(u₁)_k Q_k (J₀ᵀr_t)
                         _rc = _rc - (lr_eff / N) * (Jm @ _Jr)          # r_{t+1} = r_t − (η/N) J₀(J₀ᵀr_t)  (frozen-J NTK residual dynamics)
-                    ps5x = _acc
+                    ps5x = _acc; ps5t = t   # record the PS-onset step (t=0 or the crossing) for the point's hover label
                 except Exception:
                     ps5x = None
             if t == Tstart:
@@ -5922,7 +5923,7 @@ def run_sweep(P):
                "jfro": (jfro if jfro == jfro else 0.0),                             # windowed-mean ‖J‖_F — prediction-2/2b RIGHT-half tick colour
                "sumD": (sumD if sumD == sumD else 0.0), "sumCurv": (sumCurv if sumCurv == sumCurv else 0.0),
                "sumD2": (sumD2 if sumD2 == sumD2 else 0.0), "sumJgrad": (sumJgrad if sumJgrad == sumJgrad else 0.0),
-               "ps5x": (ps5x if (ps5x is not None and ps5x == ps5x) else None), "swps5n": swps5n,   # prediction-5 (magnified PS): Σ u₁ᵀ(QJr)v₁ (x); None ⇒ filtered out (not ‖J·ṙ‖>‖J̇·r‖ &below-EoS). y = sumJgrad
+               "ps5x": (ps5x if (ps5x is not None and ps5x == ps5x) else None), "ps5t": ps5t, "swps5n": swps5n,   # prediction-5 (magnified PS): Σ u₁ᵀ(QJr)v₁ (x) frozen at PS-onset step ps5t; None ⇒ pair never enters PS below EoS. y = sumJgrad
                "curv": (curv if curv == curv else 0.0), "swsumn": swsumn, "swsumn2": swsumn2, "diverged": diverged}
     yield {"type": "done"}
 
