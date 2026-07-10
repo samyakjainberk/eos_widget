@@ -3435,7 +3435,7 @@ def run_stream(P):
     p4thr = float(P.get("p4thr", 0.8))         # prediction-4: ANCHOR (freeze) when phase-1 |(Jᵀr)·u₁|/‖Jᵀr‖ (top M_r eigvec) first reaches this threshold
     p4rep = max(0, int(P.get("p4rep", 100)))   # prediction-4: re-anchor frozen+evolving from the live run every p4rep iters (0 = never; freeze once at t0)
     s41 = P.get("s41", 0)                       # prediction-7 (Phase-2a ray): walk θ_a+s·w1 (w1 = top eigvec of M_r) and predict σ1(J)/‖J‖ + clock  (s39=Pred-6, s40=§28 → s41)
-    prthr = float(P.get("prthr", 0.99))         # ray: anchor at end of alignment when cos(∇L, w1) ≥ this (default 0.99)
+    prthr = float(P.get("prthr", 0.5))          # ray: anchor at end of alignment when cos(∇L, w1) ≥ this (default 0.5 — cos peaks ~0.6 for small nets, so the recipe's 0.99 never fires)
     prm = max(4, int(P.get("prm", 40)))         # ray: number of grid steps along the ray (m ≈ 40-50)
     prK = max(1e-6, float(P.get("prK", 50.0)))  # ray: grid spans prK anchor-steps of motion along w1 (s_max = prK · one-step distance)
     s38 = P.get("s38", 0)                # prediction-5: trace-statistic prediction Tr(NTK) (quad/cubic × live/self, ±PSD) vs Tr(∇²L) & Tr(JᵀJ) (prediction widget)
@@ -5609,7 +5609,7 @@ def _parse_params(q):
         "p4thr": ff("p4thr", 0.8),       # prediction-4: phase-1 |(Jᵀr)·u₁|/‖Jᵀr‖ anchor threshold (default 0.8)
         "p4rep": fi("p4rep", 100),       # prediction-4: live re-anchor interval (repeat_iter)
         "s41": g("s41", "0") == "1",     # prediction-7 (Phase-2a ray): walk θ_a+s·w1 and predict σ1(J)/‖J‖ + clock
-        "prthr": ff("prthr", 0.99),      # ray: end-of-alignment anchor threshold cos(∇L,w1) (default 0.99)
+        "prthr": ff("prthr", 0.5),       # ray: end-of-alignment anchor threshold cos(∇L,w1) (default 0.5)
         "prm": fi("prm", 40),            # ray: grid steps along the ray
         "prK": ff("prK", 50.0),          # ray: grid spans prK anchor-steps (s_max = prK · one-step distance)
         "s38": g("s38", "0") == "1",     # prediction-5: trace-statistic Tr(NTK) prediction (prediction widget)
