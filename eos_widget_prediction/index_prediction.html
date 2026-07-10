@@ -334,7 +334,7 @@
 <h2 style="color:#0e7490;margin:2px 0 8px;font-size:21px">★ Prediction-3</h2>
 <div id="sec_pred3" style="border:1px solid #9fdcec;border-radius:8px;padding:6px 14px 12px;margin:0 0 12px;background:#f9feff">
 <h2 style="color:#0e7490;margin-top:4px">fixed J · evolving r</h2>
-<p class="cap">Track $d \equiv \lVert J\dot r\rVert - \lVert\dot J r\rVert$ (§25's jrd − jdr). At the first $t^{\star}$ where it changes sign, freeze $J^{\star}=J(t^{\star})$ and evolve the frozen-$J$ linear NTK theory $r_{t+1}=(I-\tfrac{\eta}{N}J^{\star}J^{\star\top})r_t$ from the actual residual $r(t^{\star})$, and compare to the ACTUAL residual thereafter. All three theories <b>RE-ANCHOR to the live run every repeat_iter iters</b> (default 100; 0 = freeze once at $t^{\star}$), predicting each window afresh. <b>Left:</b> the two norms + their difference (sign-change = where the red crosses 0 → $t^{\star}$). <b>Middle:</b> $\lVert r\rVert$ actual vs theory (log). <b>Right:</b> $\cos(r_{\rm actual}, r_{\rm theory})$ — 1 = perfect direction match, decaying as the frozen-$J$ linear theory drifts from the true nonlinear evolution.</p>
+<p class="cap">Track $d \equiv \lVert J\dot r\rVert - \lVert\dot J r\rVert$ (§25's jrd − jdr). At the first $t^{\star}$ where $d$ crosses <b>upward through 0 (becomes positive)</b> — i.e. $\lVert\dot J r\rVert-\lVert J\dot r\rVert$ becomes <b>negative</b> (a downward-only flip is NOT the anchor) — freeze $J^{\star}=J(t^{\star})$ and evolve the frozen-$J$ linear NTK theory $r_{t+1}=(I-\tfrac{\eta}{N}J^{\star}J^{\star\top})r_t$ from the actual residual $r(t^{\star})$, and compare to the ACTUAL residual thereafter. All three theories <b>RE-ANCHOR to the live run every repeat_iter iters</b> (default 100; 0 = freeze once at $t^{\star}$), predicting each window afresh. <b>Left:</b> the two norms + their difference (anchor $t^{\star}$ = where the red $d$ crosses 0 <b>going up</b>). <b>Middle:</b> $\lVert r\rVert$ actual vs theory (log). <b>Right:</b> $\cos(r_{\rm actual}, r_{\rm theory})$ — 1 = perfect direction match, decaying as the frozen-$J$ linear theory drifts from the true nonlinear evolution.</p>
 <div style="display:flex;gap:12px;align-items:center;margin:4px 0 6px;font-size:13px;color:#374151"><label title="Prediction-3 evolving-Jacobian theory: update J every k steps via J += (η/N)·[Σ_k r_k Q*_k]·J (Q frozen at the anchor); r decays via the current J.">evolving-J: update J every k=&nbsp;<input id="p3k" value="10" style="width:46px"></label>&nbsp;&nbsp;<label title="repeat_iter — RE-anchor ALL three prediction-3 theories (1st, 2nd, evolving-J) from the LIVE run every this-many iterations, then predict the next window afresh (0 = freeze once at t*, never re-sync).">recalc from live every&nbsp;<input id="p3rep" value="100" style="width:52px"></label></div>
 <div class="plotrow row3"><div id="p_p3_diff" class="plot" style="height:270px"></div><div id="p_p3_rnorm" class="plot" style="height:270px"></div><div id="p_p3_cos" class="plot" style="height:270px"></div></div>
 </div>
@@ -1249,6 +1249,12 @@ function resetPlotDecim(){ _plotCall=0;
 function extP(id,u,idx){Plotly.extendTraces(id,u,idx,PLOT_DECIM+64);}   // hard backstop just above the target
 // ★ Prediction 4.2 (Phase-2a ray): on the anchor, build the grid prediction curves + empty actual traces + predicted-exit line; then extend the actual dots per step.
 const RAY={built:false};
+function _rayPlaceholders(){   // ★ Prediction 4.2: BEFORE the anchor, show a "waiting" note so it's clear the 4 plots only populate AFTER cos(∇L,w₁) reaches the anchor cos thr
+  if(RAY.built)return;
+  const ann=[{text:'★ Prediction 4.2 — the plots populate once the run reaches the<br>alignment anchor:  cos(∇L, w₁) ≥ the anchor cos thr',xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,align:'center',font:{size:11,color:'#94a3b8'}}];
+  for(const id of ['p_ray_sig','p_ray_jf','p_ray_clock','p_ray_exit']){const gd=document.getElementById(id); if(!gd)continue;
+    try{if(gd._fullLayout)Plotly.relayout(id,{annotations:ann});else{const L=baseLayout('★ Prediction 4.2 · Phase-2a ray','',false);L.showlegend=false;L.annotations=ann;Plotly.newPlot(id,[],L,CFG);}}catch(e){}}
+}
 function _rayExit(x){return (x!=null&&isFinite(x))?[{type:'line',x0:x,x1:x,y0:0,y1:1,yref:'paper',line:{color:'#dc2626',width:1.3,dash:'dot'}}]:[];}
 function addRayPt(g){
   if(g.anchor){   // ANCHOR: (re)build the four ray plots with the grid predictions
@@ -3316,7 +3322,8 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_pred4_box');if(el)el.style.display=chk('enP4')?'':'none';}   // toggle the whole Prediction-4 box (both panels)
   {const el=document.getElementById('sec_pred3_box');if(el)el.style.display=chk('enP3')?'':'none';}   // toggle the whole Prediction-3 box (both panels)
   {const el=document.getElementById('sec_predray');if(el){const vis=chk('enPR');el.style.display=vis?'':'none';   // ★ Prediction 4.2 (Phase-2a ray)
-    if(vis)requestAnimationFrame(()=>{for(const id of ['p_ray_sig','p_ray_jf','p_ray_clock','p_ray_exit']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
+    if(vis){if(!RAY.built)_rayPlaceholders();   // pre-anchor: show the "populates after cos ≥ thr" note instead of blank boxes
+      requestAnimationFrame(()=>{for(const id of ['p_ray_sig','p_ray_jf','p_ray_clock','p_ray_exit']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}}
   {const el=document.getElementById('sec_sweep');if(el)el.style.display=chk('enPs')?'':'none';}
   {const el=document.getElementById('sec_pred6');if(el){const vis=chk('enP6');el.style.display=vis?'':'none';
     if(vis)requestAnimationFrame(()=>{for(const id of ['p_p6_sign','p_p6_muon','p_p6_gn','p_p6_loss','p_p6_sharp','p_p6_fl_gd','p_p6_fl_sign','p_p6_fl_muon','p_p6_fl_gn','p_p6_fl_gnorm']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
@@ -3354,7 +3361,7 @@ function p6Reset(){P6_SNAPS=[];P6_CURIDX=0;if(P6_RAF){cancelAnimationFrame(P6_RA
   const sp=document.getElementById('p6_step');if(sp)sp.textContent='live (latest)';}
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   resetPlotDecim();   // fresh decimation state for this run (bounds plotted points → no progressive hang)
-  RAY.built=false;   // ★ Prediction 4.2 (ray): forget last run's anchor so actual dots don't extend a stale plot before the new anchor
+  RAY.built=false; if(typeof chk==='function'&&chk('enPR'))try{_rayPlaceholders();}catch(e){}   // ★ Prediction 4.2 (ray): forget last run's anchor; restore the pre-anchor "waiting for cos ≥ thr" note so old curves don't linger
   g3dReset();   // §11: drop snapshots from the previous run
   s12Reset();   // §12: drop snapshots from the previous run
   s13Reset();   // §13: drop the approximation-comparison time-series from the previous run

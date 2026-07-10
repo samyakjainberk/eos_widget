@@ -357,7 +357,7 @@ class Pred3Tracker:
         diff3 = jrd3 - jdr3
         sgn3 = (1 if diff3 > 0 else (-1 if diff3 < 0 else 0))
         g_pred3 = {"jrd": jrd3, "jdr": jdr3, "diff": diff3}
-        if self.p3_tstar is None and self.p3_prev_sign is not None and sgn3 != 0 and sgn3 != self.p3_prev_sign:
+        if self.p3_tstar is None and self.p3_prev_sign == -1 and sgn3 == 1:   # anchor SPECIFICALLY on the NEG→POS crossing of diff3=‖J·ṙ‖−‖J̇·r‖ (‖J̇·r‖−‖J·ṙ‖ becoming negative) — mirrors server.run_stream
             self.p3_tstar = t
             self.p3_Jstar = Jm3.detach().clone(); self.p3_rtheory = rm3.detach().clone()   # freeze J*, r_theory = r(t*)
             self.p3_thstar = th.detach().clone(); self.p3_r2 = rm3.detach().clone()         # freeze θ* (for Q*), r₂ = r(t*)

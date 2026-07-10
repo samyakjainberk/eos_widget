@@ -3964,7 +3964,7 @@ def run_stream(P):
                 jdr3 = float(hvpS(th, X, gL3, rm3.reshape(N, outD)).norm())      # ‖J̇·r‖ = ‖M_r∇L‖
                 diff3 = jrd3 - jdr3; sgn3 = (1 if diff3 > 0 else (-1 if diff3 < 0 else 0))
                 g_pred3 = {"jrd": jrd3, "jdr": jdr3, "diff": diff3}
-                if p3_tstar is None and p3_prev_sign is not None and sgn3 != 0 and sgn3 != p3_prev_sign:
+                if p3_tstar is None and p3_prev_sign == -1 and sgn3 == 1:   # anchor SPECIFICALLY on the NEG→POS crossing of diff3=‖J·ṙ‖−‖J̇·r‖ (i.e. ‖J̇·r‖−‖J·ṙ‖ becoming NEGATIVE) — the theory-plotting start point; a POS→NEG flip is NOT the anchor
                     p3_tstar = t; p3_Jstar = Jm3.detach().clone(); p3_rtheory = rm3.detach().clone()   # freeze J*, seed r_theory = r(t*)
                     p3_thstar = th.detach().clone(); p3_r2 = rm3.detach().clone()   # 2nd-order theory: freeze θ* (for Q*) and seed r₂ = r(t*)
                     p3_J3 = Jm3.detach().clone(); p3_J3adv = None; p3_r3 = rm3.detach().clone(); p3_the3 = th.detach().clone(); p3_j3sc = 0   # evolving-J theory: seed J3=J(t*), r3=r(t*), θ̂3=θ(t*); shadow J3adv seeded lazily from J3
