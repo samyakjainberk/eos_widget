@@ -1255,13 +1255,14 @@ function _rayPlaceholders(){   // BEFORE any anchor: "waiting" note so the 4 plo
   if(RAY.anchors.length)return;
   const ann=[{text:'★ Prediction 4.2 — the plots populate once the run reaches an<br>alignment anchor:  cos(∇L, w₁) ≥ the anchor cos thr (in a new direction)',xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,align:'center',font:{size:11,color:'#94a3b8'}}];
   for(const id of ['p_ray_sig','p_ray_jf','p_ray_clock','p_ray_exit']){const gd=document.getElementById(id); if(!gd)continue;
-    try{if(gd._fullLayout)Plotly.relayout(id,{annotations:ann});else{const L=baseLayout('★ Prediction 4.2 · Phase-2a ray','',false);L.showlegend=false;L.annotations=ann;Plotly.newPlot(id,[],L,CFG);}}catch(e){}}
+    const L=baseLayout('★ Prediction 4.2 · Phase-2a ray','',false);L.showlegend=false;L.annotations=ann;
+    try{Plotly.react(id,[],L);}catch(e){}}   // react with EMPTY data ⇒ REMOVES any prior run's traces (relayout alone would leave stale curves) AND shows the "waiting" note
   _rayBar();
 }
 function _rayBar(){   // rebuild the anchor selector bar (one button per anchor; click switches the shown prediction)
   const bar=document.getElementById('ray_bar'); if(!bar)return;
   if(!RAY.anchors.length){bar.innerHTML='<span style="color:#94a3b8;font-size:12px">no anchors yet — waiting for cos(∇L,w₁) ≥ thr in a new direction…</span>';return;}
-  let h='<span style="color:#4338ca;font-size:12px;font-weight:600;margin-right:6px">anchors ('+RAY.anchors.length+'):</span>';
+  let h='<span style="color:#4338ca;font-size:12px;font-weight:600;margin-right:6px">anchors ('+RAY.anchors.filter(Boolean).length+'):</span>';
   RAY.anchors.forEach((a,i)=>{if(!a)return;const on=(i===RAY.sel);
     h+='<button onclick="selectRayAnchor('+i+')" title="alignment anchor #'+(i+1)+' at step '+a.tstar+'" style="margin:0 4px 4px 0;padding:2px 9px;font-size:12px;border:1px solid '+(on?'#4f46e5':'#c7d2fe')+';border-radius:6px;background:'+(on?'#4f46e5':'#fff')+';color:'+(on?'#fff':'#4338ca')+';cursor:pointer">#'+(i+1)+' · t='+a.tstar+'</button>';});
   bar.innerHTML=h;
@@ -3668,7 +3669,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
 // plots created inside a hidden (display:none) section get Plotly's fallback size; once the
 // section is visible, force each to re-measure its 320px container so every row stays aligned.
 function resizeAllPlots(){
-  const go=()=>PLOT_IDS.forEach(id=>{const gd=document.getElementById(id);
+  const go=()=>PLOT_IDS.concat(['p_ray_sig','p_ray_jf','p_ray_clock','p_ray_exit']).forEach(id=>{const gd=document.getElementById(id);   // ★ 4.2 ray divs aren't in PLOT_IDS (kept out of the purge sweep) but should still re-fit on window resize; the offsetParent guard skips them when the section is hidden
     if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}});
   requestAnimationFrame(go); setTimeout(go,60);
 }
