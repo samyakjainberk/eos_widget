@@ -5502,11 +5502,10 @@ def _parse_params(q):
         "swlrmin": ff("swlrmin", 0.0), "swlrmax": ff("swlrmax", 0.0),   # 0 ⇒ auto range (base lr ×[1/4,4])
         "swstdmin": ff("swstdmin", 0.0), "swstdmax": ff("swstdmax", 0.0),
         "swsumn": fi("swsumn", 20), "swsumn2": fi("swsumn2", 20),   # prediction-2/2b: sum windows N / N₂ (must be in P so the query values reach run_sweep)
-        "swshk": fi("swshk", 5),        # prediction-2c: Δsharpness window k (λmax(∇²L) at t=k vs t=0)
-        "swclr": ff("swclr", 1e-7),     # prediction-2c/2d: FIXED very-small lr for the Δsharpness sub-trajectory (must be in P so the query value reaches run_sweep)
         "swmrk": fi("swmrk", 10),       # prediction-2c/2d: k for the (Σ top-k)+(Σ bottom-k) eigenvalue sum of Qr
         "swcsmin": ff("swcsmin", 0.1), "swcsmax": ff("swcsmax", 10.0),   # prediction-2c/2d DEDICATED σ-sweep range (init scale, log-spaced)
         "sw2cd": g("sw2cd", "0") == "1",   # prediction-2c/2d gate: only run the dedicated σ-loop (plots 4-5) when ON (OFF by default ⇒ not computed)
+        "swps5n": max(1, fi("swps5n", 4)),   # prediction-5 (magnified PS): #frozen-Q,J / evolving-r steps to sum u₁ᵀ(QJr)v₁ over (default 4)
         "s1": g("s1", "1") == "1", "s2": g("s2", "1") == "1", "s3": g("s3", "1") == "1",
         "s4": g("s4", "1") == "1", "s5": g("s5", "1") == "1", "s6": g("s6", "1") == "1",
         "s7": g("s7", "1") == "1", "s8": g("s8", "1") == "1", "s9": g("s9", "1") == "1",
@@ -5710,9 +5709,8 @@ def run_sweep(P):
     Tstart = max(0, min(steps - 2, int(P.get("swTstart", 0))))
     swsumn = max(1, int(P.get("swsumn", 20)))   # prediction-2: SUM d and d²loss/dt² over the first swsumn iterations (from 0), then take the signs
     swsumn2 = max(1, int(P.get("swsumn2", 20)))   # prediction-2b: SUM d and ∇‖J‖ over the first swsumn2 iterations (from 0), then take the signs (own window; less noisy)
-    swshk = max(1, min(int(P.get("swshk", 5)), steps - 1))   # prediction-2c: window k for Δsharpness = λmax(∇²L)(t=k) − λmax(∇²L)(t=0) (clamped < steps so t==swshk always fires)
-    swclr = max(1e-12, float(P.get("swclr", 1e-7) or 1e-7))   # prediction-2c: FIXED very-small lr for the Δsharpness sub-trajectory (decoupled from the swept lr; default 1e-7)
     swmrk = max(1, int(P.get("swmrk", 10)))                    # prediction-2c/2d: k for the (Σ top-k)+(Σ bottom-k) eigenvalue sum of Qr=M_r (default 10)
+    swps5n = max(1, int(P.get("swps5n", 4)))                   # prediction-5 (magnified PS): #frozen-Q,J / evolving-r steps to sum u₁ᵀ(QJr)v₁ over (default 4)
     swcsmin = max(1e-6, float(P.get("swcsmin", 0.1) or 0.1))   # prediction-2c/2d DEDICATED σ-sweep min (default 0.1) — decoupled from the main (lr,σ) pairs
     swcsmax = max(swcsmin * 1.01, float(P.get("swcsmax", 10.0) or 10.0))   # prediction-2c/2d dedicated σ-sweep max (default 10)
     seed0 = int(P.get("seed", 0)); opt = P.get("optimizer", "gd")   # sweep actual + predicted trajectories follow the chosen optimizer
@@ -5743,26 +5741,6 @@ def run_sweep(P):
             return float(_mu[-_ke:].sum()) + float(_mu[:_ke].sum())   # Σ(top-k, most positive) + Σ(bottom-k, most negative) — signed net-extreme over 2k modes
         except Exception:
             return None
-    def _lanczos_proj_energy(hvp, jr, k):                 # prediction-2c: Σ_{top-k ⊕ bottom-k} λ_i·(u_i·Jr)² / ‖Jr‖ over Qr's extreme eigenPAIRS (Ritz vectors; verified 0.00% vs full eigh)
-        try:
-            _jn = float(jr.norm())
-            if not (_jn > 1e-30):
-                return None
-            _m = min(p, max(64, 4 * k))
-            _Ql, _Tl, _kl = _lanczos_core(hvp, p, _m, 0, dt=DTYPE, q0=_randvec16(p, 0x5A1DBEEF & 0x7FFFFFFF))
-            _mu, _Vt = _safe_eigh(_Tl)                    # ascending eigenvalues μ + eigenvectors _Vt (kl×kl) of the tridiagonal T
-            _Qm = torch.stack(_Ql)                        # (kl, p) orthonormal Lanczos basis ⇒ Ritz vector u_i = _Qm.t() @ _Vt[:,i] (unit norm)
-            _Vt = _Vt.to(device=_Qm.device, dtype=_Qm.dtype)   # _safe_eigh runs on the fp64/CPU tridiagonal T; move eigvecs onto the Lanczos-basis device+dtype (e.g. GPU fp32) before the Ritz matmul
-            _jd = jr.to(device=_Qm.device, dtype=_Qm.dtype)
-            _ke = max(1, min(k, _kl // 2))
-            _idx = list(range(_ke)) + list(range(_kl - _ke, _kl))   # bottom-k ∪ top-k Ritz modes (no overlap: _ke ≤ kl//2)
-            _acc = 0.0
-            for _i in _idx:
-                _pr = float((_Qm.t() @ _Vt[:, _i]) @ _jd)   # u_i · Jr
-                _acc += float(_mu[_i]) * _pr * _pr          # λ_i (u_i·Jr)²
-            return _acc / _jn                               # signed curvature-energy of Jr in Qr's 2k extreme modes, ÷‖Jr‖
-        except Exception:
-            return None
     # ── Prediction-2c/2d (plots 4-5): DEDICATED σ-sweep — σ log-spaced over [swcsmin, swcsmax] (default 0.1→10), decoupled from the (lr,σ) pairs below.
     #    Per σ, the (Σ top-k)+(Σ bottom-k) eigenvalue net-extreme of TWO function Hessians at t=0, each plotted vs σ:
     #    plot-4 y = H = Σ_α Q_α (UNWEIGHTED function Hessian); plot-5 y = Qr = Σ_α r_α Q_α (residual-weighted, r=y−f). Streamed first so plots 4-5 fill promptly.
@@ -5786,6 +5764,18 @@ def run_sweep(P):
         lr = _math.exp(rng.uniform(_math.log(lrmin), _math.log(lrmax)))
         std = _math.exp(rng.uniform(_math.log(stdmin), _math.log(stdmax)))
         th = _TL.model.init_theta(seed0 + 1, std)
+        # EoS guard for prediction-2/2b (plots 3-4): a run that STARTS at the edge of stability (sharpness ≥ 2/lr at t=0)
+        # makes the early-window correlation misleading. Rescue by lowering this pair's lr so it starts below EoS; if the
+        # rescued lr would fall below the sweep's minimum, instead DROP the point from plots 3-4 (it still appears in t* plots 1-2).
+        _sharp0 = _lanczos_extremes(lambda v: hvpL(th, X, Y, v))   # λmax(∇²L(θ_0)) — sharpness at initialization
+        lr_eff = lr; eos_drop = False; rescued = False
+        if _sharp0 is not None and _sharp0 > 0.0 and _sharp0 >= 2.0 / lr:   # starts at/above EoS (2/lr ≤ sharpness₀)
+            _lr_resc = 0.9 * (2.0 / _sharp0)                                # 2/lr' = sharpness₀/0.9 ≈ 1.11·sharpness₀ > sharpness₀ ⇒ starts below EoS
+            if _lr_resc >= lrmin:
+                lr_eff = _lr_resc; rescued = True                          # RESCUE: lower lr (affects all 4 row-1 plots — the trajectory is shared)
+            else:
+                eos_drop = True                                            # cannot rescue within the sweep's lr range ⇒ exclude from plots 3-4 (Prediction-2/2b)
+        ps5x = None   # prediction-5 (magnified PS): Σ u₁ᵀ(QJr)v₁ over swps5n frozen-Q,J / evolving-r steps; stays None ⇒ point NOT plotted (filtered out)
         diffs = []; losses = []; jnorms = []; th_at_T = None; diverged = False; align_acc = 0.0; align_cnt = 0
         for t in range(steps):                            # main (lr,σ) sweep: prediction-1/2/2b (plots 0-3). Prediction-2c/2d (plots 4-5) run in a DEDICATED σ-loop below.
             out = _TL.model.forward(th, X)
@@ -5806,21 +5796,37 @@ def run_sweep(P):
                 gL = gradL(th, X, Y)[0]                    # GD: exact ∇L path (byte-identical to the original)
                 jrd = float((Jm.t() @ (Jm @ gL)).norm())
                 jdr = float(hvpS(th, X, gL, rr.reshape(N, outD)).norm())
-                dth_sw = -lr * gL
+                dth_sw = -lr_eff * gL
             else:
-                g, scale = _precond_flow(_TL.model, opt, Jm, rr, N, lr)   # preconditioned actual trajectory (direction, step)
+                g, scale = _precond_flow(_TL.model, opt, Jm, rr, N, lr_eff)   # preconditioned actual trajectory (direction, step)
                 jrd = float((Jm.t() @ (Jm @ g)).norm())
                 jdr = float(hvpS(th, X, g, rr.reshape(N, outD)).norm())
                 dth_sw = scale * g
             diffs.append(jrd - jdr); losses.append(lv)
+            if t == 0 and (jrd > jdr) and (_sharp0 is not None) and (_sharp0 < 2.0 / lr_eff):
+                # Prediction-5 (magnified PS): only for ‖J·ṙ‖>‖J̇·r‖ at init AND below EoS (sharpness₀<2/lr). Freeze J,Q at θ_0;
+                # evolve r_{t+1}=r_t−(η/N)J₀J₀ᵀr_t. Sum over swps5n steps of u₁ᵀ(QJr_t)v₁ = Σ_k(u₁)_k·v₁ᵀQ_k(J₀ᵀr_t)
+                # = v₁ᵀQ[u₁](J₀ᵀr_t), u₁=top NTK eigvec (J₀J₀ᵀ), v₁=normalize(J₀ᵀu₁) (top right-singular vec of J₀).
+                try:
+                    _Kw, _Ku = torch.linalg.eigh(Jm @ Jm.t())          # NTK = J₀J₀ᵀ (M×M)
+                    _u1 = _Ku[:, -1]                                    # top NTK eigenvector (M,)
+                    _v1 = Jm.t() @ _u1; _v1 = _v1 / max(float(_v1.norm()), 1e-30)   # top right-singular vector of J₀ (p,)
+                    _c1 = _u1.reshape(N, outD); _rc = rr.clone(); _acc = 0.0
+                    for _tt in range(swps5n):
+                        _Jr = Jm.t() @ _rc                             # J₀ᵀ r_t  (residual-contracted gradient, p,)
+                        _acc += float(_v1 @ hvpS(th, X, _Jr, _c1))     # u₁ᵀ(QJr_t)v₁ = v₁ᵀ Σ_k(u₁)_k Q_k (J₀ᵀr_t)
+                        _rc = _rc - (lr_eff / N) * (Jm @ _Jr)          # r_{t+1} = r_t − (η/N) J₀(J₀ᵀr_t)  (frozen-J NTK residual dynamics)
+                    ps5x = _acc
+                except Exception:
+                    ps5x = None
             if t == Tstart:
                 th_at_T = th.detach().clone()
             th = th + dth_sw                              # actual trajectory follows the chosen optimizer
         tAct, censA = _first_signchange(diffs, steps)
         if th_at_T is not None:                       # predict only if θ(Tstart) was reached before any divergence
-            tPredRel, censP = _pred_signchange(th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart, cubic=True, opt=opt)
+            tPredRel, censP = _pred_signchange(th_at_T, X, Y, N, outD, p, float(lr_eff), K, steps - Tstart, cubic=True, opt=opt)
             tPred = tPredRel + Tstart
-            tPredQRel, censPQ = _pred_signchange(th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart, cubic=False, opt=opt)   # prediction-1 plot 1: quadratic prediction (T=0, Q fixed)
+            tPredQRel, censPQ = _pred_signchange(th_at_T, X, Y, N, outD, p, float(lr_eff), K, steps - Tstart, cubic=False, opt=opt)   # prediction-1 plot 1: quadratic prediction (T=0, Q fixed)
             tPredQ = tPredQRel + Tstart
         else:
             tPred, censP = steps, True; tPredQ, censPQ = steps, True
@@ -5832,13 +5838,16 @@ def run_sweep(P):
         nj2 = min(swsumn2, len(jnorms) - 1)            # prediction-2b: Σ ∇‖J‖ over the first swsumn2 iters = Σ(‖J‖_{i+1}−‖J‖_i) = ‖J‖_{swsumn2} − ‖J‖_0 (telescoping) — how much ‖J‖ rose/fell overall
         sumJgrad = float(sum(jnorms[i + 1] - jnorms[i] for i in range(nj2))) if nj2 >= 1 else 0.0
         jfro = float(sum(jnorms[:swsumn]) / max(1, min(swsumn, len(jnorms))))   # windowed-mean ‖J‖_F over the first swsumn steps (same window as alignNTK) — the right-half tick colour for prediction-2/2b
-        yield {"type": "sweeppt", "i": pi, "lr": float(lr), "std": float(std),
+        yield {"type": "sweeppt", "i": pi, "lr": float(lr_eff), "std": float(std),
+               "lrOrig": float(lr), "sharp0": (float(_sharp0) if (_sharp0 is not None and _sharp0 == _sharp0) else None),   # EoS guard: λmax(∇²L) at init + the pair's original swept lr (before any rescue)
+               "eosDrop": bool(eos_drop), "rescued": bool(rescued),   # eosDrop ⇒ started at EoS & un-rescuable ⇒ exclude from plots 3-4 (Pred-2/2b); rescued ⇒ lr was lowered to start below EoS
                "tAct": tAct, "censA": censA or diverged, "tPred": tPred, "censP": censP,
                "tPredQ": tPredQ, "censPQ": censPQ,                                   # prediction-1 plot 1: quadratic (T=0, Q fixed) predicted t*
                "alignNTK": (alignNTK if alignNTK == alignNTK else 0.0),             # Σ|⟨r̂,v_k⟩| top-3 NTK — prediction-2/2b LEFT-half tick colour
                "jfro": (jfro if jfro == jfro else 0.0),                             # windowed-mean ‖J‖_F — prediction-2/2b RIGHT-half tick colour
                "sumD": (sumD if sumD == sumD else 0.0), "sumCurv": (sumCurv if sumCurv == sumCurv else 0.0),
                "sumD2": (sumD2 if sumD2 == sumD2 else 0.0), "sumJgrad": (sumJgrad if sumJgrad == sumJgrad else 0.0),
+               "ps5x": (ps5x if (ps5x is not None and ps5x == ps5x) else None), "swps5n": swps5n,   # prediction-5 (magnified PS): Σ u₁ᵀ(QJr)v₁ (x); None ⇒ filtered out (not ‖J·ṙ‖>‖J̇·r‖ &below-EoS). y = sumJgrad
                "curv": (curv if curv == curv else 0.0), "swsumn": swsumn, "swsumn2": swsumn2, "diverged": diverged}
     yield {"type": "done"}
 
