@@ -3436,8 +3436,9 @@ def run_stream(P):
     p4rep = max(0, int(P.get("p4rep", 100)))   # prediction-4: re-anchor frozen+evolving from the live run every p4rep iters (0 = never; freeze once at t0)
     s41 = P.get("s41", 0)                       # prediction-7 (Phase-2a ray): walk θ_a+s·w1 (w1 = top eigvec of M_r) and predict σ1(J)/‖J‖ + clock  (s39=Pred-6, s40=§28 → s41)
     prthr = float(P.get("prthr", 0.9))          # ray: anchor at end of alignment when cos(∇L, w1) ≥ this (default 0.9; lower it if a config's cos peaks below 0.9 and never anchors)
-    prm = max(4, int(P.get("prm", 40)))         # ray: number of grid steps along the ray (m ≈ 40-50)
-    prK = max(1e-6, float(P.get("prK", 50.0)))  # ray: grid spans prK anchor-steps of motion along w1 (s_max = prK · one-step distance)
+    prm = max(4, int(P.get("prm", 40)))         # ray: MINIMUM grid points along the ray (the loop extends past this until the clock spans prK steps)
+    prK = max(1.0, float(P.get("prK", 75.0)))   # ray: the grid extends until its step-clock spans prK GD steps (default 75 ⇒ GD needs ~50-75 steps to cross the whole predicted span)
+    prdir = min(0.999, float(P.get("prdir", 0.9)))   # ray: re-anchor only when the new w1 direction differs from the previous anchor's by |cos| < prdir (0.9 ⇒ >~25° rotation)
     s38 = P.get("s38", 0)                # prediction-5: trace-statistic prediction Tr(NTK) (quad/cubic × live/self, ±PSD) vs Tr(∇²L) & Tr(JᵀJ) (prediction widget)
     p5t0 = max(0, int(P.get("p5t0", 10)))   # prediction-5: iteration t0 at which Q, residual & J are frozen for the trace propagation
     stat_init = max(0, int(P.get("stat_init", 0)))   # prediction 5.1/5.2: iteration AFTER which the theoretical forecasts begin (0 = from the start)
@@ -3535,7 +3536,7 @@ def run_stream(P):
     p4_Je = None; p4_re = None; p4_the = None; p4_thQ = None; p4_reQ = None; p4_J0e = None; p4_f0 = None; p4_qsc = 0   # prediction-4: EVOLVING-Qr — Ĵ (updated EVERY step), r̂ (bounded quadratic self-residual), θ̂; θ̂Q/r̂Q = the FIXED (θ̂,r̂) that define rQ=M_r for the current s-step window; frozen J0/f0 (nothing from the live run)
     p4m = None   # prediction-4 MULTI-FREEZE panel: 3 frozen-M_r states at t*-10/+10/+20 (t* = phase-1 anchor)
     p4mbuf = []  # prediction-4 multi-freeze: rolling (t, J, θ, r) buffer for the t*-10 back-fill
-    ray_done = False; ray_tstar = None; ray_th0 = None; ray_ra = None; ray_w1 = None   # prediction-7 (Phase-2a ray): anchor θ_a, residual r_a, direction w1 (frozen once at the end of alignment)
+    ray_prev_cos = None; ray_last_w1 = None; ray_cur = None; ray_nanch = 0; ray_track_w1 = None   # prediction 4.2 (Phase-2a ray) MULTI-ANCHOR: rising-edge cos tracker, previous anchor's w₁ (direction-change gate), current anchor {idx,tstar,th0,ra,w1}, anchor count, and a warm-start eigvec tracker (the top-M_r eigvec drifts slowly ⇒ few Lanczos iters per step). Re-anchors each time cos(∇L,w₁) rises through prthr in a NEW direction.
     tr5 = None                                 # prediction-5: frozen state {θ0,J0,f0,Yf,tr0,traj[4]} for the trace-statistic propagation
     sec15_th64 = None          # §15: float64 SHADOW GD trajectory (MLP only). D²=‖J_t‖²−2‖J_{t-1}‖²+‖J_{t-2}‖² is a ~9-digit
                                #   catastrophic cancellation when the net is near-stationary (e.g. chebyshev init=0.2: ‖J‖²≈21,
@@ -4177,44 +4178,56 @@ def run_stream(P):
             if s41 and opt == "gd" and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
               try:   # opt=="gd": the ray's walk direction (motion ∝ −∇L ∝ Jᵀr) and the η/N clock are GD-specific
                 Jmr = Jc[:M]; rmr = rr[:M]
-                if not ray_done:                                              # STILL ALIGNING: watch cos(∇L, w₁) = |w₁·(Jᵀr)|/‖Jᵀr‖
-                    _Jrr = Jmr.t() @ rmr; _Jrrn = float(_Jrr.norm())
-                    if _Jrrn > 1e-30:
-                        _Qr, _Tr, _kr = _lanczos_core(lambda v: hvpS(th, X, v, rmr.reshape(N, outD)), p, min(p, 64), 0, dt=Jmr.dtype, q0=_randvec16(p, SEC21_SEED))
-                        _mur, _Svr = _safe_eigh(_Tr)
-                        _w1 = _Svr[:, int(torch.argmax(_mur))].to(device=_dev(), dtype=Jmr.dtype) @ torch.stack(_Qr)   # top M_r eigenvector (unit, p)
-                        if abs(float(_w1 @ _Jrr)) / _Jrrn >= prthr:            # ★ END OF ALIGNMENT → anchor the ray at θ_a
-                            if float(_w1 @ _Jrr) < 0:                          # canonicalize w₁ to the DIRECTION OF MOTION (eigvec sign is arbitrary; the net walks +Jᵀr, so ⟨Δθ_step, w₁⟩>0)
-                                _w1 = -_w1
-                            _th0 = th.detach().clone(); _ra = rmr.detach().clone()   # frozen anchor state — committed to ray_* only AFTER the grid succeeds (a raise retries next tick)
-                            _sc = lr / max(N, 1) if opt == "gd" else lr        # per-step scale (gd ⇒ η/N)
-                            _smax = max(prK * abs(_sc * float(_Jrr @ _w1)), 1e-12)   # grid spans prK anchor-steps of motion along w₁
-                            _cra = _ra.reshape(N, outD)
-                            grs = []; gsig = []; gjf = []; gV = []; gDJ = []; gDr = []   # grs = ray grid distances (NOT gs — that is the gson §2/§3-spectra toggle)
-                            for j in range(prm + 1):
-                                sj = (_smax * j) / prm; thj = _th0 + sj * _w1
-                                Jj = jac_cols(thj, X)[0][:M]
-                                grs.append(sj); gjf.append(float(Jj.norm()))
-                                gsig.append(float(_safe_eigvalsh(Jj @ Jj.t())[-1].clamp_min(0.0).sqrt()))   # σ₁(J) = √λmax(JJᵀ)
-                                _Jtra = Jj.t() @ _ra; gV.append(max(_sc * float(_Jtra.norm()), 1e-30))       # per-STEP distance rate Δs/step ≈ (η/N)‖J(s)ᵀr_a‖ ⇒ clock t(s)=∫ds/V is in STEPS (matches the actual dt overlay)
-                                _gL = _Jtra / max(N, 1)                                                       # ∇L on the ray (r held = r_a)
-                                gDr.append(float((Jj.t() @ (Jj @ _gL)).norm()))                              # D_r=‖J·ṙ‖=‖JᵀJ∇L‖
-                                gDJ.append(float(hvpS(thj, X, _gL, _cra).norm()))                            # D_J=‖J̇·r_a‖=‖M_r(s)∇L‖
-                            gclock = [0.0]                                     # clock t(s)=∫ds′/V, trapezoid
-                            for j in range(1, prm + 1):
-                                gclock.append(gclock[-1] + (grs[j] - grs[j - 1]) * 0.5 * (1.0 / gV[j - 1] + 1.0 / gV[j]))
-                            sExit = None; tExit = None                         # exit = first D_J−D_r sign change on the grid
-                            for j in range(1, prm + 1):
-                                _a = gDJ[j - 1] - gDr[j - 1]; _b = gDJ[j] - gDr[j]
-                                if (_a < 0) != (_b < 0):
-                                    _fr = _a / (_a - _b) if (_a - _b) != 0 else 0.0
-                                    sExit = grs[j - 1] + _fr * (grs[j] - grs[j - 1]); tExit = gclock[j - 1] + _fr * (gclock[j] - gclock[j - 1]); break
-                            ray_done = True; ray_tstar = t; ray_th0 = _th0; ray_ra = _ra; ray_w1 = _w1.detach().clone()   # ★ latch ONLY after a successful grid
-                            g_ray = {"anchor": True, "tstar": t, "s": grs, "sig1": gsig, "jfro": gjf, "clock": gclock,
-                                     "DJ": gDJ, "Dr": gDr, "sExit": sExit, "tExit": tExit,
-                                     "st": 0.0, "sig1a": gsig[0], "jfroa": gjf[0], "dt": 0}
-                if ray_done and g_ray is None:                                # AFTER the anchor: measure actual distance + geometry
-                    g_ray = {"anchor": False, "st": float((th - ray_th0) @ ray_w1), "dt": t - ray_tstar,
+                _newanch = False
+                _Jrr = Jmr.t() @ rmr; _Jrrn = float(_Jrr.norm())              # ∇L ∝ −Jᵀr; watch cos(∇L, w₁) = |w₁·(Jᵀr)|/‖Jᵀr‖ EVERY step to catch each new alignment event
+                if _Jrrn > 1e-30:
+                    _q0r = ray_track_w1 if ray_track_w1 is not None else _randvec16(p, SEC21_SEED)   # WARM-START from the previous step's eigvec ⇒ the top eigvec appears in the Krylov subspace fast ⇒ few iters suffice
+                    _Qr, _Tr, _kr = _lanczos_core(lambda v: hvpS(th, X, v, rmr.reshape(N, outD)), p, min(p, 24), 0, dt=Jmr.dtype, q0=_q0r)
+                    _mur, _Svr = _safe_eigh(_Tr)
+                    _w1 = _Svr[:, int(torch.argmax(_mur))].to(device=_dev(), dtype=Jmr.dtype) @ torch.stack(_Qr)   # top M_r eigenvector (unit, p)
+                    ray_track_w1 = _w1.detach().clone()                        # seed next step's Lanczos (sign-agnostic — Krylov is sign-invariant)
+                    _cos = abs(float(_w1 @ _Jrr)) / _Jrrn                      # cos(∇L, w₁) ∈ [0,1]
+                    if float(_w1 @ _Jrr) < 0:                                  # canonicalize w₁ to the DIRECTION OF MOTION (eigvec sign arbitrary; the net walks +Jᵀr)
+                        _w1 = -_w1
+                    _rise = (ray_prev_cos is not None and ray_prev_cos < prthr and _cos >= prthr)   # RECENTLY crossed UP through the threshold (rising edge, not merely ≥ thr)
+                    _difdir = (ray_last_w1 is None) or (abs(float(_w1 @ ray_last_w1)) < prdir)       # DIRECTION different from the previous anchor's w₁ (|cos(w₁,w₁_prev)| < prdir)
+                    if _rise and _difdir:                                      # ★ NEW ALIGNMENT ANCHOR: cos rose through thr, in a new direction → anchor a fresh ray at θ_a
+                        _th0 = th.detach().clone(); _ra = rmr.detach().clone()   # frozen anchor state — committed to ray_cur only AFTER the grid succeeds (a raise retries next tick)
+                        _sc = lr / max(N, 1) if opt == "gd" else lr           # per-step scale (gd ⇒ η/N)
+                        _thla = _th0.clone(); _smax = 1e-12                   # LOOKAHEAD: simulate prK ACTUAL GD steps from θ_a (gd ⇒ th−=lr·∇L) and take the furthest reach along w₁ as s_max — so GD needs ~prK steps to cross the whole span. (A frozen-r_a clock badly misestimates: the true residual — hence the speed — shrinks along the trajectory, so the run decelerates.)
+                        for _ in range(int(round(prK))):
+                            _thla = _thla - lr * gradL(_thla, X, Y)[0]
+                            _smax = max(_smax, float((_thla - _th0) @ _w1))
+                        _cra = _ra.reshape(N, outD)
+                        grs = []; gsig = []; gjf = []; gV = []; gDJ = []; gDr = []   # grs = ray grid distances (NOT gs — the gson §2/§3-spectra toggle)
+                        for j in range(prm + 1):
+                            sj = (_smax * j) / prm; thj = _th0 + sj * _w1
+                            Jj = jac_cols(thj, X)[0][:M]
+                            grs.append(sj); gjf.append(float(Jj.norm()))
+                            gsig.append(float(_safe_eigvalsh(Jj @ Jj.t())[-1].clamp_min(0.0).sqrt()))   # σ₁(J) = √λmax(JJᵀ)
+                            _Jtra = Jj.t() @ _ra; gV.append(max(_sc * float(_Jtra.norm()), 1e-30))       # per-STEP distance rate Δs/step ≈ (η/N)‖J(s)ᵀr_a‖ ⇒ clock t(s)=∫ds/V in STEPS
+                            _gL = _Jtra / max(N, 1)                                                       # ∇L on the ray (r held = r_a)
+                            gDr.append(float((Jj.t() @ (Jj @ _gL)).norm()))                              # D_r=‖J·ṙ‖=‖JᵀJ∇L‖
+                            gDJ.append(float(hvpS(thj, X, _gL, _cra).norm()))                            # D_J=‖J̇·r_a‖=‖M_r(s)∇L‖
+                        gclock = [0.0]                                        # clock t(s)=∫ds′/V, trapezoid (frozen-r_a prediction; the actual dt overlay shows how the shrinking residual slows the true run)
+                        for j in range(1, prm + 1):
+                            gclock.append(gclock[-1] + (grs[j] - grs[j - 1]) * 0.5 * (1.0 / gV[j - 1] + 1.0 / gV[j]))
+                        _ng = len(grs)
+                        sExit = None; tExit = None                            # exit = first D_J−D_r sign change on the grid
+                        for j in range(1, _ng):
+                            _a = gDJ[j - 1] - gDr[j - 1]; _b = gDJ[j] - gDr[j]
+                            if (_a < 0) != (_b < 0):
+                                _fr = _a / (_a - _b) if (_a - _b) != 0 else 0.0
+                                sExit = grs[j - 1] + _fr * (grs[j] - grs[j - 1]); tExit = gclock[j - 1] + _fr * (gclock[j] - gclock[j - 1]); break
+                        ray_cur = {"idx": ray_nanch, "tstar": t, "th0": _th0, "ra": _ra, "w1": _w1.detach().clone()}   # ★ commit the new anchor ONLY after a successful grid
+                        ray_last_w1 = _w1.detach().clone(); ray_nanch += 1
+                        g_ray = {"anchor": True, "idx": ray_cur["idx"], "tstar": t, "s": grs, "sig1": gsig, "jfro": gjf, "clock": gclock,
+                                 "DJ": gDJ, "Dr": gDr, "sExit": sExit, "tExit": tExit,
+                                 "st": 0.0, "sig1a": gsig[0], "jfroa": gjf[0], "dt": 0}
+                        _newanch = True
+                    ray_prev_cos = _cos
+                if (not _newanch) and ray_cur is not None:                     # AFTER an anchor: measure ACTUAL distance + geometry vs the CURRENT anchor (past anchors freeze on the client)
+                    g_ray = {"anchor": False, "idx": ray_cur["idx"], "st": float((th - ray_cur["th0"]) @ ray_cur["w1"]), "dt": t - ray_cur["tstar"],
                              "sig1a": float(_safe_eigvalsh(Jmr @ Jmr.t())[-1].clamp_min(0.0).sqrt()), "jfroa": float(Jmr.norm())}
               except Exception:
                 g_ray = None                                                  # a pathological tick skips the ray panel rather than aborting the whole run
@@ -5610,8 +5623,9 @@ def _parse_params(q):
         "p4rep": fi("p4rep", 100),       # prediction-4: live re-anchor interval (repeat_iter)
         "s41": g("s41", "0") == "1",     # prediction-7 (Phase-2a ray): walk θ_a+s·w1 and predict σ1(J)/‖J‖ + clock
         "prthr": ff("prthr", 0.9),       # ray: end-of-alignment anchor threshold cos(∇L,w1) (default 0.9)
-        "prm": fi("prm", 40),            # ray: grid steps along the ray
-        "prK": ff("prK", 50.0),          # ray: grid spans prK anchor-steps (s_max = prK · one-step distance)
+        "prm": fi("prm", 40),            # ray: MINIMUM grid points along the ray
+        "prK": ff("prK", 75.0),          # ray: grid extends until its step-clock spans prK GD steps (≥50-75 steps to cross)
+        "prdir": ff("prdir", 0.9),       # ray: re-anchor direction-change threshold |cos(w1,w1_prev)| < prdir
         "s38": g("s38", "0") == "1",     # prediction-5: trace-statistic Tr(NTK) prediction (prediction widget)
         "s39": g("s39", "0") == "1",     # prediction-6: adaptive-optimizer top-50 Gauss-Newton eigenvalue scree curves (OFF by default)
         "lr_gd": ff("lr_gd", 0.1), "lr_sign": ff("lr_sign", 0.001),           # prediction-6 per-optimizer learning rates

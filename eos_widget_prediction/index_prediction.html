@@ -347,11 +347,13 @@
 <div id="sec_predray" style="border:3px solid #4f46e5;border-radius:12px;padding:8px 14px 10px;margin:12px 0 24px;background:#eef2ff;display:none">
 <h2 style="color:#4338ca;margin:2px 0 4px;font-size:21px">★ Prediction 4.2 · Phase-2a ray</h2>
 <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:2px 0 6px;font-size:13px;color:#374151">
-  <label title="Ray anchor: freeze at the end of alignment, the first tick cos(∇L, w1) ≥ this (w1 = top eigvec of M_r=Σ_k r_kQ_k). Default 0.9 — if a config's alignment cos peaks below this the ray won't anchor; lower it then.">anchor cos thr&nbsp;<input id="prthr" value="0.9" style="width:52px"></label>
-  <label title="Ray: number of grid steps m along the ray θ_a+s·w1 (m ≈ 40-50).">grid steps m&nbsp;<input id="prm" value="40" style="width:44px"></label>
-  <label title="Ray: the grid spans prK anchor-steps of motion along w1 (s_max = prK × one-step distance). Increase to see further along the ray.">grid span (×steps)&nbsp;<input id="prK" value="50" style="width:52px"></label>
+  <label title="Ray anchor: fires when cos(∇L, w1) RISES up through this (w1 = top eigvec of M_r=Σ_k r_kQ_k), in a direction different from the previous anchor. Re-anchors at each new alignment event. Default 0.9 — if a config's alignment cos peaks below this the ray never anchors; lower it then.">anchor cos thr&nbsp;<input id="prthr" value="0.9" style="width:52px"></label>
+  <label title="Ray: minimum number of grid points along the ray θ_a+s·w1 (resolution of the predicted curves).">grid points m&nbsp;<input id="prm" value="40" style="width:44px"></label>
+  <label title="Ray: the grid is sized (via a prK-step lookahead of the actual run) so GD needs ~this many steps to cross the WHOLE predicted span. Default 75 ⇒ ~50-75 steps to cross.">span (GD steps)&nbsp;<input id="prK" value="75" style="width:52px"></label>
+  <label title="Ray: re-anchor only when the new alignment direction w1 differs from the previous anchor's by |cos(w1,w1_prev)| < this (0.9 ⇒ >~25° rotation). Lower ⇒ require a more different direction.">new-dir thr&nbsp;<input id="prdir" value="0.9" style="width:48px"></label>
 </div>
-<p class="cap">The <b>ray recipe</b>: at the <b>end of alignment</b> — when $\cos(\nabla L, w_1)\ge$ <i>thr</i>, $w_1$ = top eigenvector of $M_r=\sum_k r_kQ_k$ — freeze $\theta_a, r_a, w_1$ and walk the straight ray $\theta(s)=\theta_a+s\,w_1$ on a grid (no training). <b>Shape</b>: predicted $\sigma_1(J)=\sqrt{\lambda_{\max}(JJ^\top)}$ and $\lVert J\rVert_F$ vs ray distance $s$ (<b style="color:#4f46e5">line</b>), overlaid with the <b>actual</b> run measured at $s_t=\langle\theta_t-\theta_a, w_1\rangle$ (<b style="color:#dc2626">dots</b>). <b>Speed</b> (clock): $t(s)=\int_0^s ds'/V$, $V=\lVert J(s)^\top r_a\rVert$, plotted as $s$ vs $t$ (line) with the actual $(t-t_a,\ s_t)$ (dots) — kept <b>separate</b> from the shape so a small speed error doesn't masquerade as a shape failure. <b>Exit</b>: where $D_J(s)=\lVert\dot J\!\cdot\!r_a\rVert$ crosses $D_r(s)=\lVert J\!\cdot\!\dot r\rVert$ (<b style="color:#dc2626">dashed line</b> = predicted phase-2a exit). Enable via the ★ Prediction 4.2 toggle (off by default; the anchor grid costs ~m forward Jacobians, once).</p>
+<p class="cap">The <b>ray recipe</b>, now <b>multi-anchor</b>: <b>each time</b> $\cos(\nabla L, w_1)$ <b>rises up through</b> <i>thr</i> in a <b>direction different</b> from the previous anchor ($w_1$ = top eigenvector of $M_r=\sum_k r_kQ_k$; "different" = $|\cos(w_1,w_1^{\rm prev})|<$ <i>new-dir thr</i>), a fresh ray is anchored: freeze $\theta_a, r_a, w_1$ and walk the straight ray $\theta(s)=\theta_a+s\,w_1$ (no training). Every anchor is <b>kept</b> — use the <b>bar above</b> to switch between them (past anchors' plots never reset; the current one keeps accumulating actual dots). The span is sized by a <b>lookahead</b>: it simulates <i>span (GD steps)</i> real GD steps from $\theta_a$ so GD needs ~50–75 steps to cross the <b>whole</b> predicted range (the frozen-$r_a$ clock badly mis-sizes it, since the true residual — hence the speed — shrinks). <b>Shape</b>: predicted $\sigma_1(J)=\sqrt{\lambda_{\max}(JJ^\top)}$ and $\lVert J\rVert_F$ vs ray distance $s$ (<b style="color:#4f46e5">line</b>), overlaid with the <b>actual</b> run at $s_t=\langle\theta_t-\theta_a, w_1\rangle$ (<b style="color:#dc2626">dots</b>). <b>Speed</b> (clock): $t(s)=\int_0^s ds'/V$, $V=\lVert J(s)^\top r_a\rVert$, as $s$ vs $t$ (line) with actual $(t-t_a,\ s_t)$ (dots) — kept <b>separate</b> from the shape. <b>Exit</b>: where $D_J(s)=\lVert\dot J\!\cdot\!r_a\rVert$ crosses $D_r(s)=\lVert J\!\cdot\!\dot r\rVert$ (<b style="color:#dc2626">dashed line</b> = predicted phase-2a exit). Enable via the ★ Prediction 4.2 toggle (off by default).</p>
+<div id="ray_bar" style="margin:4px 0 6px;min-height:24px;display:flex;flex-wrap:wrap;align-items:center"></div>
 <div class="plotrow row4"><div id="p_ray_sig" class="plot" style="height:320px"></div><div id="p_ray_jf" class="plot" style="height:320px"></div><div id="p_ray_clock" class="plot" style="height:320px"></div><div id="p_ray_exit" class="plot" style="height:320px"></div></div>
 </div>
 
@@ -1248,31 +1250,51 @@ function resetPlotDecim(){ _plotCall=0;
   _plotStride=Math.max(1,Math.ceil(ticks/PLOT_DECIM)); }
 function extP(id,u,idx){Plotly.extendTraces(id,u,idx,PLOT_DECIM+64);}   // hard backstop just above the target
 // ★ Prediction 4.2 (Phase-2a ray): on the anchor, build the grid prediction curves + empty actual traces + predicted-exit line; then extend the actual dots per step.
-const RAY={built:false};
-function _rayPlaceholders(){   // ★ Prediction 4.2: BEFORE the anchor, show a "waiting" note so it's clear the 4 plots only populate AFTER cos(∇L,w₁) reaches the anchor cos thr
-  if(RAY.built)return;
-  const ann=[{text:'★ Prediction 4.2 — the plots populate once the run reaches the<br>alignment anchor:  cos(∇L, w₁) ≥ the anchor cos thr',xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,align:'center',font:{size:11,color:'#94a3b8'}}];
+const RAY={anchors:[], sel:-1};   // ★ Prediction 4.2 MULTI-ANCHOR: each anchor {idx,tstar,s,sig1,jfro,clock,DJ,Dr,sExit,tExit,act:{st,sig1,jfro,dt}} keeps its OWN grid + accumulated actuals; the bar switches which one is shown. Anchors are NEVER overwritten — a new alignment event just adds a button.
+function _rayPlaceholders(){   // BEFORE any anchor: "waiting" note so the 4 plots aren't blank boxes
+  if(RAY.anchors.length)return;
+  const ann=[{text:'★ Prediction 4.2 — the plots populate once the run reaches an<br>alignment anchor:  cos(∇L, w₁) ≥ the anchor cos thr (in a new direction)',xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,align:'center',font:{size:11,color:'#94a3b8'}}];
   for(const id of ['p_ray_sig','p_ray_jf','p_ray_clock','p_ray_exit']){const gd=document.getElementById(id); if(!gd)continue;
     try{if(gd._fullLayout)Plotly.relayout(id,{annotations:ann});else{const L=baseLayout('★ Prediction 4.2 · Phase-2a ray','',false);L.showlegend=false;L.annotations=ann;Plotly.newPlot(id,[],L,CFG);}}catch(e){}}
+  _rayBar();
 }
+function _rayBar(){   // rebuild the anchor selector bar (one button per anchor; click switches the shown prediction)
+  const bar=document.getElementById('ray_bar'); if(!bar)return;
+  if(!RAY.anchors.length){bar.innerHTML='<span style="color:#94a3b8;font-size:12px">no anchors yet — waiting for cos(∇L,w₁) ≥ thr in a new direction…</span>';return;}
+  let h='<span style="color:#4338ca;font-size:12px;font-weight:600;margin-right:6px">anchors ('+RAY.anchors.length+'):</span>';
+  RAY.anchors.forEach((a,i)=>{if(!a)return;const on=(i===RAY.sel);
+    h+='<button onclick="selectRayAnchor('+i+')" title="alignment anchor #'+(i+1)+' at step '+a.tstar+'" style="margin:0 4px 4px 0;padding:2px 9px;font-size:12px;border:1px solid '+(on?'#4f46e5':'#c7d2fe')+';border-radius:6px;background:'+(on?'#4f46e5':'#fff')+';color:'+(on?'#fff':'#4338ca')+';cursor:pointer">#'+(i+1)+' · t='+a.tstar+'</button>';});
+  bar.innerHTML=h;
+}
+function _rayRender(i){   // (re)plot the 4 divs from anchor i's stored grid + all accumulated actual dots
+  const a=RAY.anchors[i]; if(!a)return;
+  const mk=(id,title,ytitle,px,py,exitx,ax,ay)=>{const L=baseLayout(title,ytitle,false);L.shapes=_rayExit(exitx);L.showlegend=true;L.margin.t=34;
+    try{Plotly.newPlot(id,[{x:px,y:py,mode:'lines',name:'predicted',line:{color:'#4f46e5',width:2}},{x:ax.slice(),y:ay.slice(),mode:'markers',name:'actual',marker:{color:'#dc2626',size:5}}],L,CFG);}catch(e){}};
+  mk('p_ray_sig','σ₁(J) vs ray distance s  ·  anchor #'+(i+1),'σ₁(J)=√λmax(JJᵀ)',a.s,a.sig1,a.sExit,a.act.st,a.act.sig1);
+  mk('p_ray_jf','‖J‖_F vs ray distance s  ·  anchor #'+(i+1),'‖J‖_F',a.s,a.jfro,a.sExit,a.act.st,a.act.jfro);
+  {const L=baseLayout('clock: distance s vs time  ·  anchor #'+(i+1),'ray distance s',false);L.xaxis.title='steps since anchor';L.shapes=_rayExit(a.tExit);L.showlegend=true;L.margin.t=34;
+   try{Plotly.newPlot('p_ray_clock',[{x:a.clock,y:a.s,mode:'lines',name:'clock t(s)',line:{color:'#4f46e5',width:2}},{x:a.act.dt.slice(),y:a.act.st.slice(),mode:'markers',name:'actual',marker:{color:'#dc2626',size:5}}],L,CFG);}catch(e){}}
+  {const L=baseLayout('exit: D_J vs D_r on the ray  ·  anchor #'+(i+1),'value',false);L.xaxis.title='ray distance s';L.shapes=_rayExit(a.sExit);L.showlegend=true;L.margin.t=34;
+   try{Plotly.newPlot('p_ray_exit',[{x:a.s,y:a.DJ,mode:'lines',name:'D_J=‖J̇·r‖',line:{color:'#16a34a',width:1.8}},{x:a.s,y:a.Dr,mode:'lines',name:'D_r=‖J·ṙ‖',line:{color:'#db2777',width:1.8}}],L,CFG);}catch(e){}}
+}
+function selectRayAnchor(i){RAY.sel=i;_rayRender(i);_rayBar();   // user clicked a bar button → show that anchor's prediction (past anchors stay stored)
+  requestAnimationFrame(()=>{for(const id of ['p_ray_sig','p_ray_jf','p_ray_clock','p_ray_exit']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}
 function _rayExit(x){return (x!=null&&isFinite(x))?[{type:'line',x0:x,x1:x,y0:0,y1:1,yref:'paper',line:{color:'#dc2626',width:1.3,dash:'dot'}}]:[];}
 function addRayPt(g){
-  if(g.anchor){   // ANCHOR: (re)build the four ray plots with the grid predictions
-    const mk=(id,title,ytitle,px,py,pname,pcol,exitx,ext)=>{const L=baseLayout(title,ytitle,false);L.shapes=_rayExit(exitx);L.showlegend=true;L.margin.t=34;
-      const tr=[{x:px,y:py,mode:'lines',name:pname,line:{color:pcol,width:2}}];if(ext)tr.push({x:[],y:[],mode:'markers',name:'actual',marker:{color:'#dc2626',size:5}});
-      try{Plotly.newPlot(id,tr,L,CFG);}catch(e){}};
-    mk('p_ray_sig','σ₁(J) vs ray distance s','σ₁(J)=√λmax(JJᵀ)',g.s,g.sig1,'predicted','#4f46e5',g.sExit,true);
-    mk('p_ray_jf','‖J‖_F vs ray distance s','‖J‖_F',g.s,g.jfro,'predicted','#4f46e5',g.sExit,true);
-    {const L=baseLayout('clock: distance s vs time','ray distance s',false);L.xaxis.title='steps since anchor';L.shapes=_rayExit(g.tExit);L.showlegend=true;L.margin.t=34;
-     try{Plotly.newPlot('p_ray_clock',[{x:g.clock,y:g.s,mode:'lines',name:'clock t(s)',line:{color:'#4f46e5',width:2}},{x:[],y:[],mode:'markers',name:'actual',marker:{color:'#dc2626',size:5}}],L,CFG);}catch(e){}}
-    {const L=baseLayout('exit: D_J vs D_r on the ray','value',false);L.xaxis.title='ray distance s';L.shapes=_rayExit(g.sExit);L.showlegend=true;L.margin.t=34;
-     try{Plotly.newPlot('p_ray_exit',[{x:g.s,y:g.DJ,mode:'lines',name:'D_J=‖J̇·r‖',line:{color:'#16a34a',width:1.8}},{x:g.s,y:g.Dr,mode:'lines',name:'D_r=‖J·ṙ‖',line:{color:'#db2777',width:1.8}}],L,CFG);}catch(e){}}
-    RAY.built=true;
+  if(g.anchor){   // NEW ALIGNMENT ANCHOR: store its grid, add a bar button, auto-select + render it (never overwrites earlier anchors)
+    const a={idx:g.idx,tstar:g.tstar,s:g.s,sig1:g.sig1,jfro:g.jfro,clock:g.clock,DJ:g.DJ,Dr:g.Dr,sExit:g.sExit,tExit:g.tExit,
+             act:{st:[0.0],sig1:[g.sig1a],jfro:[g.jfroa],dt:[0]}};   // seed the actual overlay with the s=0 anchor point
+    RAY.anchors[g.idx]=a; RAY.sel=g.idx; _rayBar(); _rayRender(g.idx);
+    return;
   }
-  if(RAY.built&&g.st!=null&&isFinite(g.st)){   // per-step actual points overlaid on the shape/clock curves
-    if(g.sig1a!=null&&isFinite(g.sig1a))try{extP('p_ray_sig',{x:[[g.st]],y:[[g.sig1a]]},[1]);}catch(e){}
-    if(g.jfroa!=null&&isFinite(g.jfroa))try{extP('p_ray_jf',{x:[[g.st]],y:[[g.jfroa]]},[1]);}catch(e){}
-    if(g.dt!=null&&isFinite(g.dt))try{extP('p_ray_clock',{x:[[g.dt]],y:[[g.st]]},[1]);}catch(e){}
+  const a=RAY.anchors[g.idx]; if(!a)return;   // ACTUAL point for its anchor: always accumulate into that anchor's store…
+  if(g.st!=null&&isFinite(g.st)){
+    a.act.st.push(g.st); a.act.sig1.push(g.sig1a); a.act.jfro.push(g.jfroa); a.act.dt.push(g.dt);
+    if(g.idx===RAY.sel){   // …and if that anchor is the one on screen, extend its dots in place (cheap)
+      if(g.sig1a!=null&&isFinite(g.sig1a))try{extP('p_ray_sig',{x:[[g.st]],y:[[g.sig1a]]},[1]);}catch(e){}
+      if(g.jfroa!=null&&isFinite(g.jfroa))try{extP('p_ray_jf',{x:[[g.st]],y:[[g.jfroa]]},[1]);}catch(e){}
+      if(g.dt!=null&&isFinite(g.dt))try{extP('p_ray_clock',{x:[[g.dt]],y:[[g.st]]},[1]);}catch(e){}
+    }
   }
 }
 function slqLayout(title){const L=baseLayout(title,'density (log)',false);L.xaxis.title.text='eigenvalue';L.yaxis.type='log';L.showlegend=false;return L;}
@@ -3322,7 +3344,7 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_pred4_box');if(el)el.style.display=chk('enP4')?'':'none';}   // toggle the whole Prediction-4 box (both panels)
   {const el=document.getElementById('sec_pred3_box');if(el)el.style.display=chk('enP3')?'':'none';}   // toggle the whole Prediction-3 box (both panels)
   {const el=document.getElementById('sec_predray');if(el){const vis=chk('enPR');el.style.display=vis?'':'none';   // ★ Prediction 4.2 (Phase-2a ray)
-    if(vis){if(!RAY.built)_rayPlaceholders();   // pre-anchor: show the "populates after cos ≥ thr" note instead of blank boxes
+    if(vis){if(!RAY.anchors.length)_rayPlaceholders();else{_rayBar();if(RAY.sel>=0)_rayRender(RAY.sel);}   // pre-anchor: "waiting" note; else restore the bar + selected anchor
       requestAnimationFrame(()=>{for(const id of ['p_ray_sig','p_ray_jf','p_ray_clock','p_ray_exit']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}}
   {const el=document.getElementById('sec_sweep');if(el)el.style.display=chk('enPs')?'':'none';}
   {const el=document.getElementById('sec_pred6');if(el){const vis=chk('enP6');el.style.display=vis?'':'none';
@@ -3361,7 +3383,7 @@ function p6Reset(){P6_SNAPS=[];P6_CURIDX=0;if(P6_RAF){cancelAnimationFrame(P6_RA
   const sp=document.getElementById('p6_step');if(sp)sp.textContent='live (latest)';}
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   resetPlotDecim();   // fresh decimation state for this run (bounds plotted points → no progressive hang)
-  RAY.built=false; if(typeof chk==='function'&&chk('enPR'))try{_rayPlaceholders();}catch(e){}   // ★ Prediction 4.2 (ray): forget last run's anchor; restore the pre-anchor "waiting for cos ≥ thr" note so old curves don't linger
+  RAY.anchors=[]; RAY.sel=-1; if(typeof chk==='function'&&chk('enPR'))try{_rayPlaceholders();}catch(e){}   // ★ Prediction 4.2 (ray): forget last run's anchors (clear the bar) + restore the pre-anchor "waiting" note so old curves don't linger
   g3dReset();   // §11: drop snapshots from the previous run
   s12Reset();   // §12: drop snapshots from the previous run
   s13Reset();   // §13: drop the approximation-comparison time-series from the previous run
@@ -4979,8 +5001,9 @@ function currentQueryParams(){   // the exact query-style param dict the backend
   o['s41']=chk('enPR')?'1':'0';   // ★ Prediction 4.2 (ray): computed ONLY when enabled (s39=Pred-6, s40=§28 → s41). Anchor grid costs ~m forward Jacobians
 
   {const e=document.getElementById('prthr');if(e)o['prthr']=e.value||'0.9';}   // ray anchor cos threshold
-  {const e=document.getElementById('prm');if(e)o['prm']=e.value||'40';}   // ray grid steps
-  {const e=document.getElementById('prK');if(e)o['prK']=e.value||'50';}   // ray grid span (×anchor-steps)
+  {const e=document.getElementById('prm');if(e)o['prm']=e.value||'40';}   // ray grid points (min)
+  {const e=document.getElementById('prK');if(e)o['prK']=e.value||'75';}   // ray span: GD steps to cross (lookahead)
+  {const e=document.getElementById('prdir');if(e)o['prdir']=e.value||'0.9';}   // ray re-anchor direction-change threshold
   {const e=document.getElementById('p5t0');if(e)o['p5t0']=e.value||'10';}
   {const e=document.getElementById('stat_init');if(e)o['stat_init']=e.value||'0';}   // 5.1/5.2 forecasts begin after this iteration
   {const e=document.getElementById('evcubic');if(e)o['cubicapprox']=e.value||'25';}   // 5.2 cubic (§10 Eq-51) uses every_iter_cubic_approx too (same knob as 5.1's cubic re-anchor)   // prediction-5 (trace) freeze iteration t0
