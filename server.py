@@ -3437,7 +3437,7 @@ def run_stream(P):
     s41 = P.get("s41", 0)                       # prediction-7 (Phase-2a ray): walk θ_a+s·w1 (w1 = top eigvec of M_r) and predict σ1(J)/‖J‖ + clock  (s39=Pred-6, s40=§28 → s41)
     prthr = float(P.get("prthr", 0.99))         # ray: anchor at end of alignment when cos(∇L, w1) ≥ this (default 0.99)
     prm = max(4, int(P.get("prm", 40)))         # ray: number of grid steps along the ray (m ≈ 40-50)
-    prK = float(P.get("prK", 50.0))             # ray: grid spans prK anchor-steps of motion along w1 (s_max = prK · one-step distance)
+    prK = max(1e-6, float(P.get("prK", 50.0)))  # ray: grid spans prK anchor-steps of motion along w1 (s_max = prK · one-step distance)
     s38 = P.get("s38", 0)                # prediction-5: trace-statistic prediction Tr(NTK) (quad/cubic × live/self, ±PSD) vs Tr(∇²L) & Tr(JᵀJ) (prediction widget)
     p5t0 = max(0, int(P.get("p5t0", 10)))   # prediction-5: iteration t0 at which Q, residual & J are frozen for the trace propagation
     stat_init = max(0, int(P.get("stat_init", 0)))   # prediction 5.1/5.2: iteration AFTER which the theoretical forecasts begin (0 = from the start)
@@ -4174,8 +4174,8 @@ def run_stream(P):
             #   then per step measure the ACTUAL distance s_t=⟨θ_t−θ_a, w₁⟩ and σ₁/‖J‖. Predicted phase-exit = where
             #   D_J(s)=‖J̇·r_a‖=‖M_r(s)∇L‖ crosses D_r(s)=‖J·ṙ‖=‖JᵀJ∇L‖ on the grid (∇L=(1/N)J(s)ᵀr_a, r held = r_a).
             g_ray = None
-            if s41 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
-              try:
+            if s41 and opt == "gd" and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+              try:   # opt=="gd": the ray's walk direction (motion ∝ −∇L ∝ Jᵀr) and the η/N clock are GD-specific
                 Jmr = Jc[:M]; rmr = rr[:M]
                 if not ray_done:                                              # STILL ALIGNING: watch cos(∇L, w₁) = |w₁·(Jᵀr)|/‖Jᵀr‖
                     _Jrr = Jmr.t() @ rmr; _Jrrn = float(_Jrr.norm())
@@ -4184,18 +4184,19 @@ def run_stream(P):
                         _mur, _Svr = _safe_eigh(_Tr)
                         _w1 = _Svr[:, int(torch.argmax(_mur))].to(device=_dev(), dtype=Jmr.dtype) @ torch.stack(_Qr)   # top M_r eigenvector (unit, p)
                         if abs(float(_w1 @ _Jrr)) / _Jrrn >= prthr:            # ★ END OF ALIGNMENT → anchor the ray at θ_a
-                            ray_done = True; ray_tstar = t
-                            ray_th0 = th.detach().clone(); ray_ra = rmr.detach().clone(); ray_w1 = _w1.detach().clone()
+                            if float(_w1 @ _Jrr) < 0:                          # canonicalize w₁ to the DIRECTION OF MOTION (eigvec sign is arbitrary; the net walks +Jᵀr, so ⟨Δθ_step, w₁⟩>0)
+                                _w1 = -_w1
+                            _th0 = th.detach().clone(); _ra = rmr.detach().clone()   # frozen anchor state — committed to ray_* only AFTER the grid succeeds (a raise retries next tick)
                             _sc = lr / max(N, 1) if opt == "gd" else lr        # per-step scale (gd ⇒ η/N)
-                            _smax = prK * abs(_sc * float(_Jrr @ ray_w1))       # grid spans prK anchor-steps of motion along w₁
-                            _smax = max(_smax, 1e-12); _cra = ray_ra.reshape(N, outD)
+                            _smax = max(prK * abs(_sc * float(_Jrr @ _w1)), 1e-12)   # grid spans prK anchor-steps of motion along w₁
+                            _cra = _ra.reshape(N, outD)
                             gs = []; gsig = []; gjf = []; gV = []; gDJ = []; gDr = []
                             for j in range(prm + 1):
-                                sj = (_smax * j) / prm; thj = ray_th0 + sj * ray_w1
+                                sj = (_smax * j) / prm; thj = _th0 + sj * _w1
                                 Jj = jac_cols(thj, X)[0][:M]
                                 gs.append(sj); gjf.append(float(Jj.norm()))
                                 gsig.append(float(_safe_eigvalsh(Jj @ Jj.t())[-1].clamp_min(0.0).sqrt()))   # σ₁(J) = √λmax(JJᵀ)
-                                _Jtra = Jj.t() @ ray_ra; gV.append(max(_sc * float(_Jtra.norm()), 1e-30))    # per-STEP distance rate Δs/step ≈ (η/N)‖J(s)ᵀr_a‖ ⇒ clock t(s)=∫ds/V is in STEPS (matches the actual dt overlay)
+                                _Jtra = Jj.t() @ _ra; gV.append(max(_sc * float(_Jtra.norm()), 1e-30))       # per-STEP distance rate Δs/step ≈ (η/N)‖J(s)ᵀr_a‖ ⇒ clock t(s)=∫ds/V is in STEPS (matches the actual dt overlay)
                                 _gL = _Jtra / max(N, 1)                                                       # ∇L on the ray (r held = r_a)
                                 gDr.append(float((Jj.t() @ (Jj @ _gL)).norm()))                              # D_r=‖J·ṙ‖=‖JᵀJ∇L‖
                                 gDJ.append(float(hvpS(thj, X, _gL, _cra).norm()))                            # D_J=‖J̇·r_a‖=‖M_r(s)∇L‖
@@ -4208,6 +4209,7 @@ def run_stream(P):
                                 if (_a < 0) != (_b < 0):
                                     _fr = _a / (_a - _b) if (_a - _b) != 0 else 0.0
                                     sExit = gs[j - 1] + _fr * (gs[j] - gs[j - 1]); tExit = gclock[j - 1] + _fr * (gclock[j] - gclock[j - 1]); break
+                            ray_done = True; ray_tstar = t; ray_th0 = _th0; ray_ra = _ra; ray_w1 = _w1.detach().clone()   # ★ latch ONLY after a successful grid
                             g_ray = {"anchor": True, "tstar": t, "s": gs, "sig1": gsig, "jfro": gjf, "clock": gclock,
                                      "DJ": gDJ, "Dr": gDr, "sExit": sExit, "tExit": tExit,
                                      "st": 0.0, "sig1a": gsig[0], "jfroa": gjf[0], "dt": 0}
