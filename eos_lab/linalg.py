@@ -58,10 +58,12 @@ def randn_vec(p, seed, device, dtype):
     return torch.randn(p, dtype=dtype, device=device, generator=g)
 
 
-def _lanczos_core(hvp, p, m, seed, device, dtype):
+def _lanczos_core(hvp, p, m, seed, device, dtype, q0=None):
     """k≤m steps of Lanczos with twice-iterated full reorthogonalisation.
-    Returns (Q basis list, tridiagonal T (k×k, float64 CPU), k). MIRRORS server._lanczos_core."""
-    q = randn_vec(p, seed, device, dtype)
+    Returns (Q basis list, tridiagonal T (k×k, float64 CPU), k). MIRRORS server._lanczos_core.
+    q0 (optional) = an explicit start vector (WARM-START); when None, a seeded random probe is used —
+    matching server's `q0=None` signature (Pred-4.2 ray warm-starts from the previous step's eigvec)."""
+    q = q0 if q0 is not None else randn_vec(p, seed, device, dtype)
     q = q / q.norm()
     Q, al, be = [], [], []
     qp = torch.zeros(p, dtype=dtype, device=device)

@@ -185,6 +185,17 @@ class Config:
     p4rep: int = 100      # Pred-4: re-anchor the frozen-M_r propagation from the live run every p4rep iters (0 = freeze once)
     stat_init: int = 0    # Pred-5.1: iteration at which the trace forecast starts
     evcubic: int = 25     # Pred-5.1: cubic-trajectory re-anchor window (quad trajectory uses qapprox)
+    s41: int = 0          # Prediction-4.2 (Phase-2a ray) — MULTI-ANCHOR: each time cos(∇L,w1) rises through prthr in a NEW direction, freeze θ_a,r_a,w1 (w1=top eigvec of M_r) and predict σ1(J)/‖J‖ + clock along θ_a+s·w1; gd-only
+    prthr: float = 0.9    # Pred-4.2 ray: anchor when cos(∇L, w1) rises up through this (lower if a config's cos peaks below 0.9 and never anchors)
+    prm: int = 40         # Pred-4.2 ray: number of grid points along the ray θ_a+s·w1 (grid resolution)
+    prK: float = 75.0     # Pred-4.2 ray: the lookahead sizes s_max so GD needs ~prK steps to cross the whole predicted span
+    prdir: float = 0.9    # Pred-4.2 ray: re-anchor only when the new w1 direction differs from the previous anchor's by |cos| < prdir
+    # ---- sweep prediction-2c/2d (dedicated σ-sweep) + the magnified-PS view (server run_sweep) ----
+    swps5n: int = 4       # magnified-PS: # frozen-Q,J / evolving-r steps to sum u₁ᵀ(QJr)v₁ over (frozen at the PS-onset step)
+    sw2cd: int = 0        # prediction-2c/2d: run the DEDICATED σ-sweep (H=Σ_αQ_α and Qr=Σ_α r_αQ_α net-extreme vs σ). OFF by default
+    swcsmin: float = 0.1  # prediction-2c/2d dedicated σ-sweep min (init scale, log-spaced)
+    swcsmax: float = 10.0 # prediction-2c/2d dedicated σ-sweep max
+    swmrk: int = 10       # prediction-2c/2d: k for the (Σ top-k)+(Σ bottom-k) eigenvalue sum
 
     # ---- test set (held-out) ----
     n_test: int = 0                # held-out test points (0 ⇒ default: max(nsamp, 256), capped per dataset)
@@ -206,7 +217,7 @@ class Config:
         # §18-§26 section toggles (s26..s34) consumed by diagnostics/train; leave the scalar params
         # (s28k/s29k/s30t/s31r/s31scale) numeric. int 0/1 already reads as truthy, but bool-cast for consistency.
         for k in ("s26", "s27", "s28", "s29", "s30", "s31", "s32", "s33", "s34", "s35",
-                  "s36", "s37", "s38", "s39"):
+                  "s36", "s37", "s38", "s39", "s41"):
             d[k] = bool(getattr(self, k))
         return d
 

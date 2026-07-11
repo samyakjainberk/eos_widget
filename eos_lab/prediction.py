@@ -1,10 +1,11 @@
 """
 prediction — the EoS "prediction widget" forecasts (server.py's `/prediction` route), ported to eos_lab.
 
-MIRRORS:  server.py  (_first_signchange / _max_abs_curvature / _pred_signchange / run_sweep, and the
-                       per-step forecast blocks g_pred3 / g_pred3m / g_pred4 / g_pred4m / g_trace
-                       inlined in run_stream's main loop)
-          ↔ index_prediction.html  (the 4-plot forecast panel + the §1/§2 sweep scatter)
+MIRRORS:  server.py  (_first_signchange / _max_abs_curvature / _pred_signchange / run_sweep [incl. the
+                       EoS-guard lr rescue, the magnified-PS `ps5x`, and the dedicated 2c/2d σ-sweep], and
+                       the per-step forecast blocks g_pred3 / g_pred3m / g_pred4 / g_pred4m / g_trace /
+                       g_pred6 / g_ray inlined in run_stream's main loop)
+          ↔ index_prediction.html  (the 4-plot forecast panel, the ★ Prediction-4.2 ray panel, + the §1/§2 sweep scatter)
 
 The prediction widget layers three families of theoretical forecasts on top of the ACTUAL GD trajectory:
 
@@ -30,6 +31,14 @@ The prediction widget layers three families of theoretical forecasts on top of t
     Tr(NTK)=‖J‖²_F/N (with and without the per-step PSD term) vs the actual Tr(JᵀJ)/N (`trGN`) and
     Tr(∇²L)/N (`trHess`, via 24 Hutchinson probes of the EXACT loss-Hessian hvp_L).
 
+  Prediction-6 (`Pred6Tracker`) — four independent optimizer trajectories {GD, Signed-GD, Muon, Gauss-Newton}
+    from a shared θ₀; per tick the top-50 Gauss-Newton scree, loss, and Lanczos sharpness of each.
+
+  Prediction-4.2 / Phase-2a ray (`RayTracker`, GD-only) — MULTI-ANCHOR: each time cos(∇L, w₁) rises up through
+    `prthr` in a direction different from the previous anchor (w₁ = top eigvec of M_r=Σ_k r_kQ_k, warm-started
+    Lanczos), freeze θ_a/r_a/w₁ and walk the straight ray θ_a+s·w₁, predicting σ₁(J)/‖J‖_F, the step-clock, and
+    the D_J=D_r phase-2a exit; the span is sized by a `prK`-step GD lookahead. `step()` → the g_ray dict.
+
 PARITY NOTE (FD-vs-exact).  server.py's MlpModel uses FINITE-DIFFERENCE HVPs (EPS=1e-3) for hvp_S / hvp_L,
 whereas eos_lab uses EXACT double-backward autograd. jac_hvp is FD on BOTH backends (EPS=1e-3), so every
 jac_hvp-derived quantity (prediction-3's quad2, prediction-5's Q0[g]/T[a,b]) matches server to ~1e-6 in fp64.
@@ -53,7 +62,7 @@ import torch
 from .models import (build_model, build_loss, grad_loss, jac_cols, jac_hvp,
                      hvp_S, hvp_L, opt_dir, precond_flow, MlpModel)
 from .data import init_data_theta
-from .linalg import safe_eigvalsh, randn_vec, lanczos_extreme_vals
+from .linalg import safe_eigvalsh, safe_eigh, randn_vec, lanczos_extreme_vals, _lanczos_core
 
 
 # ═══════════════════════════════════════════════════════════════════════ pure-Python helpers (copied)
@@ -166,9 +175,20 @@ def sweep(cfg, npairs=None, K=None, Tstart=None, steps=None, seed=None,
       alignNTK         — mean over the first `swsumn` steps of Σ_{k≤3}|⟨r̂, v_k⟩| (residual vs top-3 NTK eigvecs; tick colour)
       sumD, sumCurv    — prediction-2: Σ d and Σ d²loss/dt² over the first `swsumn` iterations (from 0)
       sumD2, sumJgrad  — prediction-2b: Σ d and Σ Δ‖J‖_F (= ‖J‖_{swsumn2} − ‖J‖_0, telescoping) over `swsumn2` iters
+      jfro             — windowed-mean ‖J‖_F over `swsumn` steps (prediction-2/2b RIGHT-half tick colour)
+      lr, lrOrig       — the EFFECTIVE lr (after any EoS rescue) and the pair's ORIGINAL swept lr
+      sharp0, eosDrop, rescued — EoS guard: λmax(∇²L) at init; started at EoS & un-rescuable ⇒ eosDrop (drop from plots
+                          3-4); rescued ⇒ lr was lowered (lr_eff) so the pair starts below 2/η
+      ps5x, ps5t       — magnified-PS: Σ_{k<swps5n} u₁ᵀ(QJr_k)v₁ with Q,J frozen at the PS-ONSET step ps5t and r evolving
+                          (t=0 if the pair starts in PS, else the neg→pos jrd−jdr crossing — matching Pred-3); None ⇒
+                          the pair never enters PS below EoS. The magnified-PS y-axis is sumJgrad.
       curv             — peak signed d²loss/dt² (max-|·| central 2nd difference of loss(t))
       swsumn, swsumn2  — the two summation windows echoed back
       diverged         — the pair blew up (loss NaN or >1e12) before `steps`
+
+    When `cfg.sw2cd`, ALSO yields (FIRST, before the pairs) the dedicated 2c/2d σ-sweep — `{type:'sweeppt2c', i,
+    std, mrSum, hSum, swmrk, n2c}` — the (Σ top-k)+(Σ bottom-k) eigenvalue net-extreme of Qr=Σ_α r_αQ_α (mrSum, 2d)
+    and H=Σ_α Q_α (hSum, 2c) at t=0 vs σ log-spaced over [swcsmin, swcsmax]. Pair dicts carry `type:'sweeppt'`.
 
     A generator (yields as the pairs are computed, like server.run_sweep's SSE stream). MIRRORS
     server.run_sweep (the trajectory / diagnostics run through eos_lab primitives instead of the globals).
@@ -225,10 +245,62 @@ def sweep(cfg, npairs=None, K=None, Tstart=None, steps=None, seed=None,
 
     import random as _random
     rng = _random.Random(seed0 or 1)                       # deterministic log-uniform (lr, std) pairs (server parity)
+
+    swps5n = max(1, int(getattr(cfg, "swps5n", 4)))        # magnified-PS: #frozen-Q,J / evolving-r steps to sum u₁ᵀ(QJr)v₁ over
+    _EOS_SEED = 0x5A1DBEEF & 0x7FFFFFFF                     # fixed Lanczos start seed (server _lanczos_extremes / _lanczos_sumk)
+    def _sharp_top(hvp):                                    # λmax via matrix-free Lanczos (server _lanczos_extremes top eigenvalue)
+        try:
+            _Q, _T, _kl = _lanczos_core(hvp, p, min(p, 28), _EOS_SEED, dev, dtype)
+            _mu, _ = safe_eigh(_T)
+            return float(_mu[-1])
+        except Exception:
+            return None
+    def _lanczos_sumk(hvp, k):                              # prediction-2c/2d: (Σ top-k)+(Σ bottom-k) eigenvalue net-extreme (server _lanczos_sumk)
+        try:
+            _m = min(p, max(64, 4 * k))                    # ≥64 iters resolves the top-k & bottom-k extremes on both ends
+            _Q, _T, _kl = _lanczos_core(hvp, p, _m, _EOS_SEED, dev, dtype)
+            _mu, _ = safe_eigh(_T)                         # ascending Ritz values
+            _ke = max(1, min(k, _kl // 2, p // 2))         # cap so top-k and bottom-k never overlap (small p / small Krylov)
+            return float(_mu[-_ke:].sum()) + float(_mu[:_ke].sum())   # Σ(top-k) + Σ(bottom-k) — signed net-extreme over 2k modes
+        except Exception:
+            return None
+
+    # ── Prediction-2c/2d (dedicated σ-sweep): σ log-spaced over [swcsmin, swcsmax] (default 0.1→10), decoupled from
+    #    the (lr,σ) pairs below. Per σ: the (Σ top-k)+(Σ bottom-k) net-extreme of two function Hessians at t=0 —
+    #    2c y = H = Σ_α Q_α (UNWEIGHTED); 2d y = Qr = M_r = Σ_α r_α Q_α (residual-weighted, r=y−f). MIRRORS server.
+    _sw2cd = bool(int(getattr(cfg, "sw2cd", 0)))           # OFF by default: the dedicated σ-loop only runs when the toggle is ON
+    swmrk = max(1, int(getattr(cfg, "swmrk", 10)))
+    swcsmin = max(1e-6, float(getattr(cfg, "swcsmin", 0.1) or 0.1))
+    swcsmax = max(swcsmin * 1.01, float(getattr(cfg, "swcsmax", 10.0) or 10.0))
+    _lo, _hi = math.log(swcsmin), math.log(swcsmax)
+    for si in range(npairs if _sw2cd else 0):              # range(0) ⇒ skip entirely when the toggle is off
+        std_c = math.exp(_lo + (_hi - _lo) * (si / max(1, npairs - 1)))   # deterministic log-spaced σ grid
+        th_c = model.init_theta(seed0 + 1, std_c)
+        out_c = model.forward(th_c, X)
+        if not (float(loss.value(out_c, Y, N)) < 1e12):
+            continue                                       # skip a NaN/blow-up init (rare at large σ)
+        rr_c = (-N * loss.resid_cotangent(out_c.reshape(N, outD), Y, N)).reshape(-1)[:M]   # r = y − f
+        _onesc = torch.ones(N, outD, dtype=out_c.dtype, device=out_c.device)   # cotangent ≡ 1 ⇒ H = Σ_α Q_α (unweighted)
+        mrSum = _lanczos_sumk(lambda v: hvp_S(model, th_c, X, rr_c.reshape(N, outD), v), swmrk)   # 2d: Qr = Σ_α r_α Q_α net-extreme
+        hSum = _lanczos_sumk(lambda v: hvp_S(model, th_c, X, _onesc, v), swmrk)                   # 2c: H  = Σ_α Q_α net-extreme
+        yield {"type": "sweeppt2c", "i": si, "std": float(std_c),
+               "mrSum": (mrSum if (mrSum is not None and mrSum == mrSum) else None),
+               "hSum": (hSum if (hSum is not None and hSum == hSum) else None),
+               "swmrk": swmrk, "n2c": npairs}
+
     for pi in range(npairs):
         lr = math.exp(rng.uniform(math.log(lrmin), math.log(lrmax)))
         std = math.exp(rng.uniform(math.log(stdmin), math.log(stdmax)))
         th = model.init_theta(seed0 + 1, std)
+        _sharp0 = _sharp_top(lambda v: hvp_L(model, loss, th, X, Y, v))   # λmax(∇²L) at init — EoS guard for prediction-2/2b (plots 3-4)
+        lr_eff = lr; eos_drop = False; rescued = False
+        if _sharp0 is not None and _sharp0 > 0.0 and _sharp0 >= 2.0 / lr:   # starts at/above EoS (2/lr ≤ sharpness₀) ⇒ rescue by lowering lr below EoS, else drop from plots 3-4
+            _lr_resc = 0.9 * (2.0 / _sharp0)                               # 2/lr' = sharpness₀/0.9 > sharpness₀ ⇒ starts below EoS
+            if _lr_resc >= lrmin:
+                lr_eff = _lr_resc; rescued = True                          # RESCUE: lower lr (affects the shared trajectory → all 4 row-1 plots)
+            else:
+                eos_drop = True                                            # cannot rescue within the sweep's lr range ⇒ exclude from plots 3-4
+        ps5x = None; ps5t = None                                          # magnified-PS: Σ u₁ᵀ(QJr)v₁ frozen at the PS-onset step (None ⇒ pair never enters PS below EoS)
         diffs = []; losses = []; jnorms = []; th_at_T = None; diverged = False; align_acc = 0.0; align_cnt = 0
         for t in range(steps):
             out = model.forward(th, X)
@@ -251,37 +323,55 @@ def sweep(cfg, npairs=None, K=None, Tstart=None, steps=None, seed=None,
                 gL = grad_loss(model, loss, th, X, Y)[0]   # GD: exact ∇L path (byte-identical to the original)
                 jrd = float((Jm.t() @ (Jm @ gL)).norm())
                 jdr = float(hvp_S(model, th, X, rr.reshape(N, outD), gL).norm())
-                dth_sw = -lr * gL
+                dth_sw = -lr_eff * gL                       # EoS-guard: trajectory uses the (possibly rescued) lr_eff
             else:
-                g, scale = precond_flow(model, opt, Jm, rr, N, lr)   # preconditioned actual trajectory (direction, step)
+                g, scale = precond_flow(model, opt, Jm, rr, N, lr_eff)   # preconditioned actual trajectory (direction, step)
                 jrd = float((Jm.t() @ (Jm @ g)).norm())
                 jdr = float(hvp_S(model, th, X, rr.reshape(N, outD), g).norm())
                 dth_sw = scale * g
             diffs.append(jrd - jdr); losses.append(lv)
+            if (ps5x is None) and (jrd > jdr) and (_sharp0 is not None) and (_sharp0 < 2.0 / lr_eff):   # magnified-PS: freeze at the FIRST PS-onset step (t=0 if starts in PS, else the neg→pos jrd−jdr crossing — matching Pred-3) AND below EoS
+                try:
+                    _Kw, _Ku = torch.linalg.eigh(Jm @ Jm.t())               # NTK = J₀J₀ᵀ (M×M)
+                    _u1 = _Ku[:, -1]                                        # top NTK eigenvector
+                    _v1 = Jm.t() @ _u1; _v1 = _v1 / max(float(_v1.norm()), 1e-30)   # top right-singular vector of J₀
+                    _c1 = _u1.reshape(N, outD); _rc = rr.clone(); _acc = 0.0
+                    for _tt in range(swps5n):
+                        _Jr = Jm.t() @ _rc                                  # J₀ᵀ r_t
+                        _acc += float(_v1 @ hvp_S(model, th, X, _c1, _Jr))   # u₁ᵀ(QJr_t)v₁ = v₁ᵀ Σ_k(u₁)_k Q_k (J₀ᵀr_t); server hvpS(th,X,_Jr,_c1) → eos hvp_S(...,_c1,_Jr)
+                        _rc = _rc - (lr_eff / N) * (Jm @ _Jr)               # r_{t+1}=r_t−(η/N)J₀(J₀ᵀr_t) (frozen-J NTK residual dynamics)
+                    ps5x = _acc; ps5t = t                                    # record the PS-onset step
+                except Exception:
+                    ps5x = None
             if t == Tstart:
                 th_at_T = th.detach().clone()
             th = th + dth_sw                                # actual trajectory follows the chosen optimizer
         tAct, censA = first_signchange(diffs, steps)
         if th_at_T is not None:                            # predict only if θ(Tstart) reached before divergence
-            tPredRel, censP = pred_signchange(model, loss, th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart, cubic=True, opt=opt)
+            tPredRel, censP = pred_signchange(model, loss, th_at_T, X, Y, N, outD, p, float(lr_eff), K, steps - Tstart, cubic=True, opt=opt)
             tPred = tPredRel + Tstart
-            tPredQRel, censPQ = pred_signchange(model, loss, th_at_T, X, Y, N, outD, p, float(lr), K, steps - Tstart, cubic=False, opt=opt)   # prediction-1 plot 1: quadratic (T=0, Q fixed)
+            tPredQRel, censPQ = pred_signchange(model, loss, th_at_T, X, Y, N, outD, p, float(lr_eff), K, steps - Tstart, cubic=False, opt=opt)   # prediction-1 plot 1: quadratic (T=0, Q fixed)
             tPredQ = tPredQRel + Tstart
         else:
             tPred, censP = steps, True; tPredQ, censPQ = steps, True
-        alignNTK = float(align_acc / align_cnt) if align_cnt else 0.0   # residual↔top-3-NTK-eigvec alignment (tick colour for prediction-2/2b)
+        alignNTK = float(align_acc / align_cnt) if align_cnt else 0.0   # residual↔top-3-NTK-eigvec alignment (LEFT-half tick colour for prediction-2/2b)
         curv = max_abs_curvature(losses)                   # peak signed d²loss/dt² over the finite prefix (legacy)
         sumD = float(sum(diffs[:swsumn]))                  # prediction-2: Σ d = Σ(jrd−jdr) over the first swsumn iterations (from 0)
         sumCurv = float(sum(curvature_at(losses, tt) for tt in range(min(swsumn, len(losses)))))   # prediction-2: Σ d²loss/dt² over the first swsumn iterations (from 0)
         sumD2 = float(sum(diffs[:swsumn2]))                # prediction-2b: Σ d over the first swsumn2 iterations (own window)
         nj2 = min(swsumn2, len(jnorms) - 1)                # prediction-2b: Σ ∇‖J‖ over the first swsumn2 iters = ‖J‖_{swsumn2} − ‖J‖_0 (telescoping)
         sumJgrad = float(sum(jnorms[i + 1] - jnorms[i] for i in range(nj2))) if nj2 >= 1 else 0.0
-        yield {"i": pi, "lr": float(lr), "std": float(std),
+        jfro = float(sum(jnorms[:swsumn]) / max(1, min(swsumn, len(jnorms))))   # windowed-mean ‖J‖_F over the first swsumn steps — RIGHT-half tick colour for prediction-2/2b
+        yield {"type": "sweeppt", "i": pi, "lr": float(lr_eff), "std": float(std),
+               "lrOrig": float(lr), "sharp0": (float(_sharp0) if (_sharp0 is not None and _sharp0 == _sharp0) else None),   # EoS guard: λmax(∇²L) at init + the pair's original swept lr (before any rescue)
+               "eosDrop": bool(eos_drop), "rescued": bool(rescued),   # eosDrop ⇒ started at EoS & un-rescuable ⇒ exclude from plots 3-4; rescued ⇒ lr was lowered to start below EoS
                "tAct": tAct, "censA": censA or diverged, "tPred": tPred, "censP": censP,
                "tPredQ": tPredQ, "censPQ": censPQ,                                   # prediction-1 plot 1: quadratic (T=0, Q fixed) predicted t*
-               "alignNTK": (alignNTK if alignNTK == alignNTK else 0.0),             # Σ|⟨r̂,v_k⟩| top-3 NTK — prediction-2/2b tick colour
+               "alignNTK": (alignNTK if alignNTK == alignNTK else 0.0),             # Σ|⟨r̂,v_k⟩| top-3 NTK — prediction-2/2b LEFT-half tick colour
+               "jfro": (jfro if jfro == jfro else 0.0),                             # windowed-mean ‖J‖_F — prediction-2/2b RIGHT-half tick colour
                "sumD": (sumD if sumD == sumD else 0.0), "sumCurv": (sumCurv if sumCurv == sumCurv else 0.0),
                "sumD2": (sumD2 if sumD2 == sumD2 else 0.0), "sumJgrad": (sumJgrad if sumJgrad == sumJgrad else 0.0),
+               "ps5x": (ps5x if (ps5x is not None and ps5x == ps5x) else None), "ps5t": ps5t, "swps5n": swps5n,   # magnified-PS: Σ u₁ᵀ(QJr)v₁ (x) frozen at PS-onset step ps5t; None ⇒ pair never enters PS below EoS. y = sumJgrad
                "curv": (curv if curv == curv else 0.0), "swsumn": swsumn, "swsumn2": swsumn2, "diverged": diverged}
 
 
@@ -740,6 +830,102 @@ class Pred6Tracker:
         return {"t": t, **spec6, "loss": loss6, "sharp": sharp6}            # {t, gd/sign/spectral/gaussnewton:[≤50 eig], loss:{opt:..}, sharp:{opt:λmax∇²L}}
 
 
+class RayTracker:
+    """Prediction-4.2 (server s41): PHASE-2a RAY, MULTI-ANCHOR. Each tick, compute w1 = top eigenvector of
+    M_r=Σ_k r_kQ_k (warm-started Lanczos on hvp_S) and cos(∇L, w1). RE-ANCHOR a fresh ray each time cos rises
+    UP through prthr (rising edge) in a direction DIFFERENT from the previous anchor (|cos(w1,w1_prev)| < prdir):
+    freeze θ_a, r_a, w1 and walk the straight ray θ(s)=θ_a+s·w1 (no training), predicting σ1(J)=√λmax(JJᵀ),
+    ‖J‖_F, the step-clock t(s), and the D_J=D_r phase-2a exit. The grid span s_max is sized by a LOOKAHEAD of
+    prK actual GD steps from θ_a so GD needs ~prK steps to cross it. GD-only (the +Jᵀr walk & η/N clock are GD).
+
+    MIRRORS server.py's g_ray per-step block (server.py:4172-4233) EXACTLY (eos_lab primitives; note hvp_S's
+    arg order (c, v) is reversed vs server hvpS(th,X,v,c)). The Lanczos WARM-STARTS from the previous tick's
+    eigvec (self.ray_track_w1) via _lanczos_core(q0=...). `step()` returns the g_ray dict: anchor=True on a
+    fresh anchor (grid + predicted curves + exit), anchor=False otherwise (the actual dot st/dt/sig1a/jfroa for
+    the current anchor), or None (before ‖Jᵀr‖>0 / a pathological tick).
+
+    PARITY: w1/cos and the D_J grid term go through hvp_S (M_r), so they carry the documented FD-vs-exact HVP
+    gap on server's MLP (~1e-3); the pure-linear grid pieces (σ1, ‖J‖_F, D_r=‖JᵀJ∇L‖, the s_max lookahead, the
+    clock) match server to ~1e-9. Warm-started 24-iter Lanczos ⇒ w1 tracks the server's eigvec sequence.
+    """
+
+    def __init__(self, model, loss, N, outD, p, lr, opt="gd", prthr=0.9, prm=40, prK=75.0, prdir=0.9):
+        self.model = model; self.loss = loss
+        self.N = N; self.outD = outD; self.p = p; self.M = N * outD
+        self.lr = lr; self.opt = opt
+        self.prthr = float(prthr); self.prm = max(4, int(prm))
+        self.prK = max(1.0, float(prK)); self.prdir = min(0.999, float(prdir))
+        # multi-anchor state (server: ray_prev_cos / ray_last_w1 / ray_cur / ray_nanch / ray_track_w1)
+        self.ray_prev_cos = None; self.ray_last_w1 = None; self.ray_cur = None
+        self.ray_nanch = 0; self.ray_track_w1 = None
+        self.device = None; self.dtype = None
+
+    def step(self, t, th, X, Y, Jc, rr):
+        model = self.model; loss = self.loss
+        N = self.N; M = self.M; p = self.p; lr = self.lr; outD = self.outD
+        prthr = self.prthr; prm = self.prm; prK = self.prK; prdir = self.prdir
+        if Jc is None or rr is None:
+            return None
+        self.device = th.device; self.dtype = th.dtype
+        try:                                                         # a pathological tick skips the ray rather than aborting the run
+            Jmr = Jc[:M]; rmr = rr[:M]
+            _newanch = False; g_ray = None
+            _Jrr = Jmr.t() @ rmr; _Jrrn = float(_Jrr.norm())         # ∇L ∝ −Jᵀr; watch cos(∇L, w1) EVERY tick to catch each new alignment event
+            if _Jrrn > 1e-30:
+                _q0r = self.ray_track_w1 if self.ray_track_w1 is not None else None   # WARM-START from the previous tick's eigvec (q0=None ⇒ seeded cold start on the first tick)
+                _Qr, _Tr, _kr = _lanczos_core(lambda v: hvp_S(model, th, X, rmr.reshape(N, outD), v),
+                                              p, min(p, 24), 0, self.device, self.dtype, q0=_q0r)
+                _mur, _Svr = safe_eigh(_Tr)
+                _w1 = _Svr[:, int(torch.argmax(_mur))].to(device=self.device, dtype=self.dtype) @ torch.stack(_Qr)   # top M_r eigvec (unit, p)
+                self.ray_track_w1 = _w1.detach().clone()             # seed next tick's Lanczos (sign-agnostic — Krylov is sign-invariant)
+                _cos = abs(float(_w1 @ _Jrr)) / _Jrrn                # cos(∇L, w1) ∈ [0,1]
+                if float(_w1 @ _Jrr) < 0:                            # canonicalize w1 to the DIRECTION OF MOTION (+Jᵀr)
+                    _w1 = -_w1
+                _rise = (self.ray_prev_cos is not None and self.ray_prev_cos < prthr and _cos >= prthr)   # rising edge UP through prthr
+                _difdir = (self.ray_last_w1 is None) or (abs(float(_w1 @ self.ray_last_w1)) < prdir)       # direction different from the previous anchor
+                if _rise and _difdir:                                # ★ NEW ALIGNMENT ANCHOR
+                    _th0 = th.detach().clone(); _ra = rmr.detach().clone()
+                    _sc = lr / max(N, 1) if self.opt == "gd" else lr
+                    _thla = _th0.clone(); _smax = 1e-12              # LOOKAHEAD: prK actual GD steps → furthest reach along w1 = s_max (GD needs ~prK steps to cross)
+                    for _ in range(int(round(prK))):
+                        _thla = _thla - lr * grad_loss(model, loss, _thla, X, Y)[0]
+                        _smax = max(_smax, float((_thla - _th0) @ _w1))
+                    _cra = _ra.reshape(N, outD)
+                    grs = []; gsig = []; gjf = []; gV = []; gDJ = []; gDr = []
+                    for j in range(prm + 1):
+                        sj = (_smax * j) / prm; thj = _th0 + sj * _w1
+                        Jj = jac_cols(model, thj, X)[0][:M]
+                        grs.append(sj); gjf.append(float(Jj.norm()))
+                        gsig.append(float(safe_eigvalsh(Jj @ Jj.t())[-1].clamp_min(0.0).sqrt()))   # σ1(J)=√λmax(JJᵀ)
+                        _Jtra = Jj.t() @ _ra; gV.append(max(_sc * float(_Jtra.norm()), 1e-30))     # per-STEP distance rate Δs/step
+                        _gL = _Jtra / max(N, 1)                                                    # ∇L on the ray (r held = r_a)
+                        gDr.append(float((Jj.t() @ (Jj @ _gL)).norm()))                            # D_r=‖J·ṙ‖=‖JᵀJ∇L‖
+                        gDJ.append(float(hvp_S(model, thj, X, _cra, _gL).norm()))                  # D_J=‖J̇·r_a‖=‖M_r(s)∇L‖
+                    gclock = [0.0]                                   # clock t(s)=∫ds′/V, trapezoid (frozen-r_a prediction)
+                    for j in range(1, prm + 1):
+                        gclock.append(gclock[-1] + (grs[j] - grs[j - 1]) * 0.5 * (1.0 / gV[j - 1] + 1.0 / gV[j]))
+                    _ng = len(grs); sExit = None; tExit = None      # exit = first D_J−D_r sign change on the grid
+                    for j in range(1, _ng):
+                        _a = gDJ[j - 1] - gDr[j - 1]; _b = gDJ[j] - gDr[j]
+                        if (_a < 0) != (_b < 0):
+                            _fr = _a / (_a - _b) if (_a - _b) != 0 else 0.0
+                            sExit = grs[j - 1] + _fr * (grs[j] - grs[j - 1]); tExit = gclock[j - 1] + _fr * (gclock[j] - gclock[j - 1]); break
+                    self.ray_cur = {"idx": self.ray_nanch, "tstar": t, "th0": _th0, "ra": _ra, "w1": _w1.detach().clone()}   # ★ commit AFTER a successful grid
+                    self.ray_last_w1 = _w1.detach().clone(); self.ray_nanch += 1
+                    g_ray = {"anchor": True, "idx": self.ray_cur["idx"], "tstar": t, "s": grs, "sig1": gsig, "jfro": gjf,
+                             "clock": gclock, "DJ": gDJ, "Dr": gDr, "sExit": sExit, "tExit": tExit,
+                             "st": 0.0, "sig1a": gsig[0], "jfroa": gjf[0], "dt": 0}
+                    _newanch = True
+                self.ray_prev_cos = _cos
+            if (not _newanch) and self.ray_cur is not None:          # ACTUAL point measured vs the CURRENT anchor (past anchors freeze)
+                g_ray = {"anchor": False, "idx": self.ray_cur["idx"],
+                         "st": float((th - self.ray_cur["th0"]) @ self.ray_cur["w1"]), "dt": t - self.ray_cur["tstar"],
+                         "sig1a": float(safe_eigvalsh(Jmr @ Jmr.t())[-1].clamp_min(0.0).sqrt()), "jfroa": float(Jmr.norm())}
+            return g_ray
+        except Exception:
+            return None
+
+
 def run_predictions(cfg, device=None, dtype=None, cifar_dir=None):
     """Drive the prediction-widget trackers along a full-batch training run — the eos_lab fp64 reference for
     server.py's g_pred3 / g_pred3m / g_pred4 / g_pred4m / g_trace / g_pred6 SSE keys.
@@ -786,6 +972,9 @@ def run_predictions(cfg, device=None, dtype=None, cifar_dir=None):
                                     qapprox=int(cfg.qapprox), evcubic=int(cfg.evcubic), opt=opt)
     if int(getattr(cfg, "s39", 0)):
         trk["pred6"] = Pred6Tracker(model, loss, N, outD, p, lr6, ee, mV)
+    if int(getattr(cfg, "s41", 0)) and opt == "gd":                  # Pred-4.2 ray is GD-only (the +Jᵀr walk & η/N clock are GD-specific), mirroring server's `opt == "gd"` gate
+        trk["ray"] = RayTracker(model, loss, N, outD, p, lr, opt=opt,
+                                prthr=float(cfg.prthr), prm=int(cfg.prm), prK=float(cfg.prK), prdir=float(cfg.prdir))
 
     records = []
     for t in range(int(cfg.steps) + 1):
@@ -803,6 +992,8 @@ def run_predictions(cfg, device=None, dtype=None, cifar_dir=None):
                 rec["g_trace"] = trk["trace"].step(t, th, X, Y, Jc, rr)
             if "pred6" in trk:
                 rec["g_pred6"] = trk["pred6"].step(t, th, X, Y)
+            if "ray" in trk:
+                rec["g_ray"] = trk["ray"].step(t, th, X, Y, Jc, rr)
             records.append(rec)
         if t < int(cfg.steps):
             if opt == "gaussnewton":                              # GN needs the full J and residual r (mirror server run_stream 4754-4759)
