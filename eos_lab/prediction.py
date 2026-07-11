@@ -63,6 +63,9 @@ from .models import (build_model, build_loss, grad_loss, jac_cols, jac_hvp,
                      hvp_S, hvp_L, opt_dir, precond_flow, MlpModel)
 from .data import init_data_theta
 from .linalg import safe_eigvalsh, safe_eigh, randn_vec, lanczos_extreme_vals, _lanczos_core
+from .sec16 import _randvec16   # mulberry32/gauss Lanczos start vector — IDENTICAL across server/eos_lab/browser (matches server._randvec16), so warm/cold Lanczos starts are byte-faithful
+
+SEC21_SEED = 0x205EE0   # Pred-4.2 ray cold-start Lanczos seed (server SEC21_SEED = SEC20_SEED = 0x205EE0)
 
 
 # ═══════════════════════════════════════════════════════════════════════ pure-Python helpers (copied)
@@ -247,10 +250,10 @@ def sweep(cfg, npairs=None, K=None, Tstart=None, steps=None, seed=None,
     rng = _random.Random(seed0 or 1)                       # deterministic log-uniform (lr, std) pairs (server parity)
 
     swps5n = max(1, int(getattr(cfg, "swps5n", 4)))        # magnified-PS: #frozen-Q,J / evolving-r steps to sum u₁ᵀ(QJr)v₁ over
-    _EOS_SEED = 0x5A1DBEEF & 0x7FFFFFFF                     # fixed Lanczos start seed (server _lanczos_extremes / _lanczos_sumk)
+    _EOS_SEED = 0x5A1DBEEF & 0x7FFFFFFF                     # server _lanczos_extremes / _lanczos_sumk start seed (fed through _randvec16 = mulberry32/gauss, NOT torch.randn, so the truncated Krylov subspace matches the server bit-for-bit)
     def _sharp_top(hvp):                                    # λmax via matrix-free Lanczos (server _lanczos_extremes top eigenvalue)
         try:
-            _Q, _T, _kl = _lanczos_core(hvp, p, min(p, 28), _EOS_SEED, dev, dtype)
+            _Q, _T, _kl = _lanczos_core(hvp, p, min(p, 28), 0, dev, dtype, q0=_randvec16(p, _EOS_SEED, dev, dtype))
             _mu, _ = safe_eigh(_T)
             return float(_mu[-1])
         except Exception:
@@ -258,7 +261,7 @@ def sweep(cfg, npairs=None, K=None, Tstart=None, steps=None, seed=None,
     def _lanczos_sumk(hvp, k):                              # prediction-2c/2d: (Σ top-k)+(Σ bottom-k) eigenvalue net-extreme (server _lanczos_sumk)
         try:
             _m = min(p, max(64, 4 * k))                    # ≥64 iters resolves the top-k & bottom-k extremes on both ends
-            _Q, _T, _kl = _lanczos_core(hvp, p, _m, _EOS_SEED, dev, dtype)
+            _Q, _T, _kl = _lanczos_core(hvp, p, _m, 0, dev, dtype, q0=_randvec16(p, _EOS_SEED, dev, dtype))
             _mu, _ = safe_eigh(_T)                         # ascending Ritz values
             _ke = max(1, min(k, _kl // 2, p // 2))         # cap so top-k and bottom-k never overlap (small p / small Krylov)
             return float(_mu[-_ke:].sum()) + float(_mu[:_ke].sum())   # Σ(top-k) + Σ(bottom-k) — signed net-extreme over 2k modes
@@ -872,7 +875,7 @@ class RayTracker:
             _newanch = False; g_ray = None
             _Jrr = Jmr.t() @ rmr; _Jrrn = float(_Jrr.norm())         # ∇L ∝ −Jᵀr; watch cos(∇L, w1) EVERY tick to catch each new alignment event
             if _Jrrn > 1e-30:
-                _q0r = self.ray_track_w1 if self.ray_track_w1 is not None else None   # WARM-START from the previous tick's eigvec (q0=None ⇒ seeded cold start on the first tick)
+                _q0r = self.ray_track_w1 if self.ray_track_w1 is not None else _randvec16(p, SEC21_SEED, self.device, self.dtype)   # WARM-START from the previous tick's eigvec; first tick uses the server's mulberry32 cold-start vector (SEC21_SEED)
                 _Qr, _Tr, _kr = _lanczos_core(lambda v: hvp_S(model, th, X, rmr.reshape(N, outD), v),
                                               p, min(p, 24), 0, self.device, self.dtype, q0=_q0r)
                 _mur, _Svr = safe_eigh(_Tr)
