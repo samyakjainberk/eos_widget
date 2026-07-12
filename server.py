@@ -1131,8 +1131,8 @@ def _gn_natgrad(Jg, out, N, outD, r, k=50, rel=1e-6):
     w, V = torch.linalg.eigh(Sg)                                          # ascending, w≥0
     ws = w.clamp_min(0.0).sqrt()
     Ss = V @ (ws.unsqueeze(-1) * V.transpose(-1, -2))                     # Σ_i^{1/2}
-    tol = 1e-9 * ws.amax(dim=-1, keepdim=True)                            # per-sample null cutoff (Σ_i is rank d−1)
-    isq = torch.where(ws > tol, 1.0 / ws.clamp_min(1e-30), torch.zeros_like(ws))
+    wtol = 1e-6 * w.amax(dim=-1, keepdim=True).clamp_min(1e-30)           # per-sample null cutoff on the EIGENVALUE (Σ_i is rank d−1 ⇒ zero the null direction's inverse-sqrt); fp32-safe, matches the §20/§21/§26 1e-6·λmax convention (not on √λ)
+    isq = torch.where(w > wtol, 1.0 / ws.clamp_min(1e-30), torch.zeros_like(ws))
     Sinv = V @ (isq.unsqueeze(-1) * V.transpose(-1, -2))                  # Σ_i^{-1/2} (pseudo-inverse sqrt)
     Jt = (Ss @ Jg.reshape(N, outD, -1)).reshape(M, -1)                    # J̃ = Λ^{1/2}J (M, p)
     hr = (Sinv @ r.reshape(N, outD, 1)).reshape(M)                        # Λ^{-1/2} r (M,)
