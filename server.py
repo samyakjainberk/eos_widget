@@ -5938,6 +5938,10 @@ def run_sweep(P):
         inD, outD = CIFAR_DIM, 1
     elif dataset in ("cifar10", "cifar_mlp", "cifar_cnn", "cifar_vgg", "mnist", "mnist_mlp"):
         inD, outD = CIFAR_DIM, 10
+    elif dataset == "maxfind":
+        inD = outD = max(2, int(P.get("indim", 10)))                 # d-class argmax finder — DERIVED dims (mirror run_stream), not raw indim/outdim
+    elif dataset == "modadd":
+        _mm = max(2, int(P.get("outdim", 11))); inD, outD = 2 * _mm, _mm   # (a+b) mod m: 2m in, m out (mirror run_stream)
     else:
         inD, outD = int(P.get("indim", 10)), int(P.get("outdim", 1))
     _TL.model = build_model(arch, inD, outD, P)

@@ -96,19 +96,10 @@
 <div class="presetbar">
   <label for="preset">Preset</label>
   <select id="preset">
-    <option value="linear">single sample run</option>
-    <option value="anglepair_gpu">angle pair net</option>
-    <option value="gpu_run">large sample net</option>
-    <option value="gpu_const">constant target net</option>
-    <option value="cifar2_mlp">CIFAR2 MLP</option>
-    <option value="mnist2_mlp">MNIST2 MLP</option>
-    <option value="cifar2_cnn">CIFAR2 CNN</option>
-    <option value="cifar2_vgg">CIFAR2 VGG</option>
-    <option value="chebyshev" selected>Chebyshev regression</option>
-    <option value="chebyshev2">Chebyshev cosine</option>
-    <option value="ksparse_mlp">sparse parity MLP</option>
-    <option value="ksparse_gpt">parity transformer</option>
-    <option value="saddle">saddle-to-saddle</option>
+    <option value="cifar10_mlp" selected>CIFAR-10 MLP</option>
+    <option value="mnist10_mlp">MNIST-10 MLP</option>
+    <option value="maxfind_mlp">max-input finder MLP</option>
+    <option value="modadd_mlp">modular addition (mod 11) MLP</option>
     <option value="custom">custom</option>
   </select>
   <span class="hint">picking a preset auto-runs it · edit any control and press <b>Run</b> · hover any plot for a shared cursor</span>
@@ -3835,7 +3826,10 @@ const ADV_SECS={en18:{sec:'sec_g3d',name:'§11 (3D Hessian–NTK grids)'},
   en35:{sec:'sec_s27',name:'§7 (3D subspace projection of the six ∇θ gradient-vectors) — GPU backend only; off in surrogate mode'}};
 let ADV_GOT={};   // toggle id → true once that section's g-record has arrived this run
 function datasetOutDim(){const d=val('dataset');
-  if(d==='cifar10'||d==='mnist')return 10; if(d==='cifar2'||d==='mnist2'||d==='chebyshev'||d==='chebyshev2'||d==='ksparse'||d==='anglepair'||d==='agf')return 1;
+  if(d==='cifar10'||d==='mnist')return 10;
+  if(d==='maxfind')return Math.max(2,+val('indim')||10);   // d-class argmax finder: outD = #coords = indim
+  if(d==='modadd')return Math.max(2,+val('outdim')||11);   // (a+b) mod m: m classes = outdim
+  if(d==='cifar2'||d==='mnist2'||d==='chebyshev'||d==='chebyshev2'||d==='ksparse'||d==='anglepair'||d==='agf')return 1;
   if(d==='sorting')return Math.max(1,+val('seqlen')||16);
   return Math.max(1,+val('outdim')||1);}
 function secNote(secId,msg){const sec=document.getElementById(secId);if(!sec)return;
