@@ -96,10 +96,16 @@
 <div class="presetbar">
   <label for="preset">Preset</label>
   <select id="preset">
-    <option value="cifar10_mlp" selected>CIFAR-10 MLP</option>
-    <option value="mnist10_mlp">MNIST-10 MLP</option>
-    <option value="maxfind_mlp">max-input finder MLP</option>
-    <option value="modadd_mlp">modular addition (mod 11) MLP</option>
+    <option value="cifar10_mlp" selected>CIFAR-10 · MLP</option>
+    <option value="cifar10_cnn">CIFAR-10 · CNN</option>
+    <option value="cifar10_vgg">CIFAR-10 · VGG11</option>
+    <option value="mnist10_mlp">MNIST-10 · MLP</option>
+    <option value="mnist10_cnn">MNIST-10 · CNN</option>
+    <option value="mnist10_vgg">MNIST-10 · VGG11</option>
+    <option value="maxfind_mlp">max-input finder · MLP</option>
+    <option value="maxfind_gpt">max-input finder · Transformer</option>
+    <option value="modadd_mlp">modular addition (mod 11) · MLP</option>
+    <option value="modadd_gpt">modular addition (mod 11) · Transformer</option>
     <option value="custom">custom</option>
   </select>
   <span class="hint">picking a preset auto-runs it · edit any control and press <b>Run</b> · hover any plot for a shared cursor</span>
@@ -5514,6 +5520,13 @@ const PRESETS={
   mnist10_mlp:{dataset:'mnist',arch:'mlp',loss:'mse',depth:2,width:32,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:20,indim:10,outdim:10,tgt:1.0,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en12:1,en13:1,compute:'gpu'},
   maxfind_mlp:{dataset:'maxfind',arch:'mlp',loss:'ce',depth:2,width:48,act:'relu',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.6,nsamp:20,indim:10,outdim:10,tgt:1.0,neig:3,kth:1,steps:400,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en12:1,en13:1,compute:'gpu'},
   modadd_mlp:{dataset:'modadd',arch:'mlp',loss:'ce',depth:2,width:48,act:'relu',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.6,nsamp:22,indim:22,outdim:11,tgt:1.0,neig:3,kth:1,steps:400,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en12:1,en13:1,compute:'gpu'},
+  // CNN/VGG (images) + Transformer (toy) presets — all forward at outD=10/11 with small p (CNN ~4k, VGG ~578k) so the explicit-Jacobian predictions stay feasible (M·p ≤ budget). nsamp kept small so M=n·d ≤ grid3dcap=500.
+  cifar10_cnn:{dataset:'cifar10',arch:'cnn',loss:'mse',depth:2,width:16,act:'relu',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:20,indim:10,outdim:10,chmul:0.25,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en12:1,en13:1,compute:'gpu'},
+  cifar10_vgg:{dataset:'cifar10',arch:'vgg11',loss:'mse',depth:2,width:16,act:'relu',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:15,indim:10,outdim:10,chmul:0.25,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en12:1,en13:1,compute:'gpu'},
+  mnist10_cnn:{dataset:'mnist',arch:'cnn',loss:'mse',depth:2,width:16,act:'relu',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:20,indim:10,outdim:10,chmul:0.25,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en12:1,en13:1,compute:'gpu'},
+  mnist10_vgg:{dataset:'mnist',arch:'vgg11',loss:'mse',depth:2,width:16,act:'relu',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.5,nsamp:15,indim:10,outdim:10,chmul:0.25,neig:3,kth:1,steps:300,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en12:1,en13:1,compute:'gpu'},
+  maxfind_gpt:{dataset:'maxfind',arch:'gpt',loss:'ce',dmodel:32,nhead:2,nlayer:2,seqlen:10,act:'relu',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.3,nsamp:20,indim:10,outdim:10,neig:3,kth:1,steps:400,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en12:1,en13:1,compute:'gpu'},
+  modadd_gpt:{dataset:'modadd',arch:'gpt',loss:'ce',dmodel:32,nhead:2,nlayer:2,seqlen:22,act:'relu',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.02,init:0.3,nsamp:22,indim:22,outdim:11,neig:3,kth:1,steps:400,eigevery:2,slqprobes:3,energyp:99,gson:'1',seed:0,en1:1,en2:1,en3:1,en4:1,en12:1,en13:1,compute:'gpu'},
   cifar2_cnn:{dataset:'cifar2',arch:'cnn',loss:'mse',depth:2,width:128,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:12,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:200,eigevery:4,slqprobes:3,energyp:99,gson:'1',seed:0,chmul:1.0,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,compute:'gpu'},
   cifar2_vgg:{dataset:'cifar2',arch:'vgg11',loss:'mse',depth:2,width:128,act:'tanh',bias:'1',fixedx:'0',inputstd:1.0,ssign:'off',lr:0.05,init:0.5,nsamp:12,batch:0,indim:10,outdim:1,tgt:1.0,neig:3,kth:1,steps:200,eigevery:4,slqprobes:3,energyp:99,gson:'0',seed:0,chmul:0.25,dmodel:64,nhead:4,nlayer:2,seqlen:16,en1:1,en2:1,en3:1,en4:1,en5:0,en6:0,en7:0,en8:0,en9:0,en10:0,en11:0,en12:1,en13:1,qapprox:100,qmode:1,tset:3,compute:'gpu'},
   // MNIST (10-class one-hot) — padded to 3×32×32, drop-in for cifar-shaped nets
