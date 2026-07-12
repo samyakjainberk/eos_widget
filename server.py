@@ -1833,6 +1833,26 @@ def _sec20_payload(Jc, rr, th, X, N, outD, K, mr_hvp=None):
     return {"lam": lam, "q1": q1, "q2": q2, "q3": q3, "q4": q4, "K": Klan}
 
 
+def _eds_eigpairs(th, X, cotangent, p, K, dtype):
+    """EARLY-DYNAMICS panel: top-K ⊕ bottom-K eigenpairs (λ_i, v_i) of the operator Σ_k cotangent_k Q_k (Q_k=∇²f_k),
+    matrix-free Lanczos on hvpS(·, cotangent) from the cross-backend mulberry32 start. cotangent = r ⇒ Qr = M_r =
+    Σ_k r_kQ_k; cotangent = 1 (all-ones) ⇒ H = Σ_k Q_k (the UNWEIGHTED function Hessian = Q_t·e). Returns
+    [(λ, v_unit), ...] — top-K descending then bottom-K ascending, DISTINCT (no double-count when 2K>k). RAW
+    eigenvalues (no ÷N), v_i are unit θ-space vectors (so principal angles / projections are scale-free)."""
+    Klan = max(1, min(int(K), p))
+    mlan = min(p, max(5 * Klan, 64))                        # 5K iters converge the top-K⊕bottom-K extremes (as §20)
+    q0 = _randvec16(p, SEC20_SEED)                          # same mulberry32 start as §20/§21/§26 (cross-backend identical)
+    Q, T, k = _lanczos_core(lambda v: hvpS(th, X, v, cotangent), p, mlan, 0, dt=dtype, q0=q0)
+    mu, Sv = _safe_eigh(T)
+    desc = torch.argsort(mu, descending=True)
+    Qmat = torch.stack(Q)
+    def ritz(ix):
+        return Sv[:, ix].to(device=_dev(), dtype=dtype) @ Qmat
+    kt = min(Klan, k); bs = max(kt, k - Klan)              # top-K ⊕ bottom-K DISTINCT positions
+    positions = list(range(kt)) + list(range(bs, k))
+    return [(float(mu[int(desc[pos])]), ritz(int(desc[pos]))) for pos in positions]
+
+
 SEC26_SEED = SEC20_SEED   # §26 reuses §20's M_r Lanczos start ⇒ identical M_r eigenvectors (byte-parity)
 
 
@@ -3439,6 +3459,9 @@ def run_stream(P):
     prm = max(4, int(P.get("prm", 40)))         # ray: MINIMUM grid points along the ray (the loop extends past this until the clock spans prK steps)
     prK = max(1.0, float(P.get("prK", 75.0)))   # ray: the grid extends until its step-clock spans prK GD steps (default 75 ⇒ GD needs ~50-75 steps to cross the whole predicted span)
     prdir = min(0.999, float(P.get("prdir", 0.9)))   # ray: re-anchor only when the new w1 direction differs from the previous anchor's by |cos| < prdir (0.9 ⇒ >~25° rotation)
+    s42 = P.get("s42", 0)                # EARLY-DYNAMICS STATS panel (NOT a prediction): plot1 σ-weighted Jᵀr projection on ±M_r eigvecs; plots2-5 mean principal angle of H=ΣQ_k & M_r eigenspaces at lags {1,2,5,10}
+    edsmrk = max(1, int(P.get("edsmrk", 50)))    # early-dynamics plot 1: top-K ⊕ bottom-K M_r eigenpairs for the σ-weighted Jᵀr projection sums (default 50)
+    edsangk = max(1, int(P.get("edsangk", 10)))  # early-dynamics plots 2-5: dimension of the top-K (by |λ|) eigenspace used for the mean principal angle (default 10)
     s38 = P.get("s38", 0)                # prediction-5: trace-statistic prediction Tr(NTK) (quad/cubic × live/self, ±PSD) vs Tr(∇²L) & Tr(JᵀJ) (prediction widget)
     p5t0 = max(0, int(P.get("p5t0", 10)))   # prediction-5: iteration t0 at which Q, residual & J are frozen for the trace propagation
     stat_init = max(0, int(P.get("stat_init", 0)))   # prediction 5.1/5.2: iteration AFTER which the theoretical forecasts begin (0 = from the start)
@@ -3522,6 +3545,7 @@ def run_stream(P):
     sec25_rhist = []           # §25: rolling buffer of the last 101 ticks' {t, r} for cos(r_t, r_{t−k}), k∈{1,10,30,50,100} (residual-direction drift)
     sec25_r0hist = []          # §25: the INITIAL residual r_0 (persistent, 1 entry) for the cos(r_t, r_0) cumulative-rotation reference line
     sec26_hist = []            # §26: rolling buffer of the last 101 ticks' {t, gn/ntk/mrTop/mrBot eigvecs} for the eigenvector-direction drift
+    eds_hist = []              # EARLY-DYNAMICS (s42): rolling buffer of the last ~11 ticks' {t, h, mr} top-K eigenspaces, for the mean principal angle at lags {1,2,5,10}
     sec27_state = None         # §27: _Sec27State (rolling 101 vector-sets + sign refs), created lazily on the first §27 step
     sec27_prev = None          # §27: previous step's {r, J} for the discrete ṙ/J̇ gradient vectors
     sec27_last_t = None        # §27: last stepped iteration index (for the end-of-run flush of the trailing 50)
@@ -3776,7 +3800,7 @@ def run_stream(P):
 
             # ---- multi-sample sections: shared Jacobian columns Jc (M, p), residual rr (M,) ----
             Jc = rr = None
-            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37 or s38 or s40 or s41)) or ((s23 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37 or s38 or s40 or s41) and N <= grid3dcap):   # §15/§19/§20/§21/§24/§25/§26/§27/pred-3/4/5/4.2(ray) also run for a single sample
+            if ((multi_ok or s12single) and (s7 or s8 or s9 or s10 or s11 or s12 or s13 or s15 or s16 or s17 or s18 or s19 or s20 or s21 or s22 or s26 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37 or s38 or s40 or s41 or s42)) or ((s23 or s27 or s28 or s29 or s32 or s33 or s34 or s35 or s36 or s37 or s38 or s40 or s41 or s42) and N <= grid3dcap):   # §15/§19/§20/§21/§24/§25/§26/§27/pred-3/4/5/4.2(ray)/early-dynamics also run for a single sample
                 Jc, out_flat = jac_cols(th, X)
                 rr = (-N * _TL.loss.resid_cotangent(out, Y, N)).reshape(-1)   # generic residual: Y−f (MSE), onehot−softmax (CE)
 
@@ -3940,6 +3964,41 @@ def run_stream(P):
                 sec26_hist.append({"t": t, **{key: [v.detach().clone() for v in ev26[key]] for key in ev26}})
                 if len(sec26_hist) > 101:                                # hold ≥100 ticks back for the lag-100 line
                     sec26_hist.pop(0)
+
+            # EARLY-DYNAMICS STATS (s42) — NOT a prediction. Plot 1: σ-weighted projection of Jᵀr onto the ±M_r
+            #   eigenvectors, split by eigenvalue sign — posSum=Σ_{λ_i>0, top-K}|λ_i·(v_i·Jᵀr)|/‖Jᵀr‖, negSum the
+            #   same over the bottom-K λ_i<0. Plots 2-5: the MEAN PRINCIPAL ANGLE between the top-edsangk (by |λ|)
+            #   eigenspaces of H=Σ_kQ_k (=Q_t·e, plots 2/3) and M_r=Σ_k r_kQ_k (=Q_t·r_t, plots 4/5) at THIS tick vs
+            #   {1,2} (plots 2,4) and {5,10} (plots 3,5) ticks earlier (eigevery=1 ⇒ GD-step lags).
+            g_eds = None
+            if s42 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+                try:
+                    Jm_e = Jc[:M]; rm_e = rr[:M]; rc_e = rm_e.reshape(N, outD)
+                    Jtr_e = Jm_e.t() @ rm_e; nJtr_e = float(Jtr_e.norm())
+                    mrp = _eds_eigpairs(th, X, rc_e, p, edsmrk, Jm_e.dtype)          # top-edsmrk ⊕ bottom-edsmrk M_r eigenpairs
+                    posSum = 0.0; negSum = 0.0
+                    if nJtr_e > 1e-30:
+                        for (lam, v) in mrp:
+                            pr = abs(lam) * abs(float(v @ Jtr_e)) / nJtr_e            # |σ_i · u_iᵀJᵀr| / ‖Jᵀr‖
+                            if lam > 0.0:   posSum += pr
+                            elif lam < 0.0: negSum += pr
+                    mr_sub = [v for (lam, v) in sorted(mrp, key=lambda lv: -abs(lv[0]))[:edsangk]]   # M_r angle subspace: top-edsangk by |λ|
+                    _ones_e = torch.ones(N, outD, dtype=Jm_e.dtype, device=_dev())
+                    hp = _eds_eigpairs(th, X, _ones_e, p, edsangk, Jm_e.dtype)        # H = Σ_k Q_k eigenpairs (cotangent ≡ 1)
+                    h_sub = [v for (lam, v) in sorted(hp, key=lambda lv: -abs(lv[0]))[:edsangk]]
+                    angH = {}; angMr = {}
+                    for lag in (1, 2, 5, 10):
+                        aH = aMr = None
+                        if len(eds_hist) >= lag:
+                            _pa = principal_angles(eds_hist[-lag]["h"], h_sub); aH = (_pa["mn"] if _pa else None)
+                            _pm = principal_angles(eds_hist[-lag]["mr"], mr_sub); aMr = (_pm["mn"] if _pm else None)
+                        angH[str(lag)] = aH; angMr[str(lag)] = aMr
+                    g_eds = {"posSum": posSum, "negSum": negSum, "angH": angH, "angMr": angMr}
+                    eds_hist.append({"t": t, "h": [v.detach().clone() for v in h_sub], "mr": [v.detach().clone() for v in mr_sub]})
+                    if len(eds_hist) > 11:                                            # hold ≥10 ticks back for the lag-10 lines
+                        eds_hist.pop(0)
+                except Exception:
+                    g_eds = None
 
             # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag).
             #      At step t we finalize iteration t−50 (its [t−100,t] window is buffered); the trailing
@@ -4973,6 +5032,7 @@ def run_stream(P):
                 "g24": g24,                                    # §24: A=JJᵀr & B=(η/2N)JrᵀQ_kJr alignment vs r and top-4 NTK eigvecs
                 "g25": g25,                                    # §25: ‖∇L‖ + d/dt(J·r) split + ∇‖J‖²·{Q∇L,G∇L} alignments
                 "g26": g26,                                    # §26: eigenvector-direction drift |cos(v_i(t),v_i(t−k))| for GN/NTK/M_r top-3 (+M_r bottom-3)
+                "g_eds": g_eds,                                # EARLY-DYNAMICS STATS (s42): σ-weighted ±M_r Jᵀr projection sums + H/M_r eigenspace mean principal angles at lags {1,2,5,10}
                 "g27": g27,                                    # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag)
                 "g27x": g27x,                                  # §7 extra panel: per-step cosine similarities + norms of {∇‖g‖², g, ∇‖J‖², J·ṙ, J̇·r, ∇‖J̇‖²}
                 "g28": g28,                                    # §28: TIMESCALES — panel 1 (5 J/r rate ratios, exact) + panel 2 (5 Q-Hessian rate ratios, Hutchinson)
@@ -5626,6 +5686,9 @@ def _parse_params(q):
         "prm": fi("prm", 40),            # ray: MINIMUM grid points along the ray
         "prK": ff("prK", 75.0),          # ray: grid extends until its step-clock spans prK GD steps (≥50-75 steps to cross)
         "prdir": ff("prdir", 0.9),       # ray: re-anchor direction-change threshold |cos(w1,w1_prev)| < prdir
+        "s42": g("s42", "0") == "1",     # EARLY-DYNAMICS STATS panel (not a prediction): σ-weighted ±M_r Jᵀr projection + H/M_r eigenspace principal angles
+        "edsmrk": fi("edsmrk", 50),      # early-dynamics plot 1: top-K ⊕ bottom-K M_r eigenpairs
+        "edsangk": fi("edsangk", 10),    # early-dynamics plots 2-5: principal-angle eigenspace dimension
         "s38": g("s38", "0") == "1",     # prediction-5: trace-statistic Tr(NTK) prediction (prediction widget)
         "s39": g("s39", "0") == "1",     # prediction-6: adaptive-optimizer top-50 Gauss-Newton eigenvalue scree curves (OFF by default)
         "lr_gd": ff("lr_gd", 0.1), "lr_sign": ff("lr_sign", 0.001),           # prediction-6 per-optimizer learning rates

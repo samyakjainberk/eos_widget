@@ -227,6 +227,7 @@
   <label title="★ Prediction-3 — frozen-J linear residual theory after the ‖J·ṙ‖−‖J̇·r‖ sign-change"><input type="checkbox" id="enP3" checked> ★ Prediction-3</label>
   <label title="★ Prediction-1 & 2 — sweep over (lr, init-std): predicted vs actual sign-change + start-d vs loss curvature"><input type="checkbox" id="enPs" checked> ★ Prediction-1&2 (sweep)</label>
   <label title="Prediction 6 — 4 adaptive optimizers (GD / Signed / Muon / Gauss-Newton) from the SAME init; top-40 Gauss-Newton eigenvalue histograms, evolving over training. OFF by default (no momentum, no weight decay)."><input type="checkbox" id="enP6"> ★ Prediction-6 (Adaptive Opt)</label>
+  <label title="Early-dynamics stats (NOT a prediction) — σ-weighted Jᵀr projection on ±M_r eigenvectors (top/bottom-50) + the mean principal angle of the H=ΣQ_k and M_r eigenspaces at lags 1/2/5/10. Sits ABOVE the prediction panels. OFF by default (two Lanczos per step)."><input type="checkbox" id="enEDS"> Early-dynamics stats</label>
   <span class="tt" style="margin-left:14px">Base panels (feed the forecasts)</span>
   <label><input type="checkbox" id="en1" checked> 1 · loss / sharpness / residual</label>
   <label><input type="checkbox" id="en2" checked> 2 · eig top-n</label>
@@ -355,6 +356,22 @@
 <p class="cap">The <b>ray recipe</b>, now <b>multi-anchor</b>: <b>each time</b> $\cos(\nabla L, w_1)$ <b>rises up through</b> <i>thr</i> in a <b>direction different</b> from the previous anchor ($w_1$ = top eigenvector of $M_r=\sum_k r_kQ_k$; "different" = $|\cos(w_1,w_1^{\rm prev})|<$ <i>new-dir thr</i>), a fresh ray is anchored: freeze $\theta_a, r_a, w_1$ and walk the straight ray $\theta(s)=\theta_a+s\,w_1$ (no training). Every anchor is <b>kept</b> — use the <b>bar above</b> to switch between them (past anchors' plots never reset; the current one keeps accumulating actual dots). The span is sized by a <b>lookahead</b>: it simulates <i>span (GD steps)</i> real GD steps from $\theta_a$ so GD needs ~50–75 steps to cross the <b>whole</b> predicted range (the frozen-$r_a$ clock badly mis-sizes it, since the true residual — hence the speed — shrinks). <b>Shape</b>: predicted $\sigma_1(J)=\sqrt{\lambda_{\max}(JJ^\top)}$ and $\lVert J\rVert_F$ vs ray distance $s$ (<b style="color:#4f46e5">line</b>), overlaid with the <b>actual</b> run at $s_t=\langle\theta_t-\theta_a, w_1\rangle$ (<b style="color:#dc2626">dots</b>). <b>Speed</b> (clock): $t(s)=\int_0^s ds'/V$, $V=\lVert J(s)^\top r_a\rVert$, as $s$ vs $t$ (line) with actual $(t-t_a,\ s_t)$ (dots) — kept <b>separate</b> from the shape. <b>Exit</b>: where $D_J(s)=\lVert\dot J\!\cdot\!r_a\rVert$ crosses $D_r(s)=\lVert J\!\cdot\!\dot r\rVert$ (<b style="color:#dc2626">dashed line</b> = predicted phase-2a exit). Enable via the ★ Prediction 4.2 toggle (off by default).</p>
 <div id="ray_bar" style="margin:4px 0 6px;min-height:24px;display:flex;flex-wrap:wrap;align-items:center"></div>
 <div class="plotrow row4"><div id="p_ray_sig" class="plot" style="height:320px"></div><div id="p_ray_jf" class="plot" style="height:320px"></div><div id="p_ray_clock" class="plot" style="height:320px"></div><div id="p_ray_exit" class="plot" style="height:320px"></div></div>
+</div>
+
+<div id="sec_eds" style="border:2px solid #0d9488;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#f0fdfa;display:none">
+<h2 style="color:#0f766e;margin-top:4px">Early-dynamics stats</h2>
+<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:2px 0 6px;font-size:13px;color:#374151">
+  <label title="Plot 1: number of top/bottom M_r eigenpairs (by eigenvalue) used for the σ-weighted Jᵀr projection sums.">±M_r eigs (plot 1)&nbsp;<input id="edsmrk" value="50" style="width:48px"></label>
+  <label title="Plots 2-5: dimension of the top-K (by |λ|) eigenspace whose mean principal angle (t vs t−lag) is tracked.">angle subspace K&nbsp;<input id="edsangk" value="10" style="width:44px"></label>
+</div>
+<p class="cap"><b>Not a prediction</b> — early-training geometry of the residual-weighted function Hessian $Q_r=M_r=\sum_k r_kQ_k$ and the unweighted $H=\sum_k Q_k$ ($Q_k=\nabla^2 f_k$; both matrix-free via HVP). <b>Plot 1:</b> the σ-weighted projection of $J^\top r$ onto the $M_r$ eigenvectors, split by eigenvalue sign — $\sum_{i:\sigma_i>0}\lvert\sigma_i\,u_i^\top J^\top r\rvert/\lVert J^\top r\rVert$ over the <b>top-K positive</b> (<b style="color:#2563eb">blue</b>) and the same over the <b>bottom-K negative</b> $\sigma_i$ (<b style="color:#dc2626">red</b>). <b>Plots 2-3:</b> the <b>mean principal angle</b> (degrees) between the top-$K$ (by $\lvert\lambda\rvert$) eigenspaces of $H=Q_t\!\cdot\!e$ ($e$=all-ones over samples) at $t$ vs $t\!-\!\{1,2\}$ (plot 2) and $t\!-\!\{5,10\}$ (plot 3). <b>Plots 4-5:</b> the same for $M_r=Q_t\!\cdot\!r_t$ at lags $\{1,2\}$ (plot 4) and $\{5,10\}$ (plot 5). Lags are in eig-ticks (eigevery=1 ⇒ GD steps). Placed <b>above</b> the prediction panels; OFF by default (two Lanczos per step).</p>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:10px">
+  <div id="p_eds1" class="plot" style="height:300px"></div>
+  <div id="p_eds2" class="plot" style="height:300px"></div>
+  <div id="p_eds3" class="plot" style="height:300px"></div>
+  <div id="p_eds4" class="plot" style="height:300px"></div>
+  <div id="p_eds5" class="plot" style="height:300px"></div>
+</div>
 </div>
 
 <div id="sec_sweep" style="border:2px solid #b45309;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#fffbeb">
@@ -1228,7 +1245,7 @@ const PLOT_IDS=TIME_PLOTS.concat(SLQ_PLOTS);
 // The synchronized hover cursor must also cover the prediction-widget's own time-series panels (pred-3/4/5),
 // which aren't in TIME_PLOTS (that list feeds PLOT_IDS = purge/resize). Separate list so the cursor spans them
 // without altering purge/resize behaviour. (The master time-scrubber already auto-detects every 'GD step' plot.)
-const PRED_TIME_PLOTS=['p_pd1','p_pd2','p_pd3','p_pd4','p_pt1','p_pt2','p_pt3','p_pt4','p_pd5','p_pd6','p_pd7','p_pd4m_1','p_pd4m_2','p_pd4m_3','p_p3_diff','p_p3_rnorm','p_p3_cos','p_p3m_1','p_p3m_2','p_p3m_3'];
+const PRED_TIME_PLOTS=['p_eds1','p_eds2','p_eds3','p_eds4','p_eds5','p_pd1','p_pd2','p_pd3','p_pd4','p_pt1','p_pt2','p_pt3','p_pt4','p_pd5','p_pd6','p_pd7','p_pd4m_1','p_pd4m_2','p_pd4m_3','p_p3_diff','p_p3_rnorm','p_p3_cos','p_p3m_1','p_p3m_2','p_p3m_3'];
 const CURSOR_PLOTS=TIME_PLOTS.concat(PRED_TIME_PLOTS);
 function newP(id,traces,layout){Plotly.newPlot(id,traces,layout,CFG);const gd=document.getElementById(id);gd._baseShapes=layout.shapes?JSON.parse(JSON.stringify(layout.shapes)):[];}
 // Live-plot DECIMATION — fixes the progressive hang. Without it, every diagnostic tick re-renders the full,
@@ -3347,10 +3364,12 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_predray');if(el){const vis=chk('enPR');el.style.display=vis?'':'none';   // ★ Prediction 4.2 (Phase-2a ray)
     if(vis){if(!RAY.anchors.length)_rayPlaceholders();else{_rayBar();if(RAY.sel>=0)_rayRender(RAY.sel);}   // pre-anchor: "waiting" note; else restore the bar + selected anchor
       requestAnimationFrame(()=>{for(const id of ['p_ray_sig','p_ray_jf','p_ray_clock','p_ray_exit']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}}
+  {const el=document.getElementById('sec_eds');if(el){const vis=chk('enEDS');el.style.display=vis?'':'none';   // Early-dynamics stats (above the prediction panels)
+    if(vis)requestAnimationFrame(()=>{for(const id of ['p_eds1','p_eds2','p_eds3','p_eds4','p_eds5']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
   {const el=document.getElementById('sec_sweep');if(el)el.style.display=chk('enPs')?'':'none';}
   {const el=document.getElementById('sec_pred6');if(el){const vis=chk('enP6');el.style.display=vis?'':'none';
     if(vis)requestAnimationFrame(()=>{for(const id of ['p_p6_sign','p_p6_muon','p_p6_gn','p_p6_loss','p_p6_sharp','p_p6_fl_gd','p_p6_fl_sign','p_p6_fl_muon','p_p6_fl_gn','p_p6_fl_gnorm']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
-  requestAnimationFrame(()=>{for(const id of ['p_pd1','p_pd2','p_pd3','p_pd4','p_pt1','p_pt2','p_pt3','p_pt4','p_pd5','p_pd6','p_pd7','p_p3_diff','p_p3_rnorm','p_p3_cos','p_sw0','p_sw1','p_sw2','p_sw3','p_sw4','p_sw5','p_sw6']){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});   // re-measure ★ prediction plots when shown
+  requestAnimationFrame(()=>{for(const id of ['p_eds1','p_eds2','p_eds3','p_eds4','p_eds5','p_pd1','p_pd2','p_pd3','p_pd4','p_pt1','p_pt2','p_pt3','p_pt4','p_pd5','p_pd6','p_pd7','p_p3_diff','p_p3_rnorm','p_p3_cos','p_sw0','p_sw1','p_sw2','p_sw3','p_sw4','p_sw5','p_sw6']){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});   // re-measure ★ prediction plots when shown
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
   if(typeof SCRUB_FRAC!=='undefined'&&SCRUB_FRAC<1)requestAnimationFrame(()=>applyTimeScrub(SCRUB_FRAC));   // keep a just-shown section's plots at the current rewound position
 }
@@ -3611,6 +3630,14 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   newP('p_pd3',tvPred('pred σ₁','pred + PSD','actual λmax(∇²L)','actual λmax(NTK)'),baseLayout('cubic · live','σ₁',false));
   newP('p_pd4',tvPred('pred σ₁','pred + PSD','actual λmax(∇²L)','actual λmax(NTK)'),baseLayout('cubic · self','σ₁',false));
   // ★ prediction-3 panel: (jrd,jdr,diff) sign-change, then frozen-J linear residual theory vs actual
+  if(chk('enEDS')){   // Early-dynamics stats (s42): 5 streaming line plots, created only when enabled
+    newP('p_eds1',[{x:[],y:[],mode:'lines',name:'pos: Σ|σ⁺·u⁺ᵀJᵀr|/‖Jᵀr‖',line:{color:'#2563eb',width:1.8}},{x:[],y:[],mode:'lines',name:'neg: Σ|σ⁻·u⁻ᵀJᵀr|/‖Jᵀr‖',line:{color:'#dc2626',width:1.8}}],baseLayout('σ-weighted Jᵀr projection on ±M_r eigvecs','value',false));
+    const _edsAng=(id,ttl,l1,l2,c1,c2)=>newP(id,[{x:[],y:[],mode:'lines',name:l1,line:{color:c1,width:1.8}},{x:[],y:[],mode:'lines',name:l2,line:{color:c2,width:1.8}}],baseLayout(ttl,'mean principal angle (°)',false));
+    _edsAng('p_eds2','H=ΣQₖ eigenspace rotation','lag 1','lag 2','#0d9488','#f59e0b');
+    _edsAng('p_eds3','H=ΣQₖ eigenspace rotation','lag 5','lag 10','#0d9488','#f59e0b');
+    _edsAng('p_eds4','Mᵣ eigenspace rotation','lag 1','lag 2','#7c3aed','#db2777');
+    _edsAng('p_eds5','Mᵣ eigenspace rotation','lag 5','lag 10','#7c3aed','#db2777');
+  }
   newP('p_p3_diff',[{x:[],y:[],mode:'lines',name:'‖J·ṙ‖ (jrd)',line:{color:'#2563eb',width:1.7}},{x:[],y:[],mode:'lines',name:'‖J̇·r‖ (jdr)',line:{color:'#16a34a',width:1.7}},{x:[],y:[],mode:'lines',name:'diff = jrd−jdr',line:{color:'#dc2626',width:2}}],baseLayout('jrd, jdr & diff → t*','value',false));
   window._P3_CLEARED=false;   // reset the pred-3 "waiting for t*" placeholder each run
   const _p3note=[{text:'activates at the ‖J·ṙ‖−‖J̇·r‖<br>sign-change t* (none yet in this run)',xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,align:'center',font:{size:11,color:'#94a3b8'}}];
@@ -4014,6 +4041,12 @@ function pushPoint(t,D,n,kth,nResid){
   if(D.g_pred4m){const g=D.g_pred4m,ka=g.kAct,mids=['p_pd4m_1','p_pd4m_2','p_pd4m_3'];   // ★ prediction-4 multi-freeze: frozen-r (3k) / evolving-r (3k+1) / actual (3k+2)
     for(let m=0;m<3;m++){const kp=g.kPred[m],ke=g.kPredE?g.kPredE[m]:null;if(!kp)continue;const xs=[],ys=[],ti=[];for(let k=0;k<3&&k<ka.length;k++){xs.push([t]);ys.push([_capPred(kp[k],ka[k])]);ti.push(3*k);xs.push([t]);ys.push([_capPred(ke?ke[k]:null,ka[k])]);ti.push(3*k+1);xs.push([t]);ys.push([ka[k]]);ti.push(3*k+2);}if(ti.length)extP(mids[m],{x:xs,y:ys},ti);}}   // cap multi-freeze predicted eigvals at 20× actual
   if(D.g_ray)addRayPt(D.g_ray);   // ★ Prediction 4.2 (Phase-2a ray): grid predictions on the anchor, then per-step actual dots
+  if(D.g_eds){const g=D.g_eds,aH=g.angH||{},aM=g.angMr||{};   // Early-dynamics stats: append the σ-weighted ±M_r proj sums + the H/M_r eigenspace principal angles (null y ⇒ gap before the lag is reached)
+    try{extP('p_eds1',{x:[[t],[t]],y:[[g.posSum],[g.negSum]]},[0,1]);
+        extP('p_eds2',{x:[[t],[t]],y:[[aH['1']],[aH['2']]]},[0,1]);
+        extP('p_eds3',{x:[[t],[t]],y:[[aH['5']],[aH['10']]]},[0,1]);
+        extP('p_eds4',{x:[[t],[t]],y:[[aM['1']],[aM['2']]]},[0,1]);
+        extP('p_eds5',{x:[[t],[t]],y:[[aM['5']],[aM['10']]]},[0,1]);}catch(e){}}
   if(D.g_phase){const g=D.g_phase;   // §6 phases-of-learning TIME-SERIES (main run); null ⇒ gap (2nd-diff / Δ start a couple ticks in)
     const P=(id,pairs)=>{const ix=[],xs=[],ys=[];for(const p of pairs){if(p[1]!=null){ix.push(p[0]);xs.push([t]);ys.push([p[1]]);}}if(ix.length)extP(id,{x:xs,y:ys},ix);};
     P('p_s21ph_1',g.qr.map((v,i)=>[i,v==null?null:Math.abs(v)]));   // plot 1: 6 |Jr↔Qr| projections (top-3⊕bottom-3 M_r), absolute value
@@ -5000,6 +5033,9 @@ function currentQueryParams(){   // the exact query-style param dict the backend
   {const e=document.getElementById('p4thr');if(e)o['p4thr']=e.value||'0.8';}   // prediction-4 phase-1 alignment anchor threshold
   {const e=document.getElementById('p4rep');if(e)o['p4rep']=e.value||'100';}   // prediction-4 live re-anchor interval (repeat_iter)
   o['s41']=chk('enPR')?'1':'0';   // ★ Prediction 4.2 (ray): computed ONLY when enabled (s39=Pred-6, s40=§28 → s41). Anchor grid costs ~m forward Jacobians
+  o['s42']=chk('enEDS')?'1':'0';   // Early-dynamics stats (not a prediction): computed ONLY when enabled (two Lanczos per step)
+  {const e=document.getElementById('edsmrk');if(e)o['edsmrk']=e.value||'50';}   // early-dynamics plot 1: ±M_r eigenpair count
+  {const e=document.getElementById('edsangk');if(e)o['edsangk']=e.value||'10';}   // early-dynamics plots 2-5: principal-angle subspace dim
 
   {const e=document.getElementById('prthr');if(e)o['prthr']=e.value||'0.9';}   // ray anchor cos threshold
   {const e=document.getElementById('prm');if(e)o['prm']=e.value||'40';}   // ray grid points (min)
@@ -6014,7 +6050,7 @@ function makeCompareSection(pre, kind) {
 }
 
 function reorderPredictionLayout(){   // base panels §1-6 on top, then Prediction-1&2 → 3 → 4 → 4.2(ray) → 5.1(trace) → 5.2(σ₁) → 6
-  const order=['sec_1','sec_2','sec_3','sec_slqH','sec_4','sec_s21','sec_s27','sec_sweep','sec_pred3_box','sec_pred4_box','sec_predray','sec_trace','sec_pred','sec_pred6'];   // sec_predray = ★ Prediction 4.2 (ray), right after Prediction-4
+  const order=['sec_1','sec_2','sec_3','sec_slqH','sec_4','sec_s21','sec_s27','sec_eds','sec_sweep','sec_pred3_box','sec_pred4_box','sec_predray','sec_trace','sec_pred','sec_pred6'];   // sec_eds = Early-dynamics stats (NOT a prediction), ABOVE Prediction-1&2; sec_predray = ★ Prediction 4.2 (ray), right after Prediction-4
   const anchor=document.getElementById('sec_pred'); if(!anchor)return; const parent=anchor.parentNode; if(!parent)return;
   for(const id of order){const e=document.getElementById(id); if(e&&e.parentNode===parent)parent.insertBefore(e,anchor);}   // insert each before sec_pred (5.2 is the anchor)
   {const p6=document.getElementById('sec_pred6'); if(p6&&p6.parentNode===parent)parent.insertBefore(p6, anchor.nextSibling);}   // Prediction-6 goes AFTER 5.2 (sec_pred), so the numbering reads 1&2→3→4→5.1→5.2→6
