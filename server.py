@@ -1054,7 +1054,7 @@ def _gn_precond(J, r, k=50, rel=1e-6):
     return J.t() @ (U_k @ (inv * (U_k.t() @ r)))  # Jᵀ Σ (1/λ_i)(u_iᵀr) u_i
 
 
-def _opt_dir(model, g, opt, J=None, r=None):
+def _opt_dir(model, g, opt, J=None, r=None, th=None, X=None, N=None, outD=None, out=None):
     """Update DIRECTION d (NO momentum, NO weight decay); the actual θ step is θ ← θ − lr·d.
       gd          → g = ∇L                       (plain full-batch gradient descent)
       sign        → sign(g)                      (signed GD, elementwise)
@@ -1066,7 +1066,12 @@ def _opt_dir(model, g, opt, J=None, r=None):
     if opt == "spectral":
         return _muon_whiten(model, g)
     if opt == "gaussnewton":
-        return -_gn_precond(J, r)
+        if _TL.loss.name == "ce" and J is not None and r is not None and N is not None and outD is not None:   # CE: natural-gradient / Fisher GN step F⁺∇L (instead of the MSE min-norm Jᵀ(JJᵀ)⁻¹r)
+            if out is None and th is not None and X is not None:
+                out = model.forward(th, X)
+            if out is not None and out.reshape(-1).numel() >= N * outD:
+                return _gn_natgrad(J, out, N, outD, r)
+        return -_gn_precond(J, r)                # MSE (byte-identical) + the CE fallback when the logits aren't threaded
     return g                                     # gd (default)
 
 
@@ -1100,6 +1105,46 @@ def _ce_fisher_jac(Jm, out, N, outD):
     Ss = V @ (w.clamp_min(0.0).sqrt().unsqueeze(-1) * V.transpose(-1, -2))  # (N, d, d) = Σ_i^{1/2} = V·diag(√w)·Vᵀ
     Jb = Jm.reshape(N, outD, -1)                                            # (N, d, p) per-sample Jacobian blocks J_i
     return (Ss @ Jb).reshape(N * outD, -1)                                  # (M, p) = Λ^{1/2}·J = J̃  (J̃_i = Σ_i^{1/2}·J_i)
+
+
+def _gn_jac(Jg, th, X, N, outD, out=None):
+    """The Jacobian whose Gram is the p×p GAUSS-NEWTON curvature: plain Jg for MSE, the Fisher-whitened
+    J̃=Λ^{1/2}Jg for CE (so eig(_gn_jac·_gn_jacᵀ) is the plain NTK spectrum for MSE and the FISHER spectrum
+    = eig(Σ_i J_iᵀΣ_i J_i) for CE). MSE is byte-identical (returns Jg unchanged). USE ONLY where the GN
+    curvature is formed (Pred-6 scree, §2/§3 Panel-3, §21 Panel-3, §26 gn); the plain function-NTK is untouched."""
+    if _TL.loss.name != "ce":
+        return Jg
+    if out is None:
+        out = _TL.model.forward(th, X)                        # CE needs the logits for p_i = softmax(f(x_i))
+    return _ce_fisher_jac(Jg, out, N, outD)
+
+
+def _gn_natgrad(Jg, out, N, outD, r, k=50, rel=1e-6):
+    """CE NATURAL-GRADIENT / Fisher Gauss-Newton descent direction  d = F⁺·∇L,  F = JᵀΛJ (the Fisher),
+    ∇L = (1/N)Jᵀ(p−y).  Since (p−y) ∈ range(Λ), this collapses to the min-norm pseudo-inverse of the whitened
+    Jacobian:  d = −J̃⁺·Λ^{-1/2}r = −J̃ᵀ(J̃J̃ᵀ+εI)⁻¹·Λ^{-1/2}r,  J̃=Λ^{1/2}J, r=y−p, Λ^{-1/2} per-sample Σ_i^{-1/2}
+    (pseudo-inverse sqrt, Σ_i rank d−1). Mirrors _gn_precond's M≤k damped full-solve / M>k top-k truncation.
+    Returns the p-vector d (θ←θ−lr·d, the natural-gradient step; the MSE analog is −Jᵀ(JJᵀ)⁻¹r)."""
+    M = N * outD
+    pmat = torch.softmax(out.reshape(N, outD), dim=-1)                     # (N, d)
+    Sg = torch.diag_embed(pmat) - torch.einsum('nd,ne->nde', pmat, pmat)  # (N, d, d) Σ_i
+    w, V = torch.linalg.eigh(Sg)                                          # ascending, w≥0
+    ws = w.clamp_min(0.0).sqrt()
+    Ss = V @ (ws.unsqueeze(-1) * V.transpose(-1, -2))                     # Σ_i^{1/2}
+    tol = 1e-9 * ws.amax(dim=-1, keepdim=True)                            # per-sample null cutoff (Σ_i is rank d−1)
+    isq = torch.where(ws > tol, 1.0 / ws.clamp_min(1e-30), torch.zeros_like(ws))
+    Sinv = V @ (isq.unsqueeze(-1) * V.transpose(-1, -2))                  # Σ_i^{-1/2} (pseudo-inverse sqrt)
+    Jt = (Ss @ Jg.reshape(N, outD, -1)).reshape(M, -1)                    # J̃ = Λ^{1/2}J (M, p)
+    hr = (Sinv @ r.reshape(N, outD, 1)).reshape(M)                        # Λ^{-1/2} r (M,)
+    Kt = Jt @ Jt.t()                                                     # M×M whitened NTK = Fisher-NTK
+    if M <= k:
+        ridge = rel * Kt.diagonal().mean() + 1e-30
+        sol = torch.linalg.solve(Kt + ridge * torch.eye(M, dtype=Kt.dtype, device=Kt.device), hr)
+    else:
+        lam, U = torch.linalg.eigh(Kt); lam_k = lam[-k:]; U_k = U[:, -k:]
+        inv = 1.0 / lam_k.clamp_min(max(rel * float(lam_k[-1]), 1e-30))
+        sol = U_k @ (inv * (U_k.t() @ hr))
+    return -(Jt.t() @ sol)                                               # d = −J̃ᵀ(J̃J̃ᵀ)⁻¹Λ^{-1/2}r = F⁺∇L
 # Each /run is assigned a device (auto least-busy across DEVICE_POOL). RUN_TOKEN is PER-DEVICE, so runs on
 # different GPUs coexist; a newer run on the SAME device bumps that device's token and the older one stops.
 # _DEV_LOAD counts active runs per device for the least-busy pick. All three are guarded by _DEV_LOCK.
@@ -1889,18 +1934,23 @@ def _sec26_eigvecs(Jc, rr, th, X, N, outD, mr_hvp=None):
     M = N * outD
     Jg = Jc[:M]; r = rr[:M]; p = Jg.shape[1]; rc = r.reshape(N, outD); dtv = Jg.dtype
     zP = torch.zeros(p, dtype=dtv, device=_dev()); zM = torch.zeros(M, dtype=dtv, device=_dev())
-    # --- NTK (M×M) and GN (p×p) top-3 from ONE eigendecomposition of the NTK ---
-    Kc, Vc = sym_eig_desc(Jg @ Jg.t())                     # NTK eigvecs (columns, descending σ²); Kc = σ_k²
+    # --- NTK (M×M) top-3 = plain NTK; GN (p×p) top-3 = the FISHER for CE (own decomp of J̃J̃ᵀ), plain JᵀJ for MSE ---
+    Kc, Vc = sym_eig_desc(Jg @ Jg.t())                     # plain NTK eigvecs (columns, descending σ²); Kc = σ_k²
     ntop = float(Kc[0]) if int(Kc.numel()) > 0 else 0.0
-    ntol = 1e-9 * max(ntop, 1e-30)                         # null-direction cutoff (GN/NTK)
+    ntol = 1e-9 * max(ntop, 1e-30)                         # null-direction cutoff (NTK)
+    if _TL.loss.name == "ce":                              # CE: the p×p GN is the FISHER ⇒ its OWN decomposition of J̃J̃ᵀ (J̃=_gn_jac); the NTK (below) stays plain
+        Jgn = _gn_jac(Jg, th, X, N, outD); Kg, Vg = sym_eig_desc(Jgn @ Jgn.t())
+    else:                                                  # MSE: GN shares the NTK's nonzero spectrum ⇒ reuse (Jg, Kc, Vc) — byte-identical
+        Jgn, Kg, Vg = Jg, Kc, Vc
+    gtol = 1e-9 * max(float(Kg[0]) if int(Kg.numel()) > 0 else 0.0, 1e-30)
     ntk, gn = [], []
     for kk in range(3):
-        if kk < M and float(Kc[kk]) > ntol:
-            gk = Vc[:, kk].clone()                         # NTK eigvec (M-dim), unit
-            uk = Jg.t() @ gk; nu = float(uk.norm())        # GN eigvec (p-dim) = normalize(Jᵀ g_k)
-            ntk.append(gk); gn.append(uk / nu if nu > 1e-30 else zP.clone())
+        ntk.append(Vc[:, kk].clone() if (kk < M and float(Kc[kk]) > ntol) else zM.clone())   # NTK eigvec (M-dim, PLAIN) — left-singular vec of J
+        if kk < M and float(Kg[kk]) > gtol:
+            uk = Jgn.t() @ Vg[:, kk]; nu = float(uk.norm())   # GN eigvec (p-dim) = normalize(J̃ᵀ g̃_k) — the FISHER eigvec for CE, the GN eigvec for MSE
+            gn.append(uk / nu if nu > 1e-30 else zP.clone())
         else:
-            ntk.append(zM.clone()); gn.append(zP.clone())
+            gn.append(zP.clone())
     # --- M_r=Σ_k r_kQ_k top-3 ⊕ bottom-3 via matrix-free Lanczos on hvpS (same §20 start) ---
     Klan = 3; mlan = min(p, max(5 * Klan, 64))
     q0 = _randvec16(p, SEC26_SEED)
@@ -2083,16 +2133,21 @@ def _sec21_payload(Jc, rr, th, X, N, outD, K):
     # NTK σ_i. rank(G)≤M ⇒ min(K,M) nonzero modes (same count as Panel 1). Bars: |z_iᵀJr|/‖Jr‖, |z_iᵀJr|,
     # c_i·|z_iᵀJr|/‖Jr‖, c_i·|z_iᵀJr| ; grey bar = c_i (all ≥0). J·r = Jr (reused from Panel 2).
     ng = min(int(K), M)
+    if _TL.loss.name == "ce":                                # CE: the p×p GN is the FISHER JᵀΛJ ⇒ Panel 3 uses its OWN decomposition of the whitened Gram J̃J̃ᵀ (J̃=_gn_jac); Panel-1 NTK stays plain
+        Jgn = _gn_jac(Jg, th, X, N, outD)
+        Kgc, Vgc = sym_eig_desc(Jgn @ Jgn.t())
+    else:                                                    # MSE: G=(1/N)JᵀJ shares its spectrum with the NTK ⇒ reuse Panel-1's (Kc, Vc, Jg) — byte-identical
+        Jgn, Kgc, Vgc = Jg, Kc, Vc
     cg, gp1, gp2, gp3, gp4 = [], [], [], [], []
-    ntol = 1e-9 * float(Kc[0]) if Kc.numel() else 0.0        # a ~0 NTK eigval ⇒ z_i=Jgᵀv_i is round-off (backend-divergent if normalized); gate on the EIGENVALUE like §20, not ‖z‖
+    ntol = 1e-9 * float(Kgc[0]) if Kgc.numel() else 0.0      # a ~0 GN eigval ⇒ z_i=Jgnᵀv_i is round-off (backend-divergent if normalized); gate on the EIGENVALUE like §20, not ‖z‖
     for i in range(ng):
-        zi = Jg.t() @ Vc[:, i]                                # z_i ∝ Jgᵀ v_i (p,)
+        zi = Jgn.t() @ Vgc[:, i]                              # z_i ∝ J̃ᵀ v_i (p,) — Fisher eigvec for CE, GN eigvec for MSE
         zn = float(zi.norm())
-        if float(Kc[i]) <= ntol or zn < 1e-30:                # null-space / rank-deficient mode (J·r ⟂ it ⇒ true projection 0)
+        if float(Kgc[i]) <= ntol or zn < 1e-30:               # null-space / rank-deficient mode (J·r ⟂ it ⇒ true projection 0)
             cg.append(0.0); gp1.append(0.0); gp2.append(0.0); gp3.append(0.0); gp4.append(0.0); continue
         zi = zi / zn
-        ci = float(Kc[i]) * scN                               # Gauss-Newton eigenvalue c_i = s_i²/N
-        ap = abs(float(zi @ Jr))
+        ci = float(Kgc[i]) * scN                              # Gauss-Newton (MSE) / Fisher (CE) eigenvalue c_i = s_i²/N
+        ap = abs(float(zi @ Jr))                              # project the PLAIN gradient J·r onto the (Fisher) eigenvector
         cg.append(ci); gp1.append(ap / Jrn); gp2.append(ap); gp3.append(ci * ap / Jrn); gp4.append(ci * ap)
     return {"sig": sig, "n1": n1, "n2": n2, "n3": n3, "n4": n4,
             "lam": lam, "p1": p1, "p2": p2, "p3": p3, "p4": p4,
@@ -3948,7 +4003,7 @@ def run_stream(P):
             #   plot 3 residual↔top-8-NTK alignment; plot 4 residual dominance {‖∇L‖, ‖J̇·r‖−‖J·ṙ‖, ½ d²‖J‖²_F/dt²,
             #   Σ_k J_kᵀQ_k(J̇·r)−Σ_k J_kᵀQ_k(J·ṙ)}. MSE-only (the J̇·r/J·ṙ identities); off by default (§6 toggle).
             g_phase = None
-            if s29 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+            if s29 and _TL.loss.name in ("mse", "ce") and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 _ph = _sec6phase(Jc, rr, th, X, Y, N, outD)
                 _dJrn = (_ph["Jrn"] - sec6_prev_Jrn) if sec6_prev_Jrn is not None else None      # Δ‖Jᵀr‖ = ‖J_{t}r_{t}‖ − ‖J_{t−1}r_{t−1}‖
                 sec6_prev_Jrn = _ph["Jrn"]
@@ -3986,7 +4041,7 @@ def run_stream(P):
             #   eigenspaces of H=Σ_kQ_k (=Q_t·e, plots 2/3) and M_r=Σ_k r_kQ_k (=Q_t·r_t, plots 4/5) at THIS tick vs
             #   {1,2} (plots 2,4) and {5,10} (plots 3,5) ticks earlier (eigevery=1 ⇒ GD-step lags).
             g_eds = None
-            if s42 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+            if s42 and _TL.loss.name in ("mse", "ce") and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 try:
                     Jm_e = Jc[:M]; rm_e = rr[:M]; rc_e = rm_e.reshape(N, outD)
                     Jtr_e = Jm_e.t() @ rm_e; nJtr_e = float(Jtr_e.norm())
@@ -4032,7 +4087,7 @@ def run_stream(P):
             # prediction-3 (s36): after (jrd−jdr)=‖J·ṙ‖−‖J̇·r‖ first changes sign at t*, freeze J*=J(t*) and
             #   compare the ACTUAL residual with the frozen-J linear NTK theory r_{k+1}=(I−(η/N)J*J*ᵀ)r_k from r(t*).
             g_pred3 = None
-            if s36 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+            if s36 and _TL.loss.name in ("mse", "ce") and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 Jm3 = Jc[:M]; rm3 = rr[:M]
                 gL3 = gradL(th, X, Y)[0]
                 jrd3 = float((Jm3.t() @ (Jm3 @ gL3)).norm())                    # ‖J·ṙ‖ = ‖JᵀJ∇L‖
@@ -4078,7 +4133,7 @@ def run_stream(P):
 
             # prediction-3 MULTI-FREEZE panel: ‖r‖ actual vs frozen theory (1st- AND 2nd-order), J & Q frozen at t*-10, t*+10, t*+20 (3 plots)
             g_pred3m = None
-            if s36 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+            if s36 and _TL.loss.name in ("mse", "ce") and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 if p3m is None:
                     p3m = {"buf": [], "th": [None, None, None]}                   # rolling (t,J,r,‖r‖,θ) buffer + 3 frozen-(J,Q) theories
                 p3m["buf"].append((t, Jm3.detach().clone(), rm3.detach().clone(), float(rm3.norm()), th.detach().clone()))
@@ -4137,7 +4192,7 @@ def run_stream(P):
             #   residual r0; then propagate J_{s+1} = (I + (η/N)·M_r)·J_s with M_r = Σ_k r0_k Q_k(θ0) frozen
             #   (matrix-free via hvpS), and compare the top-10 NTK eigenvalues λ(JJᵀ) of the predicted vs actual J.
             g_pred4 = None
-            if s37 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+            if s37 and _TL.loss.name in ("mse", "ce") and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 Jm4 = Jc[:M]
                 # PHASE-1 anchor: freeze at the first tick |(Jᵀr)·u₁|/‖Jᵀr‖ ≥ p4thr (u₁ = TOP eigenvector of
                 # M_r=Σ_k r_kQ_k — the §6 'Phase-1 Jr↔Qr alignment' value), instead of the fixed iteration t0.
@@ -4204,7 +4259,7 @@ def run_stream(P):
 
             # prediction-4 MULTI-FREEZE panel: same frozen-M_r propagation but anchored at the PHASE-1 anchor t* ± {-10,+10,+20}
             g_pred4m = None
-            if s37 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+            if s37 and _TL.loss.name in ("mse", "ce") and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 Jm4m = Jc[:M]
                 p4mbuf.append((t, Jm4m.detach().clone(), th.detach().clone(), rr[:M].detach().clone()))   # rolling buffer for the t*-10 back-fill
                 if len(p4mbuf) > 40:
@@ -4249,7 +4304,7 @@ def run_stream(P):
             #   then per step measure the ACTUAL distance s_t=⟨θ_t−θ_a, w₁⟩ and σ₁/‖J‖. Predicted phase-exit = where
             #   D_J(s)=‖J̇·r_a‖=‖M_r(s)∇L‖ crosses D_r(s)=‖J·ṙ‖=‖JᵀJ∇L‖ on the grid (∇L=(1/N)J(s)ᵀr_a, r held = r_a).
             g_ray = None
-            if s41 and opt == "gd" and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+            if s41 and opt == "gd" and _TL.loss.name in ("mse", "ce") and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
               try:   # opt=="gd": the ray's walk direction (motion ∝ −∇L ∝ Jᵀr) and the η/N clock are GD-specific
                 Jmr = Jc[:M]; rmr = rr[:M]
                 _newanch = False
@@ -4312,7 +4367,7 @@ def run_stream(P):
             #   SELF residual is always the frozen QUADRATIC model r_q=Y−(f0+J0Δθ+½ΔθᵀQ0Δθ). Report predicted
             #   Tr(NTK)=‖J‖²_F/N (with PSD) and its no-PSD accumulation (drop ‖ΔJ‖²), vs actual Tr(JᵀJ)/N & Tr(∇²L)/N.
             g_trace = None
-            if s38 and _TL.loss.name == "mse" and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
+            if s38 and _TL.loss.name in ("mse", "ce") and (N * outD) <= grid3dcap and dataset != "owt" and Jc is not None and rr is not None:
                 Jm5 = Jc[:M]
                 trGN = float((Jm5 * Jm5).sum()) / N                               # actual Tr(JᵀJ)=‖J‖²_F ÷N (exact) — shown THROUGHOUT, not gated by stat_init
                 NP5 = 24                                                          # actual Tr(∇²L) ÷N via Hutchinson with the EXACT loss-Hessian HVP (hvpL).
@@ -4376,7 +4431,7 @@ def run_stream(P):
             # eigenvalues (of the NTK JJᵀ = nonzero spectrum of the GN Hessian) along each ⇒ the client overlays
             # GD-vs-{signed,muon,gn} translucent histograms that evolve over training. OFF by default; NO momentum/WD.
             g_pred6 = None
-            if s39 and _TL.loss.name == "mse" and dataset != "owt" and (N * outD) <= grid3dcap:
+            if s39 and _TL.loss.name in ("mse", "ce") and dataset != "owt" and (N * outD) <= grid3dcap:
                 if p6 is None:
                     p6 = {k: th.detach().clone() for k in ("gd", "sign", "spectral", "gaussnewton")}   # seed all 4 at the current θ (run init)
                 _K6 = min(50, M)
@@ -4386,7 +4441,8 @@ def run_stream(P):
                 for okey in ("gd", "sign", "spectral", "gaussnewton"):
                     thx = p6[okey]; olr = lr6[okey]
                     Jx, _ox = jac_cols(thx, X); Jx = Jx[:M]
-                    lam6 = _safe_eigvalsh(Jx @ Jx.t())                                 # JJᵀ (NTK) eigenvalues at THIS tick's θ, ascending; = nonzero Gauss-Newton spectrum
+                    _Jgn6 = _gn_jac(Jx, thx, X, N, outD, out=_ox)                      # GN-curvature Jacobian: plain Jx (MSE) or Fisher-whitened J̃=Λ^{1/2}Jx (CE)
+                    lam6 = _safe_eigvalsh(_Jgn6 @ _Jgn6.t())                           # eigenvalues = nonzero Gauss-Newton spectrum (MSE) / Fisher spectrum (CE), ascending
                     spec6[okey] = [max(0.0, float(lam6[-1 - i])) for i in range(_K6)]  # top-50 (or M) eigenvalues, DESCENDING (rank 1 = largest) — a scree curve per optimizer
                     if torch.isfinite(thx).all():                                      # loss + sharpness λmax(∇²L) at THIS tick's θ (None once a trajectory diverges)
                         loss6[okey] = _fin(float(_TL.loss.value(_TL.model.forward(thx, X), Y, N)))
@@ -4417,7 +4473,7 @@ def run_stream(P):
                         if okey == "gaussnewton":                                      # GN needs the full J and residual r
                             Js, os = jac_cols(thx, X)
                             rx = (-N * _TL.loss.resid_cotangent(os.reshape(N, outD), Y, N)).reshape(-1)[:M]
-                            thx = thx - olr * _opt_dir(_TL.model, None, okey, Js[:M], rx)
+                            thx = thx - olr * _opt_dir(_TL.model, None, okey, Js[:M], rx, N=N, outD=outD, out=os)   # CE+gaussnewton trajectory ⇒ natural-gradient step (os=logits); MSE unchanged
                         else:
                             thx = thx - olr * _opt_dir(_TL.model, gradL(thx, X, Y)[0], okey)
                     p6[okey] = thx
@@ -5107,7 +5163,7 @@ def run_stream(P):
         if opt == "gaussnewton":                                   # GN needs the full J and residual r every step (not just ∇L)
             _Jg, _of = jac_cols(th, X); _M = N * outD
             _rr = (-N * _TL.loss.resid_cotangent(_of.reshape(N, outD), Y, N)).reshape(-1)
-            th = th - lr * _opt_dir(_TL.model, None, opt, _Jg[:_M], _rr[:_M])
+            th = th - lr * _opt_dir(_TL.model, None, opt, _Jg[:_M], _rr[:_M], N=N, outD=outD, out=_of)   # CE+gaussnewton ⇒ natural-gradient step (out=_of gives p_i); MSE unchanged
         else:
             th = th - lr * _opt_dir(_TL.model, gradL(th, X, Y)[0], opt)
 
@@ -5579,7 +5635,7 @@ def run_surrogate_compare(P):
         if opt == "gaussnewton":                                   # GN needs the full J and residual r every step (not just ∇L)
             _Jg, _of = jac_cols(th, X); _M = N * outD
             _rr = (-N * _TL.loss.resid_cotangent(_of.reshape(N, outD), Y, N)).reshape(-1)
-            th = th - lr * _opt_dir(_TL.model, None, opt, _Jg[:_M], _rr[:_M])
+            th = th - lr * _opt_dir(_TL.model, None, opt, _Jg[:_M], _rr[:_M], N=N, outD=outD, out=_of)   # CE+gaussnewton ⇒ natural-gradient step (out=_of gives p_i); MSE unchanged
         else:
             th = th - lr * _opt_dir(_TL.model, gradL(th, X, Y)[0], opt)   # actual trajectory uses the chosen optimizer
         if th0 is not None:
