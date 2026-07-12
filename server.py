@@ -1088,7 +1088,7 @@ def _precond_flow(model, opt, J, r, N, lr):
     if opt == "spectral":
         return _muon_whiten(model, Jr), lr
     if opt == "gaussnewton":
-        return _gn_precond(J, r), lr
+        return _gn_precond(J, r), lr              # NOTE: stays MSE min-norm even for CE (no logits threaded here, and the frozen-J self-models' Σ-freeze is undecided). So under CE + opt=gaussnewton the PREDICTED (Pred-3/4/5, sweep) dynamics use the plain GN preconditioner, consistent with "CE keeps the M×M NTK / residual dynamics plain — only the p×p GN SPECTRUM becomes the Fisher". The ACTUAL gaussnewton trajectory DOES use the Fisher natural gradient (_opt_dir → _gn_natgrad). Default opt=gd is unaffected.
     return Jr, lr / max(N, 1)                     # gd (default): (Jᵀr, η/N)
 
 
