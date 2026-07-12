@@ -1085,6 +1085,21 @@ def _precond_flow(model, opt, J, r, N, lr):
     if opt == "gaussnewton":
         return _gn_precond(J, r), lr
     return Jr, lr / max(N, 1)                     # gd (default): (Jᵀr, η/N)
+
+
+def _ce_fisher_jac(Jm, out, N, outD):
+    """CROSS-ENTROPY p×p Gauss-Newton = FISHER. Returns the WHITENED Jacobian J̃ = Λ^{1/2}·J (M×p), where
+    Λ = blockdiag(Σ_i), Σ_i = Diag(p_i) − p_i p_iᵀ (the softmax/output Hessian: PSD, rank d−1, Σ_i·1=0), and
+    p_i = softmax(f(x_i)). Then the p×p Gauss-Newton becomes the Fisher  J̃ᵀJ̃ = JᵀΛJ = Σ_i J_iᵀΣ_i J_i, and its
+    NONZERO spectrum = that of J̃J̃ᵀ = Λ^{1/2}JJᵀΛ^{1/2}. USE ONLY FOR CE and ONLY where the p×p Gauss-Newton
+    curvature is formed (Pred-6 GN scree, §2/§3 Panel-3 G, §26 GN eigvecs); the plain function-NTK JJᵀ stays
+    unweighted. The plain J (gradient Jᵀr with r=y−softmax(f)) and the function Hessian Q_k/M_r are unchanged."""
+    p = torch.softmax(out.reshape(N, outD), dim=-1)                          # (N, d) class probabilities
+    S = torch.diag_embed(p) - torch.einsum('nd,ne->nde', p, p)              # (N, d, d) per-sample Σ_i = Diag(p)−ppᵀ
+    w, V = torch.linalg.eigh(S)                                             # batched d×d eigh; ascending, w≥0 (PSD)
+    Ss = V @ (w.clamp_min(0.0).sqrt().unsqueeze(-1) * V.transpose(-1, -2))  # (N, d, d) = Σ_i^{1/2} = V·diag(√w)·Vᵀ
+    Jb = Jm.reshape(N, outD, -1)                                            # (N, d, p) per-sample Jacobian blocks J_i
+    return (Ss @ Jb).reshape(N * outD, -1)                                  # (M, p) = Λ^{1/2}·J = J̃  (J̃_i = Σ_i^{1/2}·J_i)
 # Each /run is assigned a device (auto least-busy across DEVICE_POOL). RUN_TOKEN is PER-DEVICE, so runs on
 # different GPUs coexist; a newer run on the SAME device bumps that device's token and the older one stops.
 # _DEV_LOAD counts active runs per device for the least-busy pick. All three are guarded by _DEV_LOCK.
