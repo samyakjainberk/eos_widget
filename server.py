@@ -3264,6 +3264,31 @@ def load_anglepair(n, d, angle_deg, norm1, norm2, lab1, lab2, seed):
     return X, Y
 
 
+def load_maxfind(n, d, seed):
+    """Max-input finder (d-class): X = n iid-Gaussian vectors of length d; Y = one-hot(argmax over the d
+    coordinates) — predict WHICH coordinate is largest. A clean CE-natural multiclass toy (d classes = d input
+    coords). Inputs from the shared mulberry32 RNG for cross-backend determinism (same seed family as ksparse)."""
+    d = max(2, int(d)); rng = mulberry32(u32(int(seed) * 7919 + 1))
+    X = torch.empty(int(n), d, dtype=DTYPE, device=_dev())
+    for i in range(int(n)):
+        for j in range(d):
+            X[i, j] = gauss(rng)
+    idx = X.argmax(dim=1)
+    Y = torch.zeros(int(n), d, dtype=DTYPE, device=_dev()); Y[torch.arange(int(n)), idx] = 1.0
+    return X, Y
+
+
+def load_modadd(n, m, seed):
+    """Modular addition mod m (m-class): sample a,b ∈ [0,m); X = [onehot(a) ‖ onehot(b)] (2m-dim), Y =
+    onehot((a+b) mod m). The classic grokking task; CE-natural multiclass. a,b from the shared mulberry32 RNG."""
+    m = max(2, int(m)); rng = mulberry32(u32(int(seed) * 7919 + 1))
+    X = torch.zeros(int(n), 2 * m, dtype=DTYPE, device=_dev()); Y = torch.zeros(int(n), m, dtype=DTYPE, device=_dev())
+    for i in range(int(n)):
+        a = int(rng() * m) % m; b = int(rng() * m) % m
+        X[i, a] = 1.0; X[i, m + b] = 1.0; Y[i, (a + b) % m] = 1.0
+    return X, Y
+
+
 def load_saddle(n, d, m, sep, seed, inStd=1.0):
     """Saddle-to-saddle linear-regression task. Whitened inputs X ~ N(0,I_d) (scaled by inStd), DIAGONAL
     teacher W* with geometrically-separated singular values σ_j = sep^j (sep<1): Y[:,j] = σ_j·X[:,j] for
@@ -3377,6 +3402,10 @@ def init_data_theta(P, dataset, N, inD, outD):
         X, Y = load_chebyshev2(N, P.get("degree", 3))                   # T_k via the cos(k·arccos x) closed form
     elif dataset == "ksparse":
         X, Y = load_ksparse(N, inD, P.get("ksparse", 3), P["seed"])     # n ±1 bits → scalar ±1 parity of a fixed k-subset
+    elif dataset == "maxfind":
+        X, Y = load_maxfind(N, inD, P["seed"])                          # d-class argmax finder (inD coords = outD classes)
+    elif dataset == "modadd":
+        X, Y = load_modadd(N, outD, P["seed"])                          # (a+b) mod outD (m classes); inD = 2·outD (two one-hots)
     elif dataset == "anglepair":
         X, Y = load_anglepair(N, inD, P.get("angle", 90.0), P.get("norm1", 1.0), P.get("norm2", 1.0),
                               P.get("lab1", 1.0), P.get("lab2", -1.0), P["seed"])   # 2 samples: controllable norm/angle, ±1 labels
@@ -3477,6 +3506,10 @@ def run_stream(P):
         inDimE = outDimE = 1                                  # scalar x → scalar T_k(x)
     elif dataset == "ksparse":
         inDimE, outDimE = int(P["indim"]), 1                  # n ±1 bits in → scalar ±1 parity out (gpt: read as a length-n bit sequence, mean-pooled)
+    elif dataset == "maxfind":
+        inDimE = outDimE = max(2, int(P["indim"]))            # d iid-Gaussian coords → d-class argmax (d coords = d classes)
+    elif dataset == "modadd":
+        _m = max(2, int(P.get("outdim", 11))); inDimE, outDimE = 2 * _m, _m   # (a+b) mod m: two one-hots in (2m) → m classes out
     elif dataset == "anglepair":
         inDimE, outDimE = max(2, int(P["indim"])), 1          # two iid-Gaussian samples (norm/angle controlled) → scalar ±1
     elif dataset == "agf":
@@ -5231,6 +5264,10 @@ def run_surrogate_compare(P):
         inDimE = outDimE = 1                              # scalar x → scalar T_k(x)
     elif dataset == "ksparse":
         inDimE, outDimE = int(P["indim"]), 1             # mirror run_stream (surrogate path must match the dataset's effective dims)
+    elif dataset == "maxfind":
+        inDimE = outDimE = max(2, int(P["indim"]))       # d-class argmax finder (mirror run_stream)
+    elif dataset == "modadd":
+        _m = max(2, int(P.get("outdim", 11))); inDimE, outDimE = 2 * _m, _m   # (a+b) mod m (mirror run_stream)
     elif dataset == "anglepair":
         inDimE, outDimE = max(2, int(P["indim"])), 1
     elif dataset == "agf":
@@ -6074,6 +6111,8 @@ class Handler(BaseHTTPRequestHandler):
             self._captures()
         elif u.path in ("/", "/prediction", "/prediction/", "/index.html"):
             self._static("/eos_widget_prediction/index_prediction.html")   # ROOT + /prediction BOTH serve the prediction widget, so anyone who follows the README (or just opens the port) lands on the prediction widget by default
+        elif u.path in ("/prediction_multiclass", "/prediction_multiclass/", "/multiclass", "/mc"):
+            self._static("/eos_widget_prediction/index_prediction_multiclass.html")   # the MULTICLASS prediction widget: same panels, nd-flattened (M=n·d) multiclass datasets (CIFAR-10, MNIST-10, max-finder, modulo); CE + Fisher curvature
         elif u.path in ("/original", "/original/", "/orig", "/widget"):
             self._static("/index.html")   # the ORIGINAL §1-§28 widget (browser or GPU backend via the Compute dropdown); relative /run + /captures ⇒ same-origin, so it just works from the fleet
         else:
