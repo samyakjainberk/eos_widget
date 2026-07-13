@@ -189,9 +189,13 @@ def sweep(cfg, npairs=None, K=None, Tstart=None, steps=None, seed=None,
       swsumn, swsumn2  — the two summation windows echoed back
       diverged         — the pair blew up (loss NaN or >1e12) before `steps`
 
-    When `cfg.sw2cd`, ALSO yields (FIRST, before the pairs) the dedicated 2c/2d σ-sweep — `{type:'sweeppt2c', i,
-    std, mrSum, hSum, swmrk, n2c}` — the (Σ top-k)+(Σ bottom-k) eigenvalue net-extreme of Qr=Σ_α r_αQ_α (mrSum, 2d)
-    and H=Σ_α Q_α (hSum, 2c) at t=0 vs σ log-spaced over [swcsmin, swcsmax]. Pair dicts carry `type:'sweeppt'`.
+    When `cfg.sw2cd` or `cfg.sw2e`, ALSO yields (FIRST, before the pairs) the dedicated 2c/2d/2e σ-sweep —
+    `{type:'sweeppt2c', i, std, xdiff, xnorm, x2e, dj, djn, l, swmrk, n2c}` — per init scale σ (log-spaced over
+    [swcsmin, swcsmax]): the curvature-sign-split gradient alignment A±=Σ_{σ_i≷0} σ_i·(u_iᵀg)²/‖g‖² (g=Jᵀr;
+    (σ_i,u_i)=top-k⊕bottom-k eigenpairs of M_r=Σ_k r_kQ_k; SQUARED projection ⇒ gauge-invariant) → 2c x=`xdiff`=A₊−A₋,
+    2d x=`xnorm`=(A₊−A₋)/(A₊+A₋); and the full-operator Rayleigh 2e x=`x2e`=gᵀM_r g (via hvp_S); all paired with the
+    short-horizon Δ‖J‖_F over l=`swjl` GD steps → 2c/2e y=`dj`=‖J_l‖−‖J₀‖, 2d y=`djn`=(‖J_l‖−‖J₀‖)/(‖J₀‖+ε).
+    Pair dicts carry `type:'sweeppt'`.
 
     A generator (yields as the pairs are computed, like server.run_sweep's SSE stream). MIRRORS
     server.run_sweep (the trajectory / diagnostics run through eos_lab primitives instead of the globals).
@@ -250,7 +254,7 @@ def sweep(cfg, npairs=None, K=None, Tstart=None, steps=None, seed=None,
     rng = _random.Random(seed0 or 1)                       # deterministic log-uniform (lr, std) pairs (server parity)
 
     swps5n = max(1, int(getattr(cfg, "swps5n", 4)))        # magnified-PS: #frozen-Q,J / evolving-r steps to sum u₁ᵀ(QJr)v₁ over
-    _EOS_SEED = 0x5A1DBEEF & 0x7FFFFFFF                     # server _lanczos_extremes / _lanczos_sumk start seed (fed through _randvec16 = mulberry32/gauss, NOT torch.randn, so the truncated Krylov subspace matches the server bit-for-bit)
+    _EOS_SEED = 0x5A1DBEEF & 0x7FFFFFFF                     # server _lanczos_extremes start seed (fed through _randvec16 = mulberry32/gauss, NOT torch.randn, so the truncated Krylov subspace matches the server bit-for-bit)
     def _sharp_top(hvp):                                    # λmax via matrix-free Lanczos (server _lanczos_extremes top eigenvalue)
         try:
             _Q, _T, _kl = _lanczos_core(hvp, p, min(p, 28), 0, dev, dtype, q0=_randvec16(p, _EOS_SEED, dev, dtype))
@@ -258,38 +262,67 @@ def sweep(cfg, npairs=None, K=None, Tstart=None, steps=None, seed=None,
             return float(_mu[-1])
         except Exception:
             return None
-    def _lanczos_sumk(hvp, k):                              # prediction-2c/2d: (Σ top-k)+(Σ bottom-k) eigenvalue net-extreme (server _lanczos_sumk)
-        try:
-            _m = min(p, max(64, 4 * k))                    # ≥64 iters resolves the top-k & bottom-k extremes on both ends
-            _Q, _T, _kl = _lanczos_core(hvp, p, _m, 0, dev, dtype, q0=_randvec16(p, _EOS_SEED, dev, dtype))
-            _mu, _ = safe_eigh(_T)                         # ascending Ritz values
-            _ke = max(1, min(k, _kl // 2, p // 2))         # cap so top-k and bottom-k never overlap (small p / small Krylov)
-            return float(_mu[-_ke:].sum()) + float(_mu[:_ke].sum())   # Σ(top-k) + Σ(bottom-k) — signed net-extreme over 2k modes
-        except Exception:
-            return None
+    def _eds_pairs(hvp, K):                                # top-K ⊕ bottom-K eigenpairs (λ, unit vec) of `hvp`'s operator
+        # mirrors server._eds_eigpairs: SEC21_SEED == server SEC20_SEED == 0x205EE0; mlan = max(5K, 64) resolves both ends.
+        Klan = max(1, min(int(K), p)); mlan = min(p, max(5 * Klan, 64))
+        _Q, _T, _k = _lanczos_core(hvp, p, mlan, 0, dev, dtype, q0=_randvec16(p, SEC21_SEED, dev, dtype))
+        _mu, _Sv = safe_eigh(_T); _desc = torch.argsort(_mu, descending=True); _Qmat = torch.stack(_Q)
+        def _ritz(ix):
+            return _Sv[:, ix].to(device=dev, dtype=dtype) @ _Qmat
+        kt = min(Klan, _k); bs = max(kt, _k - Klan)        # top-K ⊕ bottom-K DISTINCT positions (no double-count when 2K>k)
+        positions = list(range(kt)) + list(range(bs, _k))
+        return [(float(_mu[int(_desc[pos])]), _ritz(int(_desc[pos]))) for pos in positions]
 
-    # ── Prediction-2c/2d (dedicated σ-sweep): σ log-spaced over [swcsmin, swcsmax] (default 0.1→10), decoupled from
-    #    the (lr,σ) pairs below. Per σ: the (Σ top-k)+(Σ bottom-k) net-extreme of two function Hessians at t=0 —
-    #    2c y = H = Σ_α Q_α (UNWEIGHTED); 2d y = Qr = M_r = Σ_α r_α Q_α (residual-weighted, r=y−f). MIRRORS server.
-    _sw2cd = bool(int(getattr(cfg, "sw2cd", 0)))           # OFF by default: the dedicated σ-loop only runs when the toggle is ON
+    # ── Prediction-2c/2d/2e (dedicated σ-sweep): σ log-spaced over [swcsmin, swcsmax] (default 0.1→10), decoupled from
+    #    the (lr,σ) pairs below. Per init scale σ, at t=0 measure how the residual-contracted gradient g=Jᵀr aligns
+    #    with the POSITIVE- vs NEGATIVE-curvature of M_r=Σ_k r_kQ_k, paired against the short-horizon change in ‖J‖_F
+    #    over l GD steps. A± = Σ_{σ_i≷0} σ_i·(u_iᵀg)² / ‖g‖² (projection SQUARED ⇒ GAUGE-INVARIANT; A₊−A₋ = the signed
+    #    Rayleigh gᵀM_r g/‖g‖² over the ±k eigenspace). 2c: x=A₊−A₋, y=‖J_l‖−‖J₀‖. 2d: x=(A₊−A₋)/(A₊+A₋), y=(‖J_l‖−‖J₀‖)/(‖J₀‖+ε).
+    #    2e: x=gᵀM_r g (FULL operator via one hvp_S, NOT ±k-restricted), y=‖J_l‖−‖J₀‖. MIRRORS server.run_sweep (~6007-6062).
+    _sw2cd = bool(int(getattr(cfg, "sw2cd", 0)))           # OFF by default: 2c/2d (plots 4-5)
+    _sw2e = bool(int(getattr(cfg, "sw2e", 0)))             # OFF by default: 2e (plot 6), independent toggle
     swmrk = max(1, int(getattr(cfg, "swmrk", 10)))
     swcsmin = max(1e-6, float(getattr(cfg, "swcsmin", 0.1) or 0.1))
     swcsmax = max(swcsmin * 1.01, float(getattr(cfg, "swcsmax", 10.0) or 10.0))
+    _lgd = float(getattr(cfg, "lr", 0.05)); _ljl = max(1, int(getattr(cfg, "swjl", 4))); _EPS2D = 1e-12   # GD lr, lookahead l (k0=0), 2d ε
     _lo, _hi = math.log(swcsmin), math.log(swcsmax)
-    for si in range(npairs if _sw2cd else 0):              # range(0) ⇒ skip entirely when the toggle is off
+    for si in range(npairs if (_sw2cd or _sw2e) else 0):   # range(0) ⇒ skip entirely when BOTH toggles are off
         std_c = math.exp(_lo + (_hi - _lo) * (si / max(1, npairs - 1)))   # deterministic log-spaced σ grid
         th_c = model.init_theta(seed0 + 1, std_c)
         out_c = model.forward(th_c, X)
         if not (float(loss.value(out_c, Y, N)) < 1e12):
             continue                                       # skip a NaN/blow-up init (rare at large σ)
         rr_c = (-N * loss.resid_cotangent(out_c.reshape(N, outD), Y, N)).reshape(-1)[:M]   # r = y − f
-        _onesc = torch.ones(N, outD, dtype=out_c.dtype, device=out_c.device)   # cotangent ≡ 1 ⇒ H = Σ_α Q_α (unweighted)
-        mrSum = _lanczos_sumk(lambda v: hvp_S(model, th_c, X, rr_c.reshape(N, outD), v), swmrk)   # 2d: Qr = Σ_α r_α Q_α net-extreme
-        hSum = _lanczos_sumk(lambda v: hvp_S(model, th_c, X, _onesc, v), swmrk)                   # 2c: H  = Σ_α Q_α net-extreme
+        Jc0, _ = jac_cols(model, th_c, X); Jm0 = Jc0[:M]; j0 = float(Jm0.norm())            # J at init (M×p); ‖J₀‖_F
+        g = Jm0.t() @ rr_c; gn = max(float(g.norm()), 1e-30); g2 = gn * gn                  # g = Jᵀr; ‖g‖, ‖g‖²
+        xdiff = xnorm = None
+        if _sw2cd:                                                                          # 2c/2d: eigenspace-restricted squared-projection Rayleigh
+            pairs = _eds_pairs(lambda v: hvp_S(model, th_c, X, rr_c.reshape(N, outD), v), swmrk)  # (σ_i,u_i) of M_r=Σ_k r_kQ_k
+            Ap = sum(lam * (float(u @ g) ** 2) for (lam, u) in pairs if lam > 0) / g2       # A₊ = Σ_{σ_i>0} σ_i·(u_iᵀg)² / ‖g‖²  (≥0)
+            An = sum(-lam * (float(u @ g) ** 2) for (lam, u) in pairs if lam < 0) / g2      # A₋ = Σ_{σ_i<0} |σ_i|·(u_iᵀg)² / ‖g‖²  (≥0; squared ⇒ gauge-invariant)
+            xden = Ap + An; xdiff = Ap - An; xnorm = (xdiff / xden) if xden > 1e-30 else 0.0  # 2c x = A₊−A₋; 2d x = (A₊−A₋)/(A₊+A₋)
+        x2e = None
+        if _sw2e:                                                                           # 2e: FULL-operator quadratic form gᵀM_r g (one HVP)
+            Mr_g = hvp_S(model, th_c, X, rr_c.reshape(N, outD), g)                          # M_r·g = (Σ_k r_kQ_k) g
+            _x2e = float(g @ Mr_g); x2e = _x2e if _x2e == _x2e else None                    # x = gᵀ M_r g = (Jᵀr)ᵀ M_r (Jᵀr)
+        th_g = th_c.clone(); ok = True                                                      # y: short-horizon Δ‖J‖_F over l GD steps (config lr) — SHARED by 2c & 2e
+        for _ in range(_ljl):
+            _og = model.forward(th_g, X)
+            if not (float(loss.value(_og, Y, N)) < 1e12):
+                ok = False; break                                                          # diverged within l steps ⇒ no y
+            th_g = th_g - _lgd * grad_loss(model, loss, th_g, X, Y)[0]
+        dj = djn = None
+        if ok:
+            Jcl, _ = jac_cols(model, th_g, X); jl = float(Jcl[:M].norm())                  # ‖J_l‖_F
+            if jl == jl:
+                dj = jl - j0; djn = (jl - j0) / (j0 + _EPS2D)
         yield {"type": "sweeppt2c", "i": si, "std": float(std_c),
-               "mrSum": (mrSum if (mrSum is not None and mrSum == mrSum) else None),
-               "hSum": (hSum if (hSum is not None and hSum == hSum) else None),
-               "swmrk": swmrk, "n2c": npairs}
+               "xdiff": (xdiff if (xdiff is not None and xdiff == xdiff) else None),
+               "xnorm": (xnorm if (xnorm is not None and xnorm == xnorm) else None),
+               "x2e": x2e,
+               "dj": (dj if (dj is not None and dj == dj) else None),
+               "djn": (djn if (djn is not None and djn == djn) else None),
+               "l": _ljl, "swmrk": swmrk, "n2c": npairs}
 
     for pi in range(npairs):
         lr = math.exp(rng.uniform(math.log(lrmin), math.log(lrmax)))

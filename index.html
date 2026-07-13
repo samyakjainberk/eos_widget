@@ -225,6 +225,7 @@
       <button id="reset" class="btn-reset">Reset</button>
       <button id="dlzip" class="btn-reset" title="Download every visible plot in one zip: time-series as PNG, and the §11/§12/§13 3D cubes (rotating) + 2D grids (animated over snapshots) as GIFs, plus the run config. The GIF rendering takes a little while — watch the status line.">⬇ plots (zip)</button>
       <button id="saverun" class="btn-reset" title="Save the last GPU-backend run to a JSON file (every section's records). Reload it later with “load run” to analyse the plots offline — no server needed. Tip: run headless on SLURM/GPU with capture_run.py to batch many runs.">⬇ save run</button>
+      <label id="loadmaxwrap" style="font-size:12px;color:#374151;margin-left:4px" title="When loading a saved run, replay only records up to this training iteration. Blank or 0 = load the whole run. Applies to “load run” and “load from server”.">load ≤ iter <input id="loadmax" type="number" min="0" step="1" placeholder="all" style="width:74px"></label>
       <button id="loadrun" class="btn-reset" title="Load a saved run (.json from “save run” or capture_run.py) and replay it into every plot — offline, no server. Restores the controls from the capture too.">⬆ load run</button>
       <button id="loadsrv" class="btn-reset" title="Load a capture that lives on the SERVER (e.g. a SLURM run in runs_captured/) — fetches it straight from the running backend and replays it. No need to download the big .json to your laptop first.">⬆ load from server</button>
       <input id="loadrunfile" type="file" accept=".json,.gz,application/json" style="display:none">
@@ -794,7 +795,12 @@ Each line “$i\!\cdot\!j$” is $\cos\angle(\text{vector }i,\text{vector }j)\in
 
 <div id="sec_5">
 <h2>5 · Eigen-spectrum (Stochastic Lanczos Quadrature)</h2>
-<p class="cap">The full eigenvalue distribution, not just the edges. Estimated spectral density (Stochastic Lanczos Quadrature) at the current step — refreshed live — for the function Hessian $H$, Gauss–Newton $G$, residual term $S$, and the full loss Hessian $\nabla^2 L$. The x-axis is the eigenvalue, so these panels are <b>not</b> on the shared time-cursor.</p>
+<p class="cap">The full eigenvalue spectrum, sorted. A <b>scree plot</b> of the eigenvalues (estimated by Stochastic Lanczos Quadrature) at the current step — refreshed live — for the function Hessian $H$, Gauss–Newton $G$, residual term $S$, and the full loss Hessian $\nabla^2 L$. Eigenvalues are shown <b>in decreasing order</b>: the <b>x-axis is the rank</b> (0 = largest … $p$ = smallest, $p$ = #parameters) and the <b>y-axis is the eigenvalue</b> itself (linear, signed). These panels have their <b>own scrubber</b> (below) — drag it to rewind through every SLQ tick and watch the eigenspectrum evolve from the start of training; they are <b>not</b> on the shared time-cursor.</p>
+<div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
+  <label style="white-space:nowrap" title="Rewind the four sorted-eigenspectrum (scree) plots through training. Full-right = live (latest tick). Independent of the master ⏱ time scrubber.">⏱ SLQ tick</label>
+  <input id="slq4_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
+  <span id="slq4_step" style="white-space:nowrap;color:#475569;font-size:13px;min-width:150px">—</span>
+</div>
 <div class="plotrow row4"><div id="p_sH" class="plot"></div><div id="p_sG" class="plot"></div><div id="p_sS" class="plot"></div><div id="p_sHL" class="plot"></div></div>
 <p class="cap" style="margin-top:14px"><b>Trace</b> (= sum of eigenvalues) of each operator vs iteration, via the Hutchinson estimator $\operatorname{tr}A\approx\tfrac1k\sum_i z_i^\top A z_i$ ($z_i$ random probes). $\operatorname{tr}H$ is per-sample ($\div N$) to match §1; since $\nabla^2 L=G+S$ the traces satisfy $\operatorname{tr}G+\operatorname{tr}S\approx\operatorname{tr}(\nabla^2L)$.</p>
 <div class="plotrow row4"><div id="p_trH" class="plot" style="height:260px"></div><div id="p_trG" class="plot" style="height:260px"></div><div id="p_trS" class="plot" style="height:260px"></div><div id="p_trHL" class="plot" style="height:260px"></div></div>
@@ -1146,14 +1152,49 @@ function resetPlotDecim(){ _plotCall=0;
   const ticks=Math.ceil((+val('steps')||0)/Math.max(1,+val('eigevery')||1));
   _plotStride=Math.max(1,Math.ceil(ticks/PLOT_DECIM)); }
 function extP(id,u,idx){Plotly.extendTraces(id,u,idx,PLOT_DECIM+64);}   // hard backstop just above the target
-function slqLayout(title){const L=baseLayout(title,'density (log)',false);L.xaxis.title.text='eigenvalue';L.yaxis.type='log';L.showlegend=false;return L;}
+function slqLayout(title){const L=baseLayout(title,'eigenvalue',false);L.xaxis.title.text='rank (eigenvalues, high→low)';L.yaxis.type='linear';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.showlegend=false;return L;}
 function oneTrace(name,color){return [{x:[],y:[],mode:'lines',name,line:{color,width:1.9}}];}
-// LOG density: Hessian spectra are a tall bulk near 0 + outlier clusters ~10³–10⁴× smaller, invisible
-// on a linear axis. Clip the log y-range to ~7 decades below the peak so the outlier bulges show
-// (standard SLQ reading, Ghorbani et al. / PyHessian).
-function refreshSLQ(id,d){Plotly.restyle(id,{x:[d.x],y:[d.y]},[0]);
-  const pk=Math.max(1e-12,...d.y.filter(v=>v>0));
-  Plotly.relayout(id,{'xaxis.autorange':true,'yaxis.range':[Math.log10(pk)-7,Math.log10(pk)+0.2]});}
+// SCREE view of the SLQ spectral density: instead of the density curve we plot the eigenvalues
+// SORTED IN DECREASING ORDER — x = rank (0 = largest eigenvalue … P = smallest, P = #params),
+// y = the eigenvalue itself. This is the quantile (inverse complementary-CDF) of the SLQ density:
+// the density integrates to 1 over the p-dim spectrum, so (cumulative mass from the top)×p = rank.
+function slqScree(d,P){
+  const xs=d&&d.x, ys=d&&d.y, n=xs?xs.length:0;
+  if(n<2)return {x:[],y:[]};
+  let total=0;const seg=new Array(n-1);
+  for(let i=0;i<n-1;i++){const m=0.5*(ys[i]+ys[i+1])*(xs[i+1]-xs[i]);seg[i]=m>0?m:0;total+=seg[i];}
+  if(!(total>0))return {x:[],y:[]};
+  const scale=(P&&P>0)?P:1;                       // true rank when #params known, else fraction 0..1
+  const rx=new Array(n),ry=new Array(n);
+  rx[0]=0;ry[0]=xs[n-1];                           // largest eigenvalue ↦ rank 0
+  let acc=0;                                       // cumulative mass ABOVE the current node
+  for(let i=n-2,j=1;i>=0;i--,j++){acc+=seg[i];rx[j]=(acc/total)*scale;ry[j]=xs[i];}
+  return {x:rx,y:ry};
+}
+function refreshSLQ(id,d,P){
+  const dim=(P!=null&&P>0)?P:((META&&META.p)||LAST_GPU_P||0);
+  const s=slqScree(d,dim);
+  Plotly.restyle(id,{x:[s.x],y:[s.y]},[0]);
+  Plotly.relayout(id,{'xaxis.autorange':true,'yaxis.autorange':true});}
+// ── §5 SLQ-scree HISTORY + scrubber: keep every SLQ tick's four operator densities so the sorted
+//    eigenspectrum can be REWOUND over training (drag the slider under §5). Mirrors the §20/§21 snapshot
+//    sliders. Each snapshot = {t, sH, sG, sS, sHL, p}; the slider redraws the four scree plots at that tick. ──
+const SLQ4_IDS=['p_sH','p_sG','p_sS','p_sHL'], SLQ4_KEYS=['sH','sG','sS','sHL'];
+let SLQ_SNAPS=[], SLQ_RAF=0, SLQ_PENDING=-1, SLQ_CURIDX=0; const SLQ_MAXSNAPS=4000;
+function slqSnapRenderNow(i){const s=SLQ_SNAPS[i];if(!s)return;SLQ_CURIDX=i;
+  for(let k=0;k<4;k++){if(s[SLQ4_KEYS[k]])refreshSLQ(SLQ4_IDS[k],s[SLQ4_KEYS[k]],s.p);}
+  const sp=document.getElementById('slq4_step');if(sp)sp.textContent=`step ${s.t}  ·  snapshot ${i+1}/${SLQ_SNAPS.length}`;
+  const sl=document.getElementById('slq4_slider');if(sl&&+sl.value!==i)sl.value=i;}
+function slqSnapRenderIdx(i){SLQ_PENDING=i;if(SLQ_RAF)return;SLQ_RAF=requestAnimationFrame(()=>{SLQ_RAF=0;const j=SLQ_PENDING;SLQ_PENDING=-1;if(j>=0)slqSnapRenderNow(j);});}
+function slqSnapPush(rec){if(!rec)return;const sl=document.getElementById('slq4_slider'),wasLive=!sl||(+sl.value>=+sl.max);
+  SLQ_SNAPS.push(rec);
+  if(SLQ_SNAPS.length>SLQ_MAXSNAPS){SLQ_SNAPS=SLQ_SNAPS.filter((_,ix)=>ix%2===0);if(SLQ_CURIDX>=SLQ_SNAPS.length)SLQ_CURIDX=SLQ_SNAPS.length-1;}   // cap memory: thin to every other tick
+  if(sl){sl.max=SLQ_SNAPS.length-1;if(wasLive)sl.value=sl.max;}
+  slqSnapRenderIdx(wasLive?SLQ_SNAPS.length-1:(sl?+sl.value:SLQ_SNAPS.length-1));}   // follow live unless the user has rewound
+function slqSnapReset(){SLQ_SNAPS=[];SLQ_CURIDX=0;if(SLQ_RAF){cancelAnimationFrame(SLQ_RAF);SLQ_RAF=0;}SLQ_PENDING=-1;
+  for(const id of SLQ4_IDS)try{Plotly.purge(id);}catch(e){}   // blank the §5 scree traces on reset (identical to PLOT_IDS purge here); initLivePlots' newP rebuilds them on the next run
+  const sl=document.getElementById('slq4_slider');if(sl){sl.max=0;sl.value=0;}
+  const sp=document.getElementById('slq4_step');if(sp)sp.textContent='—';}
 
 // ── §5 trace of each operator over training (Hutchinson; one value per SLQ tick) ─────────────────
 const TR_IDS=['p_trH','p_trG','p_trS','p_trHL'], TR_KEYS=['trH','trG','trS','trHL'],
@@ -3202,6 +3243,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   s14Reset();   // §14: drop snapshots from the previous run
   s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s21Reset();S22CH.reset();S23CH.reset();s16Reset();s17Reset();   // §15+§16+§19+§20: drop the 2nd-difference + optimizer + grad-norm + M_r-histogram series
   trReset();    // §5: clear the trace-over-iterations curves
+  slqSnapReset();   // §5: clear the SLQ-scree scrubber history
   syncSectionVis(multi);   // gate sections by the panel toggles (multi from the actual run)
   const dis=s=>OPT.gs?s:s+'  (off)';
   // §1
@@ -3296,11 +3338,11 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
    mk28('p_s28_b3','3 · ‖Q·ṙ‖_F / ‖Q·r‖_F','‖Q·ṙ‖_F/‖Q·r‖_F','#db2777');   mk28('p_s28_b4','4 · ‖Q̇·r‖_F / ‖Q·r‖_F','‖Q̇·r‖_F/‖Q·r‖_F','#ea580c');
    mk28('p_s28_b5','5 · ‖(Q·r)˙‖_F / ‖Q·r‖_F','‖(Q·r)˙‖_F/‖Q·r‖_F','#7c3aed');}
   // §5 SLQ
-  const slqT=c=>[{x:[],y:[],mode:'lines',fill:'tozeroy',line:{color:c,width:1.6},fillcolor:c+'22',name:'density'}];
-  newP('p_sH',slqT('#2563eb'),slqLayout('SLQ density — function Hessian H'));
-  newP('p_sG',slqT('#16a34a'),slqLayout('SLQ density — Gauss–Newton G'));
-  newP('p_sS',slqT('#d35400'),slqLayout('SLQ density — residual term S'));
-  newP('p_sHL',slqT('#dc2626'),slqLayout('SLQ density — full loss Hessian'));
+  const slqT=c=>[{x:[],y:[],mode:'lines',line:{color:c,width:1.8},name:'eigenvalue'}];
+  newP('p_sH',slqT('#2563eb'),slqLayout('SLQ spectrum (sorted) — function Hessian H'));
+  newP('p_sG',slqT('#16a34a'),slqLayout('SLQ spectrum (sorted) — Gauss–Newton G'));
+  newP('p_sS',slqT('#d35400'),slqLayout('SLQ spectrum (sorted) — residual term S'));
+  newP('p_sHL',slqT('#dc2626'),slqLayout('SLQ spectrum (sorted) — full loss Hessian'));
   // §6 eigenspace rotation
   const paT=()=>[{x:[],y:[],mode:'lines',name:'max angle',line:{color:'#2563eb',width:1.9}},{x:[],y:[],mode:'lines',name:'mean angle',line:{color:'#94a3b8',width:1.5,dash:'dot'}}];
   newP('p_paPos',paT(),baseLayout('positive eigenspace — principal angle vs prev','angle (deg)',false));
@@ -4388,10 +4430,11 @@ async function loop(){                                   // drives ST forward; r
           paPos,paNeg,ntkR,ntkH,ntkGs,ntkGsA,ntkGl,ntkGlA,fhEvT,fhEvB,jhe1,jhe2,jhe1b,jhe2b,jh2e1,jh2e2,jh2e1b,jh2e2b,g2J,g2Jn,
           q9t,q9b,q9tN,q9bN,q9tR,q9bR,q9gt,q9gb,q10,q10N},S.n,S.kth,S.nResid);
         if(O.s5&&S.eigTick%S.slqStride===0){
-          refreshSLQ('p_sH',slqDensity(v=>hvpF(S.th,spec,X,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x11));
-          refreshSLQ('p_sG',slqDensity(v=>hvpG(S.th,spec,X,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x22));
-          refreshSLQ('p_sS',slqDensity(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,cS),p,S.nProbe,S.mSLQ,80,0x33));
-          refreshSLQ('p_sHL',slqDensity(v=>hvpL(S.th,spec,X,Y,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x44));
+          {const dH=slqDensity(v=>hvpF(S.th,spec,X,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x11);
+           const dG=slqDensity(v=>hvpG(S.th,spec,X,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x22);
+           const dS=slqDensity(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,cS),p,S.nProbe,S.mSLQ,80,0x33);
+           const dHL=slqDensity(v=>hvpL(S.th,spec,X,Y,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x44);
+           slqSnapPush({t:t,sH:dH,sG:dG,sS:dS,sHL:dHL,p:p});}   // §5 scree → per-tick history (scrubber)
           const ntr=Math.max(S.nProbe,4);   // §5 trace-over-iterations (Hutchinson)
           trPush({t:S.t,trH:hutchTrace(v=>hvpF(S.th,spec,X,N,inDim,p,v,eps),p,ntr,0x51)/N,
             trG:hutchTrace(v=>hvpG(S.th,spec,X,N,inDim,p,v,eps),p,ntr,0x52),
@@ -4424,6 +4467,7 @@ function resetSim(){
   s13Reset();   // §13: clear the approximation-comparison time-series too
   s14Reset();   // §14: clear the triplet-decomposition cubes + snapshots/slider too
   s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s21Reset();S22CH.reset();S23CH.reset();s16Reset();s17Reset();   // §15+§16+§19+§20: clear the time-series too
+  slqSnapReset();   // §5: clear the SLQ-scree scrubber history
   updateButtons();
 }
 
@@ -4689,7 +4733,9 @@ function gpuHandle(m,st,sp,finish,resuming){
       pushPoint(m.t,m,META.n,META.kth,META.nResid);lastT=m.t;
       if(m.sps!=null)sp.textContent=`steps/sec: ${m.sps.toFixed(1)}`;
       st.textContent=`running on ${META.device} … step ${m.t}/${m.steps}  ·  p=${m.p}, 2/lr=${META.thr.toFixed(2)}`;
-    }else if(m.type==='slq'){if(m.sH)refreshSLQ('p_sH',m.sH);if(m.sG)refreshSLQ('p_sG',m.sG);if(m.sS)refreshSLQ('p_sS',m.sS);if(m.sHL)refreshSLQ('p_sHL',m.sHL);trPush(m);
+    }else if(m.type==='slq'){const _sp=(m.p||(META&&META.p)||LAST_GPU_P||0);
+      slqSnapPush({t:(m.t!=null?m.t:lastT),sH:m.sH,sG:m.sG,sS:m.sS,sHL:m.sHL,p:_sp});   // §5 scree history (scrubber) — renders the latest
+      trPush(m);
     }else if(m.type==='g3d'){ADV_GOT.en18=1;g3dPush(m);
     }else if(m.type==='g4d'){ADV_GOT.en19=1;ADV_GOT.en22=1;if(m.M===2)ADV_GOT.en26=1;s12Push(m);
     }else if(m.type==='g13'){ADV_GOT.en21=1;s13Push(m);
@@ -4786,9 +4832,22 @@ async function loadCapture(obj){
   if(typeof resetScrub==='function')resetScrub();
   applyCaptureParams(obj.params);
   OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),s30:chk('en30'),s31:chk('en31'),s32:chk('en32'),s33:chk('en33'),s34:chk('en34'),s35:chk('en35'),s40:chk('en36'),gs:val('gson')==='1'};   // for markSkippedAdv
-  lastT=-1;META=null;cursorX=null;GPU_CAPTURE=obj.records.slice();   // keep loaded records re-savable
+  lastT=-1;META=null;cursorX=null;
   const finish=()=>{RUNNING=false;updateButtons();};
-  const recs=obj.records;
+  // ── load-side iteration limit ("load ≤ iter" control): replay only records up to training iteration N.
+  //    Records arrive in chronological per-iteration blocks and only some carry an explicit .t, so we track a
+  //    running curT from the t-carrying records and drop everything past N. meta / done / error (and any
+  //    lr-indexed sweep points) are always kept. Blank or 0 ⇒ load the whole run. ──
+  const _cap=Math.max(0,Math.floor(Number((document.getElementById('loadmax')||{}).value)||0));
+  let _curT=-1;
+  const recs=(_cap>0)?obj.records.filter(r=>{
+    if(!r)return false;
+    if(r.type==='meta')return true;
+    if(r.t!=null&&isFinite(r.t))_curT=r.t;
+    if(r.type==='done'||r.type==='error'||r.type==='sweeppt'||r.type==='sweeppt2c')return true;
+    return _curT<=_cap;
+  }):obj.records;
+  GPU_CAPTURE=recs.slice();   // keep the (possibly truncated) loaded records re-savable
   // ── NON-BLOCKING replay: a big capture would restyle every plot on every record (O(N²)) and then render dozens
   //    of large plots in one burst → the tab freezes. Instead we (a) cap §1–§9 plotted points via PLOT_DECIM,
   //    (b) DEFER the §11–§17 restyle/react renders — the per-iteration plots (3D cubes / heatmaps) are also
@@ -4800,16 +4859,34 @@ async function loadCapture(obj){
   const _now=()=>(typeof performance!=='undefined'&&performance.now)?performance.now():0;
   const _yield=()=>new Promise(r=>setTimeout(r,0));
   const _savedDecim=PLOT_DECIM; PLOT_DECIM=Math.min(PLOT_DECIM,1200);   // ≤~1200 plotted points per §1–§9 trace
-  const _R={},_C={}; const _oRestyle=Plotly.restyle,_oReact=Plotly.react;
+  const _R={},_C={},_E={}; const _oRestyle=Plotly.restyle,_oReact=Plotly.react,_oExtend=Plotly.extendTraces;
   Plotly.restyle=function(id,u,tr){_R[id]={u:u,tr:tr};return Promise.resolve();};   // keep latest (refs the full arrays)
   Plotly.react=function(id,d,l,c){_C[id]={d:d,l:l,c:c};return Promise.resolve();};
+  // DEFER the per-step extendTraces too — without this, every step's pushPoint fires dozens of LIVE extendTraces
+  // (one per time-series panel), each re-rendering its plot, so a rich capture takes minutes to load. Accumulate
+  // the appended points per (plot, trace) and apply ONE extendTraces per plot at flush. maxpts is applied by the
+  // real extendTraces at flush, so the final on-screen data is identical.
+  Plotly.extendTraces=function(id,u,idx,maxpts){
+    const e=_E[id]||(_E[id]={mp:maxpts,tr:{}}); if(maxpts!=null)e.mp=maxpts;
+    const ix=Array.isArray(idx)?idx:(idx==null?[]:[idx]);
+    for(let k=0;k<ix.length;k++){const ti=ix[k],t=e.tr[ti]||(e.tr[ti]={});
+      for(const key in u){const col=u[key]&&u[key][k]; if(col==null)continue;
+        const arr=t[key]||(t[key]=[]); if(Array.isArray(col)){for(let z=0;z<col.length;z++)arr.push(col[z]);}else arr.push(col);}}
+    return Promise.resolve();};
   const _spreadFlush=async()=>{   // render each touched plot once, yielding every ~12 ms so a 50-plot flush can't freeze the tab
     const items=[];
     for(const id in _R){items.push([0,id,_R[id]]);delete _R[id];}
     for(const id in _C){items.push([1,id,_C[id]]);delete _C[id];}
+    for(const id in _E){items.push([2,id,_E[id]]);delete _E[id];}
     let t0=_now();
     for(let k=0;k<items.length;k++){const it=items[k];
-      try{if(it[0]===0)_oRestyle(it[1],it[2].u,it[2].tr);else _oReact(it[1],it[2].d,it[2].l,it[2].c);}catch(e){console.error('flush',it[1],e);}
+      try{if(it[0]===0)_oRestyle(it[1],it[2].u,it[2].tr);
+          else if(it[0]===1)_oReact(it[1],it[2].d,it[2].l,it[2].c);
+          else{const e=it[2],idx=Object.keys(e.tr).map(Number),u={},ks=new Set();
+               for(const ti of idx)for(const kk in e.tr[ti])ks.add(kk);
+               for(const kk of ks)u[kk]=idx.map(ti=>e.tr[ti][kk]||[]);
+               _oExtend(it[1],u,idx,e.mp);}
+      }catch(e){console.error('flush',it[1],e);}
       if(_now()-t0>12){await _yield();t0=_now();}}
   };
   try{
@@ -4822,7 +4899,7 @@ async function loadCapture(obj){
         await _yield(); t0=_now();
       }
     }
-  }finally{ Plotly.restyle=_oRestyle; Plotly.react=_oReact; PLOT_DECIM=_savedDecim; }
+  }finally{ Plotly.restyle=_oRestyle; Plotly.react=_oReact; Plotly.extendTraces=_oExtend; PLOT_DECIM=_savedDecim; }
   st.textContent=`rendering …`; await _yield();
   await _spreadFlush();   // final render, frame-budgeted
   // §18 (per-sample, 2 samples) is lazily built + restyle-rendered; the deferred replay can leave it un-drawn or
@@ -5023,6 +5100,7 @@ document.getElementById('preset').addEventListener('change',e=>{if(e.target.valu
 if(typeof s14ApplyPanelFilter==='function')s14ApplyPanelFilter();   // apply the default §14 panel selection on load
 syncInitScaleEnabled();   // grey out init_scale on load if the current scheme ignores it (mup/xavier_*)
 {const sl=document.getElementById('g3d_slider');if(sl)sl.addEventListener('input',function(){g3dRenderIdx(+this.value);});}   // §11 scrub past snapshots
+{const sl=document.getElementById('slq4_slider');if(sl)sl.addEventListener('input',function(){slqSnapRenderIdx(+this.value);});}   // §5 scrub the SLQ-scree history
 {const sl=document.getElementById('s12_slider');if(sl)sl.addEventListener('input',function(){s12RenderIdx(+this.value);});}   // §12 scrub past snapshots
 {const sl=document.getElementById('s13_slider');if(sl)sl.addEventListener('input',function(){s12RenderIdx(+this.value);});}   // §13 scrub (shares §12 snapshots; s12RenderNow re-syncs both sliders)
 {const sl=document.getElementById('s14_slider');if(sl)sl.addEventListener('input',function(){s14RenderNow(+this.value);});}   // §14 scrub past snapshots (own S14_SNAPS)

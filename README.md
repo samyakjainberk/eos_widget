@@ -59,7 +59,7 @@ close the guess is.
 
 | Section | The forecast | Checked against |
 |---|---|---|
-| **Prediction 1 / 2 / 2b** | A quick sweep over many `(learning-rate, init-scale)` pairs: an early sign-flip time, and whether early-training signs line up with the loss curvature and the Jacobian's growth | The real sign-flip time and curvature |
+| **Prediction 1 / 2 / 2b / 2c / 2d** | A quick sweep over many `(learning-rate, init-scale)` pairs: an early sign-flip time, whether early-training signs line up with the loss curvature and the Jacobian's growth, and a gauge-invariant per-init-scale score (`A₊−A₋`) of how the gradient aligns with growing- vs shrinking-curvature directions against the near-term change in `‖J‖` | The real sign-flip time, curvature, and `‖J‖` growth |
 | **Prediction 3** | How the error (residual) shrinks after a chosen point — using a frozen Jacobian and a step-updated one | The real error over time |
 | **Prediction 4** | How the network's NTK curvature grows from a chosen freeze point | The real top-3 NTK eigenvalues and their directions |
 | **Prediction 5.1 / 5.2** | The total curvature (trace) and the peak curvature (sharpness), going forward | The real trace and sharpness |
@@ -72,7 +72,8 @@ Good to know:
   *before* the edge of stability and then drift once past it — the plots cap the drawn value at 20× the real
   one, so a runaway curve stays on screen instead of blowing up the axis.
 - **Below the forecasts** sit seven raw-signal panels (loss, sharpness, residual, and several curvature
-  spectra) — the measurements the forecasts are built from.
+  **scree** spectra — eigenvalue vs. rank, with a per-step scrubber to rewind the eigenspectrum) — the
+  measurements the forecasts are built from.
 - **Toggles** at the top let you hide any panel you don't need.
 
 For the exact formulas behind each forecast, see **[eos_widget_prediction/README.md](eos_widget_prediction/README.md)**.
@@ -89,6 +90,8 @@ its size.
 - **k-sparse parity**, **angle-pair** — small structured tasks
 - **CIFAR-2 / MNIST-2** — 2-class versions that predict a single ±1 number
 - **CIFAR-10 / MNIST** — the full 10-class image tasks
+- **maxfind** — a `d`-class argmax finder (synthetic, no downloads; the multiclass widget's default)
+- **modadd** — `(a + b) mod m` modular addition (synthetic, multiclass)
 
 > CIFAR and MNIST need their data files. Put them under `data/` or pass `--cifar-dir <folder>`. The images
 > are shrunk to about 500 numbers each so the curvature math stays fast.
@@ -112,13 +115,16 @@ training run is identical in all three.**
 ## 🗺️ Repo map
 
 ```
-server.py                the GPU server; opens the prediction widget at http://localhost:<port>/
-index.html               the no-server, browser-only widget
-eos_widget_prediction/   the prediction-widget page + a detailed README
-eos_lab/                 Python package for headless / cluster runs
-capture_run.py           save a run to a .json the widget can reload offline
-run_serve_localhost.sh   the author's SLURM launch script (specific to their cluster)
-data/                    CIFAR / MNIST files (not in git; point --cifar-dir here)
+server.py                     the GPU server; opens the prediction widget at http://localhost:<port>/
+index.html                    the no-server, browser-only widget
+eos_widget_prediction/        the prediction-widget pages (index_prediction.html = binary/MSE,
+                              index_prediction_multiclass.html = multiclass/CE) + a detailed README
+eos_lab/                      Python package for headless / cluster runs
+capture_run.py                save a main-widget run to a .json the widget can reload offline
+eos_prediction.py             headless capture for the prediction widget (predictions + sweep → one loadable .json)
+eos_prediction_multiclass.py  same, for the multiclass widget (defaults maxfind/CE)
+run_serve_localhost.sh        the author's SLURM launch script (specific to their cluster)
+data/                         CIFAR / MNIST files (not in git; point --cifar-dir here)
 ```
 
 Package internals: **[eos_lab/README.md](eos_lab/README.md)**.

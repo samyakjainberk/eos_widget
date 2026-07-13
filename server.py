@@ -1016,7 +1016,7 @@ def _sec17_driver(th0, X, Y, lr, warmup, iters, neig, mlan, seed, tol, bgrid, ar
 def _matpow_sym(M, power, rel=1e-6):
     """Mᵖ for a symmetric PSD matrix via eigendecomposition, eigenvalues floored at rel·λmax so a NEGATIVE
     power of a rank-deficient / singular M is finite (near-null directions are clamped, not blown up)."""
-    lam, V = torch.linalg.eigh(M)
+    lam, V = _safe_eigh(M)                       # robust to a degenerate/singular M (repeated eigenvalues)
     lmax = float(lam[-1]) if lam.numel() else 0.0
     lam = lam.clamp_min(max(rel * lmax, 1e-30))
     return (V * lam.pow(power)) @ V.t()
@@ -1048,7 +1048,7 @@ def _gn_precond(J, r, k=50, rel=1e-6):
     if M <= k:                                   # full inverse via a damped Cholesky solve (avoids the per-call eigh cost)
         ridge = rel * K.diagonal().mean() + 1e-30
         return J.t() @ torch.linalg.solve(K + ridge * torch.eye(M, dtype=K.dtype, device=K.device), r)
-    lam, U = torch.linalg.eigh(K)                # M>k: eigenvalues ascending
+    lam, U = _safe_eigh(K)                       # M>k: eigenvalues ascending (robust to a degenerate GN Gram)
     lam_k = lam[-k:]; U_k = U[:, -k:]            # top-k directions
     inv = 1.0 / lam_k.clamp_min(max(rel * float(lam_k[-1]), 1e-30))
     return J.t() @ (U_k @ (inv * (U_k.t() @ r)))  # Jᵀ Σ (1/λ_i)(u_iᵀr) u_i
@@ -1101,7 +1101,13 @@ def _ce_fisher_jac(Jm, out, N, outD):
     unweighted. The plain J (gradient Jᵀr with r=y−softmax(f)) and the function Hessian Q_k/M_r are unchanged."""
     p = torch.softmax(out.reshape(N, outD), dim=-1)                          # (N, d) class probabilities
     S = torch.diag_embed(p) - torch.einsum('nd,ne->nde', p, p)              # (N, d, d) per-sample Σ_i = Diag(p)−ppᵀ
-    w, V = torch.linalg.eigh(S)                                             # batched d×d eigh; ascending, w≥0 (PSD)
+    try:
+        w, V = torch.linalg.eigh(S)                                         # batched d×d eigh; ascending, w≥0 (PSD)
+    except torch._C._LinAlgError:                                           # a (near-)saturated softmax makes some Σ_i degenerate (repeated eigenvalues) ⇒ cuSOLVER's batched eigh can fail to converge (killed long CE runs, e.g. maxfind ~step 565). Fall back to LAPACK.
+        import numpy as np                                                  # numpy float64 eigh (LAPACK, robust to degeneracy, handles the (N,d,d) batch); tiny ridge breaks exact repeats
+        _Sn = S.detach().cpu().to(torch.float64).numpy() + 1e-10 * np.eye(outD)
+        _wn, _Vn = np.linalg.eigh(_Sn)
+        w = torch.as_tensor(_wn, dtype=S.dtype, device=S.device); V = torch.as_tensor(_Vn, dtype=S.dtype, device=S.device)
     Ss = V @ (w.clamp_min(0.0).sqrt().unsqueeze(-1) * V.transpose(-1, -2))  # (N, d, d) = Σ_i^{1/2} = V·diag(√w)·Vᵀ
     Jb = Jm.reshape(N, outD, -1)                                            # (N, d, p) per-sample Jacobian blocks J_i
     return (Ss @ Jb).reshape(N * outD, -1)                                  # (M, p) = Λ^{1/2}·J = J̃  (J̃_i = Σ_i^{1/2}·J_i)
@@ -1128,7 +1134,13 @@ def _gn_natgrad(Jg, out, N, outD, r, k=50, rel=1e-6):
     M = N * outD
     pmat = torch.softmax(out.reshape(N, outD), dim=-1)                     # (N, d)
     Sg = torch.diag_embed(pmat) - torch.einsum('nd,ne->nde', pmat, pmat)  # (N, d, d) Σ_i
-    w, V = torch.linalg.eigh(Sg)                                          # ascending, w≥0
+    try:
+        w, V = torch.linalg.eigh(Sg)                                      # ascending, w≥0
+    except torch._C._LinAlgError:                                        # saturated softmax ⇒ degenerate Σ_i (same failure as _ce_fisher_jac); fall back to LAPACK float64
+        import numpy as np
+        _Sn = Sg.detach().cpu().to(torch.float64).numpy() + 1e-10 * np.eye(outD)
+        _wn, _Vn = np.linalg.eigh(_Sn)
+        w = torch.as_tensor(_wn, dtype=Sg.dtype, device=Sg.device); V = torch.as_tensor(_Vn, dtype=Sg.dtype, device=Sg.device)
     ws = w.clamp_min(0.0).sqrt()
     Ss = V @ (ws.unsqueeze(-1) * V.transpose(-1, -2))                     # Σ_i^{1/2}
     wtol = 1e-6 * w.amax(dim=-1, keepdim=True).clamp_min(1e-30)           # per-sample null cutoff on the EIGENVALUE (Σ_i is rank d−1 ⇒ zero the null direction's inverse-sqrt); fp32-safe, matches the §20/§21/§26 1e-6·λmax convention (not on √λ)
@@ -1141,7 +1153,7 @@ def _gn_natgrad(Jg, out, N, outD, r, k=50, rel=1e-6):
         ridge = rel * Kt.diagonal().mean() + 1e-30
         sol = torch.linalg.solve(Kt + ridge * torch.eye(M, dtype=Kt.dtype, device=Kt.device), hr)
     else:
-        lam, U = torch.linalg.eigh(Kt); lam_k = lam[-k:]; U_k = U[:, -k:]
+        lam, U = _safe_eigh(Kt); lam_k = lam[-k:]; U_k = U[:, -k:]           # robust to a degenerate whitened Fisher-NTK
         inv = 1.0 / lam_k.clamp_min(max(rel * float(lam_k[-1]), 1e-30))
         sol = U_k @ (inv * (U_k.t() @ hr))
     return -(Jt.t() @ sol)                                               # d = −J̃ᵀ(J̃J̃ᵀ)⁻¹Λ^{-1/2}r = F⁺∇L
@@ -2295,7 +2307,7 @@ _SEC27_TOP = 3
 def _sec27_top_eig(gram, top):
     """Top-`top` eigenpairs (descending) of a symmetric PSD Gram; pads to `top` if smaller."""
     n = gram.shape[0]; k = min(top, n)
-    evals, evecs = torch.linalg.eigh(gram)
+    evals, evecs = _safe_eigh(gram)                                          # robust to a degenerate PSD Gram (ill-conditioned / repeated eigenvalues → cuSOLVER failure)
     order = torch.argsort(evals, descending=True)[:k]
     lam = evals[order].clamp_min(0.0); V = evecs[:, order]; sig = lam.sqrt()
     if k < top:
@@ -3485,6 +3497,82 @@ def init_data_theta(P, dataset, N, inD, outD):
     return th, X, Y, pos_rows, neg_rows
 
 
+def _precond_half(v, opt, th, gL=None, J=None, jjt=None, rel=1e-6):
+    """Apply P^½ (the SPD square-root of the optimizer's preconditioner) to a θ-space vector v, so the SYMMETRIC
+    preconditioned Hessian is H_P = P^½·∇²L·P^½ (same real spectrum as P·∇²L but symmetric ⇒ orthonormal
+    eigenvectors, so Lanczos & the sharpness-gradient are well-posed). Per-optimizer P (linear, SPD):
+      gd          → P = I                          ⇒ P^½ v = v
+      sign        → P = diag(1/|∇L|)               ⇒ P^½ v = v / √|∇L|
+      spectral    → P = per weight-MATRIX two-sided Muon whitening (GGᵀ)^(−¼)⊗(GᵀG)^(−¼) from the CURRENT
+                    WEIGHTS (fixed linear op) ⇒ P^½ v = (WWᵀ)^(−⅛)·V·(WᵀW)^(−⅛) per block; biases → v (identity)
+      gaussnewton → P = (JᵀJ)⁺                     ⇒ P^½ v = (JᵀJ)^(−½) v = Jᵀ U diag(s^{−3}) Uᵀ (J v),  JJᵀ=U diag(s²)Uᵀ."""
+    if opt == "sign":
+        return v / (gL.abs() + 1e-12).sqrt()
+    if opt == "spectral":
+        d = v.clone()                                      # biases / non-matrix params → identity
+        spec = getattr(_TL.model, "spec", None)
+        if spec is not None:                               # MLP: layer ℓ weight = a din×dout contiguous block of θ
+            for layer in spec:
+                din, dout, wOff = layer[0], layer[1], layer[3]
+                Wt = th[wOff:wOff + din * dout].view(din, dout)        # CURRENT weight matrix (from θ)
+                A = _matpow_sym(Wt @ Wt.t(), -0.125)                   # (WWᵀ)^(−⅛)   din×din
+                B = _matpow_sym(Wt.t() @ Wt, -0.125)                   # (WᵀW)^(−⅛)   dout×dout
+                Vb = v[wOff:wOff + din * dout].view(din, dout)
+                d[wOff:wOff + din * dout] = (A @ Vb @ B).reshape(-1)
+        return d
+    if opt == "gaussnewton" and jjt is not None and J is not None:
+        U, e = jjt                                         # JJᵀ = U diag(e) Uᵀ (e = s², ascending)
+        emax = float(e[-1]) if e.numel() else 0.0
+        inv = e.clamp_min(max(rel * emax, 1e-30)).pow(-1.5)            # s^{−3}
+        return J.t() @ (U @ (inv * (U.t() @ (J @ v))))                 # (JᵀJ)^(−½) v (min-norm; kills null(J))
+    return v                                               # gd (default)
+
+
+def _selfstab_payload(th, X, Y, p, opt, N, outD, Jc, rr, kss, mlan, seed):
+    """SELF-STABILIZATION diagnostics (off by default). Cosines of the sharpness-gradient ∇S = ∇_θ λ_max(H_P) and the
+    RAW loss gradient ∇L with the eigenvectors of the PRECONDITIONED Hessian H_P = P^½∇²L P^½ (P per optimizer; gd⇒∇²L).
+    The gradient ∇L is NEVER preconditioned; only the Hessian carries P. Returns the 4-plot payload:
+      p1 (top): [cos(∇S, u_i)] for the top-kss eigenvectors u_i of H_P   (kss curves)
+      p2 (bot): [cos(∇S, u_j)] for the bottom-kss eigenvectors u_j       (kss curves)
+      p3: cos(∇L − (u₁ᵀ∇L)u₁, ∇S)   (∇L with the top-eigvec direction projected OUT, vs ∇S)
+      p4: cos(∇L − (ŝᵀ∇L)ŝ, u₁)     (∇L with the ∇S direction projected OUT, vs the top eigvec u₁; ŝ=∇S/‖∇S‖)"""
+    M = N * outD
+    dt = th.dtype
+    gL = gradL(th, X, Y)[0]                                 # raw ∇L (p) — NOT preconditioned
+    J_full = Jc[:M] if (opt == "gaussnewton" and Jc is not None) else None
+    jjt = None
+    if J_full is not None:
+        e, U = _safe_eigh(J_full @ J_full.t())             # JJᵀ (M×M), ascending eigenvalues
+        jjt = (U, e)
+    def phalf(u):
+        return _precond_half(u, opt, th, gL=gL, J=J_full, jjt=jjt)
+    def hp(u):                                              # symmetric preconditioned-Hessian operator, float64 in/out for Lanczos
+        uu = u.to(dtype=dt)
+        return phalf(hvpL(th, X, Y, phalf(uu))).to(dtype=torch.float64)
+    tv, bv, tvals, bvals = _lanc16_ext(hp, p, kss, mlan, seed)          # top-kss ⊕ bottom-kss (eigvec, eigval) of H_P
+    tv = [u.to(dtype=dt) for u in tv]; bv = [u.to(dtype=dt) for u in bv]
+    u1 = tv[0]
+    # ∇S = ∇_θ λ_max(H_P) via the frozen-u₁ envelope theorem: ∇_θ(u₁ᵀH_P u₁) = ∇³L[w,w,·] with w=P^½u₁ (P frozen ⇒ the
+    # ∇²L part), computed as a central directional FD of ∇²L along ŵ. Only ∇S's DIRECTION matters (all plots are cosines).
+    w = phalf(u1); nw = float(w.norm()); gS = None
+    if nw > 1e-30:
+        wh = w / nw
+        eps_s = 1e-3 * (float(th.norm()) / (p ** 0.5) + 1.0)
+        gS = (hvpL(th + eps_s * wh, X, Y, wh) - hvpL(th - eps_s * wh, X, Y, wh)) / (2.0 * eps_s)
+    def cos(a, b):
+        na = float(a.norm()); nb = float(b.norm())
+        return (float(a @ b) / (na * nb)) if (na > 1e-30 and nb > 1e-30) else None
+    ngS = float(gS.norm()) if gS is not None else 0.0
+    if gS is None or ngS < 1e-30:                           # ∇S ill-defined (e.g. relu nets ⇒ sharpness ~piecewise constant)
+        return {"top": [None] * kss, "bot": [None] * kss, "p3": None, "p4": None, "tvals": [float(x) for x in tvals], "k": kss}
+    top = [cos(gS, tv[i]) for i in range(kss)]
+    bot = [cos(gS, bv[i]) for i in range(kss)]
+    p3 = cos(gL - float(u1 @ gL) * u1, gS)                  # ∇L ⟂ u₁  vs ∇S
+    sh = gS / ngS
+    p4 = cos(gL - float(sh @ gL) * sh, u1)                  # ∇L ⟂ ∇S  vs u₁
+    return {"top": top, "bot": bot, "p3": p3, "p4": p4, "tvals": [float(x) for x in tvals], "k": kss}
+
+
 # ===================== streaming run =====================
 def run_stream(P):
     """Yield SSE message dicts: one 'meta', then ('step' [+ 'slq']) per eig-tick, then 'done'."""
@@ -3565,6 +3653,8 @@ def run_stream(P):
     s42 = P.get("s42", 0)                # EARLY-DYNAMICS STATS panel (NOT a prediction): plot1 σ-weighted Jᵀr projection on ±M_r eigvecs; plots2-5 mean principal angle of H=ΣQ_k & M_r eigenspaces at lags {1,2,5,10}
     edsmrk = max(1, int(P.get("edsmrk", 50)))    # early-dynamics plot 1: top-K ⊕ bottom-K M_r eigenpairs for the σ-weighted Jᵀr projection sums (default 50)
     edsangk = max(1, int(P.get("edsangk", 10)))  # early-dynamics plots 2-5: dimension of the top-K (by |λ|) eigenspace used for the mean principal angle (default 10)
+    ss = P.get("ss", 0)                  # SELF-STABILIZATION panel (NOT a prediction; off by default): cos(∇S, ±k eigvecs of H_P) + 2 projected-gradient cosines
+    ssk = max(1, min(10, int(P.get("ssk", 5))))  # self-stabilization: # of top/bottom eigenvectors of the preconditioned Hessian H_P (default 5)
     s38 = P.get("s38", 0)                # prediction-5: trace-statistic prediction Tr(NTK) (quad/cubic × live/self, ±PSD) vs Tr(∇²L) & Tr(JᵀJ) (prediction widget)
     p5t0 = max(0, int(P.get("p5t0", 10)))   # prediction-5: iteration t0 at which Q, residual & J are frozen for the trace propagation
     stat_init = max(0, int(P.get("stat_init", 0)))   # prediction 5.1/5.2: iteration AFTER which the theoretical forecasts begin (0 = from the start)
@@ -4102,6 +4192,17 @@ def run_stream(P):
                         eds_hist.pop(0)
                 except Exception:
                     g_eds = None
+
+            # SELF-STABILIZATION panel (s='ss', off by default): cosines of ∇S=∇_θλ_max(H_P) and ∇L with the ±ssk
+            # eigenvectors of the PRECONDITIONED Hessian H_P=P^½∇²L P^½ (P per optimizer; gd⇒∇²L). Heavy (Lanczos + 2
+            # extra HVPs for ∇S) ⇒ only at eig-ticks when ON. Independent of s42.
+            g_ss = None
+            if ss and (N * outD) <= grid3dcap and dataset != "owt":
+                try:
+                    _mss = min(p, max(5 * ssk, 64))                              # Lanczos iters: resolve top-ssk ⊕ bottom-ssk extremes
+                    g_ss = _selfstab_payload(th, X, Y, p, opt, N, outD, Jc, rr, ssk, _mss, 0x55AB1E)
+                except Exception:
+                    g_ss = None
 
             # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag).
             #      At step t we finalize iteration t−50 (its [t−100,t] window is buffered); the trailing
@@ -5137,6 +5238,7 @@ def run_stream(P):
                 "g25": g25,                                    # §25: ‖∇L‖ + d/dt(J·r) split + ∇‖J‖²·{Q∇L,G∇L} alignments
                 "g26": g26,                                    # §26: eigenvector-direction drift |cos(v_i(t),v_i(t−k))| for GN/NTK/M_r top-3 (+M_r bottom-3)
                 "g_eds": g_eds,                                # EARLY-DYNAMICS STATS (s42): σ-weighted ±M_r Jᵀr projection sums + H/M_r eigenspace mean principal angles at lags {1,2,5,10}
+                "g_ss": g_ss,                                  # SELF-STABILIZATION (ss): cos(∇S,±ssk eigvecs of preconditioned Hessian H_P) [top/bot lists] + p3/p4 projected-gradient cosines
                 "g27": g27,                                    # §27: sliding-window 3D subspace projection of the six ∇θ gradient-vectors (50-step lag)
                 "g27x": g27x,                                  # §7 extra panel: per-step cosine similarities + norms of {∇‖g‖², g, ∇‖J‖², J·ṙ, J̇·r, ∇‖J̇‖²}
                 "g28": g28,                                    # §28: TIMESCALES — panel 1 (5 J/r rate ratios, exact) + panel 2 (5 Q-Hessian rate ratios, Hutchinson)
@@ -5743,7 +5845,9 @@ def _parse_params(q):
         "swmrk": fi("swmrk", 10),       # prediction-2c/2d: k for the (Σ top-k)+(Σ bottom-k) eigenvalue sum of Qr
         "swcsmin": ff("swcsmin", 0.1), "swcsmax": ff("swcsmax", 10.0),   # prediction-2c/2d DEDICATED σ-sweep range (init scale, log-spaced)
         "sw2cd": g("sw2cd", "0") == "1",   # prediction-2c/2d gate: only run the dedicated σ-loop (plots 4-5) when ON (OFF by default ⇒ not computed)
+        "sw2e": g("sw2e", "0") == "1",     # prediction-2e gate: full-operator gᵀM_r g vs Δ‖J‖ (plot 6), independent toggle, OFF by default
         "swps5n": max(1, fi("swps5n", 4)),   # prediction-5 (magnified PS): #frozen-Q,J / evolving-r steps to sum u₁ᵀ(QJr)v₁ over (default 4)
+        "swjl": max(1, fi("swjl", 4)),       # prediction-2c/2d: lookahead l — Δ‖J‖_F over l GD steps (k0=0) for the y-axis (default 4)
         "s1": g("s1", "1") == "1", "s2": g("s2", "1") == "1", "s3": g("s3", "1") == "1",
         "s4": g("s4", "1") == "1", "s5": g("s5", "1") == "1", "s6": g("s6", "1") == "1",
         "s7": g("s7", "1") == "1", "s8": g("s8", "1") == "1", "s9": g("s9", "1") == "1",
@@ -5795,6 +5899,8 @@ def _parse_params(q):
         "prK": ff("prK", 75.0),          # ray: grid extends until its step-clock spans prK GD steps (≥50-75 steps to cross)
         "prdir": ff("prdir", 0.9),       # ray: re-anchor direction-change threshold |cos(w1,w1_prev)| < prdir
         "s42": g("s42", "0") == "1",     # EARLY-DYNAMICS STATS panel (not a prediction): σ-weighted ±M_r Jᵀr projection + H/M_r eigenspace principal angles
+        "ss": g("ss", "0") == "1",       # SELF-STABILIZATION panel (not a prediction): cos(∇S, ±k eigvecs of preconditioned Hessian H_P) + 2 projected-gradient cosines
+        "ssk": fi("ssk", 5),             # self-stabilization: # top/bottom eigenvectors of H_P (default 5)
         "edsmrk": fi("edsmrk", 50),      # early-dynamics plot 1: top-K ⊕ bottom-K M_r eigenpairs
         "edsangk": fi("edsangk", 10),    # early-dynamics plots 2-5: principal-angle eigenspace dimension
         "s38": g("s38", "0") == "1",     # prediction-5: trace-statistic Tr(NTK) prediction (prediction widget)
@@ -5991,25 +6097,63 @@ def run_sweep(P):
             return float(_mu[-_ke:].sum()) + float(_mu[:_ke].sum())   # Σ(top-k, most positive) + Σ(bottom-k, most negative) — signed net-extreme over 2k modes
         except Exception:
             return None
-    # ── Prediction-2c/2d (plots 4-5): DEDICATED σ-sweep — σ log-spaced over [swcsmin, swcsmax] (default 0.1→10), decoupled from the (lr,σ) pairs below.
-    #    Per σ, the (Σ top-k)+(Σ bottom-k) eigenvalue net-extreme of TWO function Hessians at t=0, each plotted vs σ:
-    #    plot-4 y = H = Σ_α Q_α (UNWEIGHTED function Hessian); plot-5 y = Qr = Σ_α r_α Q_α (residual-weighted, r=y−f). Streamed first so plots 4-5 fill promptly.
-    _sw2cd = bool(P.get("sw2cd", False))                                   # gate: plots 4-5 are OFF by default — the dedicated σ-loop only runs when the toggle is ON
+    # ── Prediction-2c/2d/2e (plots 4-5-6): DEDICATED σ-sweep — σ log-spaced over [swcsmin, swcsmax] (default 0.1→10),
+    #    decoupled from the (lr,σ) pairs below. Per init scale σ, at t=0 we measure how much the residual-contracted
+    #    gradient g=Jᵀr aligns with the POSITIVE- vs NEGATIVE-curvature of M_r=Σ_k r_kQ_k, and pair that against the
+    #    SHORT-HORIZON change in ‖J‖_F over l GD steps from that init. (σ_i,u_i)=top-k⊕bottom-k eigenpairs of M_r (RAW):
+    #      A± = Σ_{σ_i≷0} σ_i·(u_iᵀg)² / ‖g‖²                       (curvature-sign-split gradient alignment; the projection
+    #           is SQUARED ⇒ GAUGE-INVARIANT — u_i↦−u_i doesn't change (u_iᵀg)². A₊−A₋ = Σ_i σ_i(u_iᵀg)²/‖g‖² is exactly
+    #           the signed RAYLEIGH quotient gᵀM_r g/‖g‖² restricted to the top-k⊕bottom-k eigenspace. A₊=Σ_{σ_i>0} (≥0),
+    #           A₋=Σ_{σ_i<0}|σ_i|·(u_iᵀg)²/‖g‖² (≥0). Sign is data/init-dependent; no gauge caveat (squared).)
+    #      plot-2c:  x = A₊ − A₋,               y = ‖J_l‖ − ‖J₀‖
+    #      plot-2d:  x = (A₊−A₋)/(A₊+A₋),       y = (‖J_l‖ − ‖J₀‖)/(‖J₀‖+ε)
+    #      plot-2e:  x = gᵀM_r g = (Jᵀr)ᵀ M_r (Jᵀr)  [FULL operator via one hvpS, NOT restricted to ±k], y = ‖J_l‖ − ‖J₀‖
+    #    Off by default: 2c/2d gated by sw2cd, 2e gated independently by sw2e. l = swjl (default 4, k0=0); l GD steps use
+    #    the config lr. Streamed first so 4-6 fill promptly. The σ-loop runs when EITHER toggle is on.
+    _sw2cd = bool(P.get("sw2cd", False))                                   # gate: plots 4-5 OFF by default
+    _sw2e = bool(P.get("sw2e", False))                                     # gate: plot 6 (2e) OFF by default — independent toggle
     _lo, _hi = _math.log(swcsmin), _math.log(swcsmax)
-    for si in range(npairs if _sw2cd else 0):                              # range(0) ⇒ skip entirely (no sweeppt2c streamed, nothing computed) when the toggle is off
+    _lgd = float(P.get("lr", 0.05)); _ljl = max(1, int(P.get("swjl", 4))); _EPS2D = 1e-12   # GD lr, lookahead l (k0=0), 2d denominator ε
+    for si in range(npairs if (_sw2cd or _sw2e) else 0):                   # range(0) ⇒ skip entirely (nothing streamed/computed) when BOTH toggles are off
         std_c = _math.exp(_lo + (_hi - _lo) * (si / max(1, npairs - 1)))   # deterministic log-spaced σ grid 0.1 → 10
         th_c = _TL.model.init_theta(seed0 + 1, std_c)
         out_c = _TL.model.forward(th_c, X)
         if not (float(_TL.loss.value(out_c, Y, N)) < 1e12):
             continue                                                       # skip a NaN/blow-up init (rare at large σ)
         rr_c = (-N * _TL.loss.resid_cotangent(out_c.reshape(N, outD), Y, N)).reshape(-1)[:M]   # r = y − f
-        _onesc = torch.ones(N, outD, dtype=out_c.dtype, device=out_c.device)                   # cotangent ≡ 1 ⇒ H = Σ_α Q_α (unweighted function Hessian)
-        mrSum = _lanczos_sumk(lambda v: hvpS(th_c, X, v, rr_c.reshape(N, outD)), swmrk)         # plot-5 y: (Σ top-k)+(Σ bottom-k) eigvals of Qr = Σ_α r_α Q_α
-        hSum  = _lanczos_sumk(lambda v: hvpS(th_c, X, v, _onesc), swmrk)                        # plot-4 y: (Σ top-k)+(Σ bottom-k) eigvals of H  = Σ_α Q_α
+        Jc0, _ = jac_cols(th_c, X); Jm0 = Jc0[:M]; j0 = float(Jm0.norm())                      # J at init (M×p); ‖J₀‖_F
+        g = Jm0.t() @ rr_c; gn = max(float(g.norm()), 1e-30); g2 = gn * gn                     # g = Jᵀr (residual-contracted gradient, p); ‖g‖, ‖g‖²
+        xdiff = xnorm = None
+        if _sw2cd:                                                         # 2c/2d: eigenspace-restricted squared-projection Rayleigh
+            pairs = _eds_eigpairs(th_c, X, rr_c.reshape(N, outD), p, swmrk, th_c.dtype)        # (σ_i,u_i) of M_r=Σ_k r_kQ_k (top-k ⊕ bottom-k)
+            Ap = sum(lam * (float(u @ g) ** 2) for (lam, u) in pairs if lam > 0) / g2          # A₊ = Σ_{σ_i>0} σ_i·(u_iᵀg)² / ‖g‖²  (≥0)
+            An = sum(-lam * (float(u @ g) ** 2) for (lam, u) in pairs if lam < 0) / g2         # A₋ = Σ_{σ_i<0} |σ_i|·(u_iᵀg)² / ‖g‖²  (≥0; squared ⇒ gauge-invariant)
+            xden = Ap + An
+            xdiff = Ap - An                                                # 2c x: A₊ − A₋ = gᵀM_r g/‖g‖² over the ±k eigenspace
+            xnorm = (xdiff / xden) if xden > 1e-30 else 0.0               # 2d x: (A₊−A₋)/(A₊+A₋)
+        x2e = None
+        if _sw2e:                                                          # 2e: FULL-operator quadratic form gᵀM_r g (one HVP, no eigendecomposition)
+            Mr_g = hvpS(th_c, X, g, rr_c.reshape(N, outD))                 # M_r·g = (Σ_k r_kQ_k) g
+            _x2e = float(g @ Mr_g)                                         # x = gᵀ M_r g = (Jᵀr)ᵀ M_r (Jᵀr)
+            x2e = _x2e if _x2e == _x2e else None
+        th_g = th_c.clone(); ok = True                                     # y: short-horizon Δ‖J‖_F over l GD steps from this init (config lr) — SHARED by 2c and 2e
+        for _ in range(_ljl):
+            _og = _TL.model.forward(th_g, X)
+            if not (float(_TL.loss.value(_og, Y, N)) < 1e12):
+                ok = False; break                                         # diverged within l steps ⇒ no y for this σ
+            th_g = th_g - _lgd * gradL(th_g, X, Y)[0]
+        dj = djn = None
+        if ok:
+            Jcl, _ = jac_cols(th_g, X); jl = float(Jcl[:M].norm())        # ‖J_l‖_F
+            if jl == jl:
+                dj = jl - j0; djn = (jl - j0) / (j0 + _EPS2D)
         yield {"type": "sweeppt2c", "i": si, "std": float(std_c),
-               "mrSum": (mrSum if (mrSum is not None and mrSum == mrSum) else None),   # plot-5 y: Qr = Σ_α r_α Q_α net-extreme (vs σ)
-               "hSum": (hSum if (hSum is not None and hSum == hSum) else None),         # plot-4 y: H = Σ_α Q_α net-extreme (vs σ)
-               "swmrk": swmrk, "n2c": npairs}
+               "xdiff": (xdiff if (xdiff is not None and xdiff == xdiff) else None),   # 2c x-axis: A₊ − A₋ (squared-projection Rayleigh)
+               "xnorm": (xnorm if (xnorm is not None and xnorm == xnorm) else None),   # 2d x-axis: (A₊−A₋)/(A₊+A₋)
+               "x2e": x2e,                                                # 2e x-axis: gᵀM_r g (full operator)
+               "dj": (dj if (dj is not None and dj == dj) else None),    # 2c/2e y-axis: ‖J_l‖ − ‖J₀‖
+               "djn": (djn if (djn is not None and djn == djn) else None),  # 2d y-axis: (‖J_l‖−‖J₀‖)/(‖J₀‖+ε)
+               "l": _ljl, "swmrk": swmrk, "n2c": npairs}
     for pi in range(npairs):
         lr = _math.exp(rng.uniform(_math.log(lrmin), _math.log(lrmax)))
         std = _math.exp(rng.uniform(_math.log(stdmin), _math.log(stdmax)))

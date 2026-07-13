@@ -192,10 +192,12 @@ class Config:
     prdir: float = 0.9    # Pred-4.2 ray: re-anchor only when the new w1 direction differs from the previous anchor's by |cos| < prdir
     # ---- sweep prediction-2c/2d (dedicated σ-sweep) + the magnified-PS view (server run_sweep) ----
     swps5n: int = 4       # magnified-PS: # frozen-Q,J / evolving-r steps to sum u₁ᵀ(QJr)v₁ over (frozen at the PS-onset step)
-    sw2cd: int = 0        # prediction-2c/2d: run the DEDICATED σ-sweep (H=Σ_αQ_α and Qr=Σ_α r_αQ_α net-extreme vs σ). OFF by default
+    sw2cd: int = 0        # prediction-2c/2d: run the DEDICATED σ-sweep (curvature-sign-split alignment vs Δ‖J‖). OFF by default
+    sw2e: int = 0         # prediction-2e: full-operator gᵀM_r g vs Δ‖J‖ (plot 6). Independent toggle, OFF by default
     swcsmin: float = 0.1  # prediction-2c/2d dedicated σ-sweep min (init scale, log-spaced)
     swcsmax: float = 10.0 # prediction-2c/2d dedicated σ-sweep max
-    swmrk: int = 10       # prediction-2c/2d: k for the (Σ top-k)+(Σ bottom-k) eigenvalue sum
+    swmrk: int = 10       # prediction-2c/2d: # of M_r=Σ_k r_kQ_k eigenpairs (top-k ⊕ bottom-k) used in the alignment A±
+    swjl: int = 4         # prediction-2c/2d: lookahead l — Δ‖J‖_F over l GD steps (k0=0) for the y-axis
 
     # ---- test set (held-out) ----
     n_test: int = 0                # held-out test points (0 ⇒ default: max(nsamp, 256), capped per dataset)

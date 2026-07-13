@@ -8,7 +8,9 @@ Three pieces:
 
 | | what |
 |---|---|
-| `capture_run.py` | headless runner — same compute as the GPU backend's `/run`, writes a `.json` capture |
+| `capture_run.py` | headless runner for the **main** widget (`index.html`) — same compute as the GPU backend's `/run`, writes a `.json` capture |
+| `eos_prediction.py` | headless runner for the **prediction** widget — merges `run_stream` (base + Prediction-3/4/5/6 panels) **and** `run_sweep` (the Prediction-1&2 sweep, incl. the 2c/2d points) into ONE `.json` you load with **⬆ load run** |
+| `eos_prediction_multiclass.py` | same, for the **multiclass** widget (`index_prediction_multiclass.html`) — defaults to `maxfind` + cross-entropy; the MSE-only sweep is auto-skipped under CE |
 | `run_capture.sh` | SLURM batch wrapper around `capture_run.py` (one job → one capture file) |
 | widget **⬆ load run** | loads a `.json` capture and replays it into every plot (also restores the controls) |
 
@@ -34,6 +36,29 @@ python capture_run.py --dataset cifar10 --arch vgg11 --nsamp 25 --steps 400 \
 python capture_run.py --set s17=0 --set s19=0 --out runs_captured/light.json
 ```
 
+### Prediction widgets (predictions + sweep, merged)
+
+`eos_prediction.py` / `eos_prediction_multiclass.py` capture the **prediction** widget: they run the live
+prediction stream **and** the Prediction-1&2 sweep and merge both into one loadable file (so the sweep
+scatter — including the gauge-invariant 2c/2d `A₊/A₋` points — replays too).
+
+```bash
+# prediction widget: predictions + Prediction-1&2 sweep in one file
+python eos_prediction.py --dataset chebyshev --nsamp 12 --steps 400 --device cuda:0 \
+                        --out runs_captured/pred_cheb.json
+
+# predictions only (skip the sweep), or resize the sweep:
+python eos_prediction.py --no-sweep --out runs_captured/pred_only.json
+python eos_prediction.py --swpairs 150 --swsteps 120 --out runs_captured/pred_bigsweep.json
+
+# multiclass widget: defaults to maxfind + cross-entropy (the MSE-only sweep is auto-skipped under CE):
+python eos_prediction_multiclass.py --out runs_captured/mc_maxfind.json
+python eos_prediction_multiclass.py --dataset modadd --arch gpt --outdim 11 --out runs_captured/mc_modadd.json
+```
+
+Both also write a `<name>.min.json` sibling (load that one). The sweep's `‖J·ṙ‖−‖J̇·r‖` theory is squared-loss
+only, so a CE run captures the predictions and simply notes `0 sweep points — MSE-only`.
+
 On SLURM (one job per capture):
 
 ```bash
@@ -56,7 +81,12 @@ done
 Open the widget, then **Compute → "⬆ load run"** and pick the `.json`. It restores the run's controls
 and replays every record into the plots — §1–§9 time-series, §11–§15 cubes/grids (with the snapshot
 sliders), and the §16/§17 optimizer panels (main + 5 baselines). No server needed; this works on the
-static page too.
+static page too. Loaded **prediction** captures also replay the Prediction-1&2 lr/init-scale **sweep**
+scatter (including the 2c/2d points).
+
+**load ≤ iter N** — a numeric box next to **⬆ load run** replays only the records up to training iteration
+`N` (blank/0 = the whole run). It applies to both **⬆ load run** and **⬆ load from server**; the
+Prediction-1&2 sweep is not iteration-indexed, so it always loads in full.
 
 You can also **⬇ save run** to download the most recent **GPU-backend** run from the browser (the same
 capture format), then reload it later.

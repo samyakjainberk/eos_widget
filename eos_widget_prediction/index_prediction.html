@@ -206,6 +206,7 @@
       <button id="reset" class="btn-reset">Reset</button>
       <button id="dlzip" class="btn-reset" title="Download every visible plot in one zip: time-series as PNG, and the §11/§12/§13 3D cubes (rotating) + 2D grids (animated over snapshots) as GIFs, plus the run config. The GIF rendering takes a little while — watch the status line.">⬇ plots (zip)</button>
       <button id="saverun" class="btn-reset" title="Save the last GPU-backend run to a JSON file (every section's records). Reload it later with “load run” to analyse the plots offline — no server needed. Tip: run headless on SLURM/GPU with capture_run.py to batch many runs.">⬇ save run</button>
+      <label id="loadmaxwrap" style="font-size:12px;color:#374151;margin-left:4px" title="When loading a saved run, replay only records up to this training iteration. Blank or 0 = load the whole run. Applies to “load run” and “load from server”. (The Prediction-1&2 lr-sweep is not iteration-indexed, so it always loads in full.)">load ≤ iter <input id="loadmax" type="number" min="0" step="1" placeholder="all" style="width:74px"></label>
       <button id="loadrun" class="btn-reset" title="Load a saved run (.json from “save run” or capture_run.py) and replay it into every plot — offline, no server. Restores the controls from the capture too.">⬆ load run</button>
       <button id="loadsrv" class="btn-reset" title="Load a capture that lives on the SERVER (e.g. a SLURM run in runs_captured/) — fetches it straight from the running backend and replays it. No need to download the big .json to your laptop first.">⬆ load from server</button>
       <input id="loadrunfile" type="file" accept=".json,.gz,application/json" style="display:none">
@@ -228,11 +229,12 @@
   <label title="★ Prediction-1 & 2 — sweep over (lr, init-std): predicted vs actual sign-change + start-d vs loss curvature"><input type="checkbox" id="enPs" checked> ★ Prediction-1&2 (sweep)</label>
   <label title="Prediction 6 — 4 adaptive optimizers (GD / Signed / Muon / Gauss-Newton) from the SAME init; top-40 Gauss-Newton eigenvalue histograms, evolving over training. OFF by default (no momentum, no weight decay)."><input type="checkbox" id="enP6"> ★ Prediction-6 (Adaptive Opt)</label>
   <label title="Early-dynamics stats (NOT a prediction) — σ-weighted Jᵀr projection on ±M_r eigenvectors (top/bottom-50) + the mean principal angle of the H=ΣQ_k and M_r eigenspaces at lags 1/2/5/10. Sits ABOVE the prediction panels. OFF by default (two Lanczos per step)."><input type="checkbox" id="enEDS"> Early-dynamics stats</label>
+  <label title="Self-stabilization mechanism (NOT a prediction) — cos(∇sharpness, ±k eigenvectors of the PRECONDITIONED Hessian H_P=P^½∇²L P^½) + two projected-gradient cosines, over training. Works for gd/sign/spectral/gaussnewton: the gradient stays the raw ∇L, only the Hessian is preconditioned (P per optimizer). Sits right above Prediction-1&2. OFF by default (Lanczos + 2 HVPs per eig-tick)."><input type="checkbox" id="enSS" onchange="toggleSS()"> Self-stabilization</label>
   <span class="tt" style="margin-left:14px">Base panels (feed the forecasts)</span>
   <label><input type="checkbox" id="en1" checked> 1 · loss / sharpness / residual</label>
   <label><input type="checkbox" id="en2" checked> 2 · eig top-n</label>
   <label><input type="checkbox" id="en3" checked> 3 · eig bottom-n</label>
-  <label title="§4 · SLQ stochastic-Lanczos spectral density — full loss Hessian ∇²L, Gauss-Newton G, residual term S, and the NTK-side H, refreshed every SLQ-every iterations."><input type="checkbox" id="enSlq" checked> 4 · SLQ spectral density</label>
+  <label title="§4 · SLQ stochastic-Lanczos spectral density — full loss Hessian ∇²L, Gauss-Newton G, residual term S, and the NTK-side H, refreshed every SLQ-every iterations."><input type="checkbox" id="enSlq" checked> 4 · SLQ spectrum (sorted)</label>
   <label><input type="checkbox" id="en4" checked> 5 · J projections</label>
   <label><input type="checkbox" id="en5"> 5 · SLQ spectra</label>
   <label><input type="checkbox" id="en6"> 6 · eigenspace rotation</label>
@@ -374,6 +376,20 @@
 </div>
 </div>
 
+<div id="sec_ss" style="border:2px solid #9333ea;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#faf5ff;display:none">
+<h2 style="color:#7e22ce;margin-top:4px">Self-stabilization mechanism</h2>
+<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:2px 0 6px;font-size:13px;color:#374151">
+  <label title="Number of top/bottom eigenvectors of the preconditioned Hessian H_P used in plots 1-2 (one cos(∇S,u_i) curve each). Default 5.">±H_P eigvecs k&nbsp;<input id="ssk" value="5" style="width:44px"></label>
+</div>
+<p class="cap"><b>Not a prediction</b> — the self-stabilization geometry. Let $S(\theta)=\lambda_{\max}(H_P)$ be the sharpness of the <b>preconditioned Hessian</b> $H_P=P^{1/2}\nabla^2L\,P^{1/2}$ (symmetric; $P$ = the optimizer's preconditioner: $I$ for <b>gd</b>, $\mathrm{diag}(1/|\nabla L|)$ for <b>sign</b>, the per-layer two-sided Muon whitening from the current weights for <b>spectral</b>, $(J^\top J)^+$ for <b>gauss-newton</b>), and $\nabla S=\nabla_\theta\lambda_{\max}(H_P)$ its gradient (frozen top-eigvec envelope theorem). The <b>gradient $\nabla L$ is the true, un-preconditioned loss gradient</b> (adaptive optimizers do NOT rotate it here). <b>Plot 1:</b> $\cos(\nabla S,\,u_i)$ for the <b>top-$k$</b> eigenvectors $u_i$ of $H_P$ (one curve each). <b>Plot 2:</b> the same for the <b>bottom-$k$</b> eigenvectors. <b>Plot 3:</b> $\cos\big(\nabla L-(u_1^\top\nabla L)u_1,\ \nabla S\big)$ — the gradient with the top-eigvec direction projected out, vs $\nabla S$. <b>Plot 4:</b> $\cos\big(\nabla L-(\hat s^\top\nabla L)\hat s,\ u_1\big)$, $\hat s=\nabla S/\lVert\nabla S\rVert$ — the gradient with the $\nabla S$ direction projected out, vs the top eigvec $u_1$. $x$ = iteration. OFF by default (Lanczos + 2 extra HVPs per eig-tick). For relu nets $\nabla S\!\approx\!0$ (sharpness ~piecewise-constant) ⇒ the cosines blank.</p>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:10px">
+  <div id="p_ss1" class="plot" style="height:300px"></div>
+  <div id="p_ss2" class="plot" style="height:300px"></div>
+  <div id="p_ss3" class="plot" style="height:300px"></div>
+  <div id="p_ss4" class="plot" style="height:300px"></div>
+</div>
+</div>
+
 <div id="sec_sweep" style="border:2px solid #b45309;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#fffbeb">
 <h2 style="color:#b45309;margin-top:4px">★ Prediction-1 &amp; 2</h2>
 <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:4px 0 8px;font-size:13px;color:#374151">
@@ -384,17 +400,19 @@
   <label>T_start&nbsp;<input id="swTstart" value="0" style="width:46px"></label>
   <label title="Prediction-2: sum d=(jrd−jdr) AND d²loss/dt² over the first N iterations (from 0), then plot the SIGN of each sum.">sum window N&nbsp;<input id="swsumn" value="10" style="width:46px"></label>
   <label title="Prediction-2b: sum d=(jrd−jdr) AND ∇‖J‖ (the change in ‖J‖) over the first N₂ iterations (from 0), then plot the SIGN of each sum (own window; larger = less noisy).">2b sum window N₂&nbsp;<input id="swsumn2" value="10" style="width:46px"></label>
-  <label title="Prediction-2c/2d: plots 4-5 use the (Σ top-k)+(Σ bottom-k) eigenvalue sum of Qr=Σ_k r_kQ_k (r=y−f) at t=0 — this sets k. Default 10.">2c/2d top±k&nbsp;<input id="swmrk" value="10" style="width:40px"></label>
+  <label title="Prediction-2c/2d: number of M_r=Σ_k r_kQ_k eigenpairs (top-k ⊕ bottom-k, r=y−f) used in the curvature-sign-split alignment A± = Σ_{σ_i≷0} σ_i·(u_iᵀg)²/‖g‖² (g=Jᵀr, SQUARED projection ⇒ gauge-invariant; A₊−A₋ = the signed Rayleigh gᵀM_r g/‖g‖² over the ±k eigenspace) on the x-axis. Also sets the # eigenpairs shown. Default 10.">2c/2d M_r ±k&nbsp;<input id="swmrk" value="10" style="width:40px"></label>
+  <label title="Prediction-2c/2d: lookahead l for the y-axis — Δ‖J‖_F = ‖J_l‖ − ‖J₀‖ measured over l GD steps from each init (k0=0), at the config lr. Default 4.">2c/2d l&nbsp;<input id="swjl" value="4" style="width:36px"></label>
   <label title="Prediction-5 (magnified PS view): number of frozen-Q,J / evolving-r steps to sum u₁ᵀ(QJr)v₁ over, with r_{t+1}=r_t−(η/N)JJᵀr_t. Default 4.">PS-5 steps&nbsp;<input id="swps5n" value="4" style="width:36px"></label>
-  <label title="Prediction-2c/2d DEDICATED σ (init-scale) sweep range for plots 4-5 — log-spaced, at the fixed 2c/2d lr, decoupled from the main (lr,σ) pairs. Default 0.1 → 10.">2c/2d σ&nbsp;<input id="swcsmin" value="0.1" style="width:44px">→<input id="swcsmax" value="10" style="width:44px"></label>
-  <label title="Show the Prediction-2c/2d plots (row 2: Σ_k Q_k and Qr top-k⊕bottom-k eigenvalue net-extreme vs init scale σ). OFF by default — when off they are neither computed nor shown (saves compute + panel space). Toggle ON to reveal them; they populate on the next sweep run."><input type="checkbox" id="en_sw2cd" onchange="toggleSw2cd()"> show 2c/2d plots</label>
+  <label title="Prediction-2c/2d DEDICATED σ (init-scale) sweep range — several inits of varying variance, log-spaced. Each point = one init scale σ. Default 0.1 → 10.">2c/2d σ&nbsp;<input id="swcsmin" value="0.1" style="width:44px">→<input id="swcsmax" value="10" style="width:44px"></label>
+  <label title="Show the Prediction-2c/2d plots (row 2): curvature-sign-split gradient alignment (x) vs the short-horizon change in ‖J‖ over l GD steps (y), swept over init scale σ. OFF by default — when off they are neither computed nor shown. Toggle ON to reveal; they populate on the next sweep run."><input type="checkbox" id="en_sw2cd" onchange="toggleSw2cd()"> show 2c/2d plots</label>
+  <label title="Show the Prediction-2e plot (row 2): the FULL-operator quadratic form gᵀM_r g = (Jᵀr)ᵀ M_r (Jᵀr) (x) vs the short-horizon change in ‖J‖ over l GD steps (y), same init-scale σ-sweep. OFF by default — independent of 2c/2d. Toggle ON to reveal; populates on the next sweep run."><input type="checkbox" id="en_sw2e" onchange="toggleSw2e()"> show 2e plot</label>
   <label style="display:none" title="Blank (default): the sweep auto-runs on THIS server/GPU right after the main run finishes — no extra port needed. (Hidden 'for now'; a concurrent sweep on the same GPU would cancel the main run via the per-device token, so it defers.) Set a fleet GPU port here to instead run the sweep concurrently on that GPU.">sweep on port&nbsp;<input id="swport" value="" style="width:52px"></label>
   <span id="sweepstatus" style="color:#6b7280"></span>
 </div>
-<p class="cap">Each pair runs a full-batch GD training (config below, with that pair's lr &amp; init-std); <b>five plots in the first row — Prediction-1 quad/cubic, 2, 2b, and the ★ Magnified-PS view — plus the 2c/2d plots (off by default)</b>. <b>Prediction-1</b> — the iteration $t^{\star}$ at which $d=\lVert J\dot r\rVert-\lVert\dot J r\rVert$ (jrd−jdr) first changes sign, <b>actual (y)</b> vs. <b>predicted (x)</b> from the §10 self-trajectory at $\theta(T_{\rm start})$, model <b>refrozen every K</b> steps; on the dotted $y=x$ line = perfect, <b style="color:#ef4444">red</b> = censored. <b>Plot 1 (quadratic):</b> the prediction uses the <b>quadratic</b> approximation — $T=0$ and $Q$ fixed, so $\hat J\!+\!=\!\tfrac{\eta}{N}Q_0 g$. <b>Plot 2 (cubic):</b> the full cubic Eq-51 (adds the 3rd-derivative $T$ corrections). Comparing the two shows what the cubic term buys. <b>Prediction-2 (plot 3):</b> $\operatorname{sign\text{-}log}\,\Sigma d$ vs. $\operatorname{sign\text{-}log}\,\Sigma\,d^2\mathrm{loss}/dt^2$, both <b>summed over the first $N$ iterations</b> — a diagonal cloud ⇒ strong (rank) correlation between early $d$ and loss concavity/convexity. <b>Prediction-2b (plot 4):</b> $\Sigma d$ vs. $\Sigma\nabla\lVert J\rVert$ over the first $N_2$ iters. In plots 3–4 each tick is <b>split-coloured</b>: left half $\sum_{k\le3}\lvert\langle\hat r,v_k\rangle\rvert/\lVert r\rVert$ (residual↔top-3-NTK alignment), right half $\lVert J\rVert_F$ (both windowed means; <b>hover</b> shows the raw values). <b>EoS guard (plots 3–4 only):</b> a pair whose sharpness $\lambda_{\max}(\nabla^2 L)$ already $\ge 2/\eta$ at $t=0$ starts <i>on</i> the edge of stability, which would corrupt the early-window correlation — so its lr is <b>lowered</b> to $\eta'=0.9\cdot 2/\lambda_{\max}(\theta_0)$ (starts below EoS; the point's label shows <b>↓</b> and the original lr), and if that $\eta'$ would fall below the sweep's minimum lr the point is <b>dropped from plots 3–4</b> (it still appears in the $t^\star$ plots 1–2). <b>Prediction-2c (plot 5) &amp; 2d (plot 6)</b> run on a <b>dedicated σ-sweep</b> — σ log-spaced over <b>0.1 → 10</b> (the <i>2c/2d σ</i> control), decoupled from the (lr,σ) pairs above. Each plots the <b>$(\sum\text{top-}k)+(\sum\text{bottom-}k)$ eigenvalues</b> — a signed net-extreme over the $2k$ outermost modes ($k$ = the <i>2c/2d top±k</i> control, default 10) — of a function Hessian at $t=0$, <b>vs. the init scale $\sigma$</b> (linear x-axis; measured at $t=0$, hence lr-independent). <b>Plot 5 (2c):</b> the <b>unweighted</b> function Hessian $H=\sum_\alpha Q_\alpha$ ($Q_\alpha=\nabla^2 f_\alpha$). <b>Plot 6 (2d):</b> the <b>residual-weighted</b> $Qr=M_r=\sum_\alpha r_\alpha Q_\alpha$ ($r=y-f$). Both can go <b>negative</b> at large σ (bottom-$k$ overtakes top-$k$). Points stream in as the σ-grid is swept.</p>
+<p class="cap">Each pair runs a full-batch GD training (config below, with that pair's lr &amp; init-std); <b>five plots in the first row — Prediction-1 quad/cubic, 2, 2b, and the ★ Magnified-PS view — plus the 2c/2d plots (off by default)</b>. <b>Prediction-1</b> — the iteration $t^{\star}$ at which $d=\lVert J\dot r\rVert-\lVert\dot J r\rVert$ (jrd−jdr) first changes sign, <b>actual (y)</b> vs. <b>predicted (x)</b> from the §10 self-trajectory at $\theta(T_{\rm start})$, model <b>refrozen every K</b> steps; on the dotted $y=x$ line = perfect, <b style="color:#ef4444">red</b> = censored. <b>Plot 1 (quadratic):</b> the prediction uses the <b>quadratic</b> approximation — $T=0$ and $Q$ fixed, so $\hat J\!+\!=\!\tfrac{\eta}{N}Q_0 g$. <b>Plot 2 (cubic):</b> the full cubic Eq-51 (adds the 3rd-derivative $T$ corrections). Comparing the two shows what the cubic term buys. <b>Prediction-2 (plot 3):</b> $\operatorname{sign\text{-}log}\,\Sigma d$ vs. $\operatorname{sign\text{-}log}\,\Sigma\,d^2\mathrm{loss}/dt^2$, both <b>summed over the first $N$ iterations</b> — a diagonal cloud ⇒ strong (rank) correlation between early $d$ and loss concavity/convexity. <b>Prediction-2b (plot 4):</b> $\Sigma d$ vs. $\Sigma\nabla\lVert J\rVert$ over the first $N_2$ iters. In plots 3–4 each tick is <b>split-coloured</b>: left half $\sum_{k\le3}\lvert\langle\hat r,v_k\rangle\rvert/\lVert r\rVert$ (residual↔top-3-NTK alignment), right half $\lVert J\rVert_F$ (both windowed means; <b>hover</b> shows the raw values). <b>EoS guard (plots 3–4 only):</b> a pair whose sharpness $\lambda_{\max}(\nabla^2 L)$ already $\ge 2/\eta$ at $t=0$ starts <i>on</i> the edge of stability, which would corrupt the early-window correlation — so its lr is <b>lowered</b> to $\eta'=0.9\cdot 2/\lambda_{\max}(\theta_0)$ (starts below EoS; the point's label shows <b>↓</b> and the original lr), and if that $\eta'$ would fall below the sweep's minimum lr the point is <b>dropped from plots 3–4</b> (it still appears in the $t^\star$ plots 1–2). <b>Prediction-2c/2d/2e</b> run on a <b>dedicated σ-sweep</b> — several inits of varying variance, σ log-spaced over <b>0.1 → 10</b> (the <i>2c/2d σ</i> control), decoupled from the (lr,σ) pairs above. Each point is one init scale σ and pairs a <b>curvature-sign-split gradient alignment</b> (x) against the <b>short-horizon change in the Jacobian norm</b> (y). Let $g=J^\top r$ be the residual-contracted gradient and $(\sigma_i,u_i)$ the top-$k$ ⊕ bottom-$k$ eigenpairs of $M_r=\sum_\alpha r_\alpha Q_\alpha$ ($r=y-f$; $k$ = the <i>2c/2d M_r ±k</i> control), all at $t=0$. Define $A_\pm=\sum_{\sigma_i\gtrless 0}\sigma_i\,(u_i^\top g)^2/\lVert g\rVert^2$ — how much $g$ aligns with the <b>positive-</b> vs <b>negative-curvature</b> directions of $M_r$ (the projection is <b>squared</b>, so the metric is <b>gauge-invariant</b> — the eigenvector sign $u_i\!\mapsto\!-u_i$ doesn't change $(u_i^\top g)^2$; and $A_+-A_-=\sum_i\sigma_i(u_i^\top g)^2/\lVert g\rVert^2$ is exactly the signed <b>Rayleigh quotient</b> $g^\top M_r g/\lVert g\rVert^2$ restricted to the $\pm k$ eigenspace, so its sign says whether $g$ sees net positive or negative curvature). The y-axis measures $\lVert J_l\rVert_F-\lVert J_0\rVert_F$ over <b>$l$ GD steps</b> ($l$ = the <i>2c/2d l</i> control, default 4; $k_0=0$; config lr). <b>Plot 5 (2c):</b> $x=A_+-A_-$, $y=\lVert J_l\rVert-\lVert J_0\rVert$. <b>Plot 6 (2d):</b> the normalized version, $x=\dfrac{A_+-A_-}{A_++A_-}\in[-1,1]$, $y=\dfrac{\lVert J_l\rVert-\lVert J_0\rVert}{\lVert J_0\rVert+\varepsilon}$. <b>Plot 7 (2e — separate toggle):</b> the <b>full-operator</b> quadratic form $x=g^\top M_r g=(J^\top r)^\top M_r (J^\top r)$ (computed with one HVP over the <i>entire</i> $M_r$, <b>not</b> restricted to the top-$k$⊕bottom-$k$ eigenspace and <b>un-normalized</b>), $y=\lVert J_l\rVert-\lVert J_0\rVert$ — the full-spectrum companion to 2c. A diagonal cloud ⇒ the init curvature-alignment predicts near-term sharpening/flattening of $\lVert J\rVert$. Points stream in as the σ-grid is swept.</p>
 <div class="plotrow row5"><div id="p_sw0" class="plot" style="height:320px"></div><div id="p_sw1" class="plot" style="height:320px"></div><div id="p_sw2" class="plot" style="height:320px"></div><div id="p_sw3" class="plot" style="height:320px"></div><div id="p_sw6" class="plot" style="height:320px"></div></div>
 <p class="cap" style="margin:2px 0 6px"><b>Plot 5 — ★ Magnified view on PS</b>: same split-tick scatter as Prediction-2b, one point per pair that <b>enters</b> the <b>progressive-sharpening regime</b> ($\lVert J\dot r\rVert&gt;\lVert\dot J r\rVert$, i.e. jrd&gt;jdr) while starting <b>below EoS</b> (init sharpness $&lt;2/\eta$). Each pair is frozen at its <b>PS-onset step $t_\star$</b> — $t=0$ if it already starts in PS, else the first neg→pos crossing of jrd−jdr (the <i>same event the live Prediction-3 anchors on</i>); the point label shows <b>PS@t</b>. <b>y</b> = $\Sigma\nabla\lVert J\rVert$ (as plot 4); <b>x</b> = $\Sigma_{t=0}^{k-1} u_1^\top(QJr_t)v_1$ over $k$ (default 4) steps, with $Q,J$ frozen at $\theta_\star$ and $r$ evolving $r_{t+1}=r_t-\tfrac{\eta}{N}JJ^\top r_t$ ($u_1$=top NTK eigvec of $JJ^\top$ at $t_\star$, $v_1=\mathrm{normalize}(J^\top u_1)$, so $u_1^\top(QJr)v_1=\sum_k (u_1)_k\,v_1^\top Q_k(J^\top r_t)$ — the frozen-$Q,J$ rate of $J$'s top singular value, the PS driver). Freezing at the onset makes it mildly lr-dependent (the onset step depends on $\eta$).</p>
-<div id="sw_row2" class="plotrow row2" style="margin-top:14px;display:none"><div id="p_sw4" class="plot" style="height:340px"></div><div id="p_sw5" class="plot" style="height:340px"></div></div>
+<div id="sw_row2" class="plotrow row2" style="margin-top:14px;display:none"><div id="p_sw4" class="plot" style="height:340px"></div><div id="p_sw5" class="plot" style="height:340px"></div><div id="p_sw7" class="plot" style="height:340px;display:none"></div></div>
 </div>
 
 <div id="sec_pred6" style="display:none;border:2px solid #be185d;border-radius:8px;padding:6px 14px 12px;margin:6px 0 18px;background:#fdf2f8">
@@ -845,8 +863,13 @@ Each line “$i\!\cdot\!j$” is $\cos\angle(\text{vector }i,\text{vector }j)\in
 </div>
 
 <div id="sec_slqH">
-<h2>4 · SLQ spectral density — $H$, Gauss-Newton $G$, residual term $S$, full loss Hessian $\nabla^2 L$</h2>
-<p class="cap">The estimated eigenvalue <b>density</b> (Stochastic Lanczos Quadrature) of the function Hessian $H$, Gauss-Newton $G$, residual term $S$, and the full loss Hessian $\nabla^2 L$, refreshed live every <b id="slqEveryLbl">10</b> iterations (set via the <b>“SLQ every”</b> control). The x-axis is the eigenvalue, so these panels are <b>not</b> on the shared time-cursor.</p>
+<h2>4 · SLQ spectrum (sorted eigenvalues) — $H$, Gauss-Newton $G$, residual term $S$, full loss Hessian $\nabla^2 L$</h2>
+<p class="cap">The <b>sorted eigenvalue spectrum</b> (a scree plot) of the function Hessian $H$, Gauss-Newton $G$, residual term $S$, and the full loss Hessian $\nabla^2 L$, refreshed live every <b id="slqEveryLbl">10</b> iterations (set via the <b>“SLQ every”</b> control). The eigenvalues are estimated by Stochastic Lanczos Quadrature and shown <b>sorted in decreasing order</b>: the <b>x-axis is the rank</b> (0 = largest eigenvalue … $p$ = smallest, $p$ = #parameters) and the <b>y-axis is the eigenvalue</b> itself (linear, signed). These panels have their <b>own scrubber</b> (below) — drag it to rewind through every SLQ tick and watch the eigenspectrum evolve from the start of training; they are <b>not</b> on the shared time-cursor.</p>
+<div class="ctl" style="display:flex;align-items:center;gap:12px;margin:6px 0;max-width:980px">
+  <label style="white-space:nowrap" title="Rewind the four sorted-eigenspectrum (scree) plots through training. Full-right = live (latest tick). Independent of the master ⏱ time scrubber.">⏱ SLQ tick</label>
+  <input id="slq4_slider" type="range" min="0" max="0" value="0" step="1" style="flex:1">
+  <span id="slq4_step" style="white-space:nowrap;color:#475569;font-size:13px;min-width:150px">—</span>
+</div>
 <div class="plotrow row4"><div id="p_slqH4" class="plot" style="height:280px"></div><div id="p_slqG4" class="plot" style="height:280px"></div><div id="p_slqS4" class="plot" style="height:280px"></div><div id="p_slqHL4" class="plot" style="height:280px"></div></div>
 </div>
 
@@ -914,7 +937,7 @@ Each line “$i\!\cdot\!j$” is $\cos\angle(\text{vector }i,\text{vector }j)\in
 
 <div id="sec_5">
 <h2>5 · Eigen-spectrum (Stochastic Lanczos Quadrature)</h2>
-<p class="cap">The full eigenvalue distribution, not just the edges. Estimated spectral density (Stochastic Lanczos Quadrature) at the current step — refreshed live — for the function Hessian $H$, Gauss–Newton $G$, residual term $S$, and the full loss Hessian $\nabla^2 L$. The x-axis is the eigenvalue, so these panels are <b>not</b> on the shared time-cursor.</p>
+<p class="cap">The full eigenvalue spectrum, sorted. A <b>scree plot</b> of the eigenvalues (estimated by Stochastic Lanczos Quadrature) at the current step — refreshed live — for the function Hessian $H$, Gauss–Newton $G$, residual term $S$, and the full loss Hessian $\nabla^2 L$. Eigenvalues are shown <b>in decreasing order</b>: the <b>x-axis is the rank</b> (0 = largest … $p$ = smallest) and the <b>y-axis is the eigenvalue</b>. Snapshot at the current step, so these panels are <b>not</b> on the shared time-cursor.</p>
 <div class="plotrow row4"><div id="p_sH" class="plot"></div><div id="p_sG" class="plot"></div><div id="p_sS" class="plot"></div><div id="p_sHL" class="plot"></div></div>
 <p class="cap" style="margin-top:14px"><b>Trace</b> (= sum of eigenvalues) of each operator vs iteration, via the Hutchinson estimator $\operatorname{tr}A\approx\tfrac1k\sum_i z_i^\top A z_i$ ($z_i$ random probes). $\operatorname{tr}H$ is per-sample ($\div N$) to match §1; since $\nabla^2 L=G+S$ the traces satisfy $\operatorname{tr}G+\operatorname{tr}S\approx\operatorname{tr}(\nabla^2L)$.</p>
 <div class="plotrow row4"><div id="p_trH" class="plot" style="height:260px"></div><div id="p_trG" class="plot" style="height:260px"></div><div id="p_trS" class="plot" style="height:260px"></div><div id="p_trHL" class="plot" style="height:260px"></div></div>
@@ -1245,7 +1268,7 @@ const PLOT_IDS=TIME_PLOTS.concat(SLQ_PLOTS);
 // The synchronized hover cursor must also cover the prediction-widget's own time-series panels (pred-3/4/5),
 // which aren't in TIME_PLOTS (that list feeds PLOT_IDS = purge/resize). Separate list so the cursor spans them
 // without altering purge/resize behaviour. (The master time-scrubber already auto-detects every 'GD step' plot.)
-const PRED_TIME_PLOTS=['p_eds1','p_eds2','p_eds3','p_eds4','p_eds5','p_pd1','p_pd2','p_pd3','p_pd4','p_pt1','p_pt2','p_pt3','p_pt4','p_pd5','p_pd6','p_pd7','p_pd4m_1','p_pd4m_2','p_pd4m_3','p_p3_diff','p_p3_rnorm','p_p3_cos','p_p3m_1','p_p3m_2','p_p3m_3'];
+const PRED_TIME_PLOTS=['p_eds1','p_eds2','p_eds3','p_eds4','p_eds5','p_ss1','p_ss2','p_ss3','p_ss4','p_pd1','p_pd2','p_pd3','p_pd4','p_pt1','p_pt2','p_pt3','p_pt4','p_pd5','p_pd6','p_pd7','p_pd4m_1','p_pd4m_2','p_pd4m_3','p_p3_diff','p_p3_rnorm','p_p3_cos','p_p3m_1','p_p3m_2','p_p3m_3'];
 const CURSOR_PLOTS=TIME_PLOTS.concat(PRED_TIME_PLOTS);
 function newP(id,traces,layout){Plotly.newPlot(id,traces,layout,CFG);const gd=document.getElementById(id);gd._baseShapes=layout.shapes?JSON.parse(JSON.stringify(layout.shapes)):[];}
 // Live-plot DECIMATION — fixes the progressive hang. Without it, every diagnostic tick re-renders the full,
@@ -1315,14 +1338,50 @@ function addRayPt(g){
     }
   }
 }
-function slqLayout(title){const L=baseLayout(title,'density (log)',false);L.xaxis.title.text='eigenvalue';L.yaxis.type='log';L.showlegend=false;return L;}
+function slqLayout(title){const L=baseLayout(title,'eigenvalue',false);L.xaxis.title.text='rank (eigenvalues, high→low)';L.yaxis.type='linear';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.showlegend=false;return L;}
 function oneTrace(name,color){return [{x:[],y:[],mode:'lines',name,line:{color,width:1.9}}];}
-// LOG density: Hessian spectra are a tall bulk near 0 + outlier clusters ~10³–10⁴× smaller, invisible
-// on a linear axis. Clip the log y-range to ~7 decades below the peak so the outlier bulges show
-// (standard SLQ reading, Ghorbani et al. / PyHessian).
-function refreshSLQ(id,d){Plotly.restyle(id,{x:[d.x],y:[d.y]},[0]);
-  const pk=Math.max(1e-12,...d.y.filter(v=>v>0));
-  Plotly.relayout(id,{'xaxis.autorange':true,'yaxis.range':[Math.log10(pk)-7,Math.log10(pk)+0.2]});}
+// SCREE view of the SLQ spectral density: instead of the density curve we plot the eigenvalues
+// SORTED IN DECREASING ORDER — x = rank (0 = largest eigenvalue … P = smallest, P = #params),
+// y = the eigenvalue itself. This is the quantile (inverse complementary-CDF) of the SLQ density:
+// the density integrates to 1 over the p-dim spectrum, so (cumulative mass from the top)×p = rank.
+function slqScree(d,P){
+  const xs=d&&d.x, ys=d&&d.y, n=xs?xs.length:0;
+  if(n<2)return {x:[],y:[]};
+  let total=0;const seg=new Array(n-1);
+  for(let i=0;i<n-1;i++){const m=0.5*(ys[i]+ys[i+1])*(xs[i+1]-xs[i]);seg[i]=m>0?m:0;total+=seg[i];}
+  if(!(total>0))return {x:[],y:[]};
+  const scale=(P&&P>0)?P:1;                       // true rank when #params known, else fraction 0..1
+  const rx=new Array(n),ry=new Array(n);
+  rx[0]=0;ry[0]=xs[n-1];                           // largest eigenvalue ↦ rank 0
+  let acc=0;                                       // cumulative mass ABOVE the current node
+  for(let i=n-2,j=1;i>=0;i--,j++){acc+=seg[i];rx[j]=(acc/total)*scale;ry[j]=xs[i];}
+  return {x:rx,y:ry};
+}
+function refreshSLQ(id,d,P){
+  const dim=(P!=null&&P>0)?P:((META&&META.p)||0);
+  const s=slqScree(d,dim);
+  Plotly.restyle(id,{x:[s.x],y:[s.y]},[0]);
+  Plotly.relayout(id,{'xaxis.autorange':true,'yaxis.autorange':true});}
+// ── §4 SLQ-scree HISTORY + scrubber: keep every SLQ tick's four operator densities so the sorted
+//    eigenspectrum can be REWOUND over training (drag the slider under §4). Mirrors the §20/§21 snapshot
+//    sliders. Each snapshot = {t, sH, sG, sS, sHL, p}; the slider redraws the four §4 scree plots at that
+//    tick. (The §5 "Eigen-spectrum" panels stay live-latest.) ──
+const SLQ4_IDS=['p_slqH4','p_slqG4','p_slqS4','p_slqHL4'], SLQ4_KEYS=['sH','sG','sS','sHL'];
+let SLQ_SNAPS=[], SLQ_RAF=0, SLQ_PENDING=-1, SLQ_CURIDX=0; const SLQ_MAXSNAPS=4000;
+function slqSnapRenderNow(i){const s=SLQ_SNAPS[i];if(!s)return;SLQ_CURIDX=i;
+  for(let k=0;k<4;k++){if(s[SLQ4_KEYS[k]])refreshSLQ(SLQ4_IDS[k],s[SLQ4_KEYS[k]],s.p);}
+  const sp=document.getElementById('slq4_step');if(sp)sp.textContent=`step ${s.t}  ·  snapshot ${i+1}/${SLQ_SNAPS.length}`;
+  const sl=document.getElementById('slq4_slider');if(sl&&+sl.value!==i)sl.value=i;}
+function slqSnapRenderIdx(i){SLQ_PENDING=i;if(SLQ_RAF)return;SLQ_RAF=requestAnimationFrame(()=>{SLQ_RAF=0;const j=SLQ_PENDING;SLQ_PENDING=-1;if(j>=0)slqSnapRenderNow(j);});}
+function slqSnapPush(rec){if(!rec)return;const sl=document.getElementById('slq4_slider'),wasLive=!sl||(+sl.value>=+sl.max);
+  SLQ_SNAPS.push(rec);
+  if(SLQ_SNAPS.length>SLQ_MAXSNAPS){SLQ_SNAPS=SLQ_SNAPS.filter((_,ix)=>ix%2===0);if(SLQ_CURIDX>=SLQ_SNAPS.length)SLQ_CURIDX=SLQ_SNAPS.length-1;}   // cap memory: thin to every other tick
+  if(sl){sl.max=SLQ_SNAPS.length-1;if(wasLive)sl.value=sl.max;}
+  slqSnapRenderIdx(wasLive?SLQ_SNAPS.length-1:(sl?+sl.value:SLQ_SNAPS.length-1));}   // follow live unless the user has rewound
+function slqSnapReset(){SLQ_SNAPS=[];SLQ_CURIDX=0;if(SLQ_RAF){cancelAnimationFrame(SLQ_RAF);SLQ_RAF=0;}SLQ_PENDING=-1;
+  for(const id of SLQ4_IDS)try{Plotly.purge(id);}catch(e){}   // blank the §4 scree traces too (they aren't in PLOT_IDS) so "reset." clears them; initLivePlots' newP rebuilds them on the next run
+  const sl=document.getElementById('slq4_slider');if(sl){sl.max=0;sl.value=0;}
+  const sp=document.getElementById('slq4_step');if(sp)sp.textContent='—';}
 
 // ── §5 trace of each operator over training (Hutchinson; one value per SLQ tick) ─────────────────
 const TR_IDS=['p_trH','p_trG','p_trS','p_trHL'], TR_KEYS=['trH','trG','trS','trHL'],
@@ -3369,7 +3428,7 @@ function syncSectionVis(multi){
   {const el=document.getElementById('sec_sweep');if(el)el.style.display=chk('enPs')?'':'none';}
   {const el=document.getElementById('sec_pred6');if(el){const vis=chk('enP6');el.style.display=vis?'':'none';
     if(vis)requestAnimationFrame(()=>{for(const id of ['p_p6_sign','p_p6_muon','p_p6_gn','p_p6_loss','p_p6_sharp','p_p6_fl_gd','p_p6_fl_sign','p_p6_fl_muon','p_p6_fl_gn','p_p6_fl_gnorm']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}}
-  requestAnimationFrame(()=>{for(const id of ['p_eds1','p_eds2','p_eds3','p_eds4','p_eds5','p_pd1','p_pd2','p_pd3','p_pd4','p_pt1','p_pt2','p_pt3','p_pt4','p_pd5','p_pd6','p_pd7','p_p3_diff','p_p3_rnorm','p_p3_cos','p_sw0','p_sw1','p_sw2','p_sw3','p_sw4','p_sw5','p_sw6']){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});   // re-measure ★ prediction plots when shown
+  requestAnimationFrame(()=>{for(const id of ['p_eds1','p_eds2','p_eds3','p_eds4','p_eds5','p_pd1','p_pd2','p_pd3','p_pd4','p_pt1','p_pt2','p_pt3','p_pt4','p_pd5','p_pd6','p_pd7','p_p3_diff','p_p3_rnorm','p_p3_cos','p_sw0','p_sw1','p_sw2','p_sw3','p_sw4','p_sw5','p_sw6','p_sw7']){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});   // re-measure ★ prediction plots when shown
   requestAnimationFrame(()=>{for(const id of PLOT_IDS){const gd=document.getElementById(id);if(gd&&gd._fullLayout&&gd.offsetParent!==null){try{Plotly.Plots.resize(gd);}catch(e){}}}});  // re-measure newly-shown plots
   if(typeof SCRUB_FRAC!=='undefined'&&SCRUB_FRAC<1)requestAnimationFrame(()=>applyTimeScrub(SCRUB_FRAC));   // keep a just-shown section's plots at the current rewound position
 }
@@ -3401,6 +3460,27 @@ function p6Push(g,t){if(!g||!(g.gd&&g.gd.length))return;const sl=document.getEle
 function p6Reset(){P6_SNAPS=[];P6_CURIDX=0;if(P6_RAF){cancelAnimationFrame(P6_RAF);P6_RAF=0;}P6_PENDING=-1;
   const sl=document.getElementById('p6_slider');if(sl){sl.max=0;sl.value=0;}
   const sp=document.getElementById('p6_step');if(sp)sp.textContent='live (latest)';}
+function _buildSSPlots(k){   // Self-stabilization: 4 line plots — p_ss1/p_ss2 have k curves (cos ∇S with top/bottom-k H_P eigvecs), p_ss3/p_ss4 one curve each
+  k=k||Math.max(1,Math.min(10,parseInt((document.getElementById('ssk')||{}).value||'5')||5));
+  const col=(i,n,warm)=>{const u=n>1?i/(n-1):0;return warm?`rgb(${Math.round(219-30*u)},${Math.round(39+70*u)},${Math.round(119-50*u)})`:`rgb(${Math.round(37+40*u)},${Math.round(99+90*u)},${Math.round(235-90*u)})`;};
+  const tr=(n,warm,pfx)=>Array.from({length:n},(_,i)=>({x:[],y:[],mode:'lines',name:pfx+(i+1),line:{color:col(i,n,warm),width:1.6}}));
+  {const L=baseLayout('cos(∇S, top-k H_P eigvecs)','cos',false);L.yaxis.range=[-1.05,1.05];L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.showlegend=true;L.legend={font:{size:8},orientation:'h',y:-0.18,yanchor:'top'};L.margin=Object.assign({},L.margin,{b:46});newP('p_ss1',tr(k,false,'u'),L);}
+  {const L=baseLayout('cos(∇S, bottom-k H_P eigvecs)','cos',false);L.yaxis.range=[-1.05,1.05];L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.showlegend=true;L.legend={font:{size:8},orientation:'h',y:-0.18,yanchor:'top'};L.margin=Object.assign({},L.margin,{b:46});newP('p_ss2',tr(k,true,'u₋'),L);}
+  {const L=baseLayout('cos(∇L ⟂ u₁, ∇S)','cos',false);L.yaxis.range=[-1.05,1.05];L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';newP('p_ss3',[{x:[],y:[],mode:'lines',line:{color:'#9333ea',width:2}}],L);}
+  {const L=baseLayout('cos(∇L ⟂ ∇S, u₁)','cos',false);L.yaxis.range=[-1.05,1.05];L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';newP('p_ss4',[{x:[],y:[],mode:'lines',line:{color:'#0891b2',width:2}}],L);}
+}
+function toggleSS(){   // Self-stabilization section (plots 1-4): OFF by default. Toggle reveals + builds the (empty) line plots; server gates compute on ss.
+  const cb=document.getElementById('enSS'), el=document.getElementById('sec_ss'); if(!cb||!el)return;
+  el.style.display=cb.checked?'':'none';
+  if(cb.checked){_buildSSPlots();requestAnimationFrame(()=>{for(const id of ['p_ss1','p_ss2','p_ss3','p_ss4']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});}
+}
+function _ensureSS(k){   // build + REVEAL the self-stab section (idempotent) — called on every g_ss so a restored-but-not-toggled enSS still SHOWS (setting .checked doesn't fire onchange)
+  const cb=document.getElementById('enSS');if(cb&&!cb.checked)cb.checked=true;
+  const el=document.getElementById('sec_ss');const wasHidden=el&&el.style.display==='none';
+  if(wasHidden)el.style.display='';
+  const gd=document.getElementById('p_ss1');if(!gd||!gd._fullLayout)_buildSSPlots(k);
+  if(wasHidden)requestAnimationFrame(()=>{for(const id of ['p_ss1','p_ss2','p_ss3','p_ss4']){const g=document.getElementById(id);if(g&&g._fullLayout){try{Plotly.Plots.resize(g);}catch(e){}}}});   // plots built while the section was display:none get 0 size ⇒ resize on reveal
+}
 function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   resetPlotDecim();   // fresh decimation state for this run (bounds plotted points → no progressive hang)
   RAY.anchors=[]; RAY.sel=-1; if(typeof chk==='function'&&chk('enPR'))try{_rayPlaceholders();}catch(e){}   // ★ Prediction 4.2 (ray): forget last run's anchors (clear the bar) + restore the pre-anchor "waiting" note so old curves don't linger
@@ -3410,6 +3490,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
   s14Reset();   // §14: drop snapshots from the previous run
   s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s21Reset();p6Reset();S22CH.reset();S23CH.reset();s16Reset();s17Reset();   // §15+§16+§19+§20: drop the 2nd-difference + optimizer + grad-norm + M_r-histogram series
   trReset();    // §5: clear the trace-over-iterations curves
+  slqSnapReset();   // §4: clear the SLQ-scree scrubber history
   syncSectionVis(multi);   // gate sections by the panel toggles (multi from the actual run)
   const dis=s=>OPT.gs?s:s+'  (off)';
   // §1
@@ -3517,15 +3598,15 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
      {x:[],y:[],mode:'lines',name:'J̇·rP',line:{color:'#ea580c',width:1.7}},
      {x:[],y:[],mode:'lines',name:'∇‖J̇‖²',line:{color:'#7c3aed',width:1.7}}],L);}
   // §5 SLQ
-  const slqT=c=>[{x:[],y:[],mode:'lines',fill:'tozeroy',line:{color:c,width:1.6},fillcolor:c+'22',name:'density'}];
-  newP('p_sH',slqT('#2563eb'),slqLayout('SLQ density — function Hessian H'));
-  newP('p_slqH4',slqT('#2563eb'),slqLayout('SLQ density — function Hessian H'));
-  newP('p_slqG4',slqT('#16a34a'),slqLayout('SLQ density — Gauss–Newton G'));
-  newP('p_slqS4',slqT('#d35400'),slqLayout('SLQ density — residual term S'));
-  newP('p_slqHL4',slqT('#dc2626'),slqLayout('SLQ density — full loss Hessian ∇²L'));
-  newP('p_sG',slqT('#16a34a'),slqLayout('SLQ density — Gauss–Newton G'));
-  newP('p_sS',slqT('#d35400'),slqLayout('SLQ density — residual term S'));
-  newP('p_sHL',slqT('#dc2626'),slqLayout('SLQ density — full loss Hessian'));
+  const slqT=c=>[{x:[],y:[],mode:'lines',line:{color:c,width:1.8},name:'eigenvalue'}];
+  newP('p_sH',slqT('#2563eb'),slqLayout('SLQ spectrum (sorted) — function Hessian H'));
+  newP('p_slqH4',slqT('#2563eb'),slqLayout('SLQ spectrum (sorted) — function Hessian H'));
+  newP('p_slqG4',slqT('#16a34a'),slqLayout('SLQ spectrum (sorted) — Gauss–Newton G'));
+  newP('p_slqS4',slqT('#d35400'),slqLayout('SLQ spectrum (sorted) — residual term S'));
+  newP('p_slqHL4',slqT('#dc2626'),slqLayout('SLQ spectrum (sorted) — full loss Hessian ∇²L'));
+  newP('p_sG',slqT('#16a34a'),slqLayout('SLQ spectrum (sorted) — Gauss–Newton G'));
+  newP('p_sS',slqT('#d35400'),slqLayout('SLQ spectrum (sorted) — residual term S'));
+  newP('p_sHL',slqT('#dc2626'),slqLayout('SLQ spectrum (sorted) — full loss Hessian'));
   // §6 eigenspace rotation
   const paT=()=>[{x:[],y:[],mode:'lines',name:'max angle',line:{color:'#2563eb',width:1.9}},{x:[],y:[],mode:'lines',name:'mean angle',line:{color:'#94a3b8',width:1.5,dash:'dot'}}];
   newP('p_paPos',paT(),baseLayout('positive eigenspace — principal angle vs prev','angle (deg)',false));
@@ -3638,6 +3719,7 @@ function initLivePlots(n,kth,nResid,thr,n7,n8,multi){
     _edsAng('p_eds4','Mᵣ eigenspace rotation','lag 1','lag 2','#7c3aed','#db2777');
     _edsAng('p_eds5','Mᵣ eigenspace rotation','lag 5','lag 10','#7c3aed','#db2777');
   }
+  if(chk('enSS'))_buildSSPlots();   // Self-stabilization (ss): 4 streaming line plots, (re)built on run start when enabled
   newP('p_p3_diff',[{x:[],y:[],mode:'lines',name:'‖J·ṙ‖ (jrd)',line:{color:'#2563eb',width:1.7}},{x:[],y:[],mode:'lines',name:'‖J̇·r‖ (jdr)',line:{color:'#16a34a',width:1.7}},{x:[],y:[],mode:'lines',name:'diff = jrd−jdr',line:{color:'#dc2626',width:2}}],baseLayout('jrd, jdr & diff → t*','value',false));
   window._P3_CLEARED=false;   // reset the pred-3 "waiting for t*" placeholder each run
   const _p3note=[{text:'activates at the ‖J·ṙ‖−‖J̇·r‖<br>sign-change t* (none yet in this run)',xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,align:'center',font:{size:11,color:'#94a3b8'}}];
@@ -4047,6 +4129,13 @@ function pushPoint(t,D,n,kth,nResid){
         extP('p_eds3',{x:[[t],[t]],y:[[aH['5']],[aH['10']]]},[0,1]);
         extP('p_eds4',{x:[[t],[t]],y:[[aM['1']],[aM['2']]]},[0,1]);
         extP('p_eds5',{x:[[t],[t]],y:[[aM['5']],[aM['10']]]},[0,1]);}catch(e){}}
+  if(D.g_ss){const g=D.g_ss;   // Self-stabilization: cos(∇S, ±k H_P eigvecs) [k curves each] + the 2 projected-gradient cosines (null y ⇒ gap, e.g. relu ⇒ ∇S≈0)
+    _ensureSS((g.top||[]).length);   // build+REVEAL on every g_ss (idempotent) — a loaded capture restores enSS.checked but never fires onchange, so the section must be revealed here
+    try{const kt=(g.top||[]).length, kb=(g.bot||[]).length;
+        if(kt)extP('p_ss1',{x:Array.from({length:kt},()=>[t]),y:g.top.map(v=>[v])},Array.from({length:kt},(_,i)=>i));
+        if(kb)extP('p_ss2',{x:Array.from({length:kb},()=>[t]),y:g.bot.map(v=>[v])},Array.from({length:kb},(_,i)=>i));
+        extP('p_ss3',{x:[[t]],y:[[g.p3]]},[0]);
+        extP('p_ss4',{x:[[t]],y:[[g.p4]]},[0]);}catch(e){}}
   if(D.g_phase){const g=D.g_phase;   // §6 phases-of-learning TIME-SERIES (main run); null ⇒ gap (2nd-diff / Δ start a couple ticks in)
     const P=(id,pairs)=>{const ix=[],xs=[],ys=[];for(const p of pairs){if(p[1]!=null){ix.push(p[0]);xs.push([t]);ys.push([p[1]]);}}if(ix.length)extP(id,{x:xs,y:ys},ix);};
     P('p_s21ph_1',g.qr.map((v,i)=>[i,v==null?null:Math.abs(v)]));   // plot 1: 6 |Jr↔Qr| projections (top-3⊕bottom-3 M_r), absolute value
@@ -4759,10 +4848,11 @@ async function loop(){                                   // drives ST forward; r
           paPos,paNeg,ntkR,ntkH,ntkGs,ntkGsA,ntkGl,ntkGlA,fhEvT,fhEvB,jhe1,jhe2,jhe1b,jhe2b,jh2e1,jh2e2,jh2e1b,jh2e2b,g2J,g2Jn,
           q9t,q9b,q9tN,q9bN,q9tR,q9bR,q9gt,q9gb,q10,q10N},S.n,S.kth,S.nResid);
         if(O.s5&&S.eigTick%S.slqStride===0){
-          {const dH=slqDensity(v=>hvpF(S.th,spec,X,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x11);refreshSLQ('p_sH',dH);refreshSLQ('p_slqH4',dH);}
-          {const dG=slqDensity(v=>hvpG(S.th,spec,X,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x22);refreshSLQ('p_sG',dG);refreshSLQ('p_slqG4',dG);}
-          {const dS=slqDensity(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,cS),p,S.nProbe,S.mSLQ,80,0x33);refreshSLQ('p_sS',dS);refreshSLQ('p_slqS4',dS);}
-          {const dHL=slqDensity(v=>hvpL(S.th,spec,X,Y,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x44);refreshSLQ('p_sHL',dHL);refreshSLQ('p_slqHL4',dHL);}
+          {const dH=slqDensity(v=>hvpF(S.th,spec,X,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x11);refreshSLQ('p_sH',dH,p);   // §5 stays live-latest
+           const dG=slqDensity(v=>hvpG(S.th,spec,X,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x22);refreshSLQ('p_sG',dG,p);
+           const dS=slqDensity(v=>hvpS(S.th,spec,X,N,inDim,p,v,eps,cS),p,S.nProbe,S.mSLQ,80,0x33);refreshSLQ('p_sS',dS,p);
+           const dHL=slqDensity(v=>hvpL(S.th,spec,X,Y,N,inDim,p,v,eps),p,S.nProbe,S.mSLQ,80,0x44);refreshSLQ('p_sHL',dHL,p);
+           slqSnapPush({t:t,sH:dH,sG:dG,sS:dS,sHL:dHL,p:p});}   // §4 scree → per-tick history (scrubber)
           const ntr=Math.max(S.nProbe,4);   // §5 trace-over-iterations (Hutchinson)
           trPush({t:S.t,trH:hutchTrace(v=>hvpF(S.th,spec,X,N,inDim,p,v,eps),p,ntr,0x51)/N,
             trG:hutchTrace(v=>hvpG(S.th,spec,X,N,inDim,p,v,eps),p,ntr,0x52),
@@ -4796,6 +4886,7 @@ function resetSim(){
   s13Reset();   // §13: clear the approximation-comparison time-series too
   s14Reset();   // §14: clear the triplet-decomposition cubes + snapshots/slider too
   s15Reset();s15nReset();s15bReset();s15p34Reset();s15corrReset();s19Reset();s20Reset();s21Reset();p6Reset();S22CH.reset();S23CH.reset();s16Reset();s17Reset();   // §15+§16+§19+§20: clear the time-series too
+  slqSnapReset();   // §4: clear the SLQ-scree scrubber history
   updateButtons();
 }
 
@@ -5036,6 +5127,8 @@ function currentQueryParams(){   // the exact query-style param dict the backend
   o['s42']=chk('enEDS')?'1':'0';   // Early-dynamics stats (not a prediction): computed ONLY when enabled (two Lanczos per step)
   {const e=document.getElementById('edsmrk');if(e)o['edsmrk']=e.value||'50';}   // early-dynamics plot 1: ±M_r eigenpair count
   {const e=document.getElementById('edsangk');if(e)o['edsangk']=e.value||'10';}   // early-dynamics plots 2-5: principal-angle subspace dim
+  o['ss']=chk('enSS')?'1':'0';   // Self-stabilization (not a prediction): computed ONLY when enabled (Lanczos + 2 HVPs per eig-tick)
+  {const e=document.getElementById('ssk');if(e)o['ssk']=e.value||'5';}   // self-stabilization: # top/bottom eigenvectors of the preconditioned Hessian H_P
 
   {const e=document.getElementById('prthr');if(e)o['prthr']=e.value||'0.9';}   // ray anchor cos threshold
   {const e=document.getElementById('prm');if(e)o['prm']=e.value||'40';}   // ray grid points (min)
@@ -5059,8 +5152,9 @@ window.addEventListener('load',()=>{try{
 let SWEEP_ES=null, SWEEP_N=0, SWEEP_STEPS=100;
 const SW0={x:[],y:[],text:[],col:[]}, SW1={x:[],y:[],text:[],col:[]}, SW2={x:[],y:[],text:[],jx:[],jy:[],ok:[],rx:[],ry:[],align:[],jfro:[]}, SW3={x:[],y:[],text:[],jx:[],jy:[],ok:[],rx:[],ry:[],align:[],jfro:[]};   // SW0 = quadratic (T=0,Q-fixed) predicted t*; each 2/2b tick is SPLIT: left half = Σ|⟨r̂,vₖ⟩|/‖r‖ (align, top-3 NTK), right half = ‖J‖_F (jfro)
 const SW6={x:[],y:[],text:[],jx:[],jy:[],ok:[],rx:[],ry:[],align:[],jfro:[]};   // prediction-5 (magnified PS): x = signed-log Σ u₁ᵀ(QJr)v₁ (frozen-Q,J / evolving-r), y = signed-log Σ∇‖J‖ (actual). Only points with ‖J·ṙ‖>‖J̇·r‖ & below EoS at init
-const SW4={x:[],y:[],cd:[],text:[],col:[]};   // prediction-2c: x = init scale σ (linear, 0.1→10), y = (Σ top-k)+(Σ bottom-k) eigvals of H=Σ_k Q_k (UNWEIGHTED function Hessian) at t=0; cd = raw [σ, hSum]
-const SW5={x:[],y:[],cd:[],text:[],col:[]};   // prediction-2d: x = init scale σ (linear, 0.1→10), y = (Σ top-k)+(Σ bottom-k) eigvals of Qr=Σ_k r_kQ_k at t=0; cd = raw [σ, mrSum]
+const SW4={x:[],y:[],cd:[],text:[],col:[]};   // prediction-2c: x = A₊−A₋ = Σ_i σ_i(u_iᵀg)²/‖g‖² (squared-projection Rayleigh over ±k eigenspace of M_r, g=Jᵀr at t=0), y = ‖J_l‖−‖J₀‖ over l GD steps; cd = [σ, xdiff, dj]. Swept over init scale σ (0.1→10)
+const SW5={x:[],y:[],cd:[],text:[],col:[]};   // prediction-2d: x = (A₊−A₋)/(A₊+A₋), y = (‖J_l‖−‖J₀‖)/(‖J₀‖+ε); cd = [σ, xnorm, djn]. Same σ-sweep, normalized both axes
+const SW7={x:[],y:[],cd:[],text:[],col:[]};   // prediction-2e: x = gᵀM_r g = (Jᵀr)ᵀ M_r (Jᵀr) (FULL operator via one HVP, not ±k-restricted), y = ‖J_l‖−‖J₀‖ over l GD steps; cd = [σ, x2e, dj]. Same σ-sweep, independent sw2e toggle
 function _pear(xs,ys){const n=xs.length;if(n<2)return NaN;
   let mx=0,my=0;for(let i=0;i<n;i++){mx+=xs[i];my+=ys[i];}mx/=n;my/=n;
   let sxy=0,sx=0,sy=0;for(let i=0;i<n;i++){const dx=xs[i]-mx,dy=ys[i]-my;sxy+=dx*dy;sx+=dx*dx;sy+=dy*dy;}
@@ -5114,27 +5208,44 @@ function addSweepPt(m){
   _scheduleSplit('p_sw6',SW6);   // prediction-5 (magnified PS): same split-tick style as Pred-2b, x = Σ u₁ᵀ(QJr)v₁
   try{Plotly.relayout('p_sw6',{'title.text':'Σ u₁ᵀ(QJr)v₁ vs Σ∇‖J‖ · steps='+(m.swps5n!=null?m.swps5n:'')+' · '+SW6.x.length+' pts ('+sweepCorrLabel(SW6)+')'});}catch(e){}
 }
-// prediction-2c/2d (plots 4-5): DEDICATED σ-sweep (σ 0.1→10, measured at t=0) — SW4 y=hSum (Σtop-k+Σbot-k eigvals of H=Σ_k Q_k), SW5 y=mrSum (of Qr=Σ_k r_kQ_k, r=y−f)
+// prediction-2c/2d/2e (plots 4-5-7): DEDICATED σ-sweep (σ 0.1→10). 2c: x=A₊−A₋=Σσ_i(u_iᵀg)²/‖g‖² (squared-projection Rayleigh over M_r ±k eigenspace, g=Jᵀr at t=0), y=‖J_l‖−‖J₀‖ over l GD steps. 2d: both normalized. 2e: x=gᵀM_r g (full operator).
 function addSweepPt2c(m){
-  const k=(m.swmrk!=null?m.swmrk:10);
-  const lbl='σ='+(+m.std).toPrecision(2);
-  if(m.hSum!=null&&isFinite(m.hSum)&&m.std!=null&&isFinite(m.std)){   // plot 4: (Σ top-k)+(Σ bottom-k) eigvals of H=Σ_k Q_k, vs init scale σ (linear)
-    SW4.x.push(m.std);SW4.y.push(m.hSum);SW4.cd.push([m.std,m.hSum]);SW4.text.push(lbl);SW4.col.push('#0891b2');
+  const lbl='σ='+(+m.std).toPrecision(2)+' · l='+(m.l!=null?m.l:4);
+  if(m.xdiff!=null&&isFinite(m.xdiff)&&m.dj!=null&&isFinite(m.dj)){   // plot 2c: x = A₊−A₋ = Σσ_i(u_iᵀg)²/‖g‖² (squared-projection Rayleigh), y = ‖J_l‖−‖J₀‖ over l GD steps
+    SW4.x.push(m.xdiff);SW4.y.push(m.dj);SW4.cd.push([m.std,m.xdiff,m.dj]);SW4.text.push(lbl);SW4.col.push('#0891b2');
     Plotly.restyle('p_sw4',{x:[SW4.x],y:[SW4.y],text:[SW4.text],customdata:[SW4.cd],'marker.color':[SW4.col]},[0]);
-    try{Plotly.relayout('p_sw4',{'title.text':'ΣₖQₖ (Σtop'+k+'+Σbot'+k+') vs init scale σ'});}catch(e){}
   }
-  if(m.mrSum!=null&&isFinite(m.mrSum)&&m.std!=null&&isFinite(m.std)){   // plot 5: (Σ top-k)+(Σ bottom-k) eigvals of Qr, vs init scale σ (linear)
-    SW5.x.push(m.std);SW5.y.push(m.mrSum);SW5.cd.push([m.std,m.mrSum]);SW5.text.push(lbl);SW5.col.push('#7c3aed');
+  if(m.xnorm!=null&&isFinite(m.xnorm)&&m.djn!=null&&isFinite(m.djn)){   // plot 2d: x = (A₊−A₋)/(A₊+A₋), y = (‖J_l‖−‖J₀‖)/(‖J₀‖+ε)
+    SW5.x.push(m.xnorm);SW5.y.push(m.djn);SW5.cd.push([m.std,m.xnorm,m.djn]);SW5.text.push(lbl);SW5.col.push('#7c3aed');
     Plotly.restyle('p_sw5',{x:[SW5.x],y:[SW5.y],text:[SW5.text],customdata:[SW5.cd],'marker.color':[SW5.col]},[0]);
-    try{Plotly.relayout('p_sw5',{'title.text':'Qr (Σtop'+k+'+Σbot'+k+') vs init scale σ'});}catch(e){}
+  }
+  if(m.x2e!=null&&isFinite(m.x2e)&&m.dj!=null&&isFinite(m.dj)){   // plot 2e: x = gᵀM_r g (full operator), y = ‖J_l‖−‖J₀‖ over l GD steps
+    SW7.x.push(m.x2e);SW7.y.push(m.dj);SW7.cd.push([m.std,m.x2e,m.dj]);SW7.text.push(lbl);SW7.col.push('#c2410c');
+    Plotly.restyle('p_sw7',{x:[SW7.x],y:[SW7.y],text:[SW7.text],customdata:[SW7.cd],'marker.color':[SW7.col]},[0]);
   }
 }
-function toggleSw2cd(){   // prediction-2c/2d row (plots 4-5): OFF by default ⇒ hidden (no space) & not computed. Toggle reveals + resizes; server gates on sw2cd.
-  const cb=document.getElementById('en_sw2cd'), row=document.getElementById('sw_row2');
-  if(!cb||!row)return;
-  row.style.display=cb.checked?'':'none';   // '' restores the .plotrow stylesheet display; 'none' removes it from layout entirely
-  if(cb.checked)requestAnimationFrame(()=>{for(const id of ['p_sw4','p_sw5']){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);}catch(e){}}}});   // re-measure once visible (Plotly sizes to 0 in a display:none div)
+// ── Sweep REPLAY (loading a capture from eos_prediction.py / "save run"): the merged sweeppt/sweeppt2c
+//    records are dispatched through gpuHandle (unlike the LIVE sweep, which has its own SSE handler in
+//    _runSweep). Ensure the scatter plots exist, clear the "click Run sweep" placeholder once per load,
+//    and reset the SW accumulators so a fresh load never stacks onto a previous run's points. ──
+let _sweepReplayInit=false;
+function sweepReplayEnsure(){ensureSweepPlots();if(_sweepReplayInit)return;_sweepReplayInit=true;
+  for(const id of ['p_sw0','p_sw1','p_sw2','p_sw3','p_sw4','p_sw5','p_sw6','p_sw7'])try{Plotly.relayout(id,{annotations:[]});}catch(e){}}
+function sweepReplayReset(){_sweepReplayInit=false;
+  for(const S of [SW0,SW1,SW2,SW3,SW4,SW5,SW6])for(const k in S)if(Array.isArray(S[k]))S[k].length=0;}
+function _sw2RowFit(){   // sw_row2 (plots 4-5-7): 2c+2d share en_sw2cd, 2e uses en_sw2e (independent). Show the row if EITHER group is on, hide each plot per its toggle, and size the grid to the # of visible plots (no empty column). All OFF by default ⇒ not computed (server gates on sw2cd / sw2e).
+  const row=document.getElementById('sw_row2'); if(!row)return;
+  const on2cd=(document.getElementById('en_sw2cd')||{}).checked, on2e=(document.getElementById('en_sw2e')||{}).checked;
+  const p4=document.getElementById('p_sw4'),p5=document.getElementById('p_sw5'),p7=document.getElementById('p_sw7');
+  if(p4)p4.style.display=on2cd?'':'none'; if(p5)p5.style.display=on2cd?'':'none'; if(p7)p7.style.display=on2e?'':'none';
+  const n=(on2cd?2:0)+(on2e?1:0);
+  row.style.display=n?'':'none';
+  if(n)row.style.gridTemplateColumns='repeat('+n+',1fr)';   // dynamic: 1, 2 or 3 columns so hidden plots leave no gap (overrides the .row2 class)
+  const vis=[]; if(on2cd)vis.push('p_sw4','p_sw5'); if(on2e)vis.push('p_sw7');
+  if(n)requestAnimationFrame(()=>{for(const id of vis){const gd=document.getElementById(id);if(gd&&gd._fullLayout){try{Plotly.Plots.resize(gd);Plotly.relayout(id,{'xaxis.autorange':true,'yaxis.autorange':true});}catch(e){}}}});   // re-measure + autorange once visible (Plotly sizes to 0 in a display:none div, so data added while hidden needs a re-fit)
 }
+function toggleSw2cd(){ _sw2RowFit(); }   // prediction-2c/2d (plots 4-5)
+function toggleSw2e(){ _sw2RowFit(); }    // prediction-2e (plot 7), independent toggle
 const _PH=[{text:"click ‘Run sweep’ ↑ to populate",xref:'paper',yref:'paper',x:0.5,y:0.5,showarrow:false,font:{size:12,color:'#94a3b8'}}];
 function _tstarTr(){return [{x:[],y:[],mode:'markers+text',type:'scatter',text:[],textposition:'top center',textfont:{size:7,color:'#64748b'},marker:{size:9,color:[],line:{color:'#1e293b',width:0.5}}},{x:[0,1],y:[0,1],mode:'lines',line:{color:'#94a3b8',dash:'dot',width:1},hoverinfo:'skip'}];}   // predicted-vs-actual t* scatter + y=x line
 // Prediction-2/2b: continuous signed-log scatter, ticks coloured by Σ|⟨r̂,vₖ⟩| (residual ↔ top-3 NTK eigvecs); hover shows that alignment + lr/σ
@@ -5175,10 +5286,12 @@ function ensureSweepPlots(){   // build the pred-1&2 sweep scatter plots on dema
   {const L=baseLayout('Σd vs Σd²L/dt²','signed log₁₀(Σ d²L/dt²)',false);L.xaxis.title='signed log₁₀(Σ d)';L.showlegend=false;L.margin.r=62;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=_PH.slice();newP('p_sw2',_corrTr(),L);}
   {const L=baseLayout('Σd vs Σ∇‖J‖','signed log₁₀(Σ ∇‖J‖)',false);L.xaxis.title='signed log₁₀(Σ d)';L.showlegend=false;L.margin.r=62;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=_PH.slice();newP('p_sw3',_corrTr(),L);}
   {const L=baseLayout('Σ u₁ᵀ(QJr)v₁ vs Σ∇‖J‖','signed log₁₀(Σ ∇‖J‖)',false);L.xaxis.title='signed log₁₀(Σ u₁ᵀ(QJr)v₁)';L.showlegend=false;L.margin.r=62;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=_PH.slice();newP('p_sw6',_corrTr(),L);}   // prediction-5 (magnified PS)
-  {const L=baseLayout('ΣₖQₖ (Σtop+Σbot eigvals) vs init scale','Σtop-k+Σbot-k eigvals of Σ_k Q_k  (t=0)',false);L.xaxis.title='init scale σ';L.showlegend=false;L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=_PH.slice();
-   newP('p_sw4',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],customdata:[],textposition:'top center',textfont:{size:7,color:'#64748b'},hovertemplate:'init σ = %{customdata[0]:.3g} · ΣₖQₖ Σtop+Σbot = %{customdata[1]:.3g}<br>%{text}<extra></extra>',marker:{size:7,color:[],line:{color:'#1e293b',width:0.5}}}],L);}
-  {const L=baseLayout('Qr (Σtop+Σbot eigvals) vs init scale','Σtop-k+Σbot-k eigvals of Qr  (t=0)',false);L.xaxis.title='init scale σ';L.showlegend=false;L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=_PH.slice();
-   newP('p_sw5',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],customdata:[],textposition:'top center',textfont:{size:7,color:'#64748b'},hovertemplate:'init σ = %{customdata[0]:.3g} · Qr Σtop+Σbot = %{customdata[1]:.3g}<br>%{text}<extra></extra>',marker:{size:7,color:[],line:{color:'#1e293b',width:0.5}}}],L);}
+  {const L=baseLayout('2c · Δ‖J‖ over l steps  vs  M_r sign-split alignment','‖J_l‖ − ‖J₀‖   (l GD steps)',false);L.xaxis.title='A₊ − A₋   (M_r: Σ_i σ_i(u_iᵀg)² / ‖g‖²,  g=Jᵀr)';L.showlegend=false;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=_PH.slice();
+   newP('p_sw4',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],customdata:[],textposition:'top center',textfont:{size:7,color:'#64748b'},hovertemplate:'init σ = %{customdata[0]:.3g} · A₊−A₋ = %{customdata[1]:.3g} · Δ‖J‖ = %{customdata[2]:.3g}<br>%{text}<extra></extra>',marker:{size:7,color:[],line:{color:'#1e293b',width:0.5}}}],L);}
+  {const L=baseLayout('2d · normalized Δ‖J‖  vs  normalized alignment','(‖J_l‖ − ‖J₀‖)/(‖J₀‖+ε)',false);L.xaxis.title='(A₊ − A₋)/(A₊ + A₋)';L.showlegend=false;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=_PH.slice();
+   newP('p_sw5',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],customdata:[],textposition:'top center',textfont:{size:7,color:'#64748b'},hovertemplate:'init σ = %{customdata[0]:.3g} · norm-align = %{customdata[1]:.3g} · norm-Δ‖J‖ = %{customdata[2]:.3g}<br>%{text}<extra></extra>',marker:{size:7,color:[],line:{color:'#1e293b',width:0.5}}}],L);}
+  {const L=baseLayout('2e · Δ‖J‖ over l steps  vs  full-operator gᵀM_r g','‖J_l‖ − ‖J₀‖   (l GD steps)',false);L.xaxis.title='gᵀM_r g   ( (Jᵀr)ᵀ M_r (Jᵀr),  M_r=Σ_k r_kQ_k, full operator )';L.showlegend=false;L.xaxis.zeroline=true;L.xaxis.zerolinecolor='#cbd5e1';L.yaxis.zeroline=true;L.yaxis.zerolinecolor='#cbd5e1';L.annotations=_PH.slice();
+   newP('p_sw7',[{x:[],y:[],mode:'markers+text',type:'scatter',text:[],customdata:[],textposition:'top center',textfont:{size:7,color:'#64748b'},hovertemplate:'init σ = %{customdata[0]:.3g} · gᵀM_r g = %{customdata[1]:.3g} · Δ‖J‖ = %{customdata[2]:.3g}<br>%{text}<extra></extra>',marker:{size:7,color:[],line:{color:'#1e293b',width:0.5}}}],L);}
 }
 let SWEEP_THEN_RUN=false;   // set by the main Run button: run the sweep FIRST, then auto-start the main run when it ends. On one GPU a concurrent sweep would cancel the main run (per-device token) and a deferred sweep (after a long run) looks like it never fires — so sweep-first makes it visibly run the moment Run is clicked.
 function _sweepBtns(sweeping){const rb=document.getElementById('run'),sb=document.getElementById('stop');   // during a sweep with NO main run yet: block a 2nd Run, allow Stop to abort the sweep
@@ -5192,10 +5305,10 @@ function startSweep(){ _runSweep(false); }   // ★ prediction-1&2 sweep entry (
 function _runSweep(forceSame){   // forceSame=true ⇒ ignore the swport box and run on THIS server (same-origin fallback)
   if(SWEEP_ES){SWEEP_ES.close();SWEEP_ES=null;}
   ensureSweepPlots();   // make sure p_sw1/p_sw2 exist even if no main run has been started yet
-  SW0.x.length=SW0.y.length=SW0.text.length=SW0.col.length=0; SW1.x.length=SW1.y.length=SW1.text.length=SW1.col.length=0; SW2.x.length=SW2.y.length=SW2.text.length=SW2.jx.length=SW2.jy.length=SW2.ok.length=SW2.rx.length=SW2.ry.length=SW2.align.length=SW2.jfro.length=0; SW3.x.length=SW3.y.length=SW3.text.length=SW3.jx.length=SW3.jy.length=SW3.ok.length=SW3.rx.length=SW3.ry.length=SW3.align.length=SW3.jfro.length=0; SW4.x.length=SW4.y.length=SW4.cd.length=SW4.text.length=SW4.col.length=0; SW5.x.length=SW5.y.length=SW5.cd.length=SW5.text.length=SW5.col.length=0; SW6.x.length=SW6.y.length=SW6.text.length=SW6.jx.length=SW6.jy.length=SW6.ok.length=SW6.rx.length=SW6.ry.length=SW6.align.length=SW6.jfro.length=0;
-  try{Plotly.restyle('p_sw0',{x:[[]],y:[[]],text:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw1',{x:[[]],y:[[]],text:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw4',{x:[[]],y:[[]],text:[[]],customdata:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw5',{x:[[]],y:[[]],text:[[]],customdata:[[]],'marker.color':[[]]},[0]);
+  SW0.x.length=SW0.y.length=SW0.text.length=SW0.col.length=0; SW1.x.length=SW1.y.length=SW1.text.length=SW1.col.length=0; SW2.x.length=SW2.y.length=SW2.text.length=SW2.jx.length=SW2.jy.length=SW2.ok.length=SW2.rx.length=SW2.ry.length=SW2.align.length=SW2.jfro.length=0; SW3.x.length=SW3.y.length=SW3.text.length=SW3.jx.length=SW3.jy.length=SW3.ok.length=SW3.rx.length=SW3.ry.length=SW3.align.length=SW3.jfro.length=0; SW4.x.length=SW4.y.length=SW4.cd.length=SW4.text.length=SW4.col.length=0; SW5.x.length=SW5.y.length=SW5.cd.length=SW5.text.length=SW5.col.length=0; SW7.x.length=SW7.y.length=SW7.cd.length=SW7.text.length=SW7.col.length=0; SW6.x.length=SW6.y.length=SW6.text.length=SW6.jx.length=SW6.jy.length=SW6.ok.length=SW6.rx.length=SW6.ry.length=SW6.align.length=SW6.jfro.length=0;
+  try{Plotly.restyle('p_sw0',{x:[[]],y:[[]],text:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw1',{x:[[]],y:[[]],text:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw4',{x:[[]],y:[[]],text:[[]],customdata:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw5',{x:[[]],y:[[]],text:[[]],customdata:[[]],'marker.color':[[]]},[0]);Plotly.restyle('p_sw7',{x:[[]],y:[[]],text:[[]],customdata:[[]],'marker.color':[[]]},[0]);
       for(const id of ['p_sw2','p_sw3','p_sw6']){Plotly.restyle(id,{x:[[]],y:[[]],text:[[]],customdata:[[]]},[0]);Plotly.restyle(id,{x:[[]],y:[[]],'marker.color':[[]]},[1]);Plotly.restyle(id,{x:[[]],y:[[]],'marker.color':[[]]},[2]);Plotly.relayout(id,{shapes:[]});}}catch(e){}
-  try{Plotly.relayout('p_sw0',{annotations:[]});Plotly.relayout('p_sw1',{annotations:[]});Plotly.relayout('p_sw2',{annotations:[]});Plotly.relayout('p_sw3',{annotations:[]});Plotly.relayout('p_sw6',{annotations:[]});Plotly.relayout('p_sw4',{annotations:[],'xaxis.type':'linear','xaxis.title':'init scale σ'});Plotly.relayout('p_sw5',{annotations:[],'xaxis.type':'linear','xaxis.title':'init scale σ'});}catch(e){}   // drop the "click Run sweep" placeholder; ENFORCE linear σ-axes every run (the one-time ensureSweepPlots guard can leave a stale log p_sw5)
+  try{Plotly.relayout('p_sw0',{annotations:[]});Plotly.relayout('p_sw1',{annotations:[]});Plotly.relayout('p_sw2',{annotations:[]});Plotly.relayout('p_sw3',{annotations:[]});Plotly.relayout('p_sw6',{annotations:[]});Plotly.relayout('p_sw4',{annotations:[],'xaxis.type':'linear'});Plotly.relayout('p_sw5',{annotations:[],'xaxis.type':'linear'});Plotly.relayout('p_sw7',{annotations:[],'xaxis.type':'linear'});}catch(e){}   // drop the "click Run sweep" placeholder; keep the 2c/2d/2e alignment x-axes (set at creation)
   const st=document.getElementById('sweepstatus'); if(st)st.textContent='starting…'; _sweepBtns(true);   // sweep running: block a 2nd Run, allow Stop to abort it
   const q=currentQueryParams(); const ps=new URLSearchParams(); for(const k in q)ps.set(k,q[k]);
   ps.set('mode','sweep');
@@ -5206,9 +5319,11 @@ function _runSweep(forceSame){   // forceSame=true ⇒ ignore the swport box and
   {const e=document.getElementById('swsumn2');if(e)ps.set('swsumn2',e.value||'10');}
   {const e=document.getElementById('swmrk');if(e)ps.set('swmrk',e.value||'10');}   // prediction-2c/2d: k for (Σ top-k)+(Σ bottom-k) eigenvalues of Qr
   {const e=document.getElementById('swps5n');if(e)ps.set('swps5n',e.value||'4');}   // prediction-5 (magnified PS): #frozen-Q,J / evolving-r steps
+  {const e=document.getElementById('swjl');if(e)ps.set('swjl',e.value||'4');}   // prediction-2c/2d: lookahead l — Δ‖J‖ over l GD steps for the y-axis
   {const e=document.getElementById('swcsmin');if(e)ps.set('swcsmin',e.value||'0.1');}   // prediction-2c/2d dedicated σ-sweep min
   {const e=document.getElementById('swcsmax');if(e)ps.set('swcsmax',e.value||'10');}   // prediction-2c/2d dedicated σ-sweep max
   {const e=document.getElementById('en_sw2cd');ps.set('sw2cd',(e&&e.checked)?'1':'0');}   // prediction-2c/2d gate: only run+stream the dedicated σ-loop (plots 4-5) when the toggle is ON
+  {const e=document.getElementById('en_sw2e');ps.set('sw2e',(e&&e.checked)?'1':'0');}     // prediction-2e gate: full-operator gᵀM_r g (plot 7), independent toggle
   ps.set('swTstart',(document.getElementById('swTstart').value||'0'));
   const swportEl=document.getElementById('swport'), swportVal=swportEl?swportEl.value.trim():'';
   let base='';
@@ -5219,7 +5334,7 @@ function _runSweep(forceSame){   // forceSame=true ⇒ ignore the swport box and
   es.onmessage=ev=>{let m;try{m=JSON.parse(ev.data);}catch(e){return;}
     if(m.type==='meta'){if(m.error){if(st)st.textContent='error: '+m.error;es.close();SWEEP_ES=null;_sweepDoneThenRun();return;}gotData=true;SWEEP_N=m.npairs;SWEEP_STEPS=m.steps;if(st)st.textContent='0/'+SWEEP_N+' pairs…'+(base?' (port '+swportVal+')':'');}
     else if(m.type==='sweeppt'){gotData=true;addSweepPt(m);if(st)st.textContent=SW1.x.length+'/'+SWEEP_N+' pairs';}
-    else if(m.type==='sweeppt2c'){gotData=true;addSweepPt2c(m);if(st&&SW1.x.length===0)st.textContent='2c/2d σ-sweep: '+SW5.x.length+'/'+(m.n2c||SWEEP_N)+'…';}   // prediction-2c/2d dedicated σ-sweep (plots 4-5)
+    else if(m.type==='sweeppt2c'){gotData=true;addSweepPt2c(m);if(st&&SW1.x.length===0)st.textContent='2c/2d/2e σ-sweep: '+Math.max(SW5.x.length,SW7.x.length)+'/'+(m.n2c||SWEEP_N)+'…';}   // prediction-2c/2d/2e dedicated σ-sweep (plots 4-5-7)
     else if(m.type==='done'){const r=sweepPearson();if(st)st.textContent='done — '+SW1.x.length+' pairs · Pearson r='+(isFinite(r)?r.toFixed(3):'—');es.close();SWEEP_ES=null;_sweepDoneThenRun();}
     else if(m.type==='error'){if(st)st.textContent='error: '+m.error;es.close();SWEEP_ES=null;_sweepDoneThenRun();}
   };
@@ -5267,7 +5382,10 @@ function gpuHandle(m,st,sp,finish,resuming){
       pushPoint(m.t,m,META.n,META.kth,META.nResid);lastT=m.t;
       if(m.sps!=null)sp.textContent=`steps/sec: ${m.sps.toFixed(1)}`;
       st.textContent=`running on ${META.device} … step ${m.t}/${m.steps}  ·  p=${m.p}, 2/lr=${META.thr.toFixed(2)}`;
-    }else if(m.type==='slq'){if(m.sH){refreshSLQ('p_sH',m.sH);refreshSLQ('p_slqH4',m.sH);}if(m.sG){refreshSLQ('p_sG',m.sG);refreshSLQ('p_slqG4',m.sG);}if(m.sS){refreshSLQ('p_sS',m.sS);refreshSLQ('p_slqS4',m.sS);}if(m.sHL){refreshSLQ('p_sHL',m.sHL);refreshSLQ('p_slqHL4',m.sHL);}trPush(m);
+    }else if(m.type==='slq'){const _sp=(m.p||(META&&META.p)||0);
+      if(m.sH)refreshSLQ('p_sH',m.sH,_sp);if(m.sG)refreshSLQ('p_sG',m.sG,_sp);if(m.sS)refreshSLQ('p_sS',m.sS,_sp);if(m.sHL)refreshSLQ('p_sHL',m.sHL,_sp);   // §5 live-latest
+      slqSnapPush({t:(m.t!=null?m.t:lastT),sH:m.sH,sG:m.sG,sS:m.sS,sHL:m.sHL,p:_sp});   // §4 scree history (scrubber)
+      trPush(m);
     }else if(m.type==='g3d'){ADV_GOT.en18=1;g3dPush(m);
     }else if(m.type==='g4d'){ADV_GOT.en19=1;ADV_GOT.en22=1;if(m.M===2)ADV_GOT.en26=1;s12Push(m);
     }else if(m.type==='g13'){ADV_GOT.en21=1;s13Push(m);
@@ -5285,6 +5403,12 @@ function gpuHandle(m,st,sp,finish,resuming){
     }else if(m.type==='g16'){ADV_GOT.en24=1;s16Push(m);
     }else if(m.type==='g17'){ADV_GOT.en25=1;s17Push(m);
     }else if(m.type==='g27'){ADV_GOT.en35=1;applyG27(m.pts);   // §27 end-of-run flush (trailing 50 iterations, right-clipped windows)
+    }else if(m.type==='sweeppt'){sweepReplayEnsure();addSweepPt(m);   // Prediction-1&2 sweep (replayed from a merged capture)
+    }else if(m.type==='sweeppt2c'){sweepReplayEnsure();   // Prediction-2c/2d/2e σ-sweep: reveal the (default-hidden) row on replay, per which metrics the capture carries
+      {let ch=false; const c4=document.getElementById('en_sw2cd'), c7=document.getElementById('en_sw2e');
+       if(m.xdiff!=null&&c4&&!c4.checked){c4.checked=true;ch=true;} if(m.x2e!=null&&c7&&!c7.checked){c7.checked=true;ch=true;}
+       if(ch&&typeof _sw2RowFit==='function')_sw2RowFit();}
+      addSweepPt2c(m);
     }else if(m.type==='done'){st.textContent=`done — through step ${lastT} · p=${m.p} · 2/lr=${(META?META.thr:0).toFixed(3)}.`;markSkippedAdv();finish();
       if(PENDING_AUTOSWEEP){PENDING_AUTOSWEEP=false;if(typeof startSweep==='function')startSweep();}   // ★ same-GPU auto-sweep: now that the main run has ended and freed the device, launch the sweep
     }else if(m.type==='error'){st.textContent='backend: '+m.error;markSkippedAdv();finish();}
@@ -5297,6 +5421,9 @@ function applyCaptureParams(params){
   for(const id of QUERY_IDS){if(id in params){const el=document.getElementById(id);if(el)el.value=String(params[id]);}}
   for(const [k,id] of SEC_TOGGLE_MAP){const el=document.getElementById(id);if(el&&k in params)el.checked=(String(params[k])==='1');}
   {const e=document.getElementById('enP6');if(e&&('s39' in params))e.checked=(String(params.s39)==='1');}   // prediction-6 toggle (not in SEC_TOGGLE_MAP) — restore from the s39 flag so a loaded capture re-shows its histograms
+  {const e=document.getElementById('enEDS');if(e&&('s42' in params))e.checked=(String(params.s42)==='1');}   // early-dynamics toggle — restore from s42 so a loaded capture re-shows it
+  {const e=document.getElementById('enSS');if(e&&('ss' in params))e.checked=(String(params.ss)==='1');}      // self-stabilization toggle — restore from ss so a loaded capture re-shows it
+  {const e=document.getElementById('ssk');if(e&&('ssk' in params))e.value=String(params.ssk);}
   {const e30=document.getElementById('en30'),e31=document.getElementById('en31');if(e30&&e31&&e30.checked&&e31.checked)e31.checked=false;}   // .checked= doesn't fire the en30/en31 mux; enforce it here (frozen-Q wins, matching the server) so a both-set capture doesn't force-show an empty sec_s23
   const pe=document.getElementById('preset');if(pe)pe.value='custom';
   if(typeof syncLossPanels==='function')syncLossPanels();
@@ -5366,9 +5493,23 @@ async function loadCapture(obj){
   if(typeof resetScrub==='function')resetScrub();
   applyCaptureParams(obj.params);
   OPT={s1:chk('en1'),s2:chk('en2'),s3:chk('en3'),s4:chk('en4'),s5:chk('en5'),s6:chk('en6'),s7:chk('en7'),s8:chk('en8'),s9:chk('en9'),s10:chk('en10'),s11:chk('en11'),s12:chk('en12'),s13:chk('en13'),s14:chk('en14'),s15:chk('en15'),s16:chk('en16'),s17:chk('en17'),s18:chk('en18'),s19:chk('en19'),s20:chk('en20'),s21:chk('en21'),s22:chk('en22'),s23:chk('en23'),s24:chk('en24'),s25:chk('en25'),s26:chk('en26'),s27:chk('en27'),s28:chk('en28'),s29:chk('en29'),s30:chk('en30'),s31:chk('en31'),s32:chk('en32'),s33:chk('en33'),s34:chk('en34'),s35:chk('en35'),gs:val('gson')==='1'};   // for markSkippedAdv
-  lastT=-1;META=null;cursorX=null;GPU_CAPTURE=obj.records.slice();   // keep loaded records re-savable
+  lastT=-1;META=null;cursorX=null;
   const finish=()=>{RUNNING=false;updateButtons();};
-  const recs=obj.records;
+  // ── load-side iteration limit ("load ≤ iter" control): replay only records up to training iteration N.
+  //    Records arrive in chronological per-iteration blocks and only some carry an explicit .t, so we track a
+  //    running curT from the t-carrying records and drop everything past N. meta / done / error and the
+  //    lr-indexed (not iteration-indexed) sweep points are always kept. Blank or 0 ⇒ load the whole run. ──
+  const _cap=Math.max(0,Math.floor(Number((document.getElementById('loadmax')||{}).value)||0));
+  let _curT=-1;
+  const recs=(_cap>0)?obj.records.filter(r=>{
+    if(!r)return false;
+    if(r.type==='meta')return true;
+    if(r.t!=null&&isFinite(r.t))_curT=r.t;
+    if(r.type==='done'||r.type==='error'||r.type==='sweeppt'||r.type==='sweeppt2c')return true;
+    return _curT<=_cap;
+  }):obj.records;
+  GPU_CAPTURE=recs.slice();   // keep the (possibly truncated) loaded records re-savable
+  sweepReplayReset();   // fresh load ⇒ clear the Prediction-1&2 sweep accumulators (they replay via gpuHandle below)
   // ── NON-BLOCKING replay: a big capture would restyle every plot on every record (O(N²)) and then render dozens
   //    of large plots in one burst → the tab freezes. Instead we (a) cap §1–§9 plotted points via PLOT_DECIM,
   //    (b) DEFER the §11–§17 restyle/react renders — the per-iteration plots (3D cubes / heatmaps) are also
@@ -5380,16 +5521,34 @@ async function loadCapture(obj){
   const _now=()=>(typeof performance!=='undefined'&&performance.now)?performance.now():0;
   const _yield=()=>new Promise(r=>setTimeout(r,0));
   const _savedDecim=PLOT_DECIM; PLOT_DECIM=Math.min(PLOT_DECIM,1200);   // ≤~1200 plotted points per §1–§9 trace
-  const _R={},_C={}; const _oRestyle=Plotly.restyle,_oReact=Plotly.react;
+  const _R={},_C={},_E={}; const _oRestyle=Plotly.restyle,_oReact=Plotly.react,_oExtend=Plotly.extendTraces;
   Plotly.restyle=function(id,u,tr){_R[id]={u:u,tr:tr};return Promise.resolve();};   // keep latest (refs the full arrays)
   Plotly.react=function(id,d,l,c){_C[id]={d:d,l:l,c:c};return Promise.resolve();};
+  // DEFER the per-step extendTraces too — without this, every step's pushPoint fires dozens of LIVE extendTraces
+  // (one per time-series panel), each re-rendering its plot, so a rich prediction capture takes minutes to load.
+  // Accumulate the appended points per (plot, trace) and apply ONE extendTraces per plot at flush. maxpts (the
+  // decimation cap) is applied by the real extendTraces at flush, so the final on-screen data is identical.
+  Plotly.extendTraces=function(id,u,idx,maxpts){
+    const e=_E[id]||(_E[id]={mp:maxpts,tr:{}}); if(maxpts!=null)e.mp=maxpts;
+    const ix=Array.isArray(idx)?idx:(idx==null?[]:[idx]);
+    for(let k=0;k<ix.length;k++){const ti=ix[k],t=e.tr[ti]||(e.tr[ti]={});
+      for(const key in u){const col=u[key]&&u[key][k]; if(col==null)continue;
+        const arr=t[key]||(t[key]=[]); if(Array.isArray(col)){for(let z=0;z<col.length;z++)arr.push(col[z]);}else arr.push(col);}}
+    return Promise.resolve();};
   const _spreadFlush=async()=>{   // render each touched plot once, yielding every ~12 ms so a 50-plot flush can't freeze the tab
     const items=[];
     for(const id in _R){items.push([0,id,_R[id]]);delete _R[id];}
     for(const id in _C){items.push([1,id,_C[id]]);delete _C[id];}
+    for(const id in _E){items.push([2,id,_E[id]]);delete _E[id];}
     let t0=_now();
     for(let k=0;k<items.length;k++){const it=items[k];
-      try{if(it[0]===0)_oRestyle(it[1],it[2].u,it[2].tr);else _oReact(it[1],it[2].d,it[2].l,it[2].c);}catch(e){console.error('flush',it[1],e);}
+      try{if(it[0]===0)_oRestyle(it[1],it[2].u,it[2].tr);
+          else if(it[0]===1)_oReact(it[1],it[2].d,it[2].l,it[2].c);
+          else{const e=it[2],idx=Object.keys(e.tr).map(Number),u={},ks=new Set();
+               for(const ti of idx)for(const kk in e.tr[ti])ks.add(kk);
+               for(const kk of ks)u[kk]=idx.map(ti=>e.tr[ti][kk]||[]);
+               _oExtend(it[1],u,idx,e.mp);}
+      }catch(e){console.error('flush',it[1],e);}
       if(_now()-t0>12){await _yield();t0=_now();}}
   };
   try{
@@ -5402,9 +5561,22 @@ async function loadCapture(obj){
         await _yield(); t0=_now();
       }
     }
-  }finally{ Plotly.restyle=_oRestyle; Plotly.react=_oReact; PLOT_DECIM=_savedDecim; }
+  }finally{ Plotly.restyle=_oRestyle; Plotly.react=_oReact; Plotly.extendTraces=_oExtend; PLOT_DECIM=_savedDecim; }
   st.textContent=`rendering …`; await _yield();
   await _spreadFlush();   // final render, frame-budgeted
+  // ── Prediction-2c/2d/2e fix: p_sw4/p_sw5/p_sw7 live in the default-hidden sw_row2, so they were created 0×0 and had
+  //    their data restyled WHILE HIDDEN → they render EMPTY (Plotly cached zero dimensions). Set the toggles per which
+  //    metrics the capture carries (xdiff⇒2c/2d, x2e⇒2e), fit the row (grid sized to visible plots), then force a
+  //    resize + autorange so the points appear. CE captures have no 2c/2d/2e ⇒ row stays hidden, skipped. ──
+  try{ const _s2=recs.filter(r=>r&&r.type==='sweeppt2c'); if(_s2.length){
+    const c4=document.getElementById('en_sw2cd'), c7=document.getElementById('en_sw2e');
+    if(c4&&_s2.some(r=>r.xdiff!=null))c4.checked=true; if(c7&&_s2.some(r=>r.x2e!=null))c7.checked=true;
+    if(typeof _sw2RowFit==='function')_sw2RowFit();   // reveals row + sizes grid + resizes+autoranges the visible plots
+  }}catch(err){console.warn('post-load 2c/2d/2e resize failed',err);}
+  // Self-stabilization: same "built while hidden" fix — if the capture carries g_ss, reveal sec_ss + resize p_ss1-4 after the deferred replay
+  try{ if(recs.some(r=>r&&r.g_ss)){ if(typeof _ensureSS==='function')_ensureSS();
+    requestAnimationFrame(()=>{for(const id of ['p_ss1','p_ss2','p_ss3','p_ss4']){const g=document.getElementById(id);if(g&&g._fullLayout){try{Plotly.Plots.resize(g);Plotly.relayout(id,{'xaxis.autorange':true});}catch(e){}}}});
+  }}catch(err){console.warn('post-load self-stab resize failed',err);}
   // §18 (per-sample, 2 samples) is lazily built + restyle-rendered; the deferred replay can leave it un-drawn or
   // its section hidden — force the toggle on, re-show, and redraw from the accumulated S18_DATA (real Plotly now).
   try{
@@ -5603,6 +5775,7 @@ document.getElementById('preset').addEventListener('change',e=>{if(e.target.valu
 if(typeof s14ApplyPanelFilter==='function')s14ApplyPanelFilter();   // apply the default §14 panel selection on load
 syncInitScaleEnabled();   // grey out init_scale on load if the current scheme ignores it (mup/xavier_*)
 {const sl=document.getElementById('g3d_slider');if(sl)sl.addEventListener('input',function(){g3dRenderIdx(+this.value);});}   // §11 scrub past snapshots
+{const sl=document.getElementById('slq4_slider');if(sl)sl.addEventListener('input',function(){slqSnapRenderIdx(+this.value);});}   // §4 scrub the SLQ-scree history
 {const sl=document.getElementById('s12_slider');if(sl)sl.addEventListener('input',function(){s12RenderIdx(+this.value);});}   // §12 scrub past snapshots
 {const sl=document.getElementById('s13_slider');if(sl)sl.addEventListener('input',function(){s12RenderIdx(+this.value);});}   // §13 scrub (shares §12 snapshots; s12RenderNow re-syncs both sliders)
 {const sl=document.getElementById('s14_slider');if(sl)sl.addEventListener('input',function(){s14RenderNow(+this.value);});}   // §14 scrub past snapshots (own S14_SNAPS)
@@ -6050,7 +6223,7 @@ function makeCompareSection(pre, kind) {
 }
 
 function reorderPredictionLayout(){   // base panels §1-6 on top, then Prediction-1&2 → 3 → 4 → 4.2(ray) → 5.1(trace) → 5.2(σ₁) → 6
-  const order=['sec_1','sec_2','sec_3','sec_slqH','sec_4','sec_s21','sec_s27','sec_eds','sec_sweep','sec_pred3_box','sec_pred4_box','sec_predray','sec_trace','sec_pred','sec_pred6'];   // sec_eds = Early-dynamics stats (NOT a prediction), ABOVE Prediction-1&2; sec_predray = ★ Prediction 4.2 (ray), right after Prediction-4
+  const order=['sec_1','sec_2','sec_3','sec_slqH','sec_4','sec_s21','sec_s27','sec_eds','sec_ss','sec_sweep','sec_pred3_box','sec_pred4_box','sec_predray','sec_trace','sec_pred','sec_pred6'];   // sec_eds = Early-dynamics stats (NOT a prediction), ABOVE Prediction-1&2; sec_ss = Self-stabilization, right before Prediction-1&2; sec_predray = ★ Prediction 4.2 (ray), right after Prediction-4
   const anchor=document.getElementById('sec_pred'); if(!anchor)return; const parent=anchor.parentNode; if(!parent)return;
   for(const id of order){const e=document.getElementById(id); if(e&&e.parentNode===parent)parent.insertBefore(e,anchor);}   // insert each before sec_pred (5.2 is the anchor)
   {const p6=document.getElementById('sec_pred6'); if(p6&&p6.parentNode===parent)parent.insertBefore(p6, anchor.nextSibling);}   // Prediction-6 goes AFTER 5.2 (sec_pred), so the numbering reads 1&2→3→4→5.1→5.2→6

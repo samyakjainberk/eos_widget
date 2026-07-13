@@ -17,7 +17,7 @@ of the server — or the `/prediction` path.
 
 ---
 
-## Prediction-1, 2, 2b — a sweep over (learning-rate, init-scale)  ·  the "Run sweep" button
+## Prediction-1, 2, 2b, 2c, 2d — a sweep over (learning-rate, init-scale)  ·  the "Run sweep" button
 
 One click trains a **fresh** small network for each random `(lr, init-scale)` pair and fills four scatter
 plots. Every point is one pair.
@@ -28,6 +28,8 @@ plots. Every point is one pair.
 | **cubic · t\*** | predicted `t*` (**cubic** forecast) | actual `t*` | points on `y = x` |
 | **Σd vs Σd²L/dt²** | Σ`d` over the first N steps (signed log) | Σ of the loss's 2nd time-derivative (signed log) | a tight diagonal cloud |
 | **Σd vs Σ∇‖J‖** | Σ`d` over the first N₂ steps (signed log) | Σ change in `‖J‖` (signed log) | a tight diagonal cloud |
+| **2c · align vs Δ‖J‖** | `A₊−A₋` (curvature-sign-split alignment of `g=Jᵀr` with `M_r=Σ_k r_kQ_k` eigendirections; gauge-invariant) | `‖J_l‖−‖J₀‖` over `l` GD steps | a tight diagonal cloud |
+| **2d · normalized** | `(A₊−A₋)/(A₊+A₋)` ∈ [−1, 1] | `(‖J_l‖−‖J₀‖)/(‖J₀‖+ε)` | a tight diagonal cloud |
 
 Here `d = ‖J·ṙ‖ − ‖J̇·r‖` is the quantity whose **first sign-flip** marks `t*`. The predicted `t*` is computed
 purely from the network state at `T_start` — nothing after `T_start` is read from the run, so the forecast is
@@ -38,6 +40,18 @@ its top-3 NTK directions (shown on hover), and a rank-correlation ρ is printed 
 **Controls:** number of pairs, steps per pair (kept small and separate from the main run so the sweep stays
 fast), K (how often the quadratic model is re-frozen), T_start, and the two sum-windows N / N₂. The sweep
 runs in parallel with the main run.
+
+**Prediction-2c / 2d** run on their own **init-scale σ-sweep** (σ log-spaced 0.1→10, one point per σ,
+decoupled from the (lr, σ) pairs). With `g = Jᵀr` the residual-contracted gradient and `(σ_i, u_i)` the
+top-`k` ⊕ bottom-`k` eigenpairs of `M_r = Σ_k r_kQ_k` at `t = 0`, define
+`A_± = Σ_{σ_i ≷ 0} |σ_i·(u_iᵀg)| / ‖g‖` — how much `g` aligns with the **positive-** vs **negative-curvature**
+directions of `M_r`. The **abs is inside** the sum, so the x-axis is **gauge-invariant** (independent of the
+eigensolver's arbitrary eigenvector signs). The y-axis is the short-horizon change in the Jacobian norm,
+`Δ‖J‖_F` over `l` GD steps from that init. **2c:** `x = A₊−A₋`, `y = ‖J_l‖−‖J₀‖`. **2d:** the normalized
+version, `x = (A₊−A₋)/(A₊+A₋) ∈ [−1,1]`, `y = (‖J_l‖−‖J₀‖)/(‖J₀‖+ε)`. A diagonal cloud ⇒ the init
+curvature-alignment predicts near-term sharpening/flattening of `‖J‖`. Controls: `l` (the *2c/2d l* box,
+default 4), `k` (the *2c/2d M_r ±k* box, default 10), and the σ range. **Off by default** — flip the *show
+2c/2d plots* toggle to compute + reveal them.
 
 ---
 
@@ -102,6 +116,27 @@ start); the actual curves are always shown. Handy for skipping the noisy first s
 
 ---
 
+## SLQ eigen-spectrum panels (scree) + scrubber
+
+The SLQ (Stochastic Lanczos Quadrature) panels show the **sorted eigenvalue spectrum** — a **scree plot**:
+x = eigenvalue **rank** (0 = largest … `p` = smallest), y = the (signed) eigenvalue — for the function
+Hessian `H`, Gauss–Newton `G`, residual term `S`, and the full loss Hessian `∇²L`. The **§4** panels have
+their **own scrubber** (the *SLQ tick* slider) that rewinds through every SLQ snapshot so you can watch the
+eigenspectrum evolve from the start of training, independently of the master ⏱ time cursor; the §5 copy
+tracks the latest tick live.
+
+## Also in this widget
+
+- **Multiclass variant** — `index_prediction_multiclass.html` mirrors these forecasts for **multi-class /
+  cross-entropy** output (defaults to the `maxfind` dataset with CE loss; `modadd`, CIFAR-10 and MNIST also
+  available), using the p×p Gauss–Newton **Fisher** curvature. Open it at `/prediction_multiclass`.
+- **Offline capture / replay** — `eos_prediction.py` (scalar) and `eos_prediction_multiclass.py` (multiclass)
+  run this widget's compute **headless** and merge the prediction stream **and** the Prediction-1&2 sweep into
+  one self-contained `.json` you reload with **⬆ load run** — no live server needed. See
+  **[../capture_README.md](../capture_README.md)**.
+- **Load ≤ iter N** — a control next to the load buttons replays only the captured records up to training
+  iteration `N` (blank/0 = the whole run), handy for stepping a capture up to a chosen point.
+
 ## Where it runs
 
 Served by the main `server.py` at the root URL and at `/prediction`:
@@ -124,7 +159,8 @@ Every forecast is computed on the server (`server.py`) and streamed to the page:
 | Prediction-4 (+ freeze sweep) | `g_pred4` / `g_pred4m` |
 | Prediction 5.1 (trace) | `g_trace` |
 | Prediction 5.2 (sharpness) | §9d / §10 records |
-| Predictions 1 / 2 / 2b | `run_sweep` |
+| Predictions 1 / 2 / 2b | `run_sweep` (`sweeppt`) |
+| Predictions 2c / 2d | `run_sweep` (`sweeppt2c`) |
 
 A matching offline reference (exact autograd; agrees with the server to about `1e-3` in float64) lives in
 **`eos_lab/prediction.py`**.
